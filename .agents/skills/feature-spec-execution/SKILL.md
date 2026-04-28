@@ -1,6 +1,6 @@
 ---
 name: feature-spec-execution
-description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, run Codex CLI code review and fixes until no actionable code issues remain, then run regression and one final full test before commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implement, and test subagents when available; run code review through Codex CLI (`codex exec review`) before falling back to owner-thread review. Main agent and every subagent must plan before executing."
+description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, run Codex review to a log, have the owner analyze that log before deciding fixes, then run regression and one final full test before commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implementation, testing, and review-analysis subagents when available. Main agent and every subagent must plan before executing."
 ---
 
 # Feature Spec Execution
@@ -36,7 +36,7 @@ IMPLEMENT        (implementer-subagent: plan → implement)
     ↓
 TEST             (test-subagent: plan → test)
     ↓
-CODE REVIEW LOOP (Codex CLI review → auto-fix → repeat until clean)
+CODE REVIEW LOOP (Codex review log → owner analysis → fix approved issues)
     ↓
 FINAL TEST GATE  (final regression + one full-suite test before commit)
     ↓
@@ -222,9 +222,9 @@ Use a review subagent when available if the feature is complex or touches shared
 
 ---
 
-## Stage 8 — Codex CLI Code Review, Fix Loop, and Final Test Gate
+## Stage 8 — Codex Review Log, Owner Analysis, Fix Loop, and Final Test Gate
 
-This stage is mandatory after implementation and targeted tests. Treat it as an independent Codex CLI code-review loop focused on bugs, regressions, requirement drift, incomplete tests, and unsafe scope expansion. Prefer `codex exec review` because it runs Codex's dedicated local reviewer against the selected diff and does not modify the working tree. Keep every review pass review-only: the reviewer must not run tests, start servers, install dependencies, or broaden verification. The owner fixes findings and repeats Codex review until there are no unresolved actionable code issues. Only after the review loop is clean does the owner run regression testing, followed by one full-suite test gate before Stage 9 and before any commit.
+This stage is mandatory after implementation and targeted tests. Treat Codex review as a raw signal, not as the gate decision itself: run Codex review, write its output to a log file, then have the owner analyze that log against the feature spec, Stage 5 restrictive requirements, implementation diff, and test evidence. Do not automatically fix every Codex review comment. The owner fixes only findings classified as actionable, in-scope, and high/medium risk. Only after the owner analysis says there are no unresolved high/medium actionable code issues does the owner run regression testing, followed by one full-suite test gate before Stage 9 and before any commit.
 
 **Owner thread responsibilities:**
 
@@ -232,63 +232,61 @@ This stage is mandatory after implementation and targeted tests. Treat it as an 
    - `git diff --stat` and `git diff` inside `${WORKTREE_PATH}`.
    - `requirements.md`, `design.md`, `tasks.md`, the `PRE-IMPLEMENTATION REVIEW:` note, implementer handoff, and test handoff.
    - The verification commands already run and their latest results.
-2. Define feature-scoped review and final-gate variables before invoking Codex review:
+2. Define feature-scoped review log, analysis, and final-gate variables:
 
 ```bash
-CODEX_REVIEW_PASS="${CODEX_REVIEW_PASS:-1}"
-CODEX_REVIEW_OUTPUT=".codex-code-review-${FEATURE_ID}-pass-${CODEX_REVIEW_PASS}.md"
+CODE_REVIEW_PASS="${CODE_REVIEW_PASS:-1}"
+CODEX_REVIEW_LOG=".codex-review-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.log.md"
+REVIEW_ANALYSIS_OUTPUT=".review-analysis-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.md"
 CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL:-gpt-5.4}"
 FINAL_REGRESSION_COMMAND="${FINAL_REGRESSION_COMMAND:-<targeted Stage 7 command>}"
 FINAL_FULL_TEST_COMMAND="${FINAL_FULL_TEST_COMMAND:-npm test}"
 ```
 
-3. Run Codex CLI review from inside `${WORKTREE_PATH}`:
+3. Run Codex review from inside `${WORKTREE_PATH}` and write the raw result to `"${CODEX_REVIEW_LOG}"`. This lifecycle should keep the review scope command CLI-compatible; do not append a positional prompt when the installed CLI rejects prompts combined with review-scope flags.
 
 ```bash
 cd "${WORKTREE_PATH}"
 
 # Preferred after Stage 4 status/doc edits and implementation changes are still uncommitted.
-codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-message "${CODEX_REVIEW_OUTPUT}"
+timeout 1800s codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-message "${CODEX_REVIEW_LOG}"
 
 # Alternative when reviewing a branch diff against its base.
-codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_OUTPUT}"
-
-# Compatibility path for installed Codex CLI versions that review a specific commit.
-codex exec review --model "${CODEX_REVIEW_MODEL}" --commit "${COMMIT_SHA}" --output-last-message "${CODEX_REVIEW_OUTPUT}"
+timeout 1800s codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_LOG}"
 ```
 
-4. Keep `CODEX_REVIEW_MODEL` explicit so the installed CLI does not silently select a newer unsupported default model. OpenAI's Codex CLI docs recommend `gpt-5.5` for most Codex tasks when available, and `gpt-5.4` when `gpt-5.5` is unavailable; this skill defaults to `gpt-5.4` for compatibility with older installed CLIs. Override the environment variable only after confirming the local `codex` version supports the target model. For interactive `/review`, the docs say review uses the current session model by default and can be overridden with `review_model` in `config.toml`.
-5. Do not append a prompt when using `--uncommitted`, `--base`, or `--commit`; this installed Codex CLI version rejects review-scope flags combined with positional `PROMPT`. Keep the review scope flag and rely on Codex review defaults, then apply the Stage 5 restrictive requirements, feature requirements/design/tasks, and safety focus when classifying the review output. If custom review instructions are essential for a particular run, use interactive Codex `/review` or owner-thread fallback and record that compatibility difference.
-6. If `codex exec review` is unavailable, use interactive Codex `/review` when practical, then copy the completed review summary into `"${CODEX_REVIEW_OUTPUT}"`. If neither Codex review path is available, run the same review in the owner thread and state that the dedicated Codex review path was unavailable.
-7. Read `"${CODEX_REVIEW_OUTPUT}"` and classify every finding as:
-   - `fix-now`: actionable, in scope, and does not change product intent.
-   - `needs-clarification`: requires product clarification, scope expansion, or architecture change.
-   - `no-action`: false positive, duplicate, already covered, or intentionally deferred with reason.
-8. Automatically fix every `fix-now` finding. Do not defer in-scope correctness, regression, requirement, security/privacy, or missing-test findings.
-9. Do not run regression tests between code-review passes. After each fix batch, increment `CODEX_REVIEW_PASS`, run Codex review again against the updated uncommitted diff, and classify findings again.
-10. Continue the review -> fix loop until the review output contains no unresolved actionable findings.
-11. Do not use a fixed pass limit. Stop the loop only when:
-   - All findings are `no-action` with explicit reasons and no high/medium actionable issue remains.
-   - A finding is `needs-clarification`; ask the user and wait before continuing.
+4. If Codex review times out or fails, write the command, exit status, and last output to `"${CODEX_REVIEW_LOG}"`, then run owner-thread review against the same inputs. Do not let a failed or slow Codex review block the lifecycle indefinitely.
+5. Analyze `"${CODEX_REVIEW_LOG}"` before fixing anything. The owner must produce `"${REVIEW_ANALYSIS_OUTPUT}"` containing:
+   - `Decision`: `fix-required`, `no-fix-required`, `needs-clarification`, or `blocked`.
+   - `Fix-now`: only high/medium severity actionable correctness, requirement, security/privacy, or missing-test findings that are in scope.
+   - `No-action`: false positives, low-risk suggestions, style preferences, speculative risks, duplicate findings, already-tested behavior, or scope-expansion ideas, each with a reason.
+   - `Needs clarification`: findings that require product, architecture, or scope decisions.
+   - `Review quality judgment`: whether the Codex review output was useful, noisy, stale, or contradicted by tests/spec evidence.
+6. Automatically fix only `Fix-now` findings from `"${REVIEW_ANALYSIS_OUTPUT}"`. Do not fix `No-action` findings merely because Codex review mentioned them.
+7. Do not run regression tests between review-analysis passes. After each fix batch, increment `CODE_REVIEW_PASS`, run Codex review again to a new log, analyze the new log, and classify findings again.
+8. Continue the review-log -> owner-analysis -> fix loop until `"${REVIEW_ANALYSIS_OUTPUT}"` says `Decision: no-fix-required`, or until the lifecycle stops for clarification/blocker.
+9. Stop the loop when:
+   - Owner analysis confirms no unresolved high/medium actionable issue remains.
+   - `needs-clarification` appears; ask the user and wait before continuing.
    - The same actionable finding persists after an attempted fix and cannot be resolved without changing product intent, architecture, or scope; report it as a blocker and do not commit.
-   - The Codex review path is unavailable; fall back to owner-thread review and state the fallback.
-12. After the review loop is clean, run the mandatory final gates in this order:
+   - Codex review repeatedly times out or produces unusable/noisy output; record that judgment and fall back to owner-thread review for the gate.
+10. After the review-analysis loop is clean, run the mandatory final gates in this order:
    - Final regression: `timeout 180s ${FINAL_REGRESSION_COMMAND}` unless the repository documents a different timeout.
    - Final full-suite test: `timeout 600s ${FINAL_FULL_TEST_COMMAND}` unless the repository documents a different full-suite command or timeout.
-13. If either final gate fails, fix the failure, rerun Codex review until it is clean again, then repeat the final regression and final full-suite gates in order.
-14. Record a compact `CODE REVIEW AND FINAL TEST GATE:` note:
+11. If either final gate fails, fix the failure, rerun Codex review to a new log, rerun owner analysis until clean, then repeat the final regression and final full-suite gates in order.
+12. Record a compact `CODE REVIEW AND FINAL TEST GATE:` note:
    - Findings fixed.
    - Findings intentionally left unresolved, with reason.
-   - Codex review output file paths for all passes.
-   - Codex review command used for each pass.
-   - Codex review model used.
+   - Codex review log paths for all passes.
+   - Owner analysis output paths for all passes.
+   - Review quality judgment for each pass.
    - Confirmation that no regression tests were run between review/fix passes.
    - Final regression command and result.
    - Final full-suite command and result.
 
 **Code-review-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
 
-Use a code-review subagent only when the Codex CLI review command is unavailable or when the owner explicitly needs an additional review pass after Codex review.
+Use a review-analysis subagent only to help classify Codex review logs when the owner needs a second opinion. The owner remains responsible for the final classification and fix/no-fix decision.
 
 1. **Plan**: Produce a written review plan listing files/diffs to inspect, requirement/design constraints to verify, and tests to consider. Output the plan as a `PLAN:` block before reviewing.
 2. **Review**: Report findings first, ordered by severity, with file and line references when available.
