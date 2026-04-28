@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Commit Conventions"
+  short_description: "Create clean commits with project conventions"
+  default_prompt: "Use $git-commit-conventions to prepare a compliant git commit."

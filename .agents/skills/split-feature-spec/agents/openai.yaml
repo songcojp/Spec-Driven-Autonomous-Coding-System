@@ -1,0 +1,4 @@
+interface:
+  display_name: "Split Feature Spec"
+  short_description: "Slice PRD and design into feature specs"
+  default_prompt: "Use $split-feature-spec to split this product scope into Feature Specs."
