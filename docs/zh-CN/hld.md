@@ -41,7 +41,7 @@ MVP 采用本地优先的控制面架构：
 - MVP 不自动发布到生产环境。
 - MVP 不处理多大型仓库复杂微服务自动迁移。
 - MVP 不完整替代 Jira、GitHub Issues 或 Linear。
-- MVP 不深度接入 Issue Tracker，仅保留外部链接和追踪字段。
+- MVP 不接入 Issue Tracker，仅保留外部链接和追踪字段。
 - MVP 不以看板加载、状态刷新和 Evidence 写入性能阈值作为阻塞验收条件。
 
 ## 3. Requirement Coverage
@@ -592,23 +592,25 @@ Quality gates:
 
 | Feature Spec | Scope | Primary Requirements |
 |---|---|---|
+| AutoBuild System Bootstrap | Control Plane 进程引導配置、`.autobuild/` artifact root 目录创建、SQLite schema 初始化与迁移、内置 Skill 种子化触发、系统就绪状态暴露。 | REQ-058（schema 创建是持久化的前置条件）、REQ-011（内置 Skill 种子化在系统初始化完成后触发，联动 feat-003）、NFR-004（崩溃恢复依赖应用正确完成初始化）；是 feat-001 至 feat-014 所有 Feature Spec 的基础先决条件。 |
 | Project and Repository Foundation | 项目创建、仓库连接、健康检查、项目配置。 | REQ-001 至 REQ-003 |
 | Spec Protocol Foundation | Feature Spec、EARS 拆解、澄清、Checklist、版本和切片。 | REQ-004 至 REQ-009 |
 | Skill Center and Schema Governance | Skill 注册、内置 Skill、schema 校验、版本管理。 | REQ-010 至 REQ-013 |
 | Orchestration and State Machine | Feature/Task 状态机、任务图、Feature 选择、计划流水线、看板列。 | REQ-024 至 REQ-034 |
-| Subagent Runtime and Context Broker | Agent 类型、Run Contract、最小上下文、Subagent Console。 | REQ-014 至 REQ-018、REQ-055 |
+| Subagent Runtime and Context Broker | Agent 类型、Run Contract、最小上下文、Subagent Console 后端数据层。 | REQ-014 至 REQ-018（REQ-017 写入隔离实现于 feat-007，feat-005 依赖其结果）、REQ-055（后端数据层主导实现于此，UI 由 feat-013 交付）。 |
 | Project Memory and Recovery Projection | Memory 初始化、注入、更新、压缩、版本和状态冲突修复。 | REQ-019 至 REQ-023、REQ-036 |
-| Workspace Isolation | worktree、分支、并行写入隔离、冲突检测和回滚边界。 | REQ-017、REQ-032、REQ-035 |
+| Workspace Isolation | worktree、分支、并行写入隔离、冲突检测和回滚边界。 | REQ-017（主导实现）、REQ-032、REQ-035；REQ-017 同时被 Subagent Runtime and Context Broker 依赖。 |
 | Codex Runner | Codex CLI 调用、Runner Policy、心跳、session resume、结构化输出。 | REQ-037 至 REQ-039、REQ-056 |
 | Status Checker and Evidence | 检测项、Spec Alignment、状态判断、Evidence Pack。 | REQ-040 至 REQ-042、REQ-051 |
 | Failure Recovery | 恢复任务、恢复策略、失败指纹、重试退避和禁止重复。 | REQ-043 至 REQ-045 |
 | Review Center | Review Needed 触发、审批页面、审批动作和状态回流。 | REQ-046、REQ-047、REQ-057 |
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console。 | REQ-052 至 REQ-056 |
-| Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-003 至 NFR-012 |
+| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console UI、Runner Console。 | REQ-052 至 REQ-056（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
+| Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 
 Decomposition rules:
 
+- System Bootstrap 是所有其他 Feature Spec 的先决条件，必须优先实现、独立验证和出货。
 - 优先拆出可独立验证的控制面能力，再接 Runner 写入能力。
 - 任何 Feature Spec 都必须声明对应数据域、状态机影响、Evidence 输出和 Review 触发条件。
 - 涉及写代码、测试执行或 Git 修改的 Feature Spec 必须明确 Workspace Manager 与 Runner Policy。

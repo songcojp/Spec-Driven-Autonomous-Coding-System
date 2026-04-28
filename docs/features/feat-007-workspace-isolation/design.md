@@ -1,0 +1,43 @@
+# Design: FEAT-007 Workspace Isolation
+
+## Design Summary
+
+Workspace Manager 是写入型任务的隔离边界。它通过 Git worktree、任务分支、冲突检测、合并前检查和清理状态，保证并行写入可追踪、可恢复、可审计。
+
+## Components
+
+| Component | Responsibility |
+|---|---|
+| Worktree Allocator | 为 Feature 或 Task 创建隔离 worktree 和分支。 |
+| Conflict Classifier | 判断文件范围、schema、锁文件、公共配置和共享资源是否冲突。 |
+| Merge Readiness Checker | 合并前执行冲突检测、Spec Alignment 和必要测试入口。 |
+| Rollback Boundary Manager | 记录 diff、base commit 和回滚所需信息。 |
+| Cleanup Manager | 标记并执行安全清理，避免误删用户修改。 |
+
+## Data Ownership
+
+- Owns: WorktreeRecord、ConflictCheckResult、MergeReadinessResult。
+- Reads: RepositoryStatus、TaskGraph、AgentRunContract、StatusCheckResult。
+- Writes: Git worktree/branch、workspace 生命周期审计。
+
+## State and Flow
+
+1. Subagent Runtime 请求写入型 workspace。
+2. Conflict Classifier 判断是否可并行。
+3. Worktree Allocator 创建或复用隔离 worktree。
+4. Runner 在 worktree 中执行。
+5. Status Checker 产出检测结果。
+6. Merge Readiness Checker 判断是否允许合并或交付。
+7. Cleanup Manager 在交付或回滚后安全清理。
+
+## Dependencies
+
+- FEAT-001 提供仓库连接和 Git 状态。
+- FEAT-005 在 Run Contract 中声明文件边界。
+- FEAT-009 提供 Spec Alignment 和测试结果。
+- FEAT-010 使用回滚边界执行恢复。
+
+## Review and Evidence
+
+- 高风险文件、冲突、未通过测试或回滚动作必须进入 Evidence 和审计。
+- 任何清理动作必须记录关联 Feature/Task 和目标路径。
