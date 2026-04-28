@@ -1,6 +1,6 @@
 ---
 name: feature-spec-execution
-description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, code review with automatic fixes, commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implement, test, and code-review subagents when available; fall back to owner-thread execution when subagents are unavailable. Main agent and every subagent must plan before executing."
+description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, run Codex CLI code review with automatic fixes, commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implement, and test subagents when available; run code review through Codex CLI (`codex exec review`) before falling back to owner-thread review. Main agent and every subagent must plan before executing."
 ---
 
 # Feature Spec Execution
@@ -33,7 +33,7 @@ IMPLEMENT        (implementer-subagent: plan → implement)
     ↓
 TEST             (test-subagent: plan → test)
     ↓
-CODE REVIEW      (code-review-subagent: plan → review → auto-fix)
+CODE REVIEW      (Codex CLI review → owner auto-fix → rerun verification)
     ↓
 UPDATE STATUS → done
     ↓
@@ -180,9 +180,9 @@ Use a review subagent when available if the feature is complex or touches shared
 
 ---
 
-## Stage 8 — Code Review and Automatic Fixes
+## Stage 8 — Codex CLI Code Review and Automatic Fixes
 
-This stage is mandatory after implementation and tests. Treat it as a code-review pass focused on bugs, regressions, requirement drift, incomplete tests, and unsafe scope expansion.
+This stage is mandatory after implementation and tests. Treat it as an independent Codex CLI code-review pass focused on bugs, regressions, requirement drift, incomplete tests, and unsafe scope expansion. Prefer `codex exec review` because it runs Codex's dedicated local reviewer against the selected diff and does not modify the working tree.
 
 **Owner thread responsibilities:**
 
@@ -190,22 +190,38 @@ This stage is mandatory after implementation and tests. Treat it as a code-revie
    - `git diff --stat` and `git diff` inside `${WORKTREE_PATH}`.
    - `requirements.md`, `design.md`, `tasks.md`, the `PRE-IMPLEMENTATION REVIEW:` note, implementer handoff, and test handoff.
    - The verification commands already run and their latest results.
-2. If subagents are available, dispatch `code-review-subagent` with:
-   - Absolute worktree path.
-   - The diff or a compact patch summary plus affected file paths.
-   - The restrictive requirements and design constraints from Stage 5.
-   - Instruction: **plan first, then review** and return findings ordered by severity.
-3. If subagents are unavailable, run the same review in the owner thread.
-4. Automatically fix actionable findings that are in scope for the feature and do not change product intent.
-5. After every fix, rerun the relevant tests or verification commands. If a fix changes production code, rerun at least the targeted test command and any broader suite identified in `tasks.md`.
-6. Repeat review/fix/test until there are no unresolved high or medium severity actionable findings.
-7. If a finding requires product clarification or scope expansion, stop, ask the user, and wait for the reply before continuing.
-8. Record a compact `CODE REVIEW:` note:
+2. Run Codex CLI review from inside `${WORKTREE_PATH}`:
+
+```bash
+cd "${WORKTREE_PATH}"
+
+# Preferred after Stage 4 status/doc edits and implementation changes are still uncommitted.
+codex exec review --uncommitted --output-last-message .codex-code-review.md \
+  "Review this feature implementation against docs/features/${FEATURE_FOLDER}/requirements.md, design.md, tasks.md, and the Stage 5 restrictive requirements. Report only actionable bugs, regressions, requirement drift, incomplete tests, unsafe scope expansion, or security/privacy risks. Order findings by severity with file and line references when available."
+
+# Alternative when reviewing a branch diff against its base.
+codex exec review --base "${BASE_BRANCH}" --output-last-message .codex-code-review.md \
+  "Review this feature branch against ${BASE_BRANCH}. Focus on actionable correctness, regression, requirement, testing, and safety findings."
+```
+
+3. If `codex exec review` is unavailable, use interactive Codex `/review` when practical, then copy the completed review summary into `.codex-code-review.md`. If neither Codex review path is available, run the same review in the owner thread and state that the dedicated Codex review path was unavailable.
+4. Read `.codex-code-review.md` and classify every finding as:
+   - `fix-now`: actionable, in scope, and does not change product intent.
+   - `needs-clarification`: requires product clarification, scope expansion, or architecture change.
+   - `no-action`: false positive, duplicate, already covered, or intentionally deferred with reason.
+5. Automatically fix `fix-now` findings.
+6. After every fix, rerun the relevant tests or verification commands. If a fix changes production code, rerun at least the targeted test command and any broader suite identified in `tasks.md`.
+7. Repeat Codex review/fix/test until there are no unresolved high or medium severity actionable findings, or until all remaining findings are classified with reasons.
+8. If a finding requires product clarification or scope expansion, stop, ask the user, and wait for the reply before continuing.
+9. Record a compact `CODE REVIEW:` note:
    - Findings fixed.
    - Findings intentionally left unresolved, with reason.
+   - Codex review command used.
    - Verification rerun results.
 
 **Code-review-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
+
+Use a code-review subagent only when the Codex CLI review command is unavailable or when the owner explicitly needs an additional review pass after Codex review.
 
 1. **Plan**: Produce a written review plan listing files/diffs to inspect, requirement/design constraints to verify, and tests to consider. Output the plan as a `PLAN:` block before reviewing.
 2. **Review**: Report findings first, ordered by severity, with file and line references when available.

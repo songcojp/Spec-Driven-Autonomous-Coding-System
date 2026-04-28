@@ -1,4 +1,4 @@
 interface:
   display_name: "Feature Spec Execution"
   short_description: "Deliver Feature Specs through PRs"
-  default_prompt: "Use $feature-spec-execution to execute the next ready Feature Spec end to end, including pre-implementation requirements/design review, clarification pauses when needed, implementation, tests, code review fixes, and PR creation."
+  default_prompt: "Use $feature-spec-execution to execute the next ready Feature Spec end to end, including pre-implementation requirements/design review, clarification pauses when needed, implementation, tests, Codex CLI code review fixes, and PR creation."
