@@ -86,7 +86,7 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
   const second = await runBootstrap(config);
   assert.equal(second.readyState.status, "ready");
   assert.equal(countBuiltInSkills(config.dbPath), BUILT_IN_SKILLS.length);
-  assert.equal(getCurrentSchemaVersion(config.dbPath), 1);
+  assert.equal(getCurrentSchemaVersion(config.dbPath), 2);
 });
 
 test("project service creates queryable project and repository connection records", async () => {
@@ -246,7 +246,7 @@ test("health endpoint reports initializing and ready states", async () => {
   controlPlane.setReadyState(result.readyState);
   const ready = await getJson(`http://127.0.0.1:${port}/health`);
   assert.equal(ready.status, "ready");
-  assert.equal(ready.schemaVersion, 1);
+  assert.equal(ready.schemaVersion, 2);
 
   await new Promise<void>((resolve) => controlPlane.server.close(() => resolve()));
 });

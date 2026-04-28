@@ -1,0 +1,271 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ensureArtifactDirectories } from "../src/artifacts.ts";
+import { initializeSchema, listTables } from "../src/schema.ts";
+import {
+  applyIdempotentOperation,
+  ensureAutobuildArtifactLayout,
+  getCoreEntitySnapshot,
+  listAuditEvents,
+  listMetricSamples,
+  listRecoverableWork,
+  persistCoreEntitySnapshot,
+  recordAuditEvent,
+  recordMetricSample,
+  sanitizeForOrdinaryLog,
+  writeSanitizedArtifact,
+  type CoreEntityInput,
+} from "../src/persistence.ts";
+
+test("schema includes persistence, audit, metrics, idempotency, and recovery tables", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const tables = listTables(dbPath);
+  for (const table of [
+    "projects",
+    "features",
+    "requirements",
+    "tasks",
+    "runs",
+    "project_memories",
+    "evidence_packs",
+    "audit_timeline_events",
+    "metric_samples",
+    "idempotency_keys",
+    "recovery_index_entries",
+  ]) {
+    assert.equal(tables.includes(table), true, `${table} should exist`);
+  }
+});
+
+test("core entity required fields persist and recover as one state snapshot", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const snapshot = persistCoreEntitySnapshot(dbPath, sampleCoreEntityInput());
+
+  assert.equal(snapshot.project.name, "SpecDrive");
+  assert.equal(snapshot.feature.folder, "feat-014-persistence-auditability");
+  assert.deepEqual(snapshot.feature.primaryRequirements, ["REQ-058", "NFR-003"]);
+  assert.equal(snapshot.requirement.acceptanceCriteria, "Core entities can be read after restart.");
+  assert.equal(snapshot.task.recoveryState, "incomplete");
+  assert.equal(snapshot.run.metadata.runner, "codex");
+  assert.equal(snapshot.projectMemory.summary.includes("secret=topsecret"), false);
+  assert.equal(snapshot.evidencePack.summary.includes("token=abc123"), false);
+
+  const recovered = getCoreEntitySnapshot(dbPath, "project-1", "FEAT-014", "TASK-001", "RUN-001");
+  assert.equal(recovered.evidencePack.path, ".autobuild/evidence/RUN-001.json");
+});
+
+test("idempotency manager replays run, state, memory, evidence, and recovery keys once", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  for (const scope of ["run", "state", "memory", "evidence", "recovery"]) {
+    const key = `FEAT-014:${scope}:RUN-001`;
+    const first = applyIdempotentOperation(dbPath, {
+      key,
+      scope,
+      operation: "upsert",
+      entityType: scope,
+      entityId: "RUN-001",
+      payload: { nested: { status: "running", scope } },
+      result: { stored: true, scope },
+    });
+    const second = applyIdempotentOperation(dbPath, {
+      key,
+      scope,
+      operation: "upsert",
+      entityType: scope,
+      entityId: "RUN-001",
+      payload: { nested: { scope, status: "running" } },
+      result: { stored: false },
+    });
+
+    assert.equal(first.replayed, false);
+    assert.equal(second.replayed, true);
+    assert.deepEqual(second.result, { stored: true, scope });
+  }
+});
+
+test("audit timeline records source, reason, and sanitized payload for required event classes", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  for (const eventType of [
+    "state_changed",
+    "run_started",
+    "approval_recorded",
+    "recovery_requested",
+    "memory_compacted",
+    "worktree_created",
+    "delivery_completed",
+  ]) {
+    recordAuditEvent(dbPath, {
+      entityType: "feature",
+      entityId: "FEAT-014",
+      eventType,
+      source: "test",
+      reason: `${eventType} acceptance coverage`,
+      payload: { detail: "password=hunter2" },
+    });
+  }
+
+  const events = listAuditEvents(dbPath, "feature", "FEAT-014");
+  assert.deepEqual(events.map((event) => event.eventType), [
+    "state_changed",
+    "run_started",
+    "approval_recorded",
+    "recovery_requested",
+    "memory_compacted",
+    "worktree_created",
+    "delivery_completed",
+  ]);
+  assert.equal(JSON.stringify(events).includes("hunter2"), false);
+});
+
+test("metrics collector records cost, success, failure, performance, evidence, and heartbeat samples", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  for (const metric of [
+    { name: "tokens_used", value: 1000, unit: "tokens" },
+    { name: "cost_usd", value: 0.42, unit: "usd" },
+    { name: "success_rate", value: 0.9, unit: "ratio" },
+    { name: "failure_rate", value: 0.1, unit: "ratio" },
+    { name: "dashboard_load_ms", value: 120, unit: "ms" },
+    { name: "status_refresh_ms", value: 50, unit: "ms" },
+    { name: "evidence_write_ms", value: 25, unit: "ms" },
+    { name: "runner_heartbeat", value: 1, unit: "count" },
+  ]) {
+    recordMetricSample(dbPath, { ...metric, labels: { featureId: "FEAT-014" } });
+  }
+
+  const metrics = listMetricSamples(dbPath);
+  assert.deepEqual(metrics.map((metric) => metric.name), [
+    "tokens_used",
+    "cost_usd",
+    "success_rate",
+    "failure_rate",
+    "dashboard_load_ms",
+    "status_refresh_ms",
+    "evidence_write_ms",
+    "runner_heartbeat",
+  ]);
+});
+
+test("artifact layout covers memory, specs, evidence, reports, and runs with sanitized writes", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-014-artifacts-"));
+  const artifactRoot = join(root, ".autobuild");
+
+  ensureArtifactDirectories(artifactRoot);
+  const layout = ensureAutobuildArtifactLayout(artifactRoot);
+  for (const dir of ["memory", "specs", "evidence", "reports", "runs"] as const) {
+    assert.equal(existsSync(layout[dir]), true);
+  }
+
+  const relativePath = writeSanitizedArtifact(
+    artifactRoot,
+    "evidence",
+    "RUN-001.json",
+    "token=abc123 password=hunter2 postgres://user:pass@localhost/db",
+  );
+  const written = readFileSync(join(artifactRoot, relativePath), "utf8");
+  assert.equal(written.includes("abc123"), false);
+  assert.equal(written.includes("hunter2"), false);
+  assert.equal(written.includes("user:pass"), false);
+});
+
+test("recovery index exposes unfinished tasks after crash-like replay", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  persistCoreEntitySnapshot(dbPath, sampleCoreEntityInput());
+
+  const recoverable = listRecoverableWork(dbPath);
+  assert.equal(recoverable.length, 1);
+  assert.equal(recoverable[0].taskId, "TASK-001");
+  assert.equal(recoverable[0].runId, "RUN-001");
+  assert.equal(recoverable[0].recoveryState, "incomplete");
+});
+
+test("ordinary log sanitizer redacts token, password, secret, key, and connection strings", () => {
+  const sanitized = sanitizeForOrdinaryLog(
+    "token=abc password=hunter2 secret=sauce api_key=key123 postgres://user:pass@localhost/db",
+  );
+
+  for (const sensitive of ["abc", "hunter2", "sauce", "key123", "user:pass"]) {
+    assert.equal(sanitized.includes(sensitive), false);
+  }
+  assert.match(sanitized, /\[REDACTED\]/);
+});
+
+function makeDbPath(): string {
+  return join(mkdtempSync(join(tmpdir(), "feat-014-db-")), ".autobuild", "autobuild.db");
+}
+
+function sampleCoreEntityInput(): CoreEntityInput {
+  return {
+    project: {
+      id: "project-1",
+      name: "SpecDrive",
+      goal: "Automate spec driven delivery",
+      projectType: "typescript-service",
+      environment: "local",
+      status: "ready",
+      techPreferences: ["node", "sqlite"],
+    },
+    feature: {
+      id: "FEAT-014",
+      projectId: "project-1",
+      title: "Persistence and Auditability",
+      folder: "feat-014-persistence-auditability",
+      status: "in-progress",
+      primaryRequirements: ["REQ-058", "NFR-003"],
+    },
+    requirement: {
+      id: "REQ-058",
+      featureId: "FEAT-014",
+      sourceId: "docs/zh-CN/requirements.md#REQ-058",
+      body: "Persistent control-plane state is recoverable.",
+      acceptanceCriteria: "Core entities can be read after restart.",
+      priority: "must",
+    },
+    task: {
+      id: "TASK-001",
+      featureId: "FEAT-014",
+      title: "Persist core entities",
+      status: "running",
+      recoveryState: "incomplete",
+    },
+    run: {
+      id: "RUN-001",
+      taskId: "TASK-001",
+      featureId: "FEAT-014",
+      projectId: "project-1",
+      status: "running",
+      metadata: { runner: "codex" },
+      idempotencyKey: "run:RUN-001",
+    },
+    projectMemory: {
+      id: "memory-1",
+      projectId: "project-1",
+      path: ".autobuild/memory/project.md",
+      summary: "Recovered state without secret=topsecret",
+      currentVersion: 3,
+    },
+    evidencePack: {
+      id: "evidence-1",
+      runId: "RUN-001",
+      taskId: "TASK-001",
+      featureId: "FEAT-014",
+      path: ".autobuild/evidence/RUN-001.json",
+      kind: "test",
+      summary: "Evidence collected with token=abc123",
+    },
+  };
+}
