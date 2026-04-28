@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -396,6 +396,43 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_worktree_records_feature_cleanup ON worktree_records(feature_id, cleanup_status)",
       "CREATE INDEX IF NOT EXISTS idx_merge_readiness_worktree ON merge_readiness_results(worktree_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_rollback_boundaries_worktree ON rollback_boundaries(worktree_id, created_at)",
+    ],
+  },
+  {
+    version: 5,
+    description: "Add subagent runtime and context broker schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS context_slice_refs (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        refs_json TEXT NOT NULL,
+        token_estimate INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS subagent_events (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        message TEXT NOT NULL,
+        evidence TEXT,
+        token_usage_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS result_merges (
+        id TEXT PRIMARY KEY,
+        run_ids_json TEXT NOT NULL,
+        outputs_json TEXT NOT NULL,
+        conflicts_json TEXT NOT NULL,
+        risks_json TEXT NOT NULL,
+        credibility TEXT NOT NULL,
+        next_action TEXT NOT NULL,
+        board_status TEXT NOT NULL,
+        evidence TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_context_slice_refs_run ON context_slice_refs(run_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_subagent_events_run_status ON subagent_events(run_id, status, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_result_merges_action ON result_merges(next_action, created_at)",
     ],
   },
 ];
