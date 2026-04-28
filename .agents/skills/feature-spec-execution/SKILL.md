@@ -254,27 +254,32 @@ codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-me
 # Alternative when reviewing a branch diff against its base.
 codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_OUTPUT}" \
   "Review this feature branch against ${BASE_BRANCH}. Focus on actionable correctness, regression, requirement, testing, and safety findings. Do not run tests, start servers, install dependencies, or modify files."
+
+# Compatibility path for installed Codex CLI versions that review a specific commit.
+# Do not append a prompt when using --commit; this CLI version rejects --commit plus PROMPT.
+codex exec review --model "${CODEX_REVIEW_MODEL}" --commit "${COMMIT_SHA}" --output-last-message "${CODEX_REVIEW_OUTPUT}"
 ```
 
 4. Keep `CODEX_REVIEW_MODEL` explicit so the installed CLI does not silently select a newer unsupported default model. OpenAI's Codex CLI docs recommend `gpt-5.5` for most Codex tasks when available, and `gpt-5.4` when `gpt-5.5` is unavailable; this skill defaults to `gpt-5.4` for compatibility with older installed CLIs. Override the environment variable only after confirming the local `codex` version supports the target model. For interactive `/review`, the docs say review uses the current session model by default and can be overridden with `review_model` in `config.toml`.
-5. If `codex exec review` is unavailable, use interactive Codex `/review` when practical, then copy the completed review summary into `"${CODEX_REVIEW_OUTPUT}"`. If neither Codex review path is available, run the same review in the owner thread and state that the dedicated Codex review path was unavailable.
-6. Read `"${CODEX_REVIEW_OUTPUT}"` and classify every finding as:
+5. Use `--uncommitted` or `--base` when custom review instructions are required. Use `--commit` only when reviewing an already-created commit, and never pass a prompt with `--commit`; rely on Codex review defaults plus the commit diff/title for that mode.
+6. If `codex exec review` is unavailable, use interactive Codex `/review` when practical, then copy the completed review summary into `"${CODEX_REVIEW_OUTPUT}"`. If neither Codex review path is available, run the same review in the owner thread and state that the dedicated Codex review path was unavailable.
+7. Read `"${CODEX_REVIEW_OUTPUT}"` and classify every finding as:
    - `fix-now`: actionable, in scope, and does not change product intent.
    - `needs-clarification`: requires product clarification, scope expansion, or architecture change.
    - `no-action`: false positive, duplicate, already covered, or intentionally deferred with reason.
-7. Automatically fix every `fix-now` finding. Do not defer in-scope correctness, regression, requirement, security/privacy, or missing-test findings.
-8. Do not run regression tests between code-review passes. After each fix batch, increment `CODEX_REVIEW_PASS`, run Codex review again against the updated uncommitted diff, and classify findings again.
-9. Continue the review -> fix loop until the review output contains no unresolved actionable findings.
-10. Do not use a fixed pass limit. Stop the loop only when:
+8. Automatically fix every `fix-now` finding. Do not defer in-scope correctness, regression, requirement, security/privacy, or missing-test findings.
+9. Do not run regression tests between code-review passes. After each fix batch, increment `CODEX_REVIEW_PASS`, run Codex review again against the updated uncommitted diff, and classify findings again.
+10. Continue the review -> fix loop until the review output contains no unresolved actionable findings.
+11. Do not use a fixed pass limit. Stop the loop only when:
    - All findings are `no-action` with explicit reasons and no high/medium actionable issue remains.
    - A finding is `needs-clarification`; ask the user and wait before continuing.
    - The same actionable finding persists after an attempted fix and cannot be resolved without changing product intent, architecture, or scope; report it as a blocker and do not commit.
    - The Codex review path is unavailable; fall back to owner-thread review and state the fallback.
-11. After the review loop is clean, run the mandatory final gates in this order:
+12. After the review loop is clean, run the mandatory final gates in this order:
    - Final regression: `timeout 180s ${FINAL_REGRESSION_COMMAND}` unless the repository documents a different timeout.
    - Final full-suite test: `timeout 600s ${FINAL_FULL_TEST_COMMAND}` unless the repository documents a different full-suite command or timeout.
-12. If either final gate fails, fix the failure, rerun Codex review until it is clean again, then repeat the final regression and final full-suite gates in order.
-13. Record a compact `CODE REVIEW AND FINAL TEST GATE:` note:
+13. If either final gate fails, fix the failure, rerun Codex review until it is clean again, then repeat the final regression and final full-suite gates in order.
+14. Record a compact `CODE REVIEW AND FINAL TEST GATE:` note:
    - Findings fixed.
    - Findings intentionally left unresolved, with reason.
    - Codex review output file paths for all passes.
