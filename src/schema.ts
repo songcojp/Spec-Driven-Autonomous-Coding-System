@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -189,6 +189,71 @@ export const MIGRATIONS: Migration[] = [
         labels_json TEXT,
         sampled_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
+    ],
+  },
+  {
+    version: 2,
+    description: "Add persistence auditability schema",
+    statements: [
+      "ALTER TABLE features ADD COLUMN folder TEXT",
+      "ALTER TABLE features ADD COLUMN primary_requirements_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE features ADD COLUMN milestone TEXT",
+      "ALTER TABLE features ADD COLUMN dependencies_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE features ADD COLUMN updated_at TEXT",
+      "UPDATE features SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)",
+      "ALTER TABLE requirements ADD COLUMN priority TEXT",
+      "ALTER TABLE requirements ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+      "ALTER TABLE requirements ADD COLUMN created_at TEXT",
+      "ALTER TABLE requirements ADD COLUMN updated_at TEXT",
+      "UPDATE requirements SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP), updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)",
+      "ALTER TABLE tasks ADD COLUMN description TEXT",
+      "ALTER TABLE tasks ADD COLUMN depends_on_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE tasks ADD COLUMN recovery_state TEXT NOT NULL DEFAULT 'pending'",
+      "ALTER TABLE tasks ADD COLUMN created_at TEXT",
+      "ALTER TABLE tasks ADD COLUMN updated_at TEXT",
+      "UPDATE tasks SET created_at = COALESCE(created_at, CURRENT_TIMESTAMP), updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)",
+      "ALTER TABLE runs ADD COLUMN feature_id TEXT",
+      "ALTER TABLE runs ADD COLUMN project_id TEXT",
+      "ALTER TABLE runs ADD COLUMN idempotency_key TEXT",
+      "ALTER TABLE runs ADD COLUMN heartbeat_at TEXT",
+      "ALTER TABLE runs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_idempotency_key ON runs(idempotency_key)",
+      "ALTER TABLE evidence_packs ADD COLUMN kind TEXT NOT NULL DEFAULT 'generic'",
+      "ALTER TABLE evidence_packs ADD COLUMN checksum TEXT",
+      "ALTER TABLE evidence_packs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+      "ALTER TABLE project_memories ADD COLUMN summary TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE audit_timeline_events ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'",
+      "ALTER TABLE audit_timeline_events ADD COLUMN reason TEXT NOT NULL DEFAULT ''",
+      "UPDATE audit_timeline_events SET payload_json = COALESCE(payload_json, '{}')",
+      "ALTER TABLE metric_samples ADD COLUMN unit TEXT NOT NULL DEFAULT 'count'",
+      "UPDATE metric_samples SET labels_json = COALESCE(labels_json, '{}')",
+      `CREATE TABLE IF NOT EXISTS idempotency_keys (
+        key TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        result_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS recovery_index_entries (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        feature_id TEXT,
+        task_id TEXT,
+        run_id TEXT,
+        evidence_pack_id TEXT,
+        project_memory_id TEXT,
+        recovery_state TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_tasks_recovery_state ON tasks(recovery_state, status)`,
+      `CREATE INDEX IF NOT EXISTS idx_runs_recovery_state ON runs(status, task_id, feature_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_timeline_events(entity_type, entity_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_metrics_name_sampled ON metric_samples(metric_name, sampled_at)`,
     ],
   },
 ];
