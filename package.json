@@ -1,0 +1,14 @@
+{
+  "name": "specdrive-autobuild",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.ts",
+    "bootstrap": "node src/index.ts --bootstrap-only",
+    "test": "node --test tests/*.test.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -418,6 +418,7 @@ Data ownership rules:
 
 MVP 项目级 artifact root 使用 `.autobuild/`：
 
+- 默认位置为目标仓库根目录下的 `.autobuild/`；Control Plane `AppConfig.artifactRoot` 以启动时的目标仓库根目录解析相对路径。
 - `.autobuild/memory/project.md`：Project Memory 当前版本。
 - `.autobuild/specs/`：Feature Spec、Requirement、Checklist、Plan 和 Task Graph 的文件投影。
 - `.autobuild/evidence/`：Evidence Pack 和检查结果附件。
