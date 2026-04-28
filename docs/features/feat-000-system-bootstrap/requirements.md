@@ -20,7 +20,7 @@
 ## Non-Scope
 
 - 不创建具体业务实体（Project、Feature、Task、Run 等）；业务实体创建属于 FEAT-001 至 FEAT-014。
-- 不实现 Dashboard UI；UI 归属 FEAT-013。
+- 不实现 Dashboard UI，也不初始化 shadcn/ui、Tailwind CSS 或 Radix UI primitives；UI 组件体系归属 FEAT-013。
 - 不实现 Project Memory 初始化；Memory 初始化属于 FEAT-006（REQ-019）。
 - 不实现 Skill 执行逻辑；Skill 执行属于 FEAT-003。
 - 不实现 Runner Worker 进程管理；Runner 归属 FEAT-008。

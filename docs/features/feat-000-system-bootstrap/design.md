@@ -12,7 +12,7 @@
 | SQLite schema 初始化与迁移 | Project Memory 文件初始化（FEAT-006） |
 | 内置 Skill 种子写入触发 | Skill 执行逻辑（FEAT-003） |
 | Control Plane 配置加载 | Runner Worker 进程管理（FEAT-008） |
-| 系统就绪状态暴露 | Dashboard UI（FEAT-013） |
+| 系统就绪状态暴露 | Dashboard UI、shadcn/ui 组件安装与主题规范（FEAT-013） |
 
 ## 3. Requirement Mapping
 
@@ -25,6 +25,8 @@
 ## 4. Architecture Context
 
 Bootstrap 运行于 Control Plane 进程的启动阶段（startup hook），在任何 HTTP 路由、队列订阅或调度器启动前同步完成。依赖关系如下：
+
+HLD 第 5 节已决定 Product Console 使用 `shadcn/ui + Tailwind CSS + Radix UI primitives`。该决定是 FEAT-013 的 UI 实现约束，不改变 FEAT-000 的启动边界；FEAT-000 只需保证 Control Plane 和持久化基础可用，让后续 Product Console 能通过健康状态确认后再挂载 UI。
 
 ```mermaid
 flowchart TD

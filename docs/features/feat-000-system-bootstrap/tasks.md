@@ -10,3 +10,4 @@
 - [ ] TASK-000-008: 编写单元测试，覆盖 Config Loader 合并逻辑（含缺失字段校验）、Skill Seeder 去重逻辑、Schema 版本比对逻辑。
 - [ ] TASK-000-009: 编写集成测试，覆盖首次启动目录和表结构创建、重启幂等（不重复创建/插入）、迁移脚本执行后版本递增、Bootstrap 失败时进程退出码非零。
 - [ ] TASK-000-010: 确认 `.autobuild/` 默认位置（目标仓库根目录 vs AutoBuild 运行目录），并在 `AppConfig` 和 HLD Section 9 中统一修正命名，解决 Open Question。
+- [ ] TASK-000-011: 实现前确认 Bootstrap 不安装或初始化 shadcn/ui、Tailwind CSS、Radix UI primitives；Product Console 的 UI 组件体系、主题和组件 scaffold 由 FEAT-013 承担。

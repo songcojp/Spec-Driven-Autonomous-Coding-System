@@ -112,6 +112,7 @@ flowchart LR
 | Layer / Concern | Decision | Rationale | Constraints / Notes |
 |---|---|---|---|
 | Frontend | TypeScript + React + Next.js 或 Vite React，MVP 优先单页 Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 都是状态密集型工作台，React 生态适合看板、表格、日志和实时状态 UI。 | 当前仓库没有既有实现栈；若实现阶段已有宿主框架，以宿主框架优先。 |
+| UI Component System | shadcn/ui + Tailwind CSS + Radix UI primitives | Product Console 需要稳定、可组合、可审计的工作台组件体系；shadcn/ui 以源码方式进入项目，便于定制表格、表单、弹窗、标签页、命令菜单、状态徽标和 Review 操作面板，同时保留无障碍基础能力。 | 不引入重型封闭组件库；组件主题、设计 token、暗色模式和状态语义应在 Product Console Feature Spec 中细化。 |
 | Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
 | Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 单项目、本地优先、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、Feature、Task、Run、Evidence、审计和指标。 | 多项目/团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
@@ -605,7 +606,7 @@ Quality gates:
 | Failure Recovery | 恢复任务、恢复策略、失败指纹、重试退避和禁止重复。 | REQ-043 至 REQ-045 |
 | Review Center | Review Needed 触发、审批页面、审批动作和状态回流。 | REQ-046、REQ-047、REQ-057 |
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console UI、Runner Console。 | REQ-052 至 REQ-056（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
+| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console UI、Runner Console、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 
 Decomposition rules:
