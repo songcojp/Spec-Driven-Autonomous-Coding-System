@@ -119,12 +119,19 @@ export const MIGRATIONS: Migration[] = [
         name TEXT NOT NULL,
         description TEXT NOT NULL,
         trigger TEXT NOT NULL,
+        allowed_context_json TEXT NOT NULL DEFAULT '[]',
+        required_tools_json TEXT NOT NULL DEFAULT '[]',
         risk_level TEXT NOT NULL,
         phase TEXT NOT NULL,
+        success_criteria TEXT NOT NULL DEFAULT '',
+        failure_handling TEXT NOT NULL DEFAULT '',
         input_schema_json TEXT NOT NULL,
         output_schema_json TEXT NOT NULL,
         built_in INTEGER NOT NULL DEFAULT 0,
         enabled INTEGER NOT NULL DEFAULT 1,
+        team_shared INTEGER NOT NULL DEFAULT 0,
+        project_id TEXT,
+        current_version TEXT NOT NULL DEFAULT '1.0.0',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       `CREATE TABLE IF NOT EXISTS skill_versions (
@@ -132,6 +139,7 @@ export const MIGRATIONS: Migration[] = [
         skill_slug TEXT NOT NULL,
         version TEXT NOT NULL,
         change_summary TEXT,
+        snapshot_json TEXT NOT NULL DEFAULT '{}',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(skill_slug, version)
       )`,
@@ -143,6 +151,26 @@ export const MIGRATIONS: Migration[] = [
         input_json TEXT,
         output_json TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS schema_validation_results (
+        id TEXT PRIMARY KEY,
+        skill_run_id TEXT,
+        skill_slug TEXT NOT NULL,
+        direction TEXT NOT NULL,
+        valid INTEGER NOT NULL,
+        errors_json TEXT NOT NULL,
+        evidence_pack_json TEXT,
+        state_input TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS skill_project_overrides (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        base_skill_slug TEXT NOT NULL,
+        override_skill_slug TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(project_id, base_skill_slug)
       )`,
       `CREATE TABLE IF NOT EXISTS worktree_records (
         id TEXT PRIMARY KEY,
