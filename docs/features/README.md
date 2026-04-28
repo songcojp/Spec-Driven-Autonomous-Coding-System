@@ -7,7 +7,7 @@
 | FEAT-000 | System Bootstrap | `feat-000-system-bootstrap` | done | REQ-011、REQ-058、NFR-004 | M0 | None |
 | FEAT-001 | Project and Repository Foundation | `feat-001-project-repository-foundation` | done | REQ-001 至 REQ-003 | M1 | FEAT-000 |
 | FEAT-002 | Spec Protocol Foundation | `feat-002-spec-protocol-foundation` | done | REQ-004 至 REQ-009 | M1 | FEAT-000 |
-| FEAT-003 | Skill Center and Schema Governance | `feat-003-skill-center-schema-governance` | pending | REQ-010 至 REQ-013 | M1 | FEAT-000 |
+| FEAT-003 | Skill Center and Schema Governance | `feat-003-skill-center-schema-governance` | done | REQ-010 至 REQ-013 | M1 | FEAT-000 |
 | FEAT-004 | Orchestration and State Machine | `feat-004-orchestration-state-machine` | pending | REQ-024 至 REQ-034 | M2 | FEAT-001、FEAT-002、FEAT-003、FEAT-014 |
 | FEAT-005 | Subagent Runtime and Context Broker | `feat-005-subagent-runtime-context-broker` | pending | REQ-014 至 REQ-018、REQ-055 | M3 | FEAT-004、FEAT-007 |
 | FEAT-006 | Project Memory and Recovery Projection | `feat-006-project-memory-recovery-projection` | pending | REQ-019 至 REQ-023、REQ-036 | M3 | FEAT-004 |
