@@ -183,7 +183,7 @@ Use a review subagent when available if the feature is complex or touches shared
 
 1. **Plan**: Produce a written implementation plan listing which files to create/modify, the order of changes, and the expected verification outcome. Output the plan as a `PLAN:` block before touching any file.
 2. **Execute**: Implement each task in `tasks.md` sequentially, ticking checkboxes as each is completed.
-3. **Verify**: Run the verification command inside the worktree and capture output.
+3. **Verify**: Run the feature-scoped verification command inside the worktree and capture output. Do not substitute a full repository suite unless the owner explicitly selected it as the final gate.
 4. **Handoff**: Return a compact summary: tasks completed, files changed, verification result, risks, and any doc-sync needs.
 
 ---
@@ -192,28 +192,37 @@ Use a review subagent when available if the feature is complex or touches shared
 
 **Owner thread responsibilities:**
 
-1. If subagents are available, compose a compact test dispatch prompt containing:
+1. Derive a bounded test plan before dispatching any test work:
+   - Prefer an explicit `Verification Command` in `tasks.md` or `design.md`.
+   - If no command is specified, infer a targeted command from changed production files and nearby tests, then record it in the stage note. Example for Node's built-in test runner: `node --test tests/recovery.test.ts tests/codex-runner.test.ts`.
+   - Use `npm test` only as a final pre-PR regression gate, not as the default Stage 7 command.
+   - Do not add Jest-only flags such as `--runInBand` unless the repository actually uses Jest. For Node's built-in `node --test`, pass file paths directly.
+   - Wrap long-running commands with a timeout, defaulting to `timeout 180s <command>` for targeted tests and `timeout 600s <command>` for final full-suite gates unless the repository documents a different limit.
+2. If subagents are available, compose a compact test dispatch prompt containing:
    - Absolute worktree path.
    - Acceptance criteria from `requirements.md`.
    - Implementer handoff summary (from Stage 6).
-   - Explicit test scope: unit tests, integration tests, or both.
+   - Explicit test scope: targeted unit tests, targeted integration tests, and/or final full-suite gate.
+   - Exact command(s) to run, including timeout wrappers.
+   - Instruction that the test subagent must not expand to full-suite testing unless the owner prompt explicitly includes that command.
    - Instruction: **plan first, then test** (see Subagent Plan-Then-Execute Contract below).
-2. Dispatch `test-subagent` with the prompt, then wait for the test handoff summary.
-3. If subagents are unavailable, run the same plan-then-test contract in the owner thread inside `${WORKTREE_PATH}`.
-4. Validate: all acceptance criteria are covered, tests pass, no regressions.
-5. If tests fail, either re-dispatch `implementer-subagent` with the failure details, fix locally under the same contract, or log the failure and decide on scope adjustment.
+3. Dispatch `test-subagent` with the prompt, then wait for the test handoff summary.
+4. If subagents are unavailable, run the same plan-then-test contract in the owner thread inside `${WORKTREE_PATH}`.
+5. Validate: all acceptance criteria are covered by targeted tests, the targeted commands pass, and any final full-suite gate pass/fail is recorded separately.
+6. If tests fail, do not start broad exploratory testing. Re-dispatch the implementer with the exact failing command and output, fix locally under the same contract, or log the failure and decide on scope adjustment.
+7. If a command times out, classify it as a test-command or performance blocker with the command, timeout value, and last output. Do not rerun the same command with a longer timeout unless the owner explicitly decides it is the right gate.
 
 **Test-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
 
 1. **Plan**: Produce a written test plan listing which acceptance criteria map to which test cases, test file locations, and the run command. Output the plan as a `PLAN:` block before writing or running any test.
-2. **Execute**: Write or update test files; run the full test suite.
-3. **Report**: Return a compact summary: acceptance criteria covered, tests added/modified, pass/fail counts, coverage notes, and risks.
+2. **Execute**: Write or update only in-scope test files; run the owner-specified targeted command(s). Run the full suite only when the owner prompt explicitly names it as a final gate.
+3. **Report**: Return a compact summary: acceptance criteria covered, tests added/modified, exact commands run, timeout values, pass/fail counts, coverage notes, and risks.
 
 ---
 
 ## Stage 8 — Codex CLI Code Review and Automatic Fixes
 
-This stage is mandatory after implementation and tests. Treat it as an independent Codex CLI code-review pass focused on bugs, regressions, requirement drift, incomplete tests, and unsafe scope expansion. Prefer `codex exec review` because it runs Codex's dedicated local reviewer against the selected diff and does not modify the working tree.
+This stage is mandatory after implementation and tests. Treat it as an independent Codex CLI code-review pass focused on bugs, regressions, requirement drift, incomplete tests, and unsafe scope expansion. Prefer `codex exec review` because it runs Codex's dedicated local reviewer against the selected diff and does not modify the working tree. Keep this pass review-only: the reviewer must not run tests, start servers, install dependencies, or broaden verification. The owner reruns explicit targeted or final-gate commands after fixes.
 
 **Owner thread responsibilities:**
 
@@ -235,11 +244,11 @@ cd "${WORKTREE_PATH}"
 
 # Preferred after Stage 4 status/doc edits and implementation changes are still uncommitted.
 codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-message "${CODEX_REVIEW_OUTPUT}" \
-  "Review this feature implementation against docs/features/${FEATURE_FOLDER}/requirements.md, design.md, tasks.md, and the Stage 5 restrictive requirements. Report only actionable bugs, regressions, requirement drift, incomplete tests, unsafe scope expansion, or security/privacy risks. Order findings by severity with file and line references when available."
+  "Review this feature implementation against docs/features/${FEATURE_FOLDER}/requirements.md, design.md, tasks.md, and the Stage 5 restrictive requirements. Report only actionable bugs, regressions, requirement drift, incomplete tests, unsafe scope expansion, or security/privacy risks. Order findings by severity with file and line references when available. Do not run tests, start servers, install dependencies, or modify files."
 
 # Alternative when reviewing a branch diff against its base.
 codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_OUTPUT}" \
-  "Review this feature branch against ${BASE_BRANCH}. Focus on actionable correctness, regression, requirement, testing, and safety findings."
+  "Review this feature branch against ${BASE_BRANCH}. Focus on actionable correctness, regression, requirement, testing, and safety findings. Do not run tests, start servers, install dependencies, or modify files."
 ```
 
 4. Keep `CODEX_REVIEW_MODEL` explicit so the installed CLI does not silently select a newer unsupported default model. OpenAI's Codex CLI docs recommend `gpt-5.5` for most Codex tasks when available, and `gpt-5.4` when `gpt-5.5` is unavailable; this skill defaults to `gpt-5.4` for compatibility with older installed CLIs. Override the environment variable only after confirming the local `codex` version supports the target model. For interactive `/review`, the docs say review uses the current session model by default and can be overridden with `review_model` in `config.toml`.
@@ -249,8 +258,8 @@ codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --outp
    - `needs-clarification`: requires product clarification, scope expansion, or architecture change.
    - `no-action`: false positive, duplicate, already covered, or intentionally deferred with reason.
 7. Automatically fix `fix-now` findings.
-8. After every fix, rerun the relevant tests or verification commands. If a fix changes production code, rerun at least the targeted test command and any broader suite identified in `tasks.md`.
-9. Repeat Codex review/fix/test until there are no unresolved high or medium severity actionable findings, or until all remaining findings are classified with reasons.
+8. After every fix, rerun the smallest relevant targeted command from Stage 7 with its timeout. If a fix changes production code, rerun at least that targeted command. Run `npm test` or other full-suite gates only once after the final fix when required by the feature or repository policy.
+9. Repeat Codex review/fix/targeted-test until there are no unresolved high or medium severity actionable findings, or until all remaining findings are classified with reasons. Limit automatic review loops to two complete review passes after the initial review; if the same severity class persists, stop and report the blocker instead of continuing to spend tokens.
 10. If a finding requires product clarification or scope expansion, stop, ask the user, and wait for the reply before continuing.
 11. Record a compact `CODE REVIEW:` note:
    - Findings fixed.

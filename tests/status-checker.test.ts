@@ -15,14 +15,14 @@ import {
   type StatusCheckerInput,
 } from "../src/status-checker.ts";
 
-test("schema version 8 includes status checker, spec alignment, and attachment tables", () => {
+test("schema version 9 includes status checker, recovery history, and attachment tables", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 8);
-  assert.equal(state.schemaVersion, 8);
+  assert.equal(SCHEMA_VERSION, 9);
+  assert.equal(state.schemaVersion, 9);
   const tables = listTables(dbPath);
-  for (const table of ["status_check_results", "spec_alignment_results", "evidence_attachment_refs"]) {
+  for (const table of ["status_check_results", "spec_alignment_results", "evidence_attachment_refs", "recovery_attempts", "forbidden_retry_records"]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
 });
