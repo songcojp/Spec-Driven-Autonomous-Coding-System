@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -350,6 +350,52 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_task_graph_tasks_feature_status ON task_graph_tasks(feature_id, status)",
       "CREATE INDEX IF NOT EXISTS idx_state_transitions_entity ON state_transitions(entity_type, entity_id, occurred_at)",
       "CREATE INDEX IF NOT EXISTS idx_feature_selection_project_created ON feature_selection_decisions(project_id, created_at)",
+    ],
+  },
+  {
+    version: 4,
+    description: "Add workspace isolation schema",
+    statements: [
+      "ALTER TABLE worktree_records ADD COLUMN feature_id TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE worktree_records ADD COLUMN task_id TEXT",
+      "ALTER TABLE worktree_records ADD COLUMN runner_id TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE worktree_records ADD COLUMN base_commit TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE worktree_records ADD COLUMN target_branch TEXT NOT NULL DEFAULT 'main'",
+      "ALTER TABLE worktree_records ADD COLUMN cleanup_status TEXT NOT NULL DEFAULT 'active'",
+      "UPDATE worktree_records SET cleanup_status = COALESCE(NULLIF(status, ''), cleanup_status)",
+      `CREATE TABLE IF NOT EXISTS conflict_check_results (
+        id TEXT PRIMARY KEY,
+        severity TEXT NOT NULL,
+        parallel_allowed INTEGER NOT NULL,
+        reasons_json TEXT NOT NULL,
+        conflicting_files_json TEXT NOT NULL,
+        conflicting_resources_json TEXT NOT NULL,
+        serial_required INTEGER NOT NULL,
+        evidence TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS merge_readiness_results (
+        id TEXT PRIMARY KEY,
+        worktree_id TEXT NOT NULL,
+        ready INTEGER NOT NULL,
+        blocked_reasons_json TEXT NOT NULL,
+        checks_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS rollback_boundaries (
+        id TEXT PRIMARY KEY,
+        worktree_id TEXT NOT NULL,
+        feature_id TEXT NOT NULL,
+        task_id TEXT,
+        branch TEXT NOT NULL,
+        base_commit TEXT NOT NULL,
+        diff_summary TEXT NOT NULL,
+        rollback_command TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_worktree_records_feature_cleanup ON worktree_records(feature_id, cleanup_status)",
+      "CREATE INDEX IF NOT EXISTS idx_merge_readiness_worktree ON merge_readiness_results(worktree_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_rollback_boundaries_worktree ON rollback_boundaries(worktree_id, created_at)",
     ],
   },
 ];
