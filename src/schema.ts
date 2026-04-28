@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -461,6 +461,60 @@ export const MIGRATIONS: Migration[] = [
         ON memory_version_records(run_id, created_at)`,
       `CREATE INDEX IF NOT EXISTS idx_memory_compactions_memory
         ON memory_compaction_events(project_memory_id, created_at)`,
+    ],
+  },
+  {
+    version: 7,
+    description: "Add Codex runner schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS runner_policies (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        sandbox_mode TEXT NOT NULL,
+        approval_policy TEXT NOT NULL,
+        model TEXT NOT NULL,
+        profile TEXT,
+        output_schema_json TEXT NOT NULL,
+        workspace_root TEXT NOT NULL,
+        resume_session_id TEXT,
+        heartbeat_interval_seconds INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS runner_heartbeats (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        runner_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        sandbox_mode TEXT NOT NULL,
+        approval_policy TEXT NOT NULL,
+        queue_status TEXT NOT NULL,
+        message TEXT,
+        beat_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS codex_session_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        session_id TEXT,
+        workspace_root TEXT NOT NULL,
+        command TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        exit_code INTEGER,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS raw_execution_logs (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        stdout TEXT NOT NULL,
+        stderr TEXT NOT NULL,
+        events_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_runner_policies_run ON runner_policies(run_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_runner_heartbeats_runner ON runner_heartbeats(runner_id, beat_at)",
+      "CREATE INDEX IF NOT EXISTS idx_codex_sessions_run ON codex_session_records(run_id, completed_at)",
+      "CREATE INDEX IF NOT EXISTS idx_raw_execution_logs_run ON raw_execution_logs(run_id, created_at)",
     ],
   },
 ];
