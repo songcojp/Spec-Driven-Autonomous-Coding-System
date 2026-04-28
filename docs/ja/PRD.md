@@ -75,7 +75,7 @@ MVP（Minimum Viable Product）には以下を含まない:
 コンテキストが分離された専用のAgent実行ユニット。各Subagentは親の完全なコンテキストを継承せず、Agent Run Contractで指定されたタスク目標と境界範囲のみを受け取る。
 
 ### 4.4 Project Memory
-CLIの長時間実行向けのプロジェクトレベルの永続的な記憶（`.specdriver/memory/project.md`）。現在の目標、決定事項、ブロック状態を保存し、CLIが毎回リポジトリを再探索することなく作業を再開できるようにする。
+CLIの長時間実行向けのプロジェクトレベルの永続的な記憶（`.autobuild/memory/project.md`）。現在の目標、決定事項、ブロック状態を保存し、CLIが毎回リポジトリを再探索することなく作業を再開できるようにする。
 
 ### 4.5 Evidence Pack
 各Subagent Runの構造化された結果出力。ステータスの判定、承認、リカバリ、および配信レポートに使用される。

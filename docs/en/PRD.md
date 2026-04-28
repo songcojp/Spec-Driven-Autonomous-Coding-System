@@ -124,7 +124,7 @@ Reusable engineering capabilities. Each Skill must define name, description, tri
 Context-isolated Agent execution units. Subagents only receive Task Goals, context slices, and read/write scopes as defined in the Agent Run Contract.
 
 ### 4.4 Project Memory
-Persistent project-level memory for CLI long-running sessions, stored in `.specdriver/memory/project.md`. Injects current goals, board status snapshot, and active blockers to prevent repeated repo exploration.
+Persistent project-level memory for CLI long-running sessions, stored in `.autobuild/memory/project.md`. Injects current goals, board status snapshot, and active blockers to prevent repeated repo exploration.
 
 ### 4.5 Evidence Pack
 Structured output for each Subagent Run, utilized for state judgment, approvals, and reports.

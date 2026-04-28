@@ -233,7 +233,7 @@ THE SYSTEM SHALL 通过 Result Merger 去重、检测冲突、合并风险、评
 优先级：Must
 
 WHEN 项目创建完成
-THE SYSTEM SHALL 初始化 `.specdriver/memory/project.md`，包含项目名称、目标、默认分支、当前 Spec 版本、初始任务状态快照和空运行记录。
+THE SYSTEM SHALL 初始化 `.autobuild/memory/project.md`，包含项目名称、目标、默认分支、当前 Spec 版本、初始任务状态快照和空运行记录。
 
 验收：
 - [ ] 新项目包含可读取的 Project Memory 文件。

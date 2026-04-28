@@ -1,18 +1,18 @@
 ---
 name: split-feature-spec
-description: Split PRD, EARS requirements, and system design into implementation-ready Feature Specs. Use when Codex is asked to decompose product scope into feature specs, feature folders, requirements/design/tasks files, priority slices, dependencies, acceptance scope, or staged delivery plans.
+description: Split PRD, EARS requirements, and project-level HLD into implementation-ready Feature Specs. Use when Codex is asked to decompose product scope into feature specs, feature folders, feature requirements/design/tasks files, priority slices, dependencies, acceptance scope, or staged delivery plans.
 ---
 
 # Split Feature Spec
 
 ## Workflow
 
-1. Read the PRD, EARS requirements, and system design if available. Prefer explicit paths from the user.
+1. Read the PRD, EARS requirements, and project-level HLD if available. Prefer explicit paths from the user.
 2. Preserve source language unless the user asks otherwise.
 3. Group requirements by user value, workflow boundary, data ownership, implementation dependency, and risk.
 4. Split vertically whenever possible: each feature should deliver a testable product behavior, not only a technical layer.
 5. Keep shared platform or foundation work as its own feature only when multiple downstream features genuinely depend on it.
-6. Assign stable feature IDs such as `FEAT-001`, `FEAT-002`, ... and map each to source `REQ-*`, `NFR-*`, and design sections.
+6. Assign stable feature IDs such as `FEAT-001`, `FEAT-002`, ... and map each to source `REQ-*`, `NFR-*`, and HLD sections.
 7. For each feature, define scope, non-scope, dependencies, acceptance, risks, and implementation tasks.
 8. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`, or produce a single feature index when the user only asks for a split plan.
 
@@ -47,7 +47,7 @@ Use this content shape for each feature:
 |---|---|
 | PRD | |
 | Requirements | |
-| Design | |
+| HLD | |
 
 ## Scope
 

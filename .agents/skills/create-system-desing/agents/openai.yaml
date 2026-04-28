@@ -1,4 +1,0 @@
-interface:
-  display_name: "Generate System Design"
-  short_description: "Draft system design from PRD and EARS"
-  default_prompt: "Use $create-system-desing to draft a system design from the PRD and requirements."

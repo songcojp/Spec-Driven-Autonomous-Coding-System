@@ -234,7 +234,7 @@ Source: PRD Section 4.4; PRD Section 6.5 FR-044
 Priority: Must
 
 WHEN a project is initialized
-THE SYSTEM SHALL create project memory at `.specdriver/memory/project.md`.
+THE SYSTEM SHALL create project memory at `.autobuild/memory/project.md`.
 
 Acceptance:
 - [ ] A new project has a project memory file at the specified path.
