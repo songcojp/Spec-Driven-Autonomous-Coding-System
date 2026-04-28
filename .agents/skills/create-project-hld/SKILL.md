@@ -19,7 +19,7 @@ Produce project-level HLD that determines the project technology stack and expla
 6. Inspect existing repo structure when available. Reuse established module names, technology choices, deployment topology, test conventions, and document locations.
 7. Separate HLD decisions from Feature Spec LLD. Describe what subsystems exist and how they collaborate; leave detailed class/function/API payload design to feature `design.md` files.
 8. Record open questions, risks, assumptions, and rejected alternatives when the source material is insufficient.
-9. Write the output to the requested target. If unspecified, create or update `HLD.md` near the PRD or project-level requirements.
+9. Write the output to the requested target. If unspecified, create or update `HLD.md` in the same directory as the source PRD or requirements file (e.g., `docs/en/HLD.md` if the PRD is at `docs/en/PRD.md`, or `docs/HLD.md` if the PRD is at `docs/PRD.md`). Do not create `HLD.md` in the repository root unless the PRD is also at the root.
 
 ## HLD Structure
 

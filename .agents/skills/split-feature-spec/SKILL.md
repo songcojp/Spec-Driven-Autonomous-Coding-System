@@ -14,7 +14,8 @@ description: Split PRD, EARS requirements, and project-level HLD into implementa
 5. Keep shared platform or foundation work as its own feature only when multiple downstream features genuinely depend on it.
 6. Assign stable feature IDs such as `FEAT-001`, `FEAT-002`, ... and map each to source `REQ-*`, `NFR-*`, and HLD sections.
 7. For each feature, define scope, non-scope, dependencies, acceptance, risks, and implementation tasks.
-8. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`, or produce a single feature index when the user only asks for a split plan.
+8. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`.
+9. Always create or update the feature index table at `docs/features/README.md`. Each row must include at minimum: Feature ID, Name, Status (`pending`), Milestone, and Dependencies. This file is required by the `feature-spec-execution` skill.
 
 ## Feature Slicing Rules
 
