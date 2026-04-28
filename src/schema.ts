@@ -22,10 +22,36 @@ export const MIGRATIONS: Migration[] = [
       `CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        project_type TEXT NOT NULL,
+        tech_preferences_json TEXT NOT NULL,
         target_repo_path TEXT,
         default_branch TEXT,
+        environment TEXT NOT NULL,
+        automation_enabled INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'created',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS repository_connections (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        remote_url TEXT,
+        local_path TEXT NOT NULL,
+        default_branch TEXT NOT NULL,
+        connected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_read_at TEXT,
+        FOREIGN KEY(project_id) REFERENCES projects(id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS project_health_checks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reasons_json TEXT NOT NULL,
+        repository_summary_json TEXT,
+        checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projects(id)
       )`,
       `CREATE TABLE IF NOT EXISTS features (
         id TEXT PRIMARY KEY,
