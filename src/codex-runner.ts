@@ -1,9 +1,22 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ORDINARY_LOG_SECRET_PATTERNS } from "./persistence.ts";
+import {
+  buildFailureFingerprint,
+  buildFailureRecoverySkillInput,
+  buildRecoveryTask,
+  listRecoveryHistory,
+  persistRecoveryAttempt,
+  persistRecoveryResultHandling,
+  type FailureRecoverySkillInput,
+  type ForbiddenRetryRecord,
+  type RecoveryAttempt,
+  type RecoveryResultHandling,
+  type RecoveryTask,
+} from "./recovery.ts";
 import { runSqlite, type SqlStatement } from "./sqlite.ts";
 import type { RiskLevel } from "./orchestration.ts";
 import type { WorktreeRecord } from "./workspace.ts";
@@ -157,7 +170,21 @@ export type RunnerQueueItem = {
   commands?: string[];
   taskText?: string;
   statusCheck?: RunnerStatusCheckInput;
+  recoveryDispatcher?: (dispatch: RecoveryDispatch) => void | Promise<void>;
 };
+
+export type RecoveryDispatch = {
+  scheduledAt: string;
+  policy: RunnerPolicy;
+  skillInput: FailureRecoverySkillInput;
+};
+
+export type PersistedRecoveryDispatch = RecoveryDispatch & {
+  skillRunId: string;
+  status: "running";
+};
+
+export type RecoveryDispatchRunner = (dispatch: PersistedRecoveryDispatch) => Promise<void> | void;
 
 export type RunnerQueueWorkerResult = {
   runId: string;
@@ -165,11 +192,15 @@ export type RunnerQueueWorkerResult = {
   safety: SafetyGateResult;
   adapterResult?: CodexAdapterResult;
   statusCheckResult?: StatusCheckResult;
+  recoveryTask?: RecoveryTask;
+  failureRecoverySkillInput?: FailureRecoverySkillInput;
+  recoverySafety?: SafetyGateResult;
+  recoveryDispatch?: RecoveryDispatch;
   evidence: string;
 };
 
 export type RunnerStatusCheckInput = {
-  dbPath: string;
+  dbPath?: string;
   workspaceRoot?: string;
   artifactRoot?: string;
   diff?: DiffSummary;
@@ -181,6 +212,9 @@ export type RunnerStatusCheckInput = {
   failureHistory?: Array<StatusDecision | RunnerTerminalStatus | CommandCheckStatus>;
   failureThreshold?: number;
   attachments?: EvidenceAttachmentRef[];
+  recoveryAttempts?: RecoveryAttempt[];
+  forbiddenRetryItems?: ForbiddenRetryRecord[];
+  recoveryResult?: RecoveryResultHandling;
 };
 
 export type RunnerConsoleSnapshot = {
@@ -396,7 +430,7 @@ export async function processRunnerQueueItem(
     onHeartbeat,
   });
   const status = classifyQueueStatus(adapterResult);
-  const statusCheckResult = input.statusCheck
+  let statusCheckResult = input.statusCheck
     ? runStatusCheck({
         runId: input.runId,
         taskId: input.taskId,
@@ -424,6 +458,145 @@ export async function processRunnerQueueItem(
         attachments: input.statusCheck.attachments,
       })
     : undefined;
+  if (input.statusCheck?.recoveryResult && input.statusCheck.dbPath) {
+    try {
+      persistRecoveryResultHandling(input.statusCheck.dbPath, input.statusCheck.recoveryResult);
+    } catch (error) {
+      if (statusCheckResult) {
+        statusCheckResult = recoveryPersistenceFailureResult(statusCheckResult, error);
+        persistRecoveryPersistenceFailureStatus(input, statusCheckResult);
+      } else {
+        throw error;
+      }
+    }
+  }
+  let shouldRecover = statusCheckResult ? shouldCreateRecoveryTask(statusCheckResult) : false;
+  const recoveryTaskId = statusCheckResult && shouldRecover
+    ? recoverableTaskId(input.taskId ?? statusCheckResult.taskId, input.policy.workspaceRoot)
+    : undefined;
+  const recoveryHistoryTaskId = traceableRecoveryTaskId(recoveryTaskId);
+  const recoveryHistoryFingerprintId = statusCheckResult && shouldRecover
+    ? buildFailureFingerprint({ taskId: recoveryTaskId, statusCheckResult, relatedFiles: input.files }).id
+    : undefined;
+  let recoveryHistory = { attempts: input.statusCheck?.recoveryAttempts ?? [], forbiddenRetryItems: input.statusCheck?.forbiddenRetryItems ?? [] };
+  if (statusCheckResult && shouldRecover) {
+    try {
+      recoveryHistory = mergeRecoveryHistory(
+        recoveryHistoryTaskId && input.statusCheck.dbPath
+          ? listRecoveryHistory(input.statusCheck.dbPath, { taskId: recoveryHistoryTaskId })
+          : { attempts: [], forbiddenRetryItems: [] },
+        recoveryHistory,
+      );
+    } catch (error) {
+      statusCheckResult = recoveryPersistenceFailureResult(statusCheckResult, error);
+      persistRecoveryPersistenceFailureStatus(input, statusCheckResult);
+      shouldRecover = false;
+    }
+  }
+  if (recoveryHistoryFingerprintId && hasActiveDispatcherBlockedAttempt(recoveryHistory.attempts, recoveryHistoryFingerprintId)) {
+    shouldRecover = false;
+  }
+  const recoveryTask = statusCheckResult && shouldRecover
+    ? buildRecoveryTask({
+        taskId: recoveryTaskId,
+        featureId: input.featureId,
+        statusCheckResult,
+        failureStage: "status_check",
+        recoverable: shouldRecover,
+        dangerousOperation: input.policy.risk === "high" ||
+          statusCheckResult.status === "review_needed" ||
+          hasHighRiskFailedCommand(statusCheckResult) ||
+          hasHighRiskRecoveryFiles(statusCheckResult) ||
+          !recoveryHistoryTaskId,
+        relatedFiles: input.files,
+        historicalAttempts: recoveryHistory.attempts,
+        forbiddenRetryItems: recoveryHistory.forbiddenRetryItems,
+      })
+    : undefined;
+  const failureRecoverySkillInput = recoveryTask ? buildFailureRecoverySkillInput(recoveryTask) : undefined;
+  const recoveryPolicy = recoveryTask
+    ? {
+        ...input.policy,
+        id: randomUUID(),
+        runId: `${input.runId}:recovery:${recoveryTask.id}`,
+        resumeSessionId: adapterResult.session.sessionId ?? input.policy.resumeSessionId,
+        createdAt: new Date().toISOString(),
+      }
+    : undefined;
+  const recoverySafety = recoveryTask && recoveryPolicy && failureRecoverySkillInput
+    ? evaluateRunnerSafety({
+        policy: recoveryPolicy,
+        files: recoveryTask.proposedFileScope ?? recoveryTask.relatedFiles,
+        commands: recoveryTask.proposedCommand ? [recoveryTask.proposedCommand] : [],
+        taskText: `failure recovery action ${recoveryTask.requestedAction}`,
+      })
+    : undefined;
+  let recoveryDispatch: RunnerQueueWorkerResult["recoveryDispatch"];
+  let recoveryPersistenceBlocked = false;
+  if (recoveryTask?.retrySchedule?.status === "scheduled" && recoverySafety && !recoverySafety.allowed) {
+    try {
+      if (input.statusCheck.dbPath) {
+        persistRecoveryAttempt(input.statusCheck.dbPath, buildSafetyBlockedRecoveryAttempt(recoveryTask, recoverySafety));
+      }
+    } catch (error) {
+      if (statusCheckResult) {
+        statusCheckResult = recoveryPersistenceFailureResult(statusCheckResult, error);
+        persistRecoveryPersistenceFailureStatus(input, statusCheckResult);
+        recoveryPersistenceBlocked = true;
+      } else {
+        throw error;
+      }
+    }
+  }
+  const shouldDispatchRecovery = !recoveryPersistenceBlocked &&
+    recoveryTask &&
+    recoveryPolicy &&
+    failureRecoverySkillInput &&
+    recoverySafety?.allowed &&
+    input.statusCheck.dbPath &&
+    shouldEnqueueRecoveryTask(recoveryTask);
+  if (shouldDispatchRecovery) {
+    const recoveryDispatcher = input.recoveryDispatcher ?? createDefaultRecoveryDispatcher(input.statusCheck.dbPath!);
+    try {
+      recoveryDispatch = {
+        scheduledAt: recoveryTask.retrySchedule!.scheduledAt!,
+        policy: recoveryPolicy,
+        skillInput: failureRecoverySkillInput,
+      };
+      if (recoveryTask.retrySchedule?.status === "scheduled" && input.statusCheck.dbPath) {
+        persistRecoveryAttempt(input.statusCheck.dbPath, buildScheduledRecoveryAttempt(recoveryTask));
+      }
+      await recoveryDispatcher(recoveryDispatch);
+    } catch (error) {
+      if (recoveryTask.retrySchedule?.status === "scheduled") {
+        try {
+          persistRecoveryAttempt(input.statusCheck.dbPath, buildDispatchBlockedRecoveryAttempt(recoveryTask, error));
+        } catch {
+          // The status-check result below still reports the dispatch persistence failure.
+        }
+      }
+      if (statusCheckResult) {
+        statusCheckResult = recoveryDispatchFailureResult(statusCheckResult, error);
+        persistRecoveryPersistenceFailureStatus(input, statusCheckResult);
+        recoveryDispatch = undefined;
+      } else {
+        throw error;
+      }
+    }
+  }
+  if (!recoveryPersistenceBlocked && recoveryTask && input.statusCheck?.dbPath && shouldRecordRoutedRecoveryTask(recoveryTask)) {
+    try {
+      persistRecoveryAttempt(input.statusCheck.dbPath, buildRoutedRecoveryAttempt(recoveryTask));
+    } catch (error) {
+      if (statusCheckResult) {
+        statusCheckResult = recoveryPersistenceFailureResult(statusCheckResult, error);
+        persistRecoveryPersistenceFailureStatus(input, statusCheckResult);
+        recoveryPersistenceBlocked = true;
+      } else {
+        throw error;
+      }
+    }
+  }
   const finalStatus = statusCheckResult ? queueStatusFromStatusCheck(statusCheckResult.status, status) : status;
   return {
     runId: input.runId,
@@ -431,8 +604,389 @@ export async function processRunnerQueueItem(
     safety,
     adapterResult,
     statusCheckResult,
+    recoveryTask,
+    failureRecoverySkillInput,
+    recoverySafety,
+    recoveryDispatch,
     evidence: `Codex CLI exited with ${adapterResult.session.exitCode ?? "unknown"}.`,
   };
+}
+
+function shouldCreateRecoveryTask(statusCheckResult: StatusCheckResult): boolean {
+  if (statusCheckResult.status === "failed") return !isTerminalStatusCheckFailure(statusCheckResult) && !isInfrastructureBlockedStatus(statusCheckResult);
+  if (statusCheckResult.status === "review_needed") return hasFailureSignal(statusCheckResult) || statusCheckResult.specAlignment?.aligned === false;
+  if (statusCheckResult.status !== "blocked") return false;
+  return !isInfrastructureBlockedStatus(statusCheckResult);
+}
+
+function shouldEnqueueRecoveryTask(recoveryTask: RecoveryTask): boolean {
+  if (recoveryTask.route !== "automatic" || !recoveryTask.retrySchedule?.scheduledAt) return false;
+  if (recoveryTask.retrySchedule.status === "scheduled") return true;
+  return false;
+}
+
+function shouldRecordRoutedRecoveryTask(recoveryTask: RecoveryTask): boolean {
+  return recoveryTask.route === "review_needed" || recoveryTask.route === "manual";
+}
+
+export function listDueRecoveryDispatches(dbPath: string, now: Date = new Date()): PersistedRecoveryDispatch[] {
+  const rows = runSqlite(dbPath, [], [
+    {
+      name: "runs",
+      sql: `SELECT id, status, input_json FROM skill_runs
+        WHERE skill_slug = ? AND status IN (?, ?)
+        ORDER BY created_at, id`,
+      params: ["failure-recovery-skill", "queued", "scheduled"],
+    },
+  ]).queries.runs;
+  const due: PersistedRecoveryDispatch[] = [];
+  const dueIds: string[] = [];
+  for (const row of rows) {
+    const envelope = parseRecoveryDispatchEnvelope(String(row.input_json ?? ""));
+    if (!envelope) continue;
+    const status = String(row.status);
+    if (status === "scheduled" && new Date(envelope.scheduledAt).getTime() > now.getTime()) continue;
+    due.push({
+      skillRunId: String(row.id),
+      status: "running",
+      scheduledAt: envelope.scheduledAt,
+      policy: envelope.policy,
+      skillInput: envelope.skillInput,
+    });
+    dueIds.push(String(row.id));
+  }
+  if (dueIds.length) {
+    runSqlite(dbPath, dueIds.map((id) => ({
+      sql: "UPDATE skill_runs SET status = ? WHERE id = ?",
+      params: ["running", id],
+    })));
+  }
+  return due;
+}
+
+export async function runDueRecoveryDispatches(
+  dbPath: string,
+  runner: RecoveryDispatchRunner,
+  now: Date = new Date(),
+): Promise<PersistedRecoveryDispatch[]> {
+  const dispatches = listDueRecoveryDispatches(dbPath, now);
+  for (const dispatch of dispatches) {
+    try {
+      await runner(dispatch);
+      updateSkillRunStatus(dbPath, dispatch.skillRunId, "completed");
+    } catch (error) {
+      updateSkillRunStatus(dbPath, dispatch.skillRunId, "failed", error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+  return dispatches;
+}
+
+function createDefaultRecoveryDispatcher(dbPath: string): (dispatch: RecoveryDispatch) => void {
+  return (dispatch) => {
+    const runStatus = new Date(dispatch.scheduledAt).getTime() > Date.now() ? "scheduled" : "queued";
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT INTO skill_runs (id, skill_slug, run_id, status, input_json)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            skill_slug = excluded.skill_slug,
+            run_id = excluded.run_id,
+            status = excluded.status,
+            input_json = excluded.input_json`,
+        params: [
+          dispatch.skillInput.recovery_task_id,
+          dispatch.skillInput.skill,
+          dispatch.policy.runId,
+          runStatus,
+          JSON.stringify(recoveryDispatchEnvelope(dispatch)),
+        ],
+      },
+    ]);
+  };
+}
+
+function recoveryDispatchEnvelope(dispatch: RecoveryDispatch): FailureRecoverySkillInput & {
+  dispatch: { scheduledAt: string; policy: RunnerPolicy; skillInput: FailureRecoverySkillInput };
+} {
+  return {
+    ...dispatch.skillInput,
+    dispatch: {
+      scheduledAt: dispatch.scheduledAt,
+      policy: dispatch.policy,
+      skillInput: dispatch.skillInput,
+    },
+  };
+}
+
+function parseRecoveryDispatchEnvelope(value: string): RecoveryDispatch | undefined {
+  try {
+    const parsed = JSON.parse(value) as { dispatch?: Partial<RecoveryDispatch> };
+    const dispatch = parsed.dispatch;
+    if (!dispatch || typeof dispatch.scheduledAt !== "string" || !dispatch.policy || !dispatch.skillInput) return undefined;
+    return {
+      scheduledAt: dispatch.scheduledAt,
+      policy: dispatch.policy as RunnerPolicy,
+      skillInput: dispatch.skillInput as FailureRecoverySkillInput,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function updateSkillRunStatus(dbPath: string, id: string, status: string, output?: string): void {
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE skill_runs SET status = ?, output_json = COALESCE(?, output_json) WHERE id = ?",
+      params: [status, output ? JSON.stringify({ error: output }) : null, id],
+    },
+  ]);
+}
+
+function hasActiveDispatcherBlockedAttempt(attempts: RecoveryAttempt[], fingerprintId: string): boolean {
+  return attempts.some((attempt) =>
+    attempt.fingerprintId === fingerprintId &&
+    attempt.status === "blocked" &&
+    /blocked by recovery dispatcher/i.test(attempt.summary) &&
+    new Date(attempt.attemptedAt).getTime() + 30 * 60_000 > Date.now()
+  );
+}
+
+function traceableRecoveryTaskId(taskId?: string): string | undefined {
+  if (!taskId || taskId === "unknown-task" || taskId.startsWith("untraceable:")) return undefined;
+  return taskId;
+}
+
+function recoverableTaskId(taskId: string | undefined, workspaceRoot: string): string {
+  if (taskId && taskId !== "unknown-task") return taskId;
+  const workspaceKey = createHash("sha256").update(workspaceRoot).digest("hex").slice(0, 16);
+  return `untraceable:${workspaceKey}`;
+}
+
+function evidenceFileName(runId: string, evidencePackId: string): string {
+  return `${safeArtifactName(runId)}-${safeArtifactName(evidencePackId)}.json`;
+}
+
+function safeArtifactName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function isTerminalStatusCheckFailure(statusCheckResult: StatusCheckResult): boolean {
+  return statusCheckResult.reasons.some((reason) => reason.includes("Failure threshold reached"));
+}
+
+function mergeRecoveryHistory(
+  stored: { attempts: RecoveryAttempt[]; forbiddenRetryItems: ForbiddenRetryRecord[] },
+  provided: { attempts: RecoveryAttempt[]; forbiddenRetryItems: ForbiddenRetryRecord[] },
+): { attempts: RecoveryAttempt[]; forbiddenRetryItems: ForbiddenRetryRecord[] } {
+  return {
+    attempts: uniqueById([...stored.attempts, ...provided.attempts]),
+    forbiddenRetryItems: uniqueById([...stored.forbiddenRetryItems, ...provided.forbiddenRetryItems]),
+  };
+}
+
+function uniqueById<T extends { id: string }>(items: T[]): T[] {
+  return [...new Map(items.map((item) => [item.id, item])).values()];
+}
+
+function buildScheduledRecoveryAttempt(recoveryTask: RecoveryTask): RecoveryAttempt {
+  return {
+    id: recoveryTask.id,
+    fingerprintId: recoveryTask.fingerprint.id,
+    taskId: recoveryTask.taskId,
+    action: recoveryTask.requestedAction,
+    strategy: recoveryTask.proposedStrategy ?? recoveryTask.requestedAction,
+    command: recoveryTask.proposedCommand,
+    fileScope: recoveryTask.proposedFileScope ?? recoveryTask.relatedFiles,
+    status: "scheduled",
+    summary: `Automatic recovery ${recoveryTask.requestedAction} scheduled for ${recoveryTask.fingerprint.id}.`,
+    attemptedAt: recoveryTask.retrySchedule?.scheduledAt ?? recoveryTask.createdAt,
+  };
+}
+
+function buildSafetyBlockedRecoveryAttempt(recoveryTask: RecoveryTask, safety: SafetyGateResult): RecoveryAttempt {
+  return {
+    id: recoveryTask.id,
+    fingerprintId: recoveryTask.fingerprint.id,
+    taskId: recoveryTask.taskId,
+    action: recoveryTask.requestedAction,
+    strategy: recoveryTask.proposedStrategy ?? recoveryTask.requestedAction,
+    command: recoveryTask.proposedCommand,
+    fileScope: recoveryTask.proposedFileScope ?? recoveryTask.relatedFiles,
+    status: "blocked",
+    summary: `Automatic recovery ${recoveryTask.requestedAction} blocked by runner safety gate: ${safety.reasons.join("; ")}`,
+    attemptedAt: new Date().toISOString(),
+  };
+}
+
+function buildDispatchBlockedRecoveryAttempt(recoveryTask: RecoveryTask, error: unknown): RecoveryAttempt {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    id: recoveryTask.id,
+    fingerprintId: recoveryTask.fingerprint.id,
+    taskId: recoveryTask.taskId,
+    action: recoveryTask.requestedAction,
+    strategy: recoveryTask.proposedStrategy ?? recoveryTask.requestedAction,
+    command: recoveryTask.proposedCommand,
+    fileScope: recoveryTask.proposedFileScope ?? recoveryTask.relatedFiles,
+    status: "blocked",
+    summary: `Automatic recovery ${recoveryTask.requestedAction} blocked by recovery dispatcher: ${message}`,
+    attemptedAt: new Date().toISOString(),
+  };
+}
+
+function buildRoutedRecoveryAttempt(recoveryTask: RecoveryTask): RecoveryAttempt {
+  const routeLabel = recoveryTask.route === "manual" ? "manual approval" : "review";
+  return {
+    id: recoveryTask.id,
+    fingerprintId: recoveryTask.fingerprint.id,
+    taskId: recoveryTask.taskId,
+    action: recoveryTask.requestedAction,
+    strategy: recoveryTask.proposedStrategy ?? recoveryTask.requestedAction,
+    command: recoveryTask.proposedCommand,
+    fileScope: recoveryTask.proposedFileScope ?? recoveryTask.relatedFiles,
+    status: "review_needed",
+    summary: `Failure recovery routed to ${routeLabel} for ${recoveryTask.fingerprint.id}.`,
+    attemptedAt: recoveryTask.createdAt,
+  };
+}
+
+function recoveryPersistenceFailureResult(result: StatusCheckResult, error: unknown): StatusCheckResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const summary = "Status check blocked because recovery history persistence failed.";
+  const reasons = [...result.reasons, `Recovery history persistence failed: ${message}`];
+  const recommendedActions = [
+    "Inspect recovery database configuration and retry the status check.",
+    ...result.recommendedActions,
+  ];
+  const evidenceWriteError = result.evidenceWriteError
+    ? `${result.evidenceWriteError}; recovery persistence failed: ${message}`
+    : `Recovery persistence failed: ${message}`;
+  const evidencePack = {
+    ...result.evidencePack,
+    status: "blocked" as const,
+    summary,
+    reasons,
+    recommendedActions,
+    evidenceWriteError,
+  };
+  return {
+    ...result,
+    status: "blocked",
+    summary,
+    reasons,
+    recommendedActions,
+    evidencePack,
+    evidenceWriteError,
+  };
+}
+
+function recoveryDispatchFailureResult(result: StatusCheckResult, error: unknown): StatusCheckResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const summary = "Status check blocked because recovery dispatch scheduling failed.";
+  const reasons = [...result.reasons, `Recovery dispatch scheduling failed: ${message}`];
+  const recommendedActions = [
+    "Inspect recovery dispatcher configuration and retry the status check.",
+    ...result.recommendedActions,
+  ];
+  const evidenceWriteError = result.evidenceWriteError ?? `Recovery dispatch scheduling failed: ${message}`;
+  const evidencePack = {
+    ...result.evidencePack,
+    status: "blocked" as const,
+    summary,
+    reasons,
+    recommendedActions,
+    evidenceWriteError,
+    metadata: {
+      ...result.evidencePack.metadata,
+      recoveryDispatchError: message,
+    },
+  };
+  return {
+    ...result,
+    status: "blocked",
+    summary,
+    reasons,
+    recommendedActions,
+    evidenceWriteError,
+    evidencePack,
+  };
+}
+
+function persistRecoveryPersistenceFailureStatus(input: RunnerQueueItem, result: StatusCheckResult): void {
+  if (!input.statusCheck?.dbPath) return;
+  const evidenceContent = redactLog(JSON.stringify(result.evidencePack, null, 2));
+  const evidenceChecksum = createHash("sha256").update(evidenceContent).digest("hex");
+  try {
+    runSqlite(input.statusCheck.dbPath, [
+      {
+        sql: `UPDATE status_check_results
+          SET status = ?, summary = ?, reasons_json = ?, recommended_actions_json = ?, evidence_write_error = ?
+          WHERE id = ?`,
+        params: [
+          result.status,
+          redactLog(result.summary),
+          JSON.stringify(result.reasons.map(redactLog)),
+          JSON.stringify(result.recommendedActions.map(redactLog)),
+          result.evidenceWriteError ?? null,
+          result.id,
+        ],
+      },
+      {
+        sql: `UPDATE evidence_packs
+          SET checksum = ?, summary = ?, metadata_json = ?
+          WHERE id = ?`,
+        params: [
+          evidenceChecksum,
+          redactLog(result.summary),
+          redactLog(JSON.stringify({ statusCheckerEvidencePack: result.evidencePack })),
+          result.evidencePack.id,
+        ],
+      },
+    ]);
+  } catch {
+    return;
+  }
+
+  if (!result.evidencePath) return;
+  try {
+    const artifactRoot = input.statusCheck.artifactRoot ?? join(input.statusCheck.workspaceRoot ?? input.policy.workspaceRoot, ".autobuild");
+    const evidencePath = join(artifactRoot, "evidence", evidenceFileName(input.runId, result.evidencePack.id));
+    writeFileSync(evidencePath, evidenceContent, "utf8");
+  } catch {
+    // The queue result already carries the blocked state; DB persistence is the durable source here.
+  }
+}
+
+function isInfrastructureBlockedStatus(statusCheckResult: StatusCheckResult): boolean {
+  if (statusCheckResult.evidenceWriteError) return true;
+  return [statusCheckResult.summary, ...statusCheckResult.reasons].some((text) =>
+    /runner output is missing/i.test(text) ||
+    /evidence (could not be written|persistence failed|persistence)/i.test(text) ||
+    /recovery history persistence failed/i.test(text) ||
+    /recovery dispatch scheduling failed/i.test(text)
+  );
+}
+
+function hasHighRiskFailedCommand(statusCheckResult: StatusCheckResult): boolean {
+  return statusCheckResult.evidencePack.commands.some((command) =>
+    command.status === "failed" &&
+    Boolean(command.command) &&
+    [...DANGEROUS_COMMAND_PATTERNS, ...HIGH_RISK_TEXT_PATTERNS].some((pattern) => pattern.test(command.command ?? ""))
+  );
+}
+
+function hasHighRiskRecoveryFiles(statusCheckResult: StatusCheckResult): boolean {
+  return statusCheckResult.evidencePack.diff.files.some((file) =>
+    FORBIDDEN_FILE_PATTERNS.some((pattern) => pattern.test(normalizePath(file)))
+  );
+}
+
+function hasFailureSignal(statusCheckResult: StatusCheckResult): boolean {
+  const runner = statusCheckResult.evidencePack.runner;
+  return runner.status === "failed" ||
+    (runner.exitCode ?? 0) !== 0 ||
+    statusCheckResult.evidencePack.commands.some((command) => command.status === "failed");
 }
 
 function queueStatusFromStatusCheck(status: StatusDecision, fallback: RunnerQueueStatus): RunnerQueueStatus {

@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -566,6 +566,38 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_spec_alignment_results_run ON spec_alignment_results(run_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_pack ON evidence_attachment_refs(evidence_pack_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_run ON evidence_attachment_refs(run_id, created_at)",
+    ],
+  },
+  {
+    version: 9,
+    description: "Add failure recovery history schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS recovery_attempts (
+        id TEXT PRIMARY KEY,
+        fingerprint_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        strategy TEXT NOT NULL,
+        command TEXT,
+        file_scope_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_pack_json TEXT,
+        attempted_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS forbidden_retry_records (
+        id TEXT PRIMARY KEY,
+        fingerprint_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        failed_strategy TEXT NOT NULL,
+        failed_command TEXT,
+        failed_file_scope_json TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        evidence_pack_id TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_recovery_attempts_task_fingerprint ON recovery_attempts(task_id, fingerprint_id, attempted_at)",
+      "CREATE INDEX IF NOT EXISTS idx_forbidden_retry_records_task_fingerprint ON forbidden_retry_records(task_id, fingerprint_id, created_at)",
     ],
   },
 ];

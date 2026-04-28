@@ -1,23 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initializeSchema, listTables } from "../src/schema.ts";
+import { initializeSchema, listTables, MIGRATIONS } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
   buildEvidencePackInput,
   buildRunnerConsoleSnapshot,
   evaluateRunnerSafety,
+  listDueRecoveryDispatches,
   persistCodexRunnerArtifacts,
   processRunnerQueueItem,
   recordRunnerHeartbeat,
   redactLog,
   resolveRunnerPolicy,
   runCodexCli,
+  runDueRecoveryDispatches,
 } from "../src/codex-runner.ts";
 import { listStatusCheckResults } from "../src/status-checker.ts";
+import { handleRecoveryResult, persistRecoveryResultHandling } from "../src/recovery.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
@@ -353,6 +356,8 @@ test("runner queue worker records status check evidence after completed runs", a
 
   assert.equal(executed.status, "review_needed");
   assert.equal(executed.statusCheckResult?.status, "review_needed");
+  assert.equal(executed.recoveryTask, undefined);
+  assert.equal(executed.recoveryDispatch, undefined);
   assert.equal(JSON.stringify(executed.statusCheckResult?.evidencePack).includes("abc123"), false);
   const persisted = listStatusCheckResults(dbPath, "RUN-006S");
   assert.equal(persisted.length, 1);
@@ -369,12 +374,16 @@ test("runner queue worker preserves failed status when status check records diag
     workspaceRoot: root,
     now: stableDate,
   });
+  const dispatched: unknown[] = [];
 
   const result = await processRunnerQueueItem(
     {
       runId: "RUN-006F",
       prompt: "Run tests",
       policy,
+      recoveryDispatcher: (dispatch) => {
+        dispatched.push(dispatch);
+      },
       statusCheck: {
         dbPath,
         commandChecks: [{ kind: "unit_test", command: "npm test", status: "failed", exitCode: 1 }],
@@ -388,11 +397,932 @@ test("runner queue worker preserves failed status when status check records diag
         },
       },
     },
+    () => ({
+      status: 1,
+      stdout: '{"type":"session","session_id":"SESSION-006F"}\n{"type":"result","status":"failed"}',
+      stderr: "tests failed",
+    }),
+  );
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.statusCheckResult?.status, "blocked");
+  assert.equal(result.recoveryTask?.taskId, "TASK-009");
+  assert.equal(result.recoveryTask?.route, "automatic");
+  assert.equal(result.failureRecoverySkillInput?.skill, "failure-recovery-skill");
+  assert.equal(result.failureRecoverySkillInput?.requested_action, "auto_fix");
+  assert.equal(result.failureRecoverySkillInput?.failure.failed_command, "npm test");
+  assert.equal(result.recoverySafety?.allowed, true);
+  assert.equal(result.recoveryDispatch?.skillInput.skill, "failure-recovery-skill");
+  assert.notEqual(result.recoveryDispatch?.policy.runId, result.runId);
+  assert.equal(result.recoveryDispatch?.policy.resumeSessionId, "SESSION-006F");
+  assert.equal(result.recoveryDispatch?.scheduledAt, result.recoveryTask?.retrySchedule?.scheduledAt);
+  assert.equal(dispatched.length, 1);
+  assert.deepEqual(dispatched[0], result.recoveryDispatch);
+});
+
+test("runner recovery preserves failed runner command context without command checks", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-failed-command-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010F",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010F",
+      prompt: "Run Codex task",
+      policy,
+      statusCheck: {
+        dbPath,
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "codex failed before checks" }),
+  );
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.statusCheckResult?.status, "blocked");
+  assert.equal(result.recoveryTask?.failedCommand, "codex runner exit=1");
+  assert.equal(result.recoveryTask?.fingerprint.failedCommandOrCheck, "codex runner exit=1");
+  assert.equal(result.failureRecoverySkillInput?.failure.failed_command, "codex runner exit=1");
+});
+
+test("runner recovery creates review task for spec-alignment failures without command failures", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-spec-review-recovery-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010S",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010S",
+      prompt: "Run Codex task",
+      policy,
+      statusCheck: {
+        dbPath,
+        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "passed" as const, exitCode: 0 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: [],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
+  );
+
+  assert.equal(result.statusCheckResult?.status, "review_needed");
+  assert.equal(result.recoveryTask?.requestedAction, "read_only_analysis");
+  assert.equal(result.recoveryTask?.route, "review_needed");
+  assert.equal(result.recoveryDispatch, undefined);
+});
+
+test("runner recovery task preserves retry history and forbidden retry records", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-history-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010H",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+  const first = await processRunnerQueueItem(
+    { runId: "RUN-010H", prompt: "Run tests", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  assert.equal(first.recoveryTask?.retrySchedule?.attemptNumber, 1);
+  const failedRecovery = handleRecoveryResult({
+    recoveryTask: first.recoveryTask!,
+    action: "auto_fix",
+    status: "failed",
+    strategy: "auto_fix",
+    command: "node fix.js",
+    fileScope: ["src/recovery.ts"],
+    summary: "automatic fix failed",
+    now: stableDate,
+  });
+
+  const second = await processRunnerQueueItem(
+    {
+      runId: "RUN-010H",
+      prompt: "Run tests again",
+      policy,
+      statusCheck: {
+        ...statusCheck,
+        recoveryAttempts: [failedRecovery.attempt],
+        forbiddenRetryItems: [failedRecovery.forbiddenRetryRecord!],
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(second.recoveryTask?.historicalAttempts.length, 1);
+  assert.equal(second.recoveryTask?.forbiddenRetryItems.length, 1);
+  assert.equal(second.recoveryTask?.retrySchedule?.status, "blocked_by_forbidden_duplicate");
+  assert.equal(second.recoveryTask?.route, "manual");
+  assert.equal(second.recoveryDispatch, undefined);
+});
+
+test("runner recovery reloads persisted retry history across invocations", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-persisted-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010P",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+
+  const first = await processRunnerQueueItem(
+    { runId: "RUN-010P", prompt: "Run tests", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const recoveryResult = handleRecoveryResult({
+    recoveryTask: first.recoveryTask!,
+    action: "auto_fix",
+    status: "completed",
+    strategy: "auto_fix",
+    command: "npm test",
+    fileScope: ["src/recovery.ts"],
+    summary: "automatic fix completed but task failed again",
+    now: stableDate,
+  });
+  const second = await processRunnerQueueItem(
+    { runId: "RUN-010P", prompt: "Run tests again", policy, statusCheck: { ...statusCheck, recoveryResult } },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(first.recoveryTask?.retrySchedule?.attemptNumber, 1);
+  assert.equal(second.recoveryTask?.historicalAttempts.length, 1);
+  assert.equal(second.recoveryTask?.retrySchedule?.attemptNumber, 2);
+  assert.equal(second.recoveryTask?.retrySchedule?.backoffMinutes, 4);
+});
+
+test("runner recovery does not dispatch duplicate scheduled retries", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-dedupe-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010D",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+
+  const first = await processRunnerQueueItem(
+    { runId: "RUN-010D", prompt: "Run tests", policy, statusCheck, recoveryDispatcher: () => {} },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const duplicate = await processRunnerQueueItem(
+    { runId: "RUN-010D", prompt: "Run tests duplicate", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(first.recoveryTask?.retrySchedule?.status, "scheduled");
+  assert.equal(first.recoveryDispatch?.skillInput.requested_action, "auto_fix");
+  assert.equal(duplicate.recoveryTask?.retrySchedule?.status, "already_scheduled");
+  assert.equal(duplicate.recoveryDispatch, undefined);
+});
+
+test("runner recovery without custom dispatcher queues default skill run and marks scheduled history", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-no-dispatcher-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010ND",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+
+  const result = await processRunnerQueueItem(
+    { runId: "RUN-010ND", prompt: "Run tests", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const rows = runSqlite(dbPath, [], [{ name: "attempts", sql: "SELECT * FROM recovery_attempts WHERE task_id = ?", params: ["TASK-010"] }])
+    .queries.attempts;
+  const skillRuns = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT * FROM skill_runs WHERE skill_slug = ?", params: ["failure-recovery-skill"] }])
+    .queries.runs;
+
+  assert.equal(result.recoveryTask?.retrySchedule?.status, "scheduled");
+  assert.equal(result.recoveryDispatch?.skillInput.requested_action, "auto_fix");
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "scheduled");
+  assert.equal(skillRuns.length, 1);
+  assert.equal(skillRuns[0].status, "scheduled");
+  const input = JSON.parse(String(skillRuns[0].input_json));
+  assert.equal(input.dispatch.scheduledAt, result.recoveryDispatch?.scheduledAt);
+  assert.equal(input.dispatch.policy.runId, result.recoveryDispatch?.policy.runId);
+  assert.equal(input.dispatch.skillInput.recovery_task_id, result.recoveryTask?.id);
+  assert.deepEqual(listDueRecoveryDispatches(dbPath, stableDate), []);
+});
+
+test("runner recovery keeps non-persistent status checks actionable", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-no-db-"));
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010NODB",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const dispatched: unknown[] = [];
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010NODB",
+      prompt: "Run tests",
+      policy,
+      recoveryDispatcher: (dispatch) => {
+        dispatched.push(dispatch);
+      },
+      statusCheck: {
+        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
+  );
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.statusCheckResult?.status, "blocked");
+  assert.match(result.statusCheckResult?.summary ?? "", /failed command checks/);
+  assert.equal(result.recoveryTask?.route, "automatic");
+  assert.equal(result.failureRecoverySkillInput?.skill, "failure-recovery-skill");
+  assert.equal(result.recoveryDispatch, undefined);
+  assert.equal(dispatched.length, 0);
+});
+
+test("runner recovery default dispatcher updates stale scheduled skill run", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-stale-skill-run-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010ST",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+
+  const first = await processRunnerQueueItem(
+    { runId: "RUN-010ST", prompt: "Run tests", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  runSqlite(dbPath, [{
+    sql: "UPDATE recovery_attempts SET attempted_at = ? WHERE id = ?",
+    params: [new Date(stableDate.getTime() - 31 * 60_000).toISOString(), first.recoveryTask?.id],
+  }]);
+  await processRunnerQueueItem(
+    { runId: "RUN-010ST", prompt: "Run tests again", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const skillRuns = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT * FROM skill_runs WHERE skill_slug = ?", params: ["failure-recovery-skill"] }])
+    .queries.runs;
+  const due = listDueRecoveryDispatches(dbPath, new Date(Date.now() + 60_000));
+  const duplicateDue = listDueRecoveryDispatches(dbPath, new Date(Date.now() + 60_000));
+
+  assert.equal(skillRuns.length, 1);
+  assert.equal(skillRuns[0].id, first.recoveryTask?.id);
+  assert.equal(skillRuns[0].status, "queued");
+  assert.equal(due.length, 1);
+  assert.equal(due[0].skillRunId, first.recoveryTask?.id);
+  assert.equal(due[0].status, "running");
+  assert.equal(due[0].skillInput.recovery_task_id, first.recoveryTask?.id);
+  assert.equal(duplicateDue.length, 0);
+  const ran: unknown[] = [];
+  runSqlite(dbPath, [{ sql: "UPDATE skill_runs SET status = ? WHERE id = ?", params: ["queued", first.recoveryTask?.id] }]);
+  const executed = await runDueRecoveryDispatches(dbPath, (dispatch) => {
+    ran.push(dispatch);
+  }, new Date(Date.now() + 60_000));
+  const completed = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT status FROM skill_runs WHERE id = ?", params: [first.recoveryTask?.id] }])
+    .queries.runs;
+  assert.equal(executed.length, 1);
+  assert.equal(ran.length, 1);
+  assert.equal(completed[0].status, "completed");
+});
+
+test("runner recovery does not re-dispatch already scheduled retries", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-no-redispatch-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010RD",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+
+  const first = await processRunnerQueueItem(
+    { runId: "RUN-010RD", prompt: "Run tests", policy, statusCheck, recoveryDispatcher: () => {} },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const duplicate = await processRunnerQueueItem(
+    { runId: "RUN-010RD", prompt: "Run tests duplicate", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(duplicate.recoveryTask?.id, first.recoveryTask?.id);
+  assert.equal(duplicate.recoveryTask?.retrySchedule?.status, "already_scheduled");
+  assert.equal(duplicate.recoveryDispatch, undefined);
+});
+
+test("runner recovery routes high-risk file failures to review before scheduling", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-high-risk-file-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010SH",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    diff: { files: ["src/auth/login.ts"] },
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+
+  const first = await processRunnerQueueItem(
+    { runId: "RUN-010SH", prompt: "Run tests", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const rows = runSqlite(dbPath, [], [{ name: "attempts", sql: "SELECT * FROM recovery_attempts WHERE task_id = ?", params: ["TASK-010"] }])
+    .queries.attempts;
+
+  assert.equal(first.recoveryTask?.route, "review_needed");
+  assert.equal(first.recoveryTask?.retrySchedule, undefined);
+  assert.equal(first.recoveryDispatch, undefined);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "review_needed");
+});
+
+test("runner recovery dispatcher failures do not leave phantom scheduled attempts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-dispatch-failure-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010DF",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+
+  const first = await processRunnerQueueItem(
+    {
+      runId: "RUN-010DF",
+      prompt: "Run tests",
+      policy,
+      statusCheck,
+      recoveryDispatcher: () => {
+        throw new Error("scheduler offline");
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const rows = runSqlite(dbPath, [], [{ name: "attempts", sql: "SELECT * FROM recovery_attempts WHERE task_id = ?", params: ["TASK-010"] }])
+    .queries.attempts;
+  const second = await processRunnerQueueItem(
+    { runId: "RUN-010DF", prompt: "Run tests again", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(first.statusCheckResult?.status, "blocked");
+  assert.equal(first.recoveryDispatch, undefined);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "blocked");
+  assert.equal(second.statusCheckResult?.status, "blocked");
+  assert.equal(second.recoveryTask, undefined);
+  assert.equal(second.recoveryDispatch, undefined);
+  runSqlite(dbPath, [{
+    sql: "UPDATE recovery_attempts SET attempted_at = ? WHERE id = ?",
+    params: [new Date(Date.now() - 31 * 60_000).toISOString(), first.recoveryTask?.id],
+  }]);
+  const recovered = await processRunnerQueueItem(
+    { runId: "RUN-010DF", prompt: "Run tests after dispatcher recovers", policy, statusCheck, recoveryDispatcher: () => {} },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  assert.equal(recovered.recoveryTask?.retrySchedule?.status, "scheduled");
+  assert.equal(recovered.recoveryDispatch?.skillInput.skill, "failure-recovery-skill");
+});
+
+test("runner recovery does not auto-recover terminal status-check failures", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-terminal-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010T",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010T",
+      prompt: "Run repeatedly failing tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        failureHistory: ["failed", "failed"],
+        failureThreshold: 3,
+        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.statusCheckResult?.status, "failed");
+  assert.equal(result.recoveryTask, undefined);
+  assert.equal(result.recoveryDispatch, undefined);
+});
+
+test("runner recovery does not auto-recover evidence infrastructure failures", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-evidence-infra-"));
+  const artifactRoot = join(root, "artifact-file");
+  writeFileSync(artifactRoot, "not a directory", "utf8");
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010EF",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010EF",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        artifactRoot,
+        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(result.statusCheckResult?.status, "blocked");
+  assert.match(result.statusCheckResult?.evidenceWriteError ?? "", /ENOTDIR|not a directory/i);
+  assert.equal(result.recoveryTask, undefined);
+  assert.equal(result.recoveryDispatch, undefined);
+});
+
+test("runner recovery scheduling persistence failures return blocked status instead of throwing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-schedule-failure-"));
+  const legacyDbPath = join(root, ".autobuild", "legacy.db");
+  initializeSchema(legacyDbPath, MIGRATIONS.filter((migration) => migration.version < 9));
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010SF",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010SF",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath: legacyDbPath,
+        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
     () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
   );
 
   assert.equal(result.status, "failed");
   assert.equal(result.statusCheckResult?.status, "blocked");
+  assert.match(result.statusCheckResult?.summary ?? "", /recovery history persistence failed/);
+  assert.equal(result.recoveryDispatch, undefined);
+  const evidenceRows = runSqlite(legacyDbPath, [], [
+    { name: "evidence", sql: "SELECT path, checksum FROM evidence_packs WHERE id = ?", params: [result.statusCheckResult?.evidencePack.id] },
+  ]).queries.evidence;
+  const artifact = readFileSync(join(root, evidenceRows[0].path));
+  assert.equal(evidenceRows[0].checksum, createHash("sha256").update(artifact).digest("hex"));
+});
+
+test("runner recovery persistence failures return blocked status instead of throwing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-persist-failure-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  const legacyDbPath = join(root, ".autobuild", "legacy.db");
+  initializeSchema(dbPath);
+  initializeSchema(legacyDbPath, MIGRATIONS.filter((migration) => migration.version < 9));
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010PF",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const statusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-010",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+  const first = await processRunnerQueueItem(
+    { runId: "RUN-010PF", prompt: "Run tests", policy, statusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  const recoveryResult = handleRecoveryResult({
+    recoveryTask: first.recoveryTask!,
+    action: "auto_fix",
+    status: "completed",
+    strategy: "auto_fix",
+    command: "npm test",
+    fileScope: ["src/recovery.ts"],
+    summary: "automatic fix completed",
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    { runId: "RUN-010PF", prompt: "Run tests again", policy, statusCheck: { ...statusCheck, dbPath: legacyDbPath, recoveryResult } },
+    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
+  );
+  const persisted = listStatusCheckResults(legacyDbPath, "RUN-010PF")[0];
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.statusCheckResult?.status, "blocked");
+  assert.match(result.statusCheckResult?.summary ?? "", /recovery history persistence failed/);
+  assert.equal(persisted.status, "blocked");
+  assert.match(persisted.summary, /recovery history persistence failed/);
+  assert.equal(result.recoveryTask, undefined);
+  assert.equal(result.recoveryDispatch, undefined);
+});
+
+test("runner recovery does not load global history when task traceability is missing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-no-task-history-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010NT",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+  const tracedStatusCheck = {
+    dbPath,
+    commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
+    specAlignment: {
+      taskId: "TASK-OTHER",
+      userStoryIds: ["REQ-043"],
+      requirementIds: ["REQ-043"],
+      acceptanceCriteriaIds: ["AC-001"],
+      coveredRequirementIds: ["REQ-043"],
+      testCoverage: true,
+    },
+  };
+  const traced = await processRunnerQueueItem(
+    { runId: "RUN-010NT", prompt: "Run tests", policy, statusCheck: tracedStatusCheck },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+  persistRecoveryResultHandling(dbPath, handleRecoveryResult({
+    recoveryTask: traced.recoveryTask!,
+    action: "auto_fix",
+    status: "completed",
+    strategy: "auto_fix",
+    command: "npm test",
+    fileScope: ["src/recovery.ts"],
+    summary: "unrelated task recovery completed",
+    now: stableDate,
+  }));
+  runSqlite(dbPath, [{
+    sql: `INSERT INTO recovery_attempts (
+      id, fingerprint_id, task_id, action, strategy, command, file_scope_json,
+      status, summary, evidence_pack_json, attempted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    params: [
+      "ATTEMPT-UNKNOWN-TASK",
+      "FINGERPRINT-UNKNOWN-TASK",
+      "unknown-task",
+      "auto_fix",
+      "auto_fix",
+      "npm test",
+      JSON.stringify(["src/unrelated.ts"]),
+      "completed",
+      "untraceable recovery completed elsewhere",
+      null,
+      stableDate.toISOString(),
+    ],
+  }]);
+
+  const missingTraceability = await processRunnerQueueItem(
+    {
+      runId: "RUN-010NT",
+      prompt: "Run tests without traceability",
+      policy,
+      statusCheck: {
+        dbPath,
+        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed", exitCode: 1 }],
+        specAlignment: {
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.match(missingTraceability.recoveryTask?.taskId ?? "", /^untraceable:[a-f0-9]{16}$/);
+  assert.equal(missingTraceability.recoveryTask?.route, "review_needed");
+  assert.equal(missingTraceability.recoveryTask?.historicalAttempts.length, 0);
+  assert.equal(missingTraceability.recoveryTask?.forbiddenRetryItems.length, 0);
+  assert.equal(missingTraceability.recoveryTask?.retrySchedule, undefined);
+  const repeatedMissingTraceability = await processRunnerQueueItem(
+    {
+      runId: "RUN-010NT",
+      prompt: "Run tests without traceability again",
+      policy,
+      statusCheck: {
+        dbPath,
+        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed", exitCode: 1 }],
+        specAlignment: {
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(repeatedMissingTraceability.recoveryTask?.historicalAttempts.length, 0);
+  assert.equal(repeatedMissingTraceability.recoveryTask?.route, "review_needed");
+  assert.equal(repeatedMissingTraceability.recoveryTask?.retrySchedule, undefined);
+});
+
+test("runner recovery routes high-risk policies through review before write recovery", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-high-risk-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010R",
+    risk: "high",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010R",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        commandChecks: [{ kind: "unit_test", command: "npm test", status: "failed", exitCode: 1 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(result.recoveryTask?.route, "review_needed");
+  assert.equal(result.recoveryDispatch, undefined);
+});
+
+test("runner recovery safety reviews high-risk failed commands before dispatch", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-command-safety-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010C",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010C",
+      prompt: "Run check",
+      policy,
+      statusCheck: {
+        dbPath,
+        commandChecks: [{ kind: "custom", command: "npm run migrate", status: "failed", exitCode: 1 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "check failed" }),
+  );
+
+  assert.equal(result.recoveryTask?.route, "review_needed");
+  assert.equal(result.recoveryTask?.retrySchedule, undefined);
+  assert.equal(result.failureRecoverySkillInput?.failure.failed_command, "npm run migrate");
+  assert.equal(result.failureRecoverySkillInput?.recovery_plan.command, undefined);
+  assert.equal(result.recoveryDispatch, undefined);
+});
+
+test("runner does not create recovery task for infrastructure-only blocked status", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-infra-blocked-"));
+  const artifactRoot = join(root, "artifact-file");
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  writeFileSync(artifactRoot, "not a directory", "utf8");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-010I",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-010I",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        artifactRoot,
+        commandChecks: [{ kind: "unit_test", command: "npm test", status: "passed", exitCode: 0 }],
+        specAlignment: {
+          taskId: "TASK-010",
+          userStoryIds: ["REQ-043"],
+          requirementIds: ["REQ-043"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-043"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
+  );
+
+  assert.equal(result.status, "blocked");
+  assert.equal(result.statusCheckResult?.status, "blocked");
+  assert.match(result.statusCheckResult?.summary ?? "", /evidence could not be written/);
+  assert.equal(result.recoveryTask, undefined);
+  assert.equal(result.recoveryDispatch, undefined);
 });
 
 test("runner status check resolves artifact-root attachments without workspace fallback", async () => {
