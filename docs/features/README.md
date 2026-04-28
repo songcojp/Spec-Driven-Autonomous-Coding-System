@@ -20,7 +20,57 @@
 | FEAT-013 | Product Console | `feat-013-product-console` | pending | REQ-052 至 REQ-056 | M2-M6 | FEAT-001、FEAT-004、FEAT-005、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 
-## Dependency Order
+## Dependency Tree
+
+依赖树以主解锁路径为主线，每个 Feature 只出现一次；存在多上游依赖的 Feature 在节点后标出额外前置项。
+
+```text
+FEAT-000 System Bootstrap
+├── FEAT-001 Project and Repository Foundation
+├── FEAT-002 Spec Protocol Foundation
+├── FEAT-003 Skill Center and Schema Governance
+├── FEAT-014 Persistence and Auditability
+└── FEAT-004 Orchestration and State Machine
+    (requires FEAT-001, FEAT-002, FEAT-003, FEAT-014)
+    ├── FEAT-006 Project Memory and Recovery Projection
+    ├── FEAT-007 Workspace Isolation
+    │   └── FEAT-005 Subagent Runtime and Context Broker
+    │       (also requires FEAT-004)
+    │       └── FEAT-008 Codex Runner
+    │           (also requires FEAT-007)
+    │           ├── FEAT-009 Status Checker and Evidence
+    │           │   (also requires FEAT-004)
+    │           │   ├── FEAT-010 Failure Recovery
+    │           │   │   (also requires FEAT-008)
+    │           │   └── FEAT-011 Review Center
+    │           │       (also requires FEAT-004)
+    │           │       └── FEAT-012 Delivery and Spec Evolution
+    │           │           (also requires FEAT-009)
+    │           └── FEAT-013 Product Console
+    │               (also requires FEAT-001, FEAT-004, FEAT-005)
+```
+
+### Direct Dependencies
+
+| Feature ID | Direct Dependencies |
+|---|---|
+| FEAT-000 | None |
+| FEAT-001 | FEAT-000 |
+| FEAT-002 | FEAT-000 |
+| FEAT-003 | FEAT-000 |
+| FEAT-004 | FEAT-001、FEAT-002、FEAT-003、FEAT-014 |
+| FEAT-005 | FEAT-004、FEAT-007 |
+| FEAT-006 | FEAT-004 |
+| FEAT-007 | FEAT-004 |
+| FEAT-008 | FEAT-005、FEAT-007 |
+| FEAT-009 | FEAT-004、FEAT-008 |
+| FEAT-010 | FEAT-008、FEAT-009 |
+| FEAT-011 | FEAT-004、FEAT-009 |
+| FEAT-012 | FEAT-009、FEAT-011 |
+| FEAT-013 | FEAT-001、FEAT-004、FEAT-005、FEAT-008 |
+| FEAT-014 | FEAT-000 |
+
+## Delivery Order
 
 1. FEAT-000 bootstraps the control-plane runtime, artifact root and schema foundation.
 2. FEAT-001, FEAT-002, FEAT-003 and FEAT-014 establish the project, spec, skill and persistence foundations.
