@@ -1,4 +1,4 @@
 interface:
   display_name: "Feature Spec Execution"
-  short_description: "Deliver Feature Specs with bounded tests"
-  default_prompt: "Use $feature-spec-execution to execute the next ready Feature Spec end to end, including pre-implementation requirements/design review, clarification pauses when needed, implementation, bounded targeted tests with explicit timeouts, review-only Codex CLI code review, scoped fixes, and PR creation."
+  short_description: "Deliver Feature Specs with review/test gates"
+  default_prompt: "Use $feature-spec-execution to execute the next ready Feature Spec end to end, including pre-implementation requirements/design review, clarification pauses when needed, implementation, targeted tests with explicit timeouts, a Codex CLI code-review/fix loop until no actionable code issues remain, then regression testing, one final full-suite test before commit, and PR creation."

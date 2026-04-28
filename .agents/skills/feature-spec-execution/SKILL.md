@@ -1,6 +1,6 @@
 ---
 name: feature-spec-execution
-description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, run Codex CLI code review with automatic fixes, commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implement, and test subagents when available; run code review through Codex CLI (`codex exec review`) before falling back to owner-thread review. Main agent and every subagent must plan before executing."
+description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, run Codex CLI code review and fixes until no actionable code issues remain, then run regression and one final full test before commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implement, and test subagents when available; run code review through Codex CLI (`codex exec review`) before falling back to owner-thread review. Main agent and every subagent must plan before executing."
 ---
 
 # Feature Spec Execution
@@ -36,7 +36,9 @@ IMPLEMENT        (implementer-subagent: plan → implement)
     ↓
 TEST             (test-subagent: plan → test)
     ↓
-CODE REVIEW      (Codex CLI review → owner auto-fix → rerun verification)
+CODE REVIEW LOOP (Codex CLI review → auto-fix → repeat until clean)
+    ↓
+FINAL TEST GATE  (final regression + one full-suite test before commit)
     ↓
 UPDATE STATUS → done
     ↓
@@ -195,34 +197,34 @@ Use a review subagent when available if the feature is complex or touches shared
 1. Derive a bounded test plan before dispatching any test work:
    - Prefer an explicit `Verification Command` in `tasks.md` or `design.md`.
    - If no command is specified, infer a targeted command from changed production files and nearby tests, then record it in the stage note. Example for Node's built-in test runner: `node --test tests/recovery.test.ts tests/codex-runner.test.ts`.
-   - Use `npm test` only as a final pre-PR regression gate, not as the default Stage 7 command.
+   - Use targeted regression commands in Stage 7; reserve `npm test` or the repository full-suite command for the mandatory final gate in Stage 8.
    - Do not add Jest-only flags such as `--runInBand` unless the repository actually uses Jest. For Node's built-in `node --test`, pass file paths directly.
    - Wrap long-running commands with a timeout, defaulting to `timeout 180s <command>` for targeted tests and `timeout 600s <command>` for final full-suite gates unless the repository documents a different limit.
 2. If subagents are available, compose a compact test dispatch prompt containing:
    - Absolute worktree path.
    - Acceptance criteria from `requirements.md`.
    - Implementer handoff summary (from Stage 6).
-   - Explicit test scope: targeted unit tests, targeted integration tests, and/or final full-suite gate.
+   - Explicit test scope: targeted unit tests and targeted integration tests for the feature.
    - Exact command(s) to run, including timeout wrappers.
-   - Instruction that the test subagent must not expand to full-suite testing unless the owner prompt explicitly includes that command.
+   - Instruction that the test subagent must not expand to full-suite testing in Stage 7; full-suite execution is reserved for the Stage 8 final gate.
    - Instruction: **plan first, then test** (see Subagent Plan-Then-Execute Contract below).
 3. Dispatch `test-subagent` with the prompt, then wait for the test handoff summary.
 4. If subagents are unavailable, run the same plan-then-test contract in the owner thread inside `${WORKTREE_PATH}`.
-5. Validate: all acceptance criteria are covered by targeted tests, the targeted commands pass, and any final full-suite gate pass/fail is recorded separately.
+5. Validate: all acceptance criteria are covered by targeted tests and the targeted commands pass.
 6. If tests fail, do not start broad exploratory testing. Re-dispatch the implementer with the exact failing command and output, fix locally under the same contract, or log the failure and decide on scope adjustment.
 7. If a command times out, classify it as a test-command or performance blocker with the command, timeout value, and last output. Do not rerun the same command with a longer timeout unless the owner explicitly decides it is the right gate.
 
 **Test-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
 
 1. **Plan**: Produce a written test plan listing which acceptance criteria map to which test cases, test file locations, and the run command. Output the plan as a `PLAN:` block before writing or running any test.
-2. **Execute**: Write or update only in-scope test files; run the owner-specified targeted command(s). Run the full suite only when the owner prompt explicitly names it as a final gate.
+2. **Execute**: Write or update only in-scope test files; run the owner-specified targeted command(s). Do not run the full suite during Stage 7.
 3. **Report**: Return a compact summary: acceptance criteria covered, tests added/modified, exact commands run, timeout values, pass/fail counts, coverage notes, and risks.
 
 ---
 
-## Stage 8 — Codex CLI Code Review and Automatic Fixes
+## Stage 8 — Codex CLI Code Review, Fix Loop, and Final Test Gate
 
-This stage is mandatory after implementation and tests. Treat it as an independent Codex CLI code-review pass focused on bugs, regressions, requirement drift, incomplete tests, and unsafe scope expansion. Prefer `codex exec review` because it runs Codex's dedicated local reviewer against the selected diff and does not modify the working tree. Keep this pass review-only: the reviewer must not run tests, start servers, install dependencies, or broaden verification. The owner reruns explicit targeted or final-gate commands after fixes.
+This stage is mandatory after implementation and targeted tests. Treat it as an independent Codex CLI code-review loop focused on bugs, regressions, requirement drift, incomplete tests, and unsafe scope expansion. Prefer `codex exec review` because it runs Codex's dedicated local reviewer against the selected diff and does not modify the working tree. Keep every review pass review-only: the reviewer must not run tests, start servers, install dependencies, or broaden verification. The owner fixes findings and repeats Codex review until there are no unresolved actionable code issues. Only after the review loop is clean does the owner run regression testing, followed by one full-suite test gate before Stage 9 and before any commit.
 
 **Owner thread responsibilities:**
 
@@ -230,11 +232,14 @@ This stage is mandatory after implementation and tests. Treat it as an independe
    - `git diff --stat` and `git diff` inside `${WORKTREE_PATH}`.
    - `requirements.md`, `design.md`, `tasks.md`, the `PRE-IMPLEMENTATION REVIEW:` note, implementer handoff, and test handoff.
    - The verification commands already run and their latest results.
-2. Define a feature-scoped review output path before invoking Codex review:
+2. Define feature-scoped review and final-gate variables before invoking Codex review:
 
 ```bash
-CODEX_REVIEW_OUTPUT=".codex-code-review-${FEATURE_ID}.md"
+CODEX_REVIEW_PASS="${CODEX_REVIEW_PASS:-1}"
+CODEX_REVIEW_OUTPUT=".codex-code-review-${FEATURE_ID}-pass-${CODEX_REVIEW_PASS}.md"
 CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL:-gpt-5.4}"
+FINAL_REGRESSION_COMMAND="${FINAL_REGRESSION_COMMAND:-<targeted Stage 7 command>}"
+FINAL_FULL_TEST_COMMAND="${FINAL_FULL_TEST_COMMAND:-npm test}"
 ```
 
 3. Run Codex CLI review from inside `${WORKTREE_PATH}`:
@@ -257,17 +262,27 @@ codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --outp
    - `fix-now`: actionable, in scope, and does not change product intent.
    - `needs-clarification`: requires product clarification, scope expansion, or architecture change.
    - `no-action`: false positive, duplicate, already covered, or intentionally deferred with reason.
-7. Automatically fix `fix-now` findings.
-8. After every fix, rerun the smallest relevant targeted command from Stage 7 with its timeout. If a fix changes production code, rerun at least that targeted command. Run `npm test` or other full-suite gates only once after the final fix when required by the feature or repository policy.
-9. Repeat Codex review/fix/targeted-test until there are no unresolved high or medium severity actionable findings, or until all remaining findings are classified with reasons. Limit automatic review loops to two complete review passes after the initial review; if the same severity class persists, stop and report the blocker instead of continuing to spend tokens.
-10. If a finding requires product clarification or scope expansion, stop, ask the user, and wait for the reply before continuing.
-11. Record a compact `CODE REVIEW:` note:
+7. Automatically fix every `fix-now` finding. Do not defer in-scope correctness, regression, requirement, security/privacy, or missing-test findings.
+8. Do not run regression tests between code-review passes. After each fix batch, increment `CODEX_REVIEW_PASS`, run Codex review again against the updated uncommitted diff, and classify findings again.
+9. Continue the review -> fix loop until the review output contains no unresolved actionable findings.
+10. Do not use a fixed pass limit. Stop the loop only when:
+   - All findings are `no-action` with explicit reasons and no high/medium actionable issue remains.
+   - A finding is `needs-clarification`; ask the user and wait before continuing.
+   - The same actionable finding persists after an attempted fix and cannot be resolved without changing product intent, architecture, or scope; report it as a blocker and do not commit.
+   - The Codex review path is unavailable; fall back to owner-thread review and state the fallback.
+11. After the review loop is clean, run the mandatory final gates in this order:
+   - Final regression: `timeout 180s ${FINAL_REGRESSION_COMMAND}` unless the repository documents a different timeout.
+   - Final full-suite test: `timeout 600s ${FINAL_FULL_TEST_COMMAND}` unless the repository documents a different full-suite command or timeout.
+12. If either final gate fails, fix the failure, rerun Codex review until it is clean again, then repeat the final regression and final full-suite gates in order.
+13. Record a compact `CODE REVIEW AND FINAL TEST GATE:` note:
    - Findings fixed.
    - Findings intentionally left unresolved, with reason.
-   - Codex review output file path.
-   - Codex review command used.
+   - Codex review output file paths for all passes.
+   - Codex review command used for each pass.
    - Codex review model used.
-   - Verification rerun results.
+   - Confirmation that no regression tests were run between review/fix passes.
+   - Final regression command and result.
+   - Final full-suite command and result.
 
 **Code-review-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
 
@@ -281,6 +296,8 @@ Use a code-review subagent only when the Codex CLI review command is unavailable
 ---
 
 ## Stage 9 — Update Feature Status → `done`
+
+Do not update status to `done` until Stage 8 has recorded a clean review loop, a passing final regression command, and one passing full-suite test after the last fix.
 
 1. Work inside the feature worktree:
 
@@ -430,7 +447,7 @@ Use these exact values in the `Status` column of `docs/features/README.md`:
 |---|---|
 | `pending` | Not yet started; waiting in backlog |
 | `in-progress` | Owner thread has started this feature lifecycle |
-| `done` | Implementation, tests, and code review complete; PR will include this status update |
+| `done` | Implementation, targeted tests, clean code-review loop, final regression, and final full-suite test complete; PR will include this status update |
 | `merged` | PR merged to main |
 | `blocked` | Cannot proceed; reason recorded in feature spec folder |
 
@@ -442,7 +459,7 @@ Use these exact values in the `Status` column of `docs/features/README.md`:
 - If Stage 5 (pre-implementation review) finds blocking ambiguity, ask the user for clarification and do not implement until the user replies.
 - If Stage 6 (implement) fails, update status to `blocked` in the feature branch only when committing a useful partial artifact is appropriate; otherwise leave the branch unpushed and report the blocker.
 - If Stage 7 (test) fails, do not advance to Stage 8. Re-dispatch the implementer with failure details, or log the failure and mark `blocked`.
-- If Stage 8 (code review) finds actionable defects, fix them and rerun verification before advancing. If the fix requires product clarification or scope expansion, ask the user and wait.
+- Stage 10 must not start unless Stage 8 has a clean review loop, a passing final regression command, and one passing full-suite test result recorded after the last fix.
 - If Stage 11 (PR creation) fails, leave the commits in the worktree, report the error, and provide the manual push command.
 - Never force-delete the worktree if uncommitted changes exist.
 
