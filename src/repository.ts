@@ -75,7 +75,7 @@ export function readRepositorySummary(localPath: string, runner: CommandRunner =
   summary.latestCommit = firstNonEmpty(git(["rev-parse", "HEAD"], localPath, runner).stdout);
 
   const status = git(["status", "--short"], localPath, runner);
-  summary.uncommittedChanges = lines(status.stdout);
+  summary.uncommittedChanges = lines(status.stdout).filter((line) => !isControlPlaneArtifactStatus(line));
   summary.hasUncommittedChanges = summary.uncommittedChanges.length > 0;
 
   summary.taskBranches = lines(git(["branch", "--format=%(refname:short)"], localPath, runner).stdout).filter(
@@ -187,6 +187,11 @@ function readSensitiveFileRisks(localPath: string): string[] {
   } catch {
     return [];
   }
+}
+
+function isControlPlaneArtifactStatus(line: string): boolean {
+  const path = line.replace(/^[ MADRCU?!]{1,2}\s+/, "");
+  return path === ".autobuild" || path === ".autobuild/" || path.startsWith(".autobuild/");
 }
 
 function firstNonEmpty(value: string): string | undefined {

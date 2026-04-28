@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { initializeProjectMemory } from "./memory.ts";
 import { runSqlite } from "./sqlite.ts";
 import { readRepositorySummary, type CommandRunner, type RepositorySummary } from "./repository.ts";
 
@@ -85,6 +87,16 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
       localPath: targetRepoPath,
       defaultBranch,
     });
+    if (existsSync(targetRepoPath)) {
+      initializeProjectMemory({
+        dbPath,
+        artifactRoot: join(targetRepoPath, ".autobuild"),
+        projectId: id,
+        projectName: input.name,
+        goal: input.goal,
+        defaultBranch,
+      });
+    }
   }
 
   return {

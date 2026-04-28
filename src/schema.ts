@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -396,6 +396,34 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_worktree_records_feature_cleanup ON worktree_records(feature_id, cleanup_status)",
       "CREATE INDEX IF NOT EXISTS idx_merge_readiness_worktree ON merge_readiness_results(worktree_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_rollback_boundaries_worktree ON rollback_boundaries(worktree_id, created_at)",
+    ],
+  },
+  {
+    version: 5,
+    description: "Add project memory recovery projection schema",
+    statements: [
+      "ALTER TABLE memory_version_records ADD COLUMN run_id TEXT",
+      "ALTER TABLE memory_version_records ADD COLUMN checksum TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE memory_version_records ADD COLUMN content TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE memory_version_records ADD COLUMN restored_from_version INTEGER",
+      `CREATE TABLE IF NOT EXISTS memory_compaction_events (
+        id TEXT PRIMARY KEY,
+        project_memory_id TEXT NOT NULL,
+        from_version INTEGER NOT NULL,
+        to_version INTEGER NOT NULL,
+        run_id TEXT,
+        token_budget INTEGER NOT NULL,
+        estimated_tokens_before INTEGER NOT NULL,
+        estimated_tokens_after INTEGER NOT NULL,
+        preserved_sections_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_memory_versions_memory_version
+        ON memory_version_records(project_memory_id, version)`,
+      `CREATE INDEX IF NOT EXISTS idx_memory_versions_run
+        ON memory_version_records(run_id, created_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_memory_compactions_memory
+        ON memory_compaction_events(project_memory_id, created_at)`,
     ],
   },
 ];
