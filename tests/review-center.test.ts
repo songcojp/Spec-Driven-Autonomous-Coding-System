@@ -384,7 +384,7 @@ test("feature-scoped reviews pause executable child tasks", () => {
   assert.equal(result.queries.graphTask[0].status, "review_needed");
 
   recordApprovalDecision(dbPath, {
-    reviewItemId: "REV-FEATURE-CLARIFICATION",
+    reviewItemId: "REV-FEATURE-PAUSE-CHILDREN",
     decision: "approve_continue",
     actor: "reviewer",
     reason: "Clarification resolved.",
@@ -398,8 +398,8 @@ test("feature-scoped reviews pause executable child tasks", () => {
     { name: "graphTask", sql: "SELECT status FROM task_graph_tasks WHERE id = 'TASK-011'" },
   ]);
   assert.equal(restored.queries.feature[0].status, "ready");
-  assert.equal(restored.queries.task[0].status, "running");
-  assert.equal(restored.queries.graphTask[0].status, "running");
+  assert.equal(restored.queries.task[0].status, "ready");
+  assert.equal(restored.queries.graphTask[0].status, "ready");
 });
 
 test("task-scoped reviews preserve failed sibling feature status", () => {

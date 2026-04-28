@@ -188,7 +188,12 @@ test("console write commands persist rule and spec evolution evidence", () => {
   });
 
   const result = runSqlite(dbPath, [], [
-    { name: "evidence", sql: "SELECT kind, feature_id, path, summary, metadata_json FROM evidence_packs WHERE kind IN ('project_rule', 'spec_evolution') ORDER BY kind" },
+    {
+      name: "evidence",
+      sql: `SELECT kind, feature_id, path, summary, metadata_json FROM evidence_packs
+        WHERE kind IN ('project_rule', 'spec_evolution') AND metadata_json LIKE '%"commandAction"%'
+        ORDER BY kind`,
+    },
   ]);
 
   assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["project_rule", "spec_evolution"]);

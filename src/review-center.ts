@@ -259,6 +259,9 @@ export function listReviewCenterItems(dbPath: string, input: { projectId?: strin
 }
 
 function linkedEvidenceMatchesReview(entry: Record<string, unknown>, item: ReviewItem): boolean {
+  if (item.triggerReasons.length > 0) {
+    return false;
+  }
   if (item.runId) {
     return entry.run_id === item.runId;
   }
@@ -266,7 +269,7 @@ function linkedEvidenceMatchesReview(entry: Record<string, unknown>, item: Revie
     return entry.task_id === item.taskId;
   }
   if (item.featureId) {
-    return entry.feature_id === item.featureId;
+    return entry.feature_id === item.featureId && !entry.task_id;
   }
   return false;
 }
@@ -276,11 +279,11 @@ export function recordApprovalDecision(dbPath: string, input: RecordApprovalInpu
   if (!item) {
     throw new Error(`Review item not found: ${input.reviewItemId}`);
   }
+  assertDecisionCanTargetStatus(item, input);
   if (item.status === "approved" || item.status === "closed") {
     throw new Error(`Review item ${input.reviewItemId} is already resolved.`);
   }
   assertRecommendedDecision(item, input);
-  assertDecisionCanTargetStatus(item, input);
   assertFeatureCanTargetTerminalStatus(dbPath, item, input);
   assertNoOtherOpenReviewsForTerminalTarget(dbPath, item, input);
 
@@ -397,6 +400,12 @@ function buildApprovalTransition(dbPath: string, item: ReviewCenterItem, input: 
     if (from === to) {
       return approvalSelfTransition("task", item.taskId, from, to, input.reason, evidence, occurredAt);
     }
+    if (input.decision === "approve_continue" && ["blocked", "failed"].includes(from)) {
+      throw new Error(`Illegal task transition for ${item.taskId}: ${from} -> ${to}`);
+    }
+    if (isReviewReopen(input, from, to)) {
+      return approvalSelfTransition("task", item.taskId, from, to, input.reason, evidence, occurredAt);
+    }
     return transitionTask(item.taskId, from, to, {
       reason: input.reason,
       evidence,
@@ -508,7 +517,7 @@ function approvalTargetStatusStatements(item: ReviewItem, input: RecordApprovalI
     return [
       { sql: "UPDATE features SET status = ?, updated_at = ? WHERE id = ?", params: [transition.to, updatedAt, item.featureId] },
       ...featureChildRestoreStatements(item, input, updatedAt),
-      ...featureReviewGateStatusStatements(item.featureId, updatedAt),
+      ...(input.decision === "approve_continue" ? featureReviewGateStatusStatements(item.featureId, updatedAt) : []),
     ];
   }
   return [];
@@ -903,10 +912,6 @@ function assertDecisionCanTargetStatus(item: ReviewCenterItem, input: RecordAppr
   if (input.decision !== "mark_complete") {
     throw new Error(`Decision ${input.decision} cannot target terminal status ${targetStatus}.`);
   }
-  const pausedStatus = item.taskId ? item.body.pausedTaskStatus : item.body.pausedFeatureStatus;
-  if (pausedStatus !== targetStatus) {
-    throw new Error(`Decision mark_complete cannot target ${targetStatus} for work paused from ${pausedStatus ?? "unknown"}.`);
-  }
 }
 
 function hasTerminalApprovalSinceLatestReview(scoped: ReviewCenterItem[], targetStatus: BoardColumn | FeatureLifecycleStatus): boolean {
@@ -930,7 +935,20 @@ function hasTerminalApprovalSinceLatestReview(scoped: ReviewCenterItem[], target
 }
 
 function requiresTerminalApprovalGate(item: ReviewCenterItem, targetStatus: BoardColumn | FeatureLifecycleStatus): boolean {
-  return terminalPausedStatus(item, targetStatus) || (item.status === "approved" && item.approvals.length === 0);
+  const pausedStatus = item.taskId ? item.body.pausedTaskStatus : item.body.pausedFeatureStatus;
+  return terminalPausedStatus(item, targetStatus) ||
+    pausedStatus === "review_needed" ||
+    (item.status === "approved" && item.approvals.length === 0);
+}
+
+function isReviewReopen(
+  input: RecordApprovalInput,
+  from: BoardColumn,
+  to: BoardColumn,
+): boolean {
+  return input.decision === "request_changes" &&
+    ["done", "delivered"].includes(from) &&
+    ["backlog", "ready", "scheduled", "running", "checking"].includes(to);
 }
 
 function parentFeatureFallbackStatus(pausedStatus?: FeatureLifecycleStatus): FeatureLifecycleStatus {
