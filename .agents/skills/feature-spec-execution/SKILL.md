@@ -1,11 +1,11 @@
 ---
 name: feature-spec-execution
-description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, run Codex review to a log, have the owner analyze that log before deciding fixes, then run regression and one final full test before commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implementation, testing, and review-analysis subagents when available. Main agent and every subagent must plan before executing."
+description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, test, run Codex review to temporary logs, have the owner analyze those logs before deciding fixes, then run regression and one final full test before commit, create a PR, clean temporary review logs, and remove the local worktree. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implementation, testing, and review-analysis subagents when available. Main agent and every subagent must plan before executing."
 ---
 
 # Feature Spec Execution
 
-This skill runs one feature spec through its complete delivery lifecycle on the owner thread, delegating bounded review, implementation, and testing work to dedicated subagents to prevent context bloat.
+This skill runs one feature spec through its complete delivery lifecycle on the owner thread, delegating bounded review, implementation, and testing work to dedicated subagents to prevent context bloat. Review logs are temporary execution evidence: keep them only while analyzing the current pass, summarize the final decision in committed feature artifacts, then delete the temporary logs before cleanup.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ IMPLEMENT        (implementer-subagent: plan → implement)
     ↓
 TEST             (test-subagent: plan → test)
     ↓
-CODE REVIEW LOOP (Codex review log → owner analysis → fix approved issues)
+CODE REVIEW LOOP (max 3 passes: Codex review log → owner analysis → fix approved issues)
     ↓
 FINAL TEST GATE  (final regression + one full-suite test before commit)
     ↓
@@ -46,7 +46,7 @@ GIT COMMIT       (feature branch only; follow git-commit-conventions skill)
     ↓
 CREATE PR        (GitHub PR via gh CLI or REST API)
     ↓
-DELETE WORKTREE  (git worktree remove + delete local feature branch)
+CLEANUP          (delete temporary review logs + remove local worktree)
 ```
 
 ---
@@ -224,7 +224,7 @@ Use a review subagent when available if the feature is complex or touches shared
 
 ## Stage 8 — Codex Review Log, Owner Analysis, Fix Loop, and Final Test Gate
 
-This stage is mandatory after implementation and targeted tests. Treat Codex review as a raw signal, not as the gate decision itself: run Codex review, write its output to a log file, then have the owner analyze that log against the feature spec, Stage 5 restrictive requirements, implementation diff, and test evidence. Do not automatically fix every Codex review comment. The owner fixes only findings classified as actionable, in-scope, and high/medium risk. Only after the owner analysis says there are no unresolved high/medium actionable code issues does the owner run regression testing, followed by one full-suite test gate before Stage 9 and before any commit.
+This stage is mandatory after implementation and targeted tests. Treat Codex review as a raw signal, not as the gate decision itself: run Codex review, write every pass output to temporary log files, then have the owner analyze each log against the feature spec, Stage 5 restrictive requirements, implementation diff, and test evidence. Do not automatically fix every Codex review comment. The owner fixes only findings classified as actionable, in-scope, and high/medium risk. Every fix batch must also be temporarily logged so the lifecycle can diagnose whether fixes are introducing new defects during the current run. Only after the owner analysis says there are no unresolved high/medium actionable code issues does the owner run regression testing, followed by one full-suite test gate before Stage 9 and before any commit.
 
 **Owner thread responsibilities:**
 
@@ -236,17 +236,22 @@ This stage is mandatory after implementation and targeted tests. Treat Codex rev
 
 ```bash
 CODE_REVIEW_PASS="${CODE_REVIEW_PASS:-1}"
-CODEX_REVIEW_LOG=".codex-review-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.log.md"
-REVIEW_ANALYSIS_OUTPUT=".review-analysis-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.md"
+REVIEW_ARTIFACT_DIR=".codex/tmp/feature-review/${FEATURE_ID}"
+CODEX_REVIEW_LOG="${REVIEW_ARTIFACT_DIR}/codex-review-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.log.md"
+REVIEW_ANALYSIS_OUTPUT="${REVIEW_ARTIFACT_DIR}/review-analysis-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.md"
+FIX_LOG="${REVIEW_ARTIFACT_DIR}/fix-pass-${FEATURE_ID}-${CODE_REVIEW_PASS}.md"
+REVIEW_LOOP_ANALYSIS="${REVIEW_ARTIFACT_DIR}/review-loop-analysis-${FEATURE_ID}.md"
+MAX_REVIEW_FIX_PASSES="${MAX_REVIEW_FIX_PASSES:-3}"
 CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL:-gpt-5.4}"
 FINAL_REGRESSION_COMMAND="${FINAL_REGRESSION_COMMAND:-<targeted Stage 7 command>}"
 FINAL_FULL_TEST_COMMAND="${FINAL_FULL_TEST_COMMAND:-npm test}"
 ```
 
-3. Run Codex review from inside `${WORKTREE_PATH}` and write the raw result to `"${CODEX_REVIEW_LOG}"`. This lifecycle should keep the review scope command CLI-compatible; do not append a positional prompt when the installed CLI rejects prompts combined with review-scope flags.
+3. Create `"${REVIEW_ARTIFACT_DIR}"`, then run Codex review from inside `${WORKTREE_PATH}` and write the raw result to `"${CODEX_REVIEW_LOG}"`. This lifecycle should keep the review scope command CLI-compatible; do not append a positional prompt when the installed CLI rejects prompts combined with review-scope flags. The directory is temporary and must be deleted in Stage 12 after final summaries are recorded.
 
 ```bash
 cd "${WORKTREE_PATH}"
+mkdir -p "${REVIEW_ARTIFACT_DIR}"
 
 # Preferred after Stage 4 status/doc edits and implementation changes are still uncommitted.
 timeout 1800s codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-message "${CODEX_REVIEW_LOG}"
@@ -261,24 +266,51 @@ timeout 1800s codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_B
    - `Fix-now`: only high/medium severity actionable correctness, requirement, security/privacy, or missing-test findings that are in scope.
    - `No-action`: false positives, low-risk suggestions, style preferences, speculative risks, duplicate findings, already-tested behavior, or scope-expansion ideas, each with a reason.
    - `Needs clarification`: findings that require product, architecture, or scope decisions.
+   - `Spec boundary judgment`: for every `Fix-now` candidate, cite the exact requirement, design section, task, acceptance criterion, or Stage 5 restrictive requirement that makes it in scope. If no citation exists, classify the finding as `No-action` or `Needs clarification`; do not fix it automatically.
+   - `Compatibility judgment`: whether any proposed fix introduces legacy/compatibility behavior, with evidence that the legacy behavior is from a released, merged, externally depended-on, or explicitly migration-scoped version. If no such evidence exists, classify compatibility-style fixes as scope expansion or design drift, not `Fix-now`.
    - `Review quality judgment`: whether the Codex review output was useful, noisy, stale, or contradicted by tests/spec evidence.
-6. Automatically fix only `Fix-now` findings from `"${REVIEW_ANALYSIS_OUTPUT}"`. Do not fix `No-action` findings merely because Codex review mentioned them.
-7. Do not run regression tests between review-analysis passes. After each fix batch, increment `CODE_REVIEW_PASS`, run Codex review again to a new log, analyze the new log, and classify findings again.
-8. Continue the review-log -> owner-analysis -> fix loop until `"${REVIEW_ANALYSIS_OUTPUT}"` says `Decision: no-fix-required`, or until the lifecycle stops for clarification/blocker.
-9. Stop the loop when:
+6. Automatically fix only `Fix-now` findings from `"${REVIEW_ANALYSIS_OUTPUT}"`. A `Fix-now` entry is invalid unless it has a concrete spec-boundary citation. Do not fix `No-action` findings merely because Codex review mentioned them, and do not extend requirements/design/tasks during implementation just to make a review finding fit.
+7. After each fix batch, create `"${FIX_LOG}"` before the next review pass. The fix log must include:
+   - Source review pass and analysis file path.
+   - Findings selected for repair, with severity and reason.
+   - Files changed by the fix batch.
+   - Intended behavioral change and requirement/design trace.
+   - Spec-boundary citation proving the fix stays inside current feature scope.
+   - Compatibility/legacy rationale: `none`, or concrete evidence that compatibility is required by an existing released/merged behavior, external dependency, persisted data migration, or explicit feature requirement.
+   - Risks introduced by the fix.
+   - Whether the fix may create follow-on work.
+   - Commands intentionally not run yet because regression waits until the review-analysis loop is clean.
+   A feature that has not reached a formal completed, merged, or externally consumed version must not create "legacy" compatibility branches for its own intermediate implementation states. In that case, fix toward the current requirements/design source of truth instead of preserving the transient behavior.
+8. Do not run regression tests between review-analysis passes. After each fix batch, increment `CODE_REVIEW_PASS`, run Codex review again to a new temporary log, analyze the new log, and classify findings again.
+9. Continue the review-log -> owner-analysis -> fix loop until `"${REVIEW_ANALYSIS_OUTPUT}"` says `Decision: no-fix-required`, or until the lifecycle stops for clarification/blocker.
+10. If `CODE_REVIEW_PASS` reaches `"${MAX_REVIEW_FIX_PASSES}"` and the loop is still not clean, stop automatic repair and create `"${REVIEW_LOOP_ANALYSIS}"`. The default maximum is 3 passes. The loop analysis must answer:
+   - How many review passes and fix batches ran.
+   - Which findings repeated across passes.
+   - Which findings disappeared after fixes.
+   - Which new findings appeared after a fix batch.
+   - Whether fixes are introducing new defects, expanding scope, or changing architecture.
+   - Which fixes lacked a clear spec-boundary citation and should have been blocked before implementation.
+   - Whether compatibility/legacy fixes were introduced without evidence of a formal completed version, external dependency, persisted-data migration need, or explicit requirement.
+   - Whether remaining findings are real high/medium issues, low-value review noise, spec ambiguity, test gaps, or design mismatch.
+   - Whether the implementation should continue with a narrower fix, roll back a fix batch, revise requirements/design/tasks, ask the user for clarification, or stop as blocked.
+   - A pass-by-pass table referencing every Codex review log, owner analysis file, and fix log.
+   After writing this analysis, report the blocker and do not continue to another review/fix pass without explicit user approval.
+11. Stop the loop when:
    - Owner analysis confirms no unresolved high/medium actionable issue remains.
    - `needs-clarification` appears; ask the user and wait before continuing.
    - The same actionable finding persists after an attempted fix and cannot be resolved without changing product intent, architecture, or scope; report it as a blocker and do not commit.
    - Codex review repeatedly times out or produces unusable/noisy output; record that judgment and fall back to owner-thread review for the gate.
-10. After the review-analysis loop is clean, run the mandatory final gates in this order:
+12. After the review-analysis loop is clean, run the mandatory final gates in this order:
    - Final regression: `timeout 180s ${FINAL_REGRESSION_COMMAND}` unless the repository documents a different timeout.
    - Final full-suite test: `timeout 600s ${FINAL_FULL_TEST_COMMAND}` unless the repository documents a different full-suite command or timeout.
-11. If either final gate fails, fix the failure, rerun Codex review to a new log, rerun owner analysis until clean, then repeat the final regression and final full-suite gates in order.
-12. Record a compact `CODE REVIEW AND FINAL TEST GATE:` note:
+13. If either final gate fails, fix the failure, rerun Codex review to a new log, rerun owner analysis until clean, then repeat the final regression and final full-suite gates in order.
+14. Record a compact `CODE REVIEW AND FINAL TEST GATE:` note:
    - Findings fixed.
    - Findings intentionally left unresolved, with reason.
-   - Codex review log paths for all passes.
-   - Owner analysis output paths for all passes.
+   - Codex review pass count and compact summary of each pass. Do not commit raw Codex review logs.
+   - Owner analysis decision for each pass. Do not commit raw owner-analysis logs.
+   - Fix batch summary for each fix. Do not commit raw fix logs.
+   - Review loop analysis summary if the loop reached `"${MAX_REVIEW_FIX_PASSES}"` or was stopped as blocked.
    - Review quality judgment for each pass.
    - Confirmation that no regression tests were run between review/fix passes.
    - Final regression command and result.
@@ -326,7 +358,7 @@ Refs: ${FEATURE_ID}"
 
 - Keep the subject at or under 72 characters.
 - Include the pre-implementation review, implementer handoff, test handoff, and code-review summaries in the body only if they are short; otherwise reference `tasks.md`.
-- Also stage and commit the `docs/features/README.md` status update and any spec clarification edits in this commit.
+- Also stage and commit the `docs/features/README.md` status update and any spec clarification edits. Do not stage raw Codex review logs, owner-analysis logs, fix logs, or temporary loop-analysis files from `"${REVIEW_ARTIFACT_DIR}"`.
 
 ---
 
@@ -384,16 +416,24 @@ Record the PR URL in the session output.
 
 ---
 
-## Stage 12 — Delete Local Worktree
+## Stage 12 — Clean Temporary Logs and Remove Local Worktree
+
+After the commit and PR are created, delete temporary review logs and remove the local worktree. Cleanup is part of normal successful execution.
+
+Run and report:
 
 ```bash
-git -C "${OWNER_REPO_PATH}" worktree remove "${WORKTREE_PATH}" --force
-git -C "${OWNER_REPO_PATH}" branch -d "${FEATURE_BRANCH}"
+git -C "${WORKTREE_PATH}" status --short --branch
+rm -rf "${WORKTREE_PATH}/${REVIEW_ARTIFACT_DIR}"
+git -C "${OWNER_REPO_PATH}" worktree remove "${WORKTREE_PATH}"
+git -C "${OWNER_REPO_PATH}" worktree list
 ```
 
-- Use `--force` on `git worktree remove` only if the worktree is confirmed clean and all commits were pushed to remote.
-- Verify `git worktree list` no longer shows the removed path.
-- Do NOT delete the remote branch; it remains for the open PR.
+- Before removal, `git -C "${WORKTREE_PATH}" status --short --branch` must be clean except for ignored/generated files that are safe to delete. If the worktree is dirty after commit, stop and report the remaining files instead of removing it.
+- Confirm `"${WORKTREE_PATH}/${REVIEW_ARTIFACT_DIR}"` was removed before removing the worktree.
+- Record the removed `WORKTREE_PATH`, `FEATURE_BRANCH`, and PR URL in the final session output.
+- Do not delete the remote branch; it remains for the open PR.
+- Do not delete the local feature branch unless the repository workflow explicitly requires it after PR creation; removing the worktree is sufficient.
 
 ---
 
@@ -447,7 +487,7 @@ Use these exact values in the `Status` column of `docs/features/README.md`:
 |---|---|
 | `pending` | Not yet started; waiting in backlog |
 | `in-progress` | Owner thread has started this feature lifecycle |
-| `done` | Implementation, targeted tests, clean code-review loop, final regression, and final full-suite test complete; PR will include this status update |
+| `done` | Implementation, targeted tests, owner review analysis summary, final regression, final full-suite test, PR creation, temporary log cleanup, and local worktree removal complete |
 | `merged` | PR merged to main |
 | `blocked` | Cannot proceed; reason recorded in feature spec folder |
 
@@ -460,8 +500,8 @@ Use these exact values in the `Status` column of `docs/features/README.md`:
 - If Stage 6 (implement) fails, update status to `blocked` in the feature branch only when committing a useful partial artifact is appropriate; otherwise leave the branch unpushed and report the blocker.
 - If Stage 7 (test) fails, do not advance to Stage 8. Re-dispatch the implementer with failure details, or log the failure and mark `blocked`.
 - Stage 10 must not start unless Stage 8 has a clean review loop, a passing final regression command, and one passing full-suite test result recorded after the last fix.
-- If Stage 11 (PR creation) fails, leave the commits in the worktree, report the error, and provide the manual push command.
-- Never force-delete the worktree if uncommitted changes exist.
+- If Stage 11 (PR creation) fails, leave the commits in the worktree, report the error, and provide the manual push/PR command. Do not remove the worktree until PR creation succeeds or the user explicitly requests cleanup.
+- On successful Stage 11 completion, Stage 12 must remove temporary review logs and the local worktree.
 
 ---
 
