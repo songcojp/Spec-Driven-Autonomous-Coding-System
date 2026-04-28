@@ -19,6 +19,9 @@ import {
   writeSanitizedArtifact,
   type CoreEntityInput,
 } from "../src/persistence.ts";
+import { createReviewItem, recordApprovalDecision } from "../src/review-center.ts";
+
+const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
 test("schema includes persistence, audit, metrics, idempotency, and recovery tables", () => {
   const dbPath = makeDbPath();
@@ -59,6 +62,59 @@ test("core entity required fields persist and recover as one state snapshot", ()
 
   const recovered = getCoreEntitySnapshot(dbPath, "project-1", "FEAT-014", "TASK-001", "RUN-001");
   assert.equal(recovered.evidencePack.path, ".autobuild/evidence/RUN-001.json");
+});
+
+test("core entity persistence enforces review approval before terminal task state", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  persistCoreEntitySnapshot(dbPath, sampleCoreEntityInput());
+  createReviewItem(dbPath, {
+    id: "REV-PERSISTENCE-GATE",
+    taskId: "TASK-001",
+    message: "Task completion requires reviewer approval.",
+    reviewNeededReason: "approval_needed",
+    triggerReasons: ["permission_escalation"],
+    now: stableDate,
+  });
+
+  assert.throws(
+    () =>
+      persistCoreEntitySnapshot(dbPath, {
+        ...sampleCoreEntityInput(),
+        task: { ...sampleCoreEntityInput().task, status: "done" },
+        run: { ...sampleCoreEntityInput().run, status: "completed" },
+      }),
+    /Positive approval required/,
+  );
+});
+
+test("core entity persistence accepts approved post-completion reviews", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const doneInput = {
+    ...sampleCoreEntityInput(),
+    feature: { ...sampleCoreEntityInput().feature, status: "done" },
+    task: { ...sampleCoreEntityInput().task, status: "done" },
+    run: { ...sampleCoreEntityInput().run, status: "completed" },
+  };
+  persistCoreEntitySnapshot(dbPath, doneInput);
+  createReviewItem(dbPath, {
+    id: "REV-POST-COMPLETION",
+    taskId: "TASK-001",
+    message: "Post-completion review should not require another terminal transition.",
+    reviewNeededReason: "approval_needed",
+    triggerReasons: ["permission_escalation"],
+    now: stableDate,
+  });
+  recordApprovalDecision(dbPath, {
+    reviewItemId: "REV-POST-COMPLETION",
+    decision: "approve_continue",
+    actor: "reviewer",
+    reason: "Review approved after completion.",
+    now: stableDate,
+  });
+
+  assert.doesNotThrow(() => persistCoreEntitySnapshot(dbPath, doneInput));
 });
 
 test("idempotency manager replays run, state, memory, evidence, and recovery keys once", () => {

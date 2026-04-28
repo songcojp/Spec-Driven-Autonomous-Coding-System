@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -566,6 +566,47 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_spec_alignment_results_run ON spec_alignment_results(run_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_pack ON evidence_attachment_refs(evidence_pack_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_run ON evidence_attachment_refs(run_id, created_at)",
+    ],
+  },
+  {
+    version: 9,
+    description: "Add review center approval context",
+    statements: [
+      "ALTER TABLE review_items ADD COLUMN project_id TEXT",
+      "ALTER TABLE review_items ADD COLUMN task_id TEXT",
+      "ALTER TABLE review_items ADD COLUMN run_id TEXT",
+      "ALTER TABLE review_items ADD COLUMN review_needed_reason TEXT NOT NULL DEFAULT 'risk_review_needed'",
+      "ALTER TABLE review_items ADD COLUMN trigger_reasons_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE review_items ADD COLUMN recommended_actions_json TEXT NOT NULL DEFAULT '[]'",
+      `UPDATE review_items
+        SET recommended_actions_json = '["approve_continue","mark_complete","reject","request_changes"]'
+        WHERE recommended_actions_json = '[]'`,
+      "ALTER TABLE review_items ADD COLUMN evidence_refs_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE review_items ADD COLUMN updated_at TEXT",
+      "UPDATE review_items SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)",
+      "ALTER TABLE approval_records ADD COLUMN decision TEXT NOT NULL DEFAULT 'approve_continue'",
+      `UPDATE approval_records
+        SET decision = CASE status
+          WHEN 'approved' THEN 'approve_continue'
+          WHEN 'rejected' THEN 'reject'
+          WHEN 'changes_requested' THEN 'request_changes'
+          WHEN 'approve_continue' THEN 'approve_continue'
+          WHEN 'reject' THEN 'reject'
+          WHEN 'request_changes' THEN 'request_changes'
+          WHEN 'rollback' THEN 'rollback'
+          WHEN 'split_task' THEN 'split_task'
+          WHEN 'update_spec' THEN 'update_spec'
+          WHEN 'mark_complete' THEN 'mark_complete'
+          ELSE 'request_changes'
+        END`,
+      "ALTER TABLE approval_records ADD COLUMN reason TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE approval_records ADD COLUMN state_transition_id TEXT",
+      "ALTER TABLE approval_records ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+      "ALTER TABLE approval_records ADD COLUMN created_at TEXT",
+      "UPDATE approval_records SET created_at = COALESCE(created_at, decided_at, CURRENT_TIMESTAMP)",
+      "CREATE INDEX IF NOT EXISTS idx_review_items_project_status ON review_items(project_id, status, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_review_items_feature_task ON review_items(feature_id, task_id, status)",
+      "CREATE INDEX IF NOT EXISTS idx_approval_records_review_item ON approval_records(review_item_id, decided_at)",
     ],
   },
 ];

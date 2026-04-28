@@ -3,6 +3,7 @@ import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
 import type { BoardColumn, RiskLevel } from "./orchestration.ts";
 import type { RunnerApprovalPolicy, RunnerQueueStatus, RunnerSandboxMode } from "./codex-runner.ts";
+import { listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
 
 export type ConsoleCommandAction =
   | "create_feature"
@@ -12,6 +13,11 @@ export type ConsoleCommandAction =
   | "resume_runner"
   | "approve_review"
   | "reject_review"
+  | "request_review_changes"
+  | "rollback_review"
+  | "split_review_task"
+  | "update_spec"
+  | "mark_review_complete"
   | "write_project_rule"
   | "write_spec_evolution";
 
@@ -35,6 +41,7 @@ export type ConsoleCommandReceipt = {
   entityId: string;
   auditEventId: string;
   acceptedAt: string;
+  approvalRecordId?: string;
 };
 
 export type DashboardQueryOptions = {
@@ -74,6 +81,8 @@ export type DashboardQueryModel = {
   };
   factSources: string[];
 };
+
+const pendingReviewStatuses = new Set(["pending", "review_needed", "changes_requested", "rejected"]);
 
 export type SpecWorkspaceViewModel = {
   features: Array<{
@@ -148,11 +157,21 @@ export type ReviewCenterViewModel = {
   items: Array<{
     id: string;
     featureId?: string;
+    taskId?: string;
     status: string;
     severity: string;
     body: string;
     evidence: Array<{ id: string; summary: string; path?: string }>;
+    goal?: string;
+    specRef?: string;
+    runContract?: unknown;
+    reviewNeededReason: string;
+    triggerReasons: ReviewTrigger[];
+    recommendedActions: ReviewDecision[];
+    approvals: Array<{ id: string; decision: ReviewDecision; actor: string; reason: string; decidedAt: string }>;
     diff?: unknown;
+    testResults?: unknown;
+    riskExplanation?: string;
     createdAt: string;
   }>;
   riskFilters: string[];
@@ -181,6 +200,16 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
   const projectIdFilter = options.projectId ? "WHERE id = ?" : "";
   const featureProjectFilter = options.projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
   const runProjectFilter = options.projectId ? "WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)" : "";
+  const reviewProjectFilter = options.projectId
+    ? `WHERE (
+        project_id = ?
+        OR feature_id IN (SELECT id FROM features WHERE project_id = ?)
+        OR task_id IN (SELECT id FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
+        OR task_id IN (SELECT id FROM task_graph_tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
+        OR run_id IN (SELECT id FROM runs WHERE project_id = ?)
+      )`
+    : "";
+  const reviewParams = options.projectId ? [options.projectId, options.projectId, options.projectId, options.projectId, options.projectId] : [];
   const metricProjectFilter = options.projectId ? "WHERE labels_json LIKE ?" : "";
   const metricParams = options.projectId ? [`%"projectId":"${escapeLike(options.projectId)}"%`] : [];
   const result = runSqlite(dbPath, [], [
@@ -217,8 +246,8 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
     },
     {
       name: "reviews",
-      sql: `SELECT id, severity, status, body, feature_id FROM review_items ${featureProjectFilter} ORDER BY created_at DESC`,
-      params: projectParams,
+      sql: `SELECT id, severity, status, body, feature_id FROM review_items ${reviewProjectFilter} ORDER BY created_at DESC`,
+      params: reviewParams,
     },
     {
       name: "evidence",
@@ -264,7 +293,7 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
     failedTasks: tasks
       .filter((row) => String(row.status) === "failed")
       .map((row) => ({ id: String(row.id), title: String(row.title), status: String(row.status), featureId: optionalString(row.feature_id) })),
-    pendingApprovals: reviews.filter((row) => String(row.status) === "pending" || String(row.status) === "review_needed").length,
+    pendingApprovals: reviews.filter((row) => pendingReviewStatuses.has(String(row.status))).length,
     cost: {
       totalUsd: sumMetrics(metrics, "cost_usd"),
       tokensUsed: sumMetrics(metrics, "tokens_used"),
@@ -490,34 +519,44 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
 }
 
 export function buildReviewCenterView(dbPath: string, projectId?: string): ReviewCenterViewModel {
-  const featureProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
-  const featureProjectParams = projectId ? [projectId] : [];
-  const result = runSqlite(dbPath, [], [
-    { name: "items", sql: `SELECT * FROM review_items ${featureProjectFilter} ORDER BY created_at DESC`, params: featureProjectParams },
-    { name: "evidence", sql: `SELECT id, feature_id, summary, path FROM evidence_packs ${featureProjectFilter} ORDER BY created_at DESC`, params: featureProjectParams },
-  ]);
+  const items = listReviewCenterItems(dbPath, { projectId });
 
   return {
-    items: result.queries.items.map((row) => {
-      const body = parseJsonObject(row.body);
-      return {
-        id: String(row.id),
-        featureId: optionalString(row.feature_id),
-        status: String(row.status),
-        severity: String(row.severity),
-        body: typeof body.message === "string" ? body.message : String(row.body),
-        evidence: result.queries.evidence
-          .filter((entry) => Boolean(row.feature_id) && entry.feature_id === row.feature_id)
-          .slice(0, 5)
-          .map((entry) => ({ id: String(entry.id), summary: String(entry.summary ?? ""), path: optionalString(entry.path) })),
-        diff: body.diff,
-        createdAt: String(row.created_at),
-      };
-    }),
-    riskFilters: [...new Set(result.queries.items.map((row) => String(row.severity)))].sort(),
+    items: items.map((item) => ({
+      id: item.id,
+      featureId: item.featureId,
+      taskId: item.taskId,
+      status: item.status,
+      severity: item.severity,
+      body: item.body.message,
+      evidence: item.evidence.map((entry) => ({ id: entry.id, summary: entry.summary, path: entry.path })),
+      goal: item.body.goal,
+      specRef: item.body.specRef,
+      runContract: item.body.runContract,
+      reviewNeededReason: item.reviewNeededReason,
+      triggerReasons: item.triggerReasons,
+      recommendedActions: item.recommendedActions,
+      approvals: item.approvals.map((approval) => ({
+        id: approval.id,
+        decision: approval.decision,
+        actor: approval.actor,
+        reason: approval.reason,
+        decidedAt: approval.decidedAt,
+      })),
+      diff: item.body.diff,
+      testResults: item.body.testResults,
+      riskExplanation: item.body.riskExplanation,
+      createdAt: item.createdAt,
+    })),
+    riskFilters: [...new Set(items.map((item) => item.severity))].sort(),
     commands: [
       { action: "approve_review", entityType: "review_item" },
       { action: "reject_review", entityType: "review_item" },
+      { action: "request_review_changes", entityType: "review_item" },
+      { action: "rollback_review", entityType: "review_item" },
+      { action: "split_review_task", entityType: "review_item" },
+      { action: "update_spec", entityType: "review_item" },
+      { action: "mark_review_complete", entityType: "review_item" },
       { action: "write_project_rule", entityType: "rule" },
       { action: "write_spec_evolution", entityType: "spec" },
     ],
@@ -533,6 +572,8 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
 
   const acceptedAt = normalizeCommandTime(input.now).toISOString();
   const id = randomUUID();
+  const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
+  const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
   const auditEventId = recordAuditEvent(dbPath, {
     entityType,
     entityId,
@@ -543,6 +584,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
       commandId: id,
       requestedBy,
       acceptedAt,
+      writeArtifactId,
       payload: input.payload ?? {},
     },
   });
@@ -555,7 +597,143 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
     entityId,
     auditEventId,
     acceptedAt,
+    approvalRecordId: approvalRecord?.id,
   };
+}
+
+function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): string | undefined {
+  if (input.action !== "write_project_rule" && input.action !== "write_spec_evolution") {
+    return undefined;
+  }
+  const id = randomUUID();
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const projectId = optionalString(payload.projectId);
+  const featureId = input.action === "write_spec_evolution"
+    ? optionalString(payload.featureId) ?? (input.entityType === "feature" ? input.entityId : undefined)
+    : undefined;
+  const kind = input.action === "write_project_rule" ? "project_rule" : "spec_evolution";
+  const path = optionalString(payload.path)
+    ?? (input.action === "write_project_rule"
+      ? `.autobuild/rules/${input.entityId}.json`
+      : `.autobuild/spec-evolution/${input.entityId}.json`);
+  const summary = optionalString(payload.summary) ?? optionalString(payload.body) ?? input.reason;
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        id,
+        optionalString(payload.runId) ?? null,
+        optionalString(payload.taskId) ?? null,
+        featureId ?? null,
+        path,
+        kind,
+        summary,
+        JSON.stringify({
+          commandAction: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId,
+          projectId,
+          requestedBy: input.requestedBy,
+          reason: input.reason,
+          payload,
+        }),
+        acceptedAt,
+      ],
+    },
+  ]);
+  return id;
+}
+
+function executeReviewCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): ReturnType<typeof recordApprovalDecision> | undefined {
+  if (input.entityType !== "review_item") {
+    return undefined;
+  }
+  const item = listReviewCenterItems(dbPath).find((entry) => entry.id === input.entityId);
+  const decisionInput = reviewDecisionInputForCommand(input, item);
+  if (!decisionInput) {
+    return undefined;
+  }
+  return recordApprovalDecision(dbPath, {
+    reviewItemId: input.entityId,
+    decision: decisionInput.decision,
+    actor: input.requestedBy,
+    reason: input.reason,
+    targetStatus: decisionInput.targetStatus,
+    evidence: optionalString(input.payload?.evidence),
+    now: new Date(acceptedAt),
+    metadata: input.payload,
+  });
+}
+
+function reviewDecisionInputForCommand(input: ConsoleCommandInput, item?: ReturnType<typeof listReviewCenterItems>[number]): Pick<RecordApprovalInput, "decision" | "targetStatus"> | undefined {
+  const payloadTargetStatus = optionalString(input.payload?.targetStatus) as RecordApprovalInput["targetStatus"] | undefined;
+  switch (input.action) {
+    case "approve_review":
+      return { decision: "approve_continue", targetStatus: payloadTargetStatus ?? defaultApproveStatus(item) };
+    case "mark_review_complete":
+      return { decision: "mark_complete", targetStatus: payloadTargetStatus ?? defaultCompleteStatus(item) };
+    case "reject_review":
+      return { decision: "reject", targetStatus: payloadTargetStatus };
+    case "request_review_changes":
+      return { decision: "request_changes", targetStatus: payloadTargetStatus ?? defaultChangesRequestedStatus(item) };
+    case "rollback_review":
+      return { decision: "rollback", targetStatus: payloadTargetStatus ?? "failed" };
+    case "split_review_task":
+      return { decision: "split_task", targetStatus: payloadTargetStatus ?? "blocked" };
+    case "update_spec":
+      return { decision: "update_spec", targetStatus: payloadTargetStatus ?? defaultChangesRequestedStatus(item) };
+    default:
+      return undefined;
+  }
+}
+
+function defaultApproveStatus(item: ReturnType<typeof listReviewCenterItems>[number] | undefined): RecordApprovalInput["targetStatus"] | undefined {
+  if (item?.taskId) {
+    const pausedStatus = item.body.pausedTaskStatus;
+    return pausedStatus && ["backlog", "ready", "scheduled", "running", "checking"].includes(pausedStatus)
+      ? pausedStatus
+      : pausedStatus === "failed" || pausedStatus === "blocked" || pausedStatus === "done" || pausedStatus === "delivered"
+        ? undefined
+        : "ready";
+  }
+  if (item?.featureId) {
+    const pausedStatus = item.body.pausedFeatureStatus;
+    return pausedStatus && !["draft", "review_needed", "failed", "blocked", "done", "delivered"].includes(pausedStatus)
+      ? pausedStatus
+      : pausedStatus === "failed" || pausedStatus === "blocked" || pausedStatus === "done" || pausedStatus === "delivered"
+        ? undefined
+        : "ready";
+  }
+  return "ready";
+}
+
+function defaultCompleteStatus(item: ReturnType<typeof listReviewCenterItems>[number] | undefined): RecordApprovalInput["targetStatus"] | undefined {
+  const pausedStatus = item?.taskId ? item.body.pausedTaskStatus : item?.featureId ? item.body.pausedFeatureStatus : undefined;
+  if (pausedStatus === "done" || pausedStatus === "delivered") {
+    return pausedStatus;
+  }
+  return undefined;
+}
+
+function defaultChangesRequestedStatus(item: ReturnType<typeof listReviewCenterItems>[number] | undefined): RecordApprovalInput["targetStatus"] | undefined {
+  if (item?.taskId) {
+    const pausedStatus = item.body.pausedTaskStatus;
+    return pausedStatus && ["backlog", "ready", "scheduled", "running", "checking"].includes(pausedStatus)
+      ? pausedStatus
+      : pausedStatus === "failed" || pausedStatus === "blocked" || pausedStatus === "done" || pausedStatus === "delivered"
+        ? undefined
+        : "ready";
+  }
+  if (item?.featureId) {
+    const pausedStatus = item.body.pausedFeatureStatus;
+    return pausedStatus && !["draft", "review_needed", "ready", "failed", "blocked", "done", "delivered"].includes(pausedStatus)
+      ? pausedStatus
+      : pausedStatus === "failed" || pausedStatus === "blocked" || pausedStatus === "done" || pausedStatus === "delivered"
+        ? undefined
+        : "planning";
+  }
+  return "ready";
 }
 
 function buildBoardCounts(rows: Record<string, unknown>[]): DashboardQueryModel["boardCounts"] {

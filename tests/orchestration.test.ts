@@ -96,6 +96,32 @@ test("board and feature state machines allow required outcomes and reject illega
   );
   assert.throws(
     () =>
+      transitionTask("TASK-1", "review_needed", "delivered", {
+        reason: "Skip Done after review",
+        evidence: "none",
+        triggeredBy: "test",
+      }),
+    /Illegal task transition/,
+  );
+  assert.throws(
+    () =>
+      transitionFeature("FEAT-1", "review_needed", "delivered", {
+        reason: "Skip Done after review",
+        evidence: "none",
+        triggeredBy: "test",
+      }),
+    /Illegal feature transition/,
+  );
+  assert.equal(
+    transitionTask("TASK-1", "review_needed", "scheduled", {
+      reason: "Resume queued task",
+      evidence: "review:approved",
+      triggeredBy: "review_center",
+    }).to,
+    "scheduled",
+  );
+  assert.throws(
+    () =>
       transitionFeature("FEAT-004", "planning", "review_needed", {
         reason: "Planning failed",
         evidence: "skill failed",
