@@ -248,20 +248,17 @@ FINAL_FULL_TEST_COMMAND="${FINAL_FULL_TEST_COMMAND:-npm test}"
 cd "${WORKTREE_PATH}"
 
 # Preferred after Stage 4 status/doc edits and implementation changes are still uncommitted.
-codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-message "${CODEX_REVIEW_OUTPUT}" \
-  "Review this feature implementation against docs/features/${FEATURE_FOLDER}/requirements.md, design.md, tasks.md, and the Stage 5 restrictive requirements. Report only actionable bugs, regressions, requirement drift, incomplete tests, unsafe scope expansion, or security/privacy risks. Order findings by severity with file and line references when available. Do not run tests, start servers, install dependencies, or modify files."
+codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-message "${CODEX_REVIEW_OUTPUT}"
 
 # Alternative when reviewing a branch diff against its base.
-codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_OUTPUT}" \
-  "Review this feature branch against ${BASE_BRANCH}. Focus on actionable correctness, regression, requirement, testing, and safety findings. Do not run tests, start servers, install dependencies, or modify files."
+codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_OUTPUT}"
 
 # Compatibility path for installed Codex CLI versions that review a specific commit.
-# Do not append a prompt when using --commit; this CLI version rejects --commit plus PROMPT.
 codex exec review --model "${CODEX_REVIEW_MODEL}" --commit "${COMMIT_SHA}" --output-last-message "${CODEX_REVIEW_OUTPUT}"
 ```
 
 4. Keep `CODEX_REVIEW_MODEL` explicit so the installed CLI does not silently select a newer unsupported default model. OpenAI's Codex CLI docs recommend `gpt-5.5` for most Codex tasks when available, and `gpt-5.4` when `gpt-5.5` is unavailable; this skill defaults to `gpt-5.4` for compatibility with older installed CLIs. Override the environment variable only after confirming the local `codex` version supports the target model. For interactive `/review`, the docs say review uses the current session model by default and can be overridden with `review_model` in `config.toml`.
-5. Use `--uncommitted` or `--base` when custom review instructions are required. Use `--commit` only when reviewing an already-created commit, and never pass a prompt with `--commit`; rely on Codex review defaults plus the commit diff/title for that mode.
+5. Do not append a prompt when using `--uncommitted`, `--base`, or `--commit`; this installed Codex CLI version rejects review-scope flags combined with positional `PROMPT`. Keep the review scope flag and rely on Codex review defaults, then apply the Stage 5 restrictive requirements, feature requirements/design/tasks, and safety focus when classifying the review output. If custom review instructions are essential for a particular run, use interactive Codex `/review` or owner-thread fallback and record that compatibility difference.
 6. If `codex exec review` is unavailable, use interactive Codex `/review` when practical, then copy the completed review summary into `"${CODEX_REVIEW_OUTPUT}"`. If neither Codex review path is available, run the same review in the owner thread and state that the dedicated Codex review path was unavailable.
 7. Read `"${CODEX_REVIEW_OUTPUT}"` and classify every finding as:
    - `fix-now`: actionable, in scope, and does not change product intent.
