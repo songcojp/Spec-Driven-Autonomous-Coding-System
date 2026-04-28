@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -282,6 +282,74 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS idx_runs_recovery_state ON runs(status, task_id, feature_id)`,
       `CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_timeline_events(entity_type, entity_id, created_at)`,
       `CREATE INDEX IF NOT EXISTS idx_metrics_name_sampled ON metric_samples(metric_name, sampled_at)`,
+    ],
+  },
+  {
+    version: 3,
+    description: "Add orchestration state machine schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS task_graphs (
+        id TEXT PRIMARY KEY,
+        feature_id TEXT NOT NULL,
+        graph_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS task_graph_tasks (
+        id TEXT PRIMARY KEY,
+        graph_id TEXT NOT NULL,
+        feature_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source_requirements_json TEXT NOT NULL,
+        acceptance_criteria_json TEXT NOT NULL,
+        allowed_files_json TEXT NOT NULL,
+        dependencies_json TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        required_skill_slug TEXT NOT NULL,
+        subagent TEXT NOT NULL,
+        estimated_effort INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS feature_selection_decisions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        selected_feature_id TEXT,
+        candidates_json TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        memory_summary TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS state_transitions (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        from_status TEXT NOT NULL,
+        to_status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        evidence TEXT NOT NULL,
+        triggered_by TEXT NOT NULL,
+        review_needed_reason TEXT,
+        occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS task_schedules (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS planning_pipeline_runs (
+        id TEXT PRIMARY KEY,
+        feature_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        stages_json TEXT NOT NULL,
+        failure_evidence TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_task_graph_tasks_feature_status ON task_graph_tasks(feature_id, status)",
+      "CREATE INDEX IF NOT EXISTS idx_state_transitions_entity ON state_transitions(entity_type, entity_id, occurred_at)",
+      "CREATE INDEX IF NOT EXISTS idx_feature_selection_project_created ON feature_selection_decisions(project_id, created_at)",
     ],
   },
 ];

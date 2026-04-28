@@ -1,0 +1,363 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { initializeSchema, listTables } from "../src/schema.ts";
+import { runSqlite } from "../src/sqlite.ts";
+import { createFeatureSpec } from "../src/spec-protocol.ts";
+import {
+  aggregateFeatureStatus,
+  buildTaskGraph,
+  persistSelectionDecision,
+  persistPlanningPipelineResult,
+  persistTaskSchedules,
+  persistStateTransition,
+  persistTaskGraph,
+  runPlanningPipeline,
+  scheduleFeatureTasks,
+  selectNextFeature,
+  transitionFeature,
+  transitionTask,
+  type FeatureCandidate,
+  type TaskGraph,
+} from "../src/orchestration.ts";
+
+const stableDate = new Date("2026-04-28T12:00:00.000Z");
+
+test("orchestration schema owns task graphs, decisions, schedules, pipeline runs, and transitions", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const tables = listTables(dbPath);
+  for (const table of [
+    "task_graphs",
+    "task_graph_tasks",
+    "feature_selection_decisions",
+    "state_transitions",
+    "task_schedules",
+    "planning_pipeline_runs",
+  ]) {
+    assert.equal(tables.includes(table), true, `${table} should exist`);
+  }
+});
+
+test("task graph builder creates traceable tasks with requirements and acceptance criteria", () => {
+  const spec = createOrchestrationSpec();
+  const graph = buildTaskGraph({
+    featureId: spec.id,
+    requirements: spec.requirements,
+    acceptanceCriteria: spec.acceptanceCriteria,
+    relatedFiles: ["src/orchestration.ts", "tests/orchestration.test.ts"],
+    now: stableDate,
+  });
+
+  assert.equal(graph.featureId, "FEAT-004");
+  assert.equal(graph.tasks.length, spec.requirements.length);
+  for (const task of graph.tasks) {
+    assert.match(task.taskId, /^FEAT-004-TASK-/);
+    assert.equal(task.status, "backlog");
+    assert.equal(task.sourceRequirementIds.length, 1);
+    assert.equal(task.acceptanceCriteriaIds.length, 1);
+    assert.deepEqual(task.allowedFiles, ["src/orchestration.ts", "tests/orchestration.test.ts"]);
+    assert.equal(task.requiredSkill, "codex-coding-skill");
+    assert.equal(task.subagent, "implementer-subagent");
+  }
+});
+
+test("board and feature state machines allow required outcomes and reject illegal transitions", () => {
+  const done = transitionTask("TASK-1", "running", "done", {
+    reason: "Status checker passed",
+    evidence: "RUN-1/evidence.json",
+    triggeredBy: "status-checker",
+    occurredAt: stableDate.toISOString(),
+  });
+  assert.equal(done.to, "done");
+
+  for (const to of ["review_needed", "blocked", "failed"] as const) {
+    assert.equal(
+      transitionTask("TASK-1", "running", to, {
+        reason: `${to} outcome`,
+        evidence: "RUN-1/evidence.json",
+        triggeredBy: "status-checker",
+      }).to,
+      to,
+    );
+  }
+
+  assert.throws(
+    () =>
+      transitionTask("TASK-1", "ready", "done", {
+        reason: "Skip execution",
+        evidence: "none",
+        triggeredBy: "test",
+      }),
+    /Illegal task transition/,
+  );
+  assert.throws(
+    () =>
+      transitionFeature("FEAT-004", "planning", "review_needed", {
+        reason: "Planning failed",
+        evidence: "skill failed",
+        triggeredBy: "planning-pipeline",
+      }),
+    /reviewNeededReason/,
+  );
+
+  const reviewNeeded = transitionFeature("FEAT-004", "planning", "review_needed", {
+    reason: "Architecture decision needs approval",
+    evidence: "ADR missing",
+    triggeredBy: "planning-pipeline",
+    reviewNeededReason: "approval_needed",
+  });
+  assert.equal(reviewNeeded.reviewNeededReason, "approval_needed");
+});
+
+test("project scheduler selects from live feature candidates and only records memory as context", () => {
+  const decision = selectNextFeature(
+    [
+      candidate("FEAT-004", "ready", 10, ["FEAT-001", "FEAT-002"], "medium", "2026-04-25T00:00:00.000Z"),
+      candidate("FEAT-005", "ready", 99, ["FEAT-999"], "low", "2026-04-20T00:00:00.000Z"),
+      candidate("FEAT-006", "draft", 50, [], "low", "2026-04-18T00:00:00.000Z"),
+    ],
+    ["FEAT-001", "FEAT-002"],
+    "Project Memory says FEAT-005 is next, but it is not a source-of-truth candidate.",
+    stableDate,
+  );
+
+  assert.equal(decision.selectedFeatureId, "FEAT-004");
+  assert.equal(decision.memorySummary.includes("FEAT-005"), true);
+  assert.equal(decision.candidates.find((entry) => entry.id === "FEAT-005")?.dependenciesSatisfied, false);
+});
+
+test("planning pipeline preserves required skill order and enters review_needed on failure evidence", async () => {
+  const visited: string[] = [];
+  const failed = await runPlanningPipeline("FEAT-004", async (slug) => {
+    visited.push(slug);
+    if (slug === "architecture-plan-skill") {
+      throw new Error("Architecture plan missing boundary decision");
+    }
+    return { output: { slug }, evidence: `${slug} completed` };
+  });
+
+  assert.deepEqual(visited, ["technical-context-skill", "research-decision-skill", "architecture-plan-skill"]);
+  assert.equal(failed.status, "review_needed");
+  assert.equal(failed.failureEvidence, "Architecture plan missing boundary decision");
+});
+
+test("feature scheduler gates tasks on dependencies, boundaries, runner, worktree, budget, window, and approval", () => {
+  const graph: TaskGraph = {
+    id: "TG-FEAT-004",
+    featureId: "FEAT-004",
+    createdAt: stableDate.toISOString(),
+    tasks: [
+      task("TASK-001", "done", [], ["src/orchestration.ts"], "low", 1),
+      task("TASK-002", "ready", ["TASK-001"], ["src/orchestration.ts"], "medium", 2),
+      task("TASK-003", "ready", ["TASK-999"], ["src/other.ts"], "low", 1),
+      task("TASK-004", "ready", ["TASK-001"], ["src/busy.ts"], "low", 1),
+      task("TASK-005", "ready", ["TASK-001"], ["src/risky.ts"], "high", 1),
+    ],
+  };
+
+  const schedules = scheduleFeatureTasks(graph, {
+    runnerAvailable: true,
+    worktreeAvailable: true,
+    budgetRemaining: 2,
+    executionWindowOpen: true,
+    approvedRiskLevels: ["low", "medium"],
+    filesInUse: ["src/busy.ts"],
+  });
+
+  assert.deepEqual(
+    schedules.map((schedule) => [schedule.taskId, schedule.status, schedule.reason]),
+    [
+      ["TASK-001", "skipped", "Task is done."],
+      ["TASK-002", "scheduled", "Dependencies, boundaries, runner, worktree, budget, window, and approval gates passed."],
+      ["TASK-003", "skipped", "Dependencies are not done."],
+      ["TASK-004", "skipped", "Allowed file boundary conflicts with active work."],
+      ["TASK-005", "skipped", "Risk approval required."],
+    ],
+  );
+});
+
+test("feature aggregation requires tasks, acceptance, spec alignment, and required tests for done", () => {
+  assert.deepEqual(
+    aggregateFeatureStatus({
+      featureId: "FEAT-004",
+      tasks: [],
+      acceptancePassed: true,
+      specAlignmentPassed: true,
+      requiredTestsPassed: true,
+    }),
+    {
+      status: "review_needed",
+      reason: "Done cannot be evaluated without tasks.",
+      reviewNeededReason: "clarification_needed",
+    },
+  );
+
+  assert.deepEqual(
+    aggregateFeatureStatus({
+      featureId: "FEAT-004",
+      tasks: [{ taskId: "TASK-001", status: "done" }],
+      acceptancePassed: true,
+      specAlignmentPassed: true,
+      requiredTestsPassed: true,
+    }),
+    { status: "done", reason: "Tasks, acceptance, spec alignment, and required tests are complete." },
+  );
+
+  assert.deepEqual(
+    aggregateFeatureStatus({
+      featureId: "FEAT-004",
+      tasks: [{ taskId: "TASK-001", status: "done" }],
+      acceptancePassed: true,
+      specAlignmentPassed: false,
+      requiredTestsPassed: true,
+    }),
+    {
+      status: "review_needed",
+      reason: "Done is gated by acceptance, Spec Alignment Check, and required tests.",
+      reviewNeededReason: "clarification_needed",
+    },
+  );
+});
+
+test("orchestration artifacts persist task graph, decisions, schedules, pipeline runs, and audit transitions", async () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const spec = createOrchestrationSpec();
+  const graph = persistTaskGraph(
+    dbPath,
+    buildTaskGraph({
+      featureId: spec.id,
+      requirements: spec.requirements,
+      acceptanceCriteria: spec.acceptanceCriteria,
+      now: stableDate,
+    }),
+  );
+  const decision = persistSelectionDecision(
+    dbPath,
+    selectNextFeature([candidate("FEAT-004", "ready", 1, [], "low", stableDate.toISOString())], [], "memory context", stableDate),
+    "PROJECT-1",
+  );
+  const schedules = persistTaskSchedules(
+    dbPath,
+    scheduleFeatureTasks(
+      {
+        ...graph,
+        tasks: graph.tasks.map((entry, index) => ({
+          ...entry,
+          dependencies: [],
+          status: index === 0 ? "ready" : "backlog",
+        })),
+      },
+      {
+        runnerAvailable: true,
+        worktreeAvailable: true,
+        budgetRemaining: 1,
+        executionWindowOpen: true,
+      },
+    ),
+    stableDate,
+  );
+  const pipeline = persistPlanningPipelineResult(
+    dbPath,
+    await runPlanningPipeline("FEAT-004", async (slug) => ({ output: { slug }, evidence: `${slug} completed` })),
+    stableDate,
+  );
+  const transition = persistStateTransition(
+    dbPath,
+    transitionFeature("FEAT-004", "ready", "planning", {
+      reason: "Feature selected",
+      evidence: decision.id,
+      triggeredBy: "project-scheduler",
+      occurredAt: stableDate.toISOString(),
+    }),
+  );
+
+  const result = runSqlite(dbPath, [], [
+    { name: "graphs", sql: "SELECT COUNT(*) AS count FROM task_graphs WHERE id = ?", params: [graph.id] },
+    { name: "tasks", sql: "SELECT COUNT(*) AS count FROM task_graph_tasks WHERE graph_id = ?", params: [graph.id] },
+    { name: "decisions", sql: "SELECT selected_feature_id FROM feature_selection_decisions WHERE id = ?", params: [decision.id] },
+    { name: "schedules", sql: "SELECT COUNT(*) AS count FROM task_schedules" },
+    { name: "pipelines", sql: "SELECT status FROM planning_pipeline_runs WHERE feature_id = ?", params: [pipeline.featureId] },
+    { name: "transitions", sql: "SELECT to_status FROM state_transitions WHERE id = ?", params: [transition.id] },
+    { name: "audit", sql: "SELECT event_type FROM audit_timeline_events WHERE entity_id = 'FEAT-004'" },
+  ]);
+
+  assert.equal(result.queries.graphs[0].count, 1);
+  assert.equal(result.queries.tasks[0].count, spec.requirements.length);
+  assert.equal(result.queries.decisions[0].selected_feature_id, "FEAT-004");
+  assert.equal(result.queries.schedules[0].count, schedules.length);
+  assert.equal(result.queries.pipelines[0].status, "completed");
+  assert.equal(result.queries.transitions[0].to_status, "planning");
+  assert.deepEqual(result.queries.audit.map((row) => row.event_type), ["state_changed"]);
+});
+
+function makeDbPath(): string {
+  return join(mkdtempSync(join(tmpdir(), "feat-004-db-")), ".autobuild", "autobuild.db");
+}
+
+function createOrchestrationSpec() {
+  return createFeatureSpec({
+    featureId: "FEAT-004",
+    name: "Orchestration and State Machine",
+    now: stableDate,
+    rawInput: `
+Goal: Turn ready specs into task graphs and auditable state transitions.
+Roles: orchestrator, developer
+Assumptions: Feature Spec Pool is available.
+Related Files: src/orchestration.ts, tests/orchestration.test.ts
+PRD: When a feature is ready, the system shall build tasks traceable to requirements.
+EARS: When a task runs, the system shall restrict state to known board columns.
+PR: When planning fails, the system shall put the feature into review needed with evidence.
+RP: When all work is complete, the system shall require acceptance, spec alignment, and tests before done.
+`,
+  });
+}
+
+function candidate(
+  id: string,
+  status: FeatureCandidate["status"],
+  priority: number,
+  dependencies: string[],
+  risk: FeatureCandidate["acceptanceRisk"],
+  readySince: string,
+): FeatureCandidate {
+  return {
+    id,
+    title: id,
+    status,
+    priority,
+    dependencies,
+    requirementIds: [`REQ-${id}`],
+    acceptanceRisk: risk,
+    readySince,
+  };
+}
+
+function task(
+  taskId: string,
+  status: TaskGraph["tasks"][number]["status"],
+  dependencies: string[],
+  allowedFiles: string[],
+  risk: TaskGraph["tasks"][number]["risk"],
+  estimatedEffort: number,
+): TaskGraph["tasks"][number] {
+  return {
+    taskId,
+    title: taskId,
+    description: taskId,
+    sourceRequirementIds: ["REQ-001"],
+    acceptanceCriteriaIds: ["AC-001"],
+    allowedFiles,
+    dependencies,
+    parallelism: "parallel-safe",
+    risk,
+    requiredSkill: "codex-coding-skill",
+    subagent: "implementer-subagent",
+    estimatedEffort,
+    status,
+  };
+}

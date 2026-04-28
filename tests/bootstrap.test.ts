@@ -9,7 +9,7 @@ import { loadConfig } from "../src/config.ts";
 import { ARTIFACT_DIRECTORIES } from "../src/artifacts.ts";
 import { runBootstrap, initialReadyState } from "../src/bootstrap.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
-import { listTables, initializeSchema, getCurrentSchemaVersion } from "../src/schema.ts";
+import { listTables, initializeSchema, getCurrentSchemaVersion, SCHEMA_VERSION } from "../src/schema.ts";
 import { BUILT_IN_SKILLS, countBuiltInSkills } from "../src/skills.ts";
 import { createProject, getProject, readProjectRepository, runProjectHealthCheck } from "../src/projects.ts";
 
@@ -77,6 +77,12 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
     "audit_timeline_events",
     "metric_samples",
     "schema_migrations",
+    "task_graphs",
+    "task_graph_tasks",
+    "feature_selection_decisions",
+    "state_transitions",
+    "task_schedules",
+    "planning_pipeline_runs",
   ]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
@@ -86,7 +92,7 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
   const second = await runBootstrap(config);
   assert.equal(second.readyState.status, "ready");
   assert.equal(countBuiltInSkills(config.dbPath), BUILT_IN_SKILLS.length);
-  assert.equal(getCurrentSchemaVersion(config.dbPath), 2);
+  assert.equal(getCurrentSchemaVersion(config.dbPath), SCHEMA_VERSION);
 });
 
 test("project service creates queryable project and repository connection records", async () => {
@@ -246,7 +252,7 @@ test("health endpoint reports initializing and ready states", async () => {
   controlPlane.setReadyState(result.readyState);
   const ready = await getJson(`http://127.0.0.1:${port}/health`);
   assert.equal(ready.status, "ready");
-  assert.equal(ready.schemaVersion, 2);
+  assert.equal(ready.schemaVersion, SCHEMA_VERSION);
 
   await new Promise<void>((resolve) => controlPlane.server.close(() => resolve()));
 });
