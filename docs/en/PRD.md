@@ -9,7 +9,7 @@ Product Direction: Spec + Skill + Subagent Driven Long-Running Autonomous Coding
 
 ## 1. Product Definition
 
-SpecDrive AutoBuild is a long-running autonomous coding system designed for software teams. The system uses structured Spec to manage product goals and acceptance criteria, Skills to solidify reusable engineering methods, Subagents to isolate context and process tasks in parallel, Project Memory to provide persistent memory for CLI across sessions, Codex Runner to execute code modifications, testing, and fixing, and a Dashboard State Machine to manage task flow, approval, recovery, and delivery.
+SpecDrive AutoBuild is a long-running autonomous coding system designed for software teams. The system uses structured Spec to manage product goals and acceptance criteria, Skills to solidify reusable engineering methods, Subagents to isolate context and process tasks in parallel, Project Memory to provide persistent memory for CLI across sessions, Codex Runner to execute code modifications, testing, and fixing, and an internal task state machine to manage task flow, approval, recovery, and delivery while the Dashboard presents that state.
 
 Core Conclusion:
 
@@ -19,7 +19,8 @@ Spec Protocol
 + Subagent Runtime
 + Project Memory
 + Codex Runner
-+ Dashboard State Machine
++ Internal Task State Machine
++ Dashboard View
 ```
 
 One-line Positioning:
@@ -40,7 +41,7 @@ One-line Positioning:
 6. Provide each Subagent with only the minimum context needed to complete the current task.
 7. Codex Runner executes code modifications, testing, fixes, and PR generation.
 8. Status Checker automatically determines if tasks are done, failed, blocked, or need review.
-9. Dashboard State Machine displays real-time task status and delivery progress.
+9. Dashboard displays real-time task status and delivery progress maintained by the internal task state machine.
 10. System injects Project Memory per CLI session to recover goals, decisions, and blocked states.
 11. Support long-running tasks, failure retries, breakpoint recovery, and delivery auditing.
 
@@ -75,7 +76,7 @@ Feature Selector                     │
         ↓                           │
 Planning Pipeline                    │
         ↓                           │
-Task Graph + Dashboard State Machine │
+Task Graph + Internal State Machine  │
         ↓                           │
 Feature Scheduler                    │
         ↓                           │

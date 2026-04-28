@@ -8,7 +8,7 @@ Languages: English | [中文](README.zh-CN.md) | [日本語](README.ja.md)
 
 ## Overview
 
-SpecDrive AutoBuild is a long-running autonomous coding system for software teams. It uses structured specs to manage product goals and acceptance criteria, skills to encode reusable engineering workflows, subagents to isolate context and execute focused tasks, Codex Runner to modify code and run verification, and a Kanban state machine to manage workflow, review, recovery, and delivery.
+SpecDrive AutoBuild is a long-running autonomous coding system for software teams. It uses structured specs to manage product goals and acceptance criteria, skills to encode reusable engineering workflows, subagents to isolate context and execute focused tasks, Codex Runner to modify code and run verification, and an internal task state machine to manage workflow, review, recovery, and delivery while the Kanban board presents that state.
 
 In one sentence:
 
@@ -22,7 +22,8 @@ Spec Protocol
 + Subagent Runtime
 + Context Broker
 + Codex Runner
-+ Kanban State Machine
++ Internal Task State Machine
++ Kanban View
 ```
 
 ## Key Capabilities
@@ -52,7 +53,7 @@ The MVP is planned to include:
 * Subagent Runtime and Agent Run Contract.
 * Context Broker and Evidence Pack.
 * Codex Runner integration.
-* Kanban state machine, status checks, and failure recovery.
+* Internal task state machine, Kanban status view, status checks, and failure recovery.
 * Review Center, PR generation, and delivery reports.
 
 ## Roadmap

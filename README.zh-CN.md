@@ -8,7 +8,7 @@ SpecDrive AutoBuild 是一个由 Spec 驱动的自主编程系统，用于支持
 
 ## 项目简介
 
-SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。它以结构化 Spec 管理产品目标和验收标准，以 Skill 固化可复用工程方法，以 Subagent 隔离上下文并执行任务，以 Codex Runner 完成代码修改、测试、修复和 PR 生成，以看板状态机管理任务流转、审批、恢复和交付。
+SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。它以结构化 Spec 管理产品目标和验收标准，以 Skill 固化可复用工程方法，以 Subagent 隔离上下文并执行任务，以 Codex Runner 完成代码修改、测试、修复和 PR 生成，以内部任务状态机管理任务流转、审批、恢复和交付，并通过看板呈现状态。
 
 一句话：
 
@@ -22,7 +22,8 @@ Spec Protocol
 + Subagent Runtime
 + Context Broker
 + Codex Runner
-+ Kanban State Machine
++ Internal Task State Machine
++ Kanban View
 ```
 
 ## 核心能力
@@ -52,7 +53,7 @@ MVP 计划覆盖：
 * Subagent Runtime 与 Agent Run Contract。
 * Context Broker 与 Evidence Pack。
 * Codex Runner 集成。
-* 看板状态机、状态检测、失败恢复。
+* 内部任务状态机、看板状态展示、状态检测、失败恢复。
 * Review Center、PR 生成和交付报告。
 
 ## 里程碑计划

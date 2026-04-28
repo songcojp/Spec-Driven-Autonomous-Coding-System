@@ -9,7 +9,7 @@
 
 ## 1. 製品定義
 
-SpecDrive AutoBuild は、ソフトウェアチーム向けの長時間稼働する自律型プログラミングシステムです。システムは、構造化された「Spec」で製品の目標と受け入れ基準を管理し、「Skill」で再利用可能なエンジニアリング手法を固定化し、「Subagent」でコンテキストを分離してタスクを並行処理します。また、「Project Memory」を通じてCLIにセッションをまたぐ永続的な記憶を提供し、「Codex Runner」でコードの変更、テスト、修正を実行し、「Dashboard State Machine」でタスクの進行、承認、リカバリ、および提供を管理します。
+SpecDrive AutoBuild は、ソフトウェアチーム向けの長時間稼働する自律型プログラミングシステムです。システムは、構造化された「Spec」で製品の目標と受け入れ基準を管理し、「Skill」で再利用可能なエンジニアリング手法を固定化し、「Subagent」でコンテキストを分離してタスクを並行処理します。また、「Project Memory」を通じてCLIにセッションをまたぐ永続的な記憶を提供し、「Codex Runner」でコードの変更、テスト、修正を実行し、内部タスク状態マシンでタスクの進行、承認、リカバリ、および提供を管理し、「Dashboard」はその状態を表示します。
 
 製品の核心となる結論:
 
@@ -19,7 +19,8 @@ Spec Protocol
 + Subagent Runtime
 + Project Memory
 + Codex Runner
-+ Dashboard State Machine
++ Internal Task State Machine
++ Dashboard View
 ```
 
 一言でのポジショニング:
@@ -40,7 +41,7 @@ Spec Protocol
 6. 各Subagentには現在のタスク完了に必要な最小限のコンテキストのみを提供する。
 7. Codex Runnerがコードの修正、テスト、修正、PRの生成を実行する。
 8. Status Checkerがタスクの完了、失敗、ブロック、または承認の必要性を自動的に判断する。
-9. Dashboard State Machineがタスクのステータスと配信の進捗をリアルタイムで表示する。
+9. Dashboardが、内部タスク状態マシンで管理されるタスクのステータスと配信の進捗をリアルタイムで表示する。
 10. Project Memoryを各CLIセッションのプロジェクトレベルの記憶として提供し、目標、決定、ブロック状態の復元をサポートする。
 11. 長時間の実行、失敗時の再試行、ブレークポイントからの復元、配信監査をサポートする。
 

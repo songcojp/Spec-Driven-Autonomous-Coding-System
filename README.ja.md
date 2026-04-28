@@ -8,7 +8,7 @@ SpecDrive AutoBuild は、長時間実行可能で監査可能なソフトウェ
 
 ## 概要
 
-SpecDrive AutoBuild は、ソフトウェアチーム向けの長時間実行可能な自律型コーディングシステムです。構造化された Spec によってプロダクト目標と受け入れ基準を管理し、Skill によって再利用可能な開発手法を定義し、Subagent によってコンテキストを分離してタスクを実行し、Codex Runner によってコード変更、テスト、修正、PR 作成を行います。さらに、Kanban State Machine によってタスクの進行、レビュー、復旧、納品を管理します。
+SpecDrive AutoBuild は、ソフトウェアチーム向けの長時間実行可能な自律型コーディングシステムです。構造化された Spec によってプロダクト目標と受け入れ基準を管理し、Skill によって再利用可能な開発手法を定義し、Subagent によってコンテキストを分離してタスクを実行し、Codex Runner によってコード変更、テスト、修正、PR 作成を行います。さらに、内部タスク状態マシンによってタスクの進行、レビュー、復旧、納品を管理し、Kanban はその状態を表示します。
 
 一言で言うと：
 
@@ -22,7 +22,8 @@ Spec Protocol
 + Subagent Runtime
 + Context Broker
 + Codex Runner
-+ Kanban State Machine
++ Internal Task State Machine
++ Kanban View
 ```
 
 ## 主な機能
@@ -52,7 +53,7 @@ MVP では以下を対象とします：
 * Subagent Runtime と Agent Run Contract。
 * Context Broker と Evidence Pack。
 * Codex Runner 連携。
-* Kanban State Machine、状態検査、失敗復旧。
+* 内部タスク状態マシン、Kanban 状態表示、状態検査、失敗復旧。
 * Review Center、PR 作成、納品レポート。
 
 ## ロードマップ

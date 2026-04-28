@@ -2,7 +2,7 @@
 
 ## 1. 背景
 
-SpecDrive AutoBuild 是一个以 Spec、Skill、Subagent、Project Memory、Codex Runner 和 Dashboard State Machine 驱动的长时间自主编程系统。它的目标不是让 AI 一次性生成代码，而是让 AI 在可控、可恢复、可审计的工程流程中持续交付代码。
+SpecDrive AutoBuild 是一个以 Spec、Skill、Subagent、Project Memory、Codex Runner 和内部任务状态机驱动，并通过 Dashboard 呈现状态的长时间自主编程系统。它的目标不是让 AI 一次性生成代码，而是让 AI 在可控、可恢复、可审计的工程流程中持续交付代码。
 
 ## 2. 目标
 
