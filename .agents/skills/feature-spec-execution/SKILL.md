@@ -14,6 +14,7 @@ This skill runs one feature spec through its complete delivery lifecycle on the 
 - Feature spec folder exists under `docs/features/` with `requirements.md`, `design.md`, and `tasks.md`.
 - Feature index table exists at `docs/features/README.md`.
 - Base branch is clean and synced with its remote before creating the feature branch; if it is ahead or behind, resolve that first.
+- Node/npm execution environment is available inside the owner checkout and feature worktree. If `npm` is missing but `~/.nvm/nvm.sh` exists, load nvm and use the repository `.nvmrc` before running verification or subagent commands.
 
 ## Lifecycle Stages
 
@@ -23,6 +24,8 @@ SELECT FEATURE
 CREATE WORKTREE  (git worktree + feature branch)
     ↓
 ALIGN BASE       (fetch + rebase branch on latest origin/main or origin/<base-branch>)
+    ↓
+VERIFY EXEC ENV  (node/npm available in the feature worktree)
     ↓
 UPDATE STATUS → in-progress  (inside feature branch)
     ↓
@@ -91,6 +94,34 @@ git rebase "origin/${BASE_BRANCH}"
 
 - If rebase conflicts arise, resolve them before continuing.
 - After rebase, verify `git log --oneline -3` to confirm the feature branch is aligned.
+
+---
+
+## Stage 3.5 — Verify Execution Environment
+
+Run this inside `${WORKTREE_PATH}` before updating status, dispatching subagents, or running any `node`, `npm`, `npx`, `codex`, or test command:
+
+```bash
+cd "${WORKTREE_PATH}"
+
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  . "$HOME/.nvm/nvm.sh"
+  if [ -f .nvmrc ]; then
+    nvm use --silent
+  elif [ -f package.json ]; then
+    nvm use --silent 24
+  fi
+fi
+
+command -v node
+node -v
+command -v npm
+npm -v
+```
+
+- If `npm` is still unavailable after this bootstrap, stop the lifecycle and report the missing tool before implementation. Do not let an implementer or test subagent discover the failure later.
+- Include the same bootstrap snippet, or the resulting `PATH`, `node`, and `npm` locations, in implementer/test subagent dispatch prompts when the feature requires JavaScript tooling.
+- Prefer the repository `.nvmrc` over the ambient shell default. On machines where the system `node` shadows nvm-managed Node, the explicit `nvm use` step must run before verification.
 
 ---
 
