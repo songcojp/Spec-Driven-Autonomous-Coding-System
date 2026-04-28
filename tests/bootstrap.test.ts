@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, existsSync, chmodSync } from "node:fs";
-import { get } from "node:http";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, existsSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { get, request as httpRequest } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig } from "../src/config.ts";
@@ -10,6 +11,7 @@ import { runBootstrap, initialReadyState } from "../src/bootstrap.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
 import { listTables, initializeSchema, getCurrentSchemaVersion } from "../src/schema.ts";
 import { BUILT_IN_SKILLS, countBuiltInSkills } from "../src/skills.ts";
+import { createProject, getProject, readProjectRepository, runProjectHealthCheck } from "../src/projects.ts";
 
 test("config loader merges file, environment, and CLI with normalized defaults", () => {
   const root = makeTempDir();
@@ -56,6 +58,8 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
   const tables = listTables(config.dbPath);
   for (const table of [
     "projects",
+    "repository_connections",
+    "project_health_checks",
     "features",
     "requirements",
     "tasks",
@@ -83,6 +87,112 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
   assert.equal(second.readyState.status, "ready");
   assert.equal(countBuiltInSkills(config.dbPath), BUILT_IN_SKILLS.length);
   assert.equal(getCurrentSchemaVersion(config.dbPath), 1);
+});
+
+test("project service creates queryable project and repository connection records", async () => {
+  const root = makeTempDir();
+  const repo = createReadyGitRepo(join(root, "repo"));
+  const config = loadConfig({ cwd: root, env: {}, argv: [] });
+  await runBootstrap(config);
+
+  const project = createProject(config.dbPath, {
+    name: "SpecDrive",
+    goal: "Automate spec-driven delivery",
+    projectType: "typescript-service",
+    techPreferences: ["node", "sqlite"],
+    targetRepoPath: repo,
+    repositoryUrl: "https://github.com/songcojp/Spec-Driven-Autonomous-Coding-System.git",
+    defaultBranch: "main",
+    environment: "local",
+    automationEnabled: false,
+  });
+
+  const saved = getProject(config.dbPath, project.id);
+  assert.equal(saved?.name, "SpecDrive");
+  assert.deepEqual(saved?.techPreferences, ["node", "sqlite"]);
+  assert.equal(saved?.automationEnabled, false);
+
+  const summary = readProjectRepository(config.dbPath, project.id);
+  assert.equal(summary?.isGitRepository, true);
+  assert.equal(summary?.currentBranch, "main");
+  assert.equal(summary?.hasUncommittedChanges, false);
+});
+
+test("project health checker classifies ready, blocked, and failed states with reasons", async () => {
+  const root = makeTempDir();
+  const config = loadConfig({ cwd: root, env: {}, argv: [] });
+  await runBootstrap(config);
+
+  const readyProject = createProject(config.dbPath, {
+    name: "Ready",
+    goal: "Ready repo",
+    projectType: "typescript-service",
+    targetRepoPath: createReadyGitRepo(join(root, "ready")),
+    defaultBranch: "main",
+    environment: "local",
+  });
+  const ready = runProjectHealthCheck(config.dbPath, readyProject.id);
+  assert.equal(ready.status, "ready");
+  assert.deepEqual(ready.reasons, []);
+
+  const missingGitPath = join(root, "missing-git");
+  mkdirSync(missingGitPath);
+  const blockedProject = createProject(config.dbPath, {
+    name: "Blocked",
+    goal: "No git repo",
+    projectType: "typescript-service",
+    targetRepoPath: missingGitPath,
+    defaultBranch: "main",
+    environment: "local",
+  });
+  const blocked = runProjectHealthCheck(config.dbPath, blockedProject.id);
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.reasons.includes("git_repository_missing"), true);
+
+  const failedProject = createProject(config.dbPath, {
+    name: "Failed",
+    goal: "Missing path",
+    projectType: "typescript-service",
+    targetRepoPath: join(root, "does-not-exist"),
+    defaultBranch: "main",
+    environment: "local",
+  });
+  const failed = runProjectHealthCheck(config.dbPath, failedProject.id);
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.reasons.includes("git_repository_missing"), true);
+});
+
+test("project API exposes project creation, repository summary, and health checks", async () => {
+  const root = makeTempDir();
+  const repo = createReadyGitRepo(join(root, "api-repo"));
+  const config = loadConfig({ cwd: root, env: {}, argv: ["--port", "0"] });
+  await runBootstrap(config);
+  const controlPlane = createControlPlaneServer(config, initialReadyState(config));
+
+  await listen(controlPlane.server, config);
+  const address = controlPlane.server.address();
+  assert.equal(typeof address, "object");
+  const port = address && typeof address === "object" ? address.port : 0;
+
+  try {
+    const project = await postJson(`http://127.0.0.1:${port}/projects`, {
+      name: "API Project",
+      goal: "Expose dashboard query model",
+      projectType: "typescript-service",
+      targetRepoPath: repo,
+      defaultBranch: "main",
+      environment: "local",
+    });
+    assert.equal(project.name, "API Project");
+
+    const repository = await getJson(`http://127.0.0.1:${port}/projects/${project.id}/repository`);
+    assert.equal(repository.isGitRepository, true);
+
+    const health = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/health`, {});
+    assert.equal(health.status, "ready");
+  } finally {
+    await new Promise<void>((resolve) => controlPlane.server.close(() => resolve()));
+  }
 });
 
 test("schema migration executor applies later versions once", () => {
@@ -167,6 +277,26 @@ function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "autobuild-test-"));
 }
 
+function createReadyGitRepo(path: string): string {
+  mkdirSync(path, { recursive: true });
+  mkdirSync(join(path, ".codex"));
+  mkdirSync(join(path, "docs", "features"), { recursive: true });
+  writeFileSync(join(path, "AGENTS.md"), "# Agent Instructions\n");
+  writeFileSync(
+    join(path, "package.json"),
+    JSON.stringify({ scripts: { test: "node --test", build: "node --check src/index.js" } }),
+  );
+  mkdirSync(join(path, "src"));
+  writeFileSync(join(path, "src", "index.js"), "console.log('ready');\n");
+  execFileSync("git", ["init", "-b", "main"], { cwd: path });
+  execFileSync("git", ["add", "."], { cwd: path });
+  execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"], {
+    cwd: path,
+    stdio: "ignore",
+  });
+  return path;
+}
+
 function getJson(url: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     get(url, (response) => {
@@ -183,5 +313,40 @@ function getJson(url: string): Promise<Record<string, unknown>> {
         }
       });
     }).on("error", reject);
+  });
+}
+
+function postJson(url: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload);
+    const request = new URL(url);
+    const outgoing = httpRequest(
+      {
+        hostname: request.hostname,
+        port: request.port,
+        path: request.pathname,
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+        },
+      },
+      (response) => {
+        let responseBody = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => {
+          responseBody += chunk;
+        });
+        response.on("end", () => {
+          try {
+            resolve(JSON.parse(responseBody));
+          } catch (error) {
+            reject(error);
+          }
+        });
+      },
+    );
+    outgoing.on("error", reject);
+    outgoing.end(body);
   });
 }
