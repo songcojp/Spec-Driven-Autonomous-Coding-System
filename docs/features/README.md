@@ -12,7 +12,7 @@
 | FEAT-005 | Subagent Runtime and Context Broker | `feat-005-subagent-runtime-context-broker` | done | REQ-014 至 REQ-018、REQ-055 | M3 | FEAT-004、FEAT-007 |
 | FEAT-006 | Project Memory and Recovery Projection | `feat-006-project-memory-recovery-projection` | done | REQ-019 至 REQ-023、REQ-036 | M3 | FEAT-004 |
 | FEAT-007 | Workspace Isolation | `feat-007-workspace-isolation` | done | REQ-017、REQ-032、REQ-035 | M3/M4 | FEAT-004 |
-| FEAT-008 | Codex Runner | `feat-008-codex-runner` | pending | REQ-037 至 REQ-039、REQ-056 | M4 | FEAT-005、FEAT-007 |
+| FEAT-008 | Codex Runner | `feat-008-codex-runner` | done | REQ-037 至 REQ-039、REQ-056 | M4 | FEAT-005、FEAT-007 |
 | FEAT-009 | Status Checker and Evidence | `feat-009-status-checker-evidence` | pending | REQ-040 至 REQ-042、REQ-051 | M5 | FEAT-004、FEAT-008 |
 | FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | pending | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
 | FEAT-011 | Review Center | `feat-011-review-center` | pending | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
