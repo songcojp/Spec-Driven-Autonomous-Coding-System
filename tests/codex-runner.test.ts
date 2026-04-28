@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema, listTables } from "../src/schema.ts";
@@ -16,6 +17,7 @@ import {
   resolveRunnerPolicy,
   runCodexCli,
 } from "../src/codex-runner.ts";
+import { listStatusCheckResults } from "../src/status-checker.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
@@ -307,6 +309,179 @@ test("runner queue worker routes blocked work to review and executes allowed wor
   );
 
   assert.equal(resumedWithoutStructuredStatus.status, "review_needed");
+});
+
+test("runner queue worker records status check evidence after completed runs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-runner-status-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-006S",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const executed = await processRunnerQueueItem(
+    {
+      runId: "RUN-006S",
+      taskId: "TASK-009",
+      featureId: "FEAT-009",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        diff: { files: ["src/status-checker.ts"], summary: "runner completed token=abc123" },
+        allowedFiles: ["src/status-checker.ts"],
+        commandChecks: [
+          { kind: "build", command: "npm run build", status: "passed", exitCode: 0 },
+          { kind: "unit_test", command: "npm test", status: "passed", exitCode: 0 },
+        ],
+        specAlignment: {
+          taskId: "TASK-009",
+          userStoryIds: ["REQ-040"],
+          requirementIds: ["REQ-040"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-040"],
+          testCoverage: true,
+          changedFiles: ["src/status-checker.ts"],
+        },
+      },
+    },
+    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}\ntoken=abc123', stderr: "" }),
+  );
+
+  assert.equal(executed.status, "review_needed");
+  assert.equal(executed.statusCheckResult?.status, "review_needed");
+  assert.equal(JSON.stringify(executed.statusCheckResult?.evidencePack).includes("abc123"), false);
+  const persisted = listStatusCheckResults(dbPath, "RUN-006S");
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].status, "review_needed");
+});
+
+test("runner queue worker preserves failed status when status check records diagnostics", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-runner-failed-status-"));
+  const dbPath = join(root, ".autobuild", "autobuild.db");
+  initializeSchema(dbPath);
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-006F",
+    risk: "low",
+    workspaceRoot: root,
+    now: stableDate,
+  });
+
+  const result = await processRunnerQueueItem(
+    {
+      runId: "RUN-006F",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        commandChecks: [{ kind: "unit_test", command: "npm test", status: "failed", exitCode: 1 }],
+        specAlignment: {
+          taskId: "TASK-009",
+          userStoryIds: ["REQ-040"],
+          requirementIds: ["REQ-040"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-040"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
+  );
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.statusCheckResult?.status, "blocked");
+});
+
+test("runner status check resolves artifact-root attachments without workspace fallback", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-runner-artifact-root-"));
+  const artifactRoot = join(root, ".autobuild");
+  const dbPath = join(root, "db", "autobuild.db");
+  initializeSchema(dbPath);
+  mkdirSync(artifactRoot, { recursive: true });
+  writeFileSync(join(artifactRoot, "artifact.log"), "artifact evidence", "utf8");
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-006A",
+    risk: "low",
+    workspaceRoot: join(root, "worktree"),
+    now: stableDate,
+  });
+
+  await processRunnerQueueItem(
+    {
+      runId: "RUN-006A",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        artifactRoot,
+        commandChecks: [{ kind: "unit_test", command: "npm test", status: "passed", exitCode: 0 }],
+        attachments: [{ kind: "log", path: "artifact.log" }],
+        specAlignment: {
+          taskId: "TASK-009",
+          userStoryIds: ["REQ-040"],
+          requirementIds: ["REQ-040"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-040"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
+  );
+
+  const rows = runSqlite(dbPath, [], [
+    { name: "attachments", sql: "SELECT path, checksum FROM evidence_attachment_refs WHERE run_id = ?", params: ["RUN-006A"] },
+  ]).queries.attachments;
+  assert.equal(rows[0].path, "artifact.log");
+  assert.equal(typeof rows[0].checksum, "string");
+});
+
+test("runner status check preserves workspace attachments with a custom artifact root", async () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-runner-workspace-attachment-"));
+  const workspaceRoot = join(root, "worktree");
+  const artifactRoot = join(root, "external-artifacts", ".autobuild");
+  const dbPath = join(root, "db", "autobuild.db");
+  initializeSchema(dbPath);
+  mkdirSync(workspaceRoot, { recursive: true });
+  writeFileSync(join(workspaceRoot, "workspace.log"), "workspace evidence", "utf8");
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-006W",
+    risk: "low",
+    workspaceRoot,
+    now: stableDate,
+  });
+
+  await processRunnerQueueItem(
+    {
+      runId: "RUN-006W",
+      prompt: "Run tests",
+      policy,
+      statusCheck: {
+        dbPath,
+        artifactRoot,
+        commandChecks: [{ kind: "unit_test", command: "npm test", status: "passed", exitCode: 0 }],
+        attachments: [{ kind: "log", path: "workspace.log" }],
+        specAlignment: {
+          taskId: "TASK-009",
+          userStoryIds: ["REQ-040"],
+          requirementIds: ["REQ-040"],
+          acceptanceCriteriaIds: ["AC-001"],
+          coveredRequirementIds: ["REQ-040"],
+          testCoverage: true,
+        },
+      },
+    },
+    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
+  );
+
+  const rows = runSqlite(dbPath, [], [
+    { name: "attachments", sql: "SELECT path, checksum FROM evidence_attachment_refs WHERE run_id = ?", params: ["RUN-006W"] },
+  ]).queries.attachments;
+  assert.equal(rows[0].path, "workspace.log");
+  assert.equal(rows[0].checksum, createHash("sha256").update("workspace evidence").digest("hex"));
 });
 
 test("Codex adapter records spawn failures as failed evidence instead of throwing", async () => {
