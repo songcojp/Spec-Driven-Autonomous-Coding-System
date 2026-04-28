@@ -7,6 +7,18 @@ import { ORDINARY_LOG_SECRET_PATTERNS } from "./persistence.ts";
 import { runSqlite, type SqlStatement } from "./sqlite.ts";
 import type { RiskLevel } from "./orchestration.ts";
 import type { WorktreeRecord } from "./workspace.ts";
+import {
+  runStatusCheck,
+  type CommandCheckKind,
+  type CommandCheckResult,
+  type CommandCheckStatus,
+  type DiffSummary,
+  type EvidenceAttachmentRef,
+  type RunnerTerminalStatus,
+  type SpecAlignmentInput,
+  type StatusCheckResult,
+  type StatusDecision,
+} from "./status-checker.ts";
 
 export type RunnerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type RunnerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never" | "bypass";
@@ -144,6 +156,7 @@ export type RunnerQueueItem = {
   files?: string[];
   commands?: string[];
   taskText?: string;
+  statusCheck?: RunnerStatusCheckInput;
 };
 
 export type RunnerQueueWorkerResult = {
@@ -151,7 +164,23 @@ export type RunnerQueueWorkerResult = {
   status: RunnerQueueStatus;
   safety: SafetyGateResult;
   adapterResult?: CodexAdapterResult;
+  statusCheckResult?: StatusCheckResult;
   evidence: string;
+};
+
+export type RunnerStatusCheckInput = {
+  dbPath: string;
+  workspaceRoot?: string;
+  artifactRoot?: string;
+  diff?: DiffSummary;
+  commandChecks?: CommandCheckResult[];
+  requiredCommandChecks?: CommandCheckKind[];
+  specAlignment?: SpecAlignmentInput;
+  allowedFiles?: string[];
+  forbiddenFiles?: string[];
+  failureHistory?: Array<StatusDecision | RunnerTerminalStatus | CommandCheckStatus>;
+  failureThreshold?: number;
+  attachments?: EvidenceAttachmentRef[];
 };
 
 export type RunnerConsoleSnapshot = {
@@ -367,13 +396,50 @@ export async function processRunnerQueueItem(
     onHeartbeat,
   });
   const status = classifyQueueStatus(adapterResult);
+  const statusCheckResult = input.statusCheck
+    ? runStatusCheck({
+        runId: input.runId,
+        taskId: input.taskId,
+        featureId: input.featureId,
+        agentType: "codex",
+        dbPath: input.statusCheck.dbPath,
+        workspaceRoot: input.statusCheck.workspaceRoot ?? input.policy.workspaceRoot,
+        artifactRoot: input.statusCheck.artifactRoot,
+        runner: {
+          status: status === "completed" ? "completed" : status,
+          exitCode: adapterResult.session.exitCode,
+          summary: `Codex runner ${status}.`,
+          stdout: adapterResult.rawLog.stdout,
+          stderr: adapterResult.rawLog.stderr,
+          evidence: adapterResult.evidence,
+        },
+        diff: input.statusCheck.diff,
+        commandChecks: input.statusCheck.commandChecks,
+        requiredCommandChecks: input.statusCheck.requiredCommandChecks,
+        specAlignment: input.statusCheck.specAlignment,
+        allowedFiles: input.statusCheck.allowedFiles,
+        forbiddenFiles: input.statusCheck.forbiddenFiles,
+        failureHistory: input.statusCheck.failureHistory,
+        failureThreshold: input.statusCheck.failureThreshold,
+        attachments: input.statusCheck.attachments,
+      })
+    : undefined;
+  const finalStatus = statusCheckResult ? queueStatusFromStatusCheck(statusCheckResult.status, status) : status;
   return {
     runId: input.runId,
-    status,
+    status: finalStatus,
     safety,
     adapterResult,
+    statusCheckResult,
     evidence: `Codex CLI exited with ${adapterResult.session.exitCode ?? "unknown"}.`,
   };
+}
+
+function queueStatusFromStatusCheck(status: StatusDecision, fallback: RunnerQueueStatus): RunnerQueueStatus {
+  if (fallback === "failed") return "failed";
+  if (status === "done") return "completed";
+  if (status === "review_needed" || status === "blocked" || status === "failed") return status;
+  return fallback;
 }
 
 export function recordRunnerHeartbeat(input: {

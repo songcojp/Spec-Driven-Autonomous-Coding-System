@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -515,6 +515,57 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_runner_heartbeats_runner ON runner_heartbeats(runner_id, beat_at)",
       "CREATE INDEX IF NOT EXISTS idx_codex_sessions_run ON codex_session_records(run_id, completed_at)",
       "CREATE INDEX IF NOT EXISTS idx_raw_execution_logs_run ON raw_execution_logs(run_id, created_at)",
+    ],
+  },
+  {
+    version: 8,
+    description: "Add status checker and evidence schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS status_check_results (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        task_id TEXT,
+        feature_id TEXT,
+        project_id TEXT,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        reasons_json TEXT NOT NULL,
+        recommended_actions_json TEXT NOT NULL,
+        evidence_pack_id TEXT,
+        spec_alignment_result_id TEXT,
+        evidence_path TEXT,
+        evidence_write_ms REAL NOT NULL DEFAULT 0,
+        evidence_write_error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS spec_alignment_results (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        task_id TEXT,
+        feature_id TEXT,
+        aligned INTEGER NOT NULL,
+        reasons_json TEXT NOT NULL,
+        missing_traceability_json TEXT NOT NULL,
+        forbidden_files_json TEXT NOT NULL,
+        unauthorized_files_json TEXT NOT NULL,
+        coverage_gaps_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS evidence_attachment_refs (
+        id TEXT PRIMARY KEY,
+        evidence_pack_id TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        path TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        checksum TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_status_check_results_run ON status_check_results(run_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_status_check_results_task_status ON status_check_results(task_id, status, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_spec_alignment_results_run ON spec_alignment_results(run_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_pack ON evidence_attachment_refs(evidence_pack_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_run ON evidence_attachment_refs(run_id, created_at)",
     ],
   },
 ];
