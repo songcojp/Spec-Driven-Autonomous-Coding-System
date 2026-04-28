@@ -195,7 +195,7 @@ const BOARD_TRANSITIONS: Record<BoardColumn, BoardColumn[]> = {
   scheduled: ["running", "blocked"],
   running: ["checking", "done", "review_needed", "blocked", "failed"],
   checking: ["done", "review_needed", "blocked", "failed"],
-  review_needed: ["ready", "blocked", "failed"],
+  review_needed: ["backlog", "ready", "scheduled", "running", "checking", "blocked", "failed", "done"],
   blocked: ["ready", "failed"],
   failed: ["ready", "blocked"],
   done: ["delivered", "review_needed"],
@@ -210,7 +210,7 @@ const FEATURE_TRANSITIONS: Record<FeatureLifecycleStatus, FeatureLifecycleStatus
   implementing: ["done", "review_needed", "blocked", "failed"],
   done: ["delivered", "review_needed"],
   delivered: [],
-  review_needed: ["planning", "tasked", "blocked", "failed"],
+  review_needed: ["ready", "planning", "tasked", "implementing", "blocked", "failed", "done"],
   blocked: ["ready", "planning", "failed"],
   failed: ["ready", "blocked"],
 };

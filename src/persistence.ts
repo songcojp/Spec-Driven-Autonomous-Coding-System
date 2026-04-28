@@ -2,6 +2,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { join, relative } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { ARTIFACT_DIRECTORIES } from "./artifacts.ts";
+import { assertApprovalPresentForTerminalStatus } from "./review-center.ts";
 import { runSqlite } from "./sqlite.ts";
 
 export type CoreEntitySnapshot = {
@@ -126,6 +127,8 @@ export const ORDINARY_LOG_SECRET_PATTERNS = [
 export function persistCoreEntitySnapshot(dbPath: string, input: CoreEntityInput): CoreEntitySnapshot {
   const projectPreferences = JSON.stringify(input.project.techPreferences ?? []);
   const now = new Date().toISOString();
+  assertApprovalPresentForTerminalStatus(dbPath, { taskId: input.task.id, targetStatus: input.task.status });
+  assertApprovalPresentForTerminalStatus(dbPath, { featureId: input.feature.id, targetStatus: input.feature.status });
 
   runSqlite(dbPath, [
     {

@@ -2,6 +2,7 @@ import { createHash, randomUUID, type BinaryLike } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { recordAuditEvent, recordMetricSample, sanitizeForOrdinaryLog } from "./persistence.ts";
+import { createReviewItem, type ReviewTrigger } from "./review-center.ts";
 import { runSqlite, type SqlStatement } from "./sqlite.ts";
 
 export type StatusDecision = "done" | "ready" | "scheduled" | "review_needed" | "blocked" | "failed";
@@ -143,9 +144,11 @@ export type DiffInspectionResult = {
   unauthorizedFiles: string[];
   forbiddenFiles: string[];
   secretFindings: string[];
+  diffThresholdExceeded: boolean;
 };
 
 const DEFAULT_FAILURE_THRESHOLD = 3;
+const DIFF_PATCH_REVIEW_THRESHOLD_LINES = 400;
 const RISK_FILE_PATTERNS = [
   /(^|\/)\.env($|\.)/,
   /(^|\/)secrets?\//i,
@@ -407,6 +410,7 @@ function inspectDiff(input: {
     ? files.filter((file) => !matchesAny(file, input.allowedFiles ?? []))
     : [];
   const riskFiles = files.filter((file) => RISK_FILE_PATTERNS.some((pattern) => pattern.test(normalizePath(file))));
+  const patchLineCount = input.diff?.patch?.split(/\r?\n/).length ?? 0;
   const secretFindings = scanSecrets([
     input.diff?.summary,
     input.diff?.patch,
@@ -421,6 +425,7 @@ function inspectDiff(input: {
     unauthorizedFiles: unique(unauthorizedFiles),
     forbiddenFiles: unique(forbiddenFiles),
     secretFindings,
+    diffThresholdExceeded: patchLineCount > DIFF_PATCH_REVIEW_THRESHOLD_LINES,
   };
 }
 
@@ -440,8 +445,9 @@ function decideStatus(input: {
   const missingCommands = input.requiredCommands.filter((kind) => !input.commands.some((command) => command.kind === kind));
   const repeatedFailureCount = trailingFailureCount(input.failureHistory);
   const missingCommandEvidence = input.commands.length === 0;
+  const currentCountsTowardFailure = !input.runner || input.runner.status === "failed" || input.runner.status === "blocked" || failedCommands.length > 0;
 
-  if (repeatedFailureCount + (input.runner?.status === "failed" || failedCommands.length > 0 ? 1 : 0) >= input.failureThreshold) {
+  if (repeatedFailureCount + (currentCountsTowardFailure ? 1 : 0) >= input.failureThreshold) {
     reasons.push(`Failure threshold reached (${input.failureThreshold}).`);
     recommendedActions.push("Escalate to recovery because repeated failures exceeded the configured threshold.");
     return { status: "failed", summary: "Status check failed after repeated failures.", reasons, recommendedActions };
@@ -458,15 +464,54 @@ function decideStatus(input: {
     recommendedActions.push("Provide runner output before selecting a terminal status.");
     return { status: "blocked", summary: "Status check blocked because runner output is missing.", reasons, recommendedActions };
   }
-  if (input.runner?.status === "blocked") {
-    reasons.push("Runner reported blocked.");
-    recommendedActions.push("Inspect runner blockage and retry after resolution.");
-    return { status: "blocked", summary: "Status check is blocked by runner output.", reasons, recommendedActions };
+  if (input.diff.forbiddenFiles.length > 0 || input.diff.unauthorizedFiles.length > 0 || input.diff.secretFindings.length > 0) {
+    reasons.push(
+      ...input.diff.forbiddenFiles.map((file) => `Forbidden file changed: ${file}.`),
+      ...input.diff.unauthorizedFiles.map((file) => `Unauthorized file changed: ${file}.`),
+      ...input.diff.secretFindings.map((finding) => `Sensitive value pattern detected: ${finding}.`),
+    );
+    if (failedCommands.length > 0) {
+      reasons.push(...failedCommands.map((command) => `${command.kind} failed${command.command ? `: ${command.command}` : ""}.`));
+    }
+    if (input.runner?.status === "blocked") {
+      reasons.push("Runner reported blocked.");
+    } else if (input.runner?.status === "failed" || (input.runner?.exitCode ?? 0) !== 0) {
+      reasons.push(`Runner failed with exit code ${input.runner?.exitCode ?? "unknown"}.`);
+    }
+    recommendedActions.push("Review file authorization and remove or rotate sensitive material before completion.");
+    return { status: "review_needed", summary: "Status check requires review for file or secret findings.", reasons, recommendedActions };
+  }
+  if (input.diff.riskFiles.length > 0 || input.diff.diffThresholdExceeded) {
+    reasons.push(
+      ...input.diff.riskFiles.map((file) => `Risk file changed: ${file}.`),
+      ...(input.diff.diffThresholdExceeded ? [`Diff exceeds review threshold of ${DIFF_PATCH_REVIEW_THRESHOLD_LINES} patch lines.`] : []),
+    );
+    if (failedCommands.length > 0) {
+      reasons.push(...failedCommands.map((command) => `${command.kind} failed${command.command ? `: ${command.command}` : ""}.`));
+    }
+    if (input.runner?.status === "blocked") {
+      reasons.push("Runner reported blocked.");
+    } else if (input.runner?.status === "failed" || (input.runner?.exitCode ?? 0) !== 0) {
+      reasons.push(`Runner failed with exit code ${input.runner?.exitCode ?? "unknown"}.`);
+    }
+    recommendedActions.push("Review high-risk files or large diffs before delivery.");
+    return { status: "review_needed", summary: "Status check needs human review for high-risk diff.", reasons, recommendedActions };
   }
   if (input.runner?.status === "failed" || (input.runner?.exitCode ?? 0) !== 0) {
     reasons.push(`Runner failed with exit code ${input.runner?.exitCode ?? "unknown"}.`);
     recommendedActions.push("Review runner logs and retry or route to recovery.");
     return { status: "blocked", summary: "Status check blocked because runner execution failed.", reasons, recommendedActions };
+  }
+  if (input.runner?.status === "blocked") {
+    reasons.push("Runner reported blocked.");
+    recommendedActions.push("Inspect runner blockage and retry after resolution.");
+    return { status: "blocked", summary: "Status check is blocked by runner output.", reasons, recommendedActions };
+  }
+  if (failedCommands.length > 0 && input.runner?.status === "review_needed") {
+    reasons.push(...failedCommands.map((command) => `${command.kind} failed${command.command ? `: ${command.command}` : ""}.`));
+    reasons.push("Runner requested review.");
+    recommendedActions.push("Review failed checks and approve, split, or request changes before continuing.");
+    return { status: "review_needed", summary: "Status check needs review for failed command continuation.", reasons, recommendedActions };
   }
   if (failedCommands.length > 0) {
     reasons.push(...failedCommands.map((command) => `${command.kind} failed${command.command ? `: ${command.command}` : ""}.`));
@@ -479,18 +524,8 @@ function decideStatus(input: {
     recommendedActions.push("Resolve spec alignment gaps before Done can be selected.");
     return { status: "review_needed", summary: "Spec alignment failed; Done is blocked.", reasons, recommendedActions };
   }
-  if (input.diff.forbiddenFiles.length > 0 || input.diff.unauthorizedFiles.length > 0 || input.diff.secretFindings.length > 0) {
+  if (incompleteCommands.length > 0 || missingCommands.length > 0 || missingCommandEvidence || input.runner?.status === "review_needed") {
     reasons.push(
-      ...input.diff.forbiddenFiles.map((file) => `Forbidden file changed: ${file}.`),
-      ...input.diff.unauthorizedFiles.map((file) => `Unauthorized file changed: ${file}.`),
-      ...input.diff.secretFindings.map((finding) => `Sensitive value pattern detected: ${finding}.`),
-    );
-    recommendedActions.push("Review file authorization and remove or rotate sensitive material before completion.");
-    return { status: "review_needed", summary: "Status check requires review for file or secret findings.", reasons, recommendedActions };
-  }
-  if (input.diff.riskFiles.length > 0 || incompleteCommands.length > 0 || missingCommands.length > 0 || missingCommandEvidence || input.runner?.status === "review_needed") {
-    reasons.push(
-      ...input.diff.riskFiles.map((file) => `Risk file changed: ${file}.`),
       ...incompleteCommands.map((command) => `${command.kind} was ${command.status === "skipped" ? "skipped" : "not run"}.`),
       ...missingCommands.map((kind) => `${kind} result is missing.`),
       ...(missingCommandEvidence ? ["Command check evidence is missing."] : []),
@@ -664,6 +699,37 @@ function persistStatusCheck(dbPath: string, result: StatusCheckResult, evidenceP
   ];
 
   runSqlite(dbPath, statements);
+  if (isRepeatedFailureEscalation(result)) {
+    runSqlite(dbPath, repeatedFailureStateStatements(result, input));
+  }
+  if (result.status === "done") {
+    runSqlite(dbPath, closeRemediatedStatusReviewStatements(result));
+  }
+  const shouldRouteToReview = result.status === "review_needed" || isRepeatedFailureEscalation(result);
+  const existingReview = shouldRouteToReview ? findOpenStatusReview(dbPath, result) : undefined;
+  if (shouldRouteToReview) {
+    createReviewItem(dbPath, {
+      id: existingReview?.id ?? `status-review-${result.id}`,
+      projectId: result.projectId,
+      featureId: result.featureId,
+      taskId: result.taskId,
+      runId: result.runId,
+      message: result.summary,
+      reviewNeededReason: reviewReasonForStatusCheck(result),
+      triggerReasons: reviewTriggersForStatusCheck(result),
+      evidenceRefs: [result.evidencePack.id],
+      body: {
+        testResults: {
+          commands: result.evidencePack.commands,
+          specAlignment: result.specAlignment,
+        },
+        diff: result.evidencePack.diff,
+        riskExplanation: result.reasons.join(" "),
+      },
+      pauseEntity: !isRepeatedFailureEscalation(result),
+      now: new Date(result.evidencePack.createdAt),
+    });
+  }
   recordAuditEvent(dbPath, {
     entityType: "run",
     entityId: result.runId,
@@ -688,6 +754,117 @@ function persistStatusCheck(dbPath: string, result: StatusCheckResult, evidenceP
       status: result.status,
     },
   });
+}
+
+function closeRemediatedStatusReviewStatements(result: StatusCheckResult): SqlStatement[] {
+  if (!result.taskId && !result.featureId) {
+    return [];
+  }
+  return [
+    {
+      sql: `UPDATE review_items
+        SET status = 'closed', updated_at = ?
+        WHERE id LIKE 'status-review-%'
+          AND status IN ('review_needed', 'changes_requested', 'rejected')
+          AND review_needed_reason <> 'approval_needed'
+          AND COALESCE(task_id, '') = COALESCE(?, '')
+          AND COALESCE(feature_id, '') = COALESCE(?, '')`,
+      params: [result.evidencePack.createdAt, result.taskId ?? null, result.featureId ?? null],
+    },
+  ];
+}
+
+function repeatedFailureStateStatements(result: StatusCheckResult, input: StatusCheckerInput): SqlStatement[] {
+  const now = input.now?.toISOString() ?? result.evidencePack.createdAt;
+  const statements: SqlStatement[] = [];
+  if (result.taskId) {
+    statements.push(
+      { sql: "UPDATE tasks SET status = 'failed', updated_at = ? WHERE id = ?", params: [now, result.taskId] },
+      {
+        sql: `UPDATE task_graph_tasks
+          SET status = 'failed', updated_at = ?
+          WHERE id = ?
+            OR (
+              feature_id = ?
+              AND title = (SELECT title FROM tasks WHERE id = ?)
+              AND (
+                SELECT COUNT(*) FROM task_graph_tasks
+                WHERE feature_id = ?
+                  AND title = (SELECT title FROM tasks WHERE id = ?)
+              ) = 1
+            )`,
+        params: [now, result.taskId, result.featureId ?? "", result.taskId, result.featureId ?? "", result.taskId],
+      },
+    );
+  }
+  if (result.featureId) {
+    statements.push({ sql: "UPDATE features SET status = 'failed', updated_at = ? WHERE id = ?", params: [now, result.featureId] });
+  }
+  return statements;
+}
+
+function findOpenStatusReview(dbPath: string, result: StatusCheckResult): { id: string } | undefined {
+  const reviewNeededReason = reviewReasonForStatusCheck(result);
+  const triggerReasons = JSON.stringify(reviewTriggersForStatusCheck(result));
+  const hasSubject = result.taskId !== undefined || result.featureId !== undefined;
+  const resultRows = runSqlite(dbPath, [], [
+    {
+      name: "reviews",
+      sql: `SELECT id FROM review_items
+        WHERE status IN ('review_needed', 'changes_requested', 'rejected')
+          AND review_needed_reason = ?
+          AND trigger_reasons_json = ?
+          AND COALESCE(task_id, '') = COALESCE(?, '')
+          AND COALESCE(feature_id, '') = COALESCE(?, '')
+          AND (? = 1 OR COALESCE(run_id, '') = COALESCE(?, ''))
+        LIMIT 1`,
+      params: [reviewNeededReason, triggerReasons, result.taskId ?? null, result.featureId ?? null, hasSubject ? 1 : 0, result.runId],
+    },
+  ]);
+  const row = resultRows.queries.reviews[0];
+  return row ? { id: String(row.id) } : undefined;
+}
+
+function reviewReasonForStatusCheck(result: StatusCheckResult): "approval_needed" | "clarification_needed" | "risk_review_needed" {
+  if (isRepeatedFailureEscalation(result)) {
+    return "risk_review_needed";
+  }
+  if (
+    result.evidencePack.diff.forbiddenFiles.length > 0 ||
+    result.evidencePack.diff.unauthorizedFiles.length > 0 ||
+    result.evidencePack.diff.secretFindings.length > 0
+  ) {
+    return "risk_review_needed";
+  }
+  if (!result.specAlignment.aligned) {
+    return "clarification_needed";
+  }
+  if (result.evidencePack.runner.status === "review_needed") {
+    return "approval_needed";
+  }
+  return "risk_review_needed";
+}
+
+function reviewTriggersForStatusCheck(result: StatusCheckResult): ReviewTrigger[] {
+  const triggers = new Set<ReviewTrigger>();
+  if (isRepeatedFailureEscalation(result)) triggers.add("repeated_failure");
+  if (!result.specAlignment.aligned) triggers.add("high_impact_ambiguity");
+  if (result.evidencePack.runner.status === "review_needed") triggers.add("permission_escalation");
+  if (result.evidencePack.diff.riskFiles.length > 0) triggers.add("high_risk_file");
+  if (result.evidencePack.diff.diffThresholdExceeded) triggers.add("diff_threshold_exceeded");
+  if (
+    result.evidencePack.diff.forbiddenFiles.length > 0 ||
+    result.evidencePack.diff.unauthorizedFiles.length > 0 ||
+    result.evidencePack.diff.secretFindings.length > 0
+  ) {
+    triggers.add("forbidden_file");
+  }
+  if (result.evidencePack.commands.some((command) => command.status === "failed")) triggers.add("failed_tests_continue");
+  return triggers.size > 0 ? [...triggers] : ["high_risk_file"];
+}
+
+function isRepeatedFailureEscalation(result: StatusCheckResult): boolean {
+  return result.status === "failed" && result.reasons.some((reason) => reason.includes("Failure threshold reached"));
 }
 
 function persistenceFailureResult(result: StatusCheckResult, error: unknown): StatusCheckResult {

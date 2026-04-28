@@ -53,6 +53,27 @@ test("dashboard aggregates control-plane facts and records performance baselines
   assert.equal(metrics.every((row) => String(row.labels_json).includes('"projectId":"project-1"')), true);
 });
 
+test("dashboard counts unresolved review decisions as pending approvals", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: `UPDATE review_items
+        SET status = 'changes_requested'
+        WHERE id = 'REV-1'`,
+    },
+    {
+      sql: `INSERT INTO review_items (id, project_id, status, severity, body, created_at)
+        VALUES ('REV-PROJECT', 'project-1', 'review_needed', 'high', '{"message":"Project-level approval"}', '2026-04-28T12:01:00.000Z')`,
+    },
+  ]);
+
+  const dashboard = buildDashboardQuery(dbPath, { projectId: "project-1", now: stableDate });
+
+  assert.equal(dashboard.pendingApprovals, 2);
+  assert.equal(dashboard.risks.some((risk) => risk.source === "REV-PROJECT"), true);
+});
+
 test("console view models expose specs, skills, subagents, runner, and reviews", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -92,10 +113,14 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   const reviews = buildReviewCenterView(dbPath);
   const scopedReviews = buildReviewCenterView(dbPath, "project-1");
   assert.equal(reviews.items[0].id, "REV-1");
+  assert.equal(reviews.items[0].taskId, "TASK-RUNNING");
   assert.equal(reviews.items[0].body, "Needs approval");
   assert.equal(reviews.items[0].evidence.some((entry) => entry.path === ".autobuild/evidence/RUN-013.json"), true);
   assert.equal(scopedReviews.items.some((item) => item.id === "REV-OTHER"), false);
   assert.equal(reviews.items.find((item) => item.id === "REV-GLOBAL")?.evidence.length, 0);
+  assert.equal(reviews.items[0].goal, "Approve console review controls.");
+  assert.equal(reviews.items[0].specRef, "docs/features/feat-013-product-console/design.md");
+  assert.deepEqual(reviews.items[0].runContract, { command: "npm test" });
   assert.deepEqual(reviews.items[0].diff, { files: ["src/product-console.ts"] });
   assert.deepEqual(reviews.riskFilters, ["high", "medium"]);
   assert.equal(reviews.commands.some((command) => command.action === "write_spec_evolution"), true);
@@ -137,6 +162,44 @@ test("console command gateway audits controlled writes without mutating worktree
   assert.equal(after.queries.audit[0].event_type, "console_command_pause_runner");
   assert.equal(after.queries.audit[0].source, "product_console");
   assert.match(String(after.queries.audit[0].payload_json), /operator/);
+});
+
+test("console write commands persist rule and spec evolution evidence", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+
+  submitConsoleCommand(dbPath, {
+    action: "write_project_rule",
+    entityType: "rule",
+    entityId: "RULE-1",
+    requestedBy: "operator",
+    reason: "Capture a project operating rule.",
+    payload: { projectId: "project-1", summary: "Do not bypass review approvals." },
+    now: stableDate,
+  });
+  submitConsoleCommand(dbPath, {
+    action: "write_spec_evolution",
+    entityType: "spec",
+    entityId: "SPEC-EVO-1",
+    requestedBy: "operator",
+    reason: "Capture implementation learning.",
+    payload: { featureId: "FEAT-013", summary: "Review actions need evidence links." },
+    now: stableDate,
+  });
+
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "evidence",
+      sql: `SELECT kind, feature_id, path, summary, metadata_json FROM evidence_packs
+        WHERE kind IN ('project_rule', 'spec_evolution') AND metadata_json LIKE '%"commandAction"%'
+        ORDER BY kind`,
+    },
+  ]);
+
+  assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["project_rule", "spec_evolution"]);
+  assert.equal(result.queries.evidence[0].summary, "Do not bypass review approvals.");
+  assert.equal(result.queries.evidence[1].feature_id, "FEAT-013");
+  assert.match(String(result.queries.evidence[1].metadata_json), /write_spec_evolution/);
 });
 
 function makeDbPath(): string {
@@ -281,8 +344,13 @@ function seedConsoleData(dbPath: string): void {
         VALUES ('DELIVERY-13', 'FEAT-013', '.autobuild/reports/feat-013.md', 'Delivery report with spec version diff.')`,
     },
     {
-      sql: `INSERT INTO review_items (id, feature_id, status, severity, body, created_at)
-        VALUES ('REV-1', 'FEAT-013', 'review_needed', 'high', '{"message":"Needs approval","diff":{"files":["src/product-console.ts"]}}', '2026-04-28T12:00:00.000Z')`,
+      sql: `INSERT INTO review_items (id, feature_id, task_id, status, severity, body, evidence_refs_json, created_at)
+        VALUES (
+          'REV-1', 'FEAT-013', 'TASK-RUNNING', 'review_needed', 'high',
+          '{"message":"Needs approval","goal":"Approve console review controls.","specRef":"docs/features/feat-013-product-console/design.md","runContract":{"command":"npm test"},"diff":{"files":["src/product-console.ts"]}}',
+          '["EVID-1"]',
+          '2026-04-28T12:00:00.000Z'
+        )`,
     },
     {
       sql: `INSERT INTO review_items (id, feature_id, status, severity, body, created_at)

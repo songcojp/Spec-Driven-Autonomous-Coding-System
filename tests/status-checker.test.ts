@@ -14,6 +14,7 @@ import {
   runStatusCheck,
   type StatusCheckerInput,
 } from "../src/status-checker.ts";
+import { listReviewCenterItems } from "../src/review-center.ts";
 
 test("schema version 9 includes status checker, recovery history, and attachment tables", () => {
   const dbPath = makeDbPath();
@@ -185,8 +186,24 @@ test("secret findings remain visible when spec alignment also fails", () => {
 
 test("repeated failures past threshold become failed", () => {
   const root = mkdtempSync(join(tmpdir(), "feat-009-threshold-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO projects (id, name, goal, project_type, tech_preferences_json, environment, status)
+        VALUES ('project-1', 'SpecDrive', 'Automate specs', 'typescript-service', '[]', 'local', 'ready')`,
+    },
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, priority, folder, primary_requirements_json)
+        VALUES ('FEAT-009', 'project-1', 'Status Checker', 'failed', 10, 'feat-009-status-checker', '["REQ-040"]')`,
+    },
+    {
+      sql: `INSERT INTO tasks (id, feature_id, title, status, recovery_state, allowed_files_json)
+        VALUES ('TASK-009', 'FEAT-009', 'Run checks', 'failed', 'failed', '[]')`,
+    },
+  ]);
   const result = runStatusCheck({
-    ...baseInput(root),
+    ...baseInput(root, dbPath),
     runner: { status: "failed", exitCode: 1, stderr: "test failed" },
     failureHistory: ["failed", "failed"],
     failureThreshold: 3,
@@ -194,6 +211,64 @@ test("repeated failures past threshold become failed", () => {
 
   assert.equal(result.status, "failed");
   assert.equal(result.reasons.some((reason) => reason.includes("Failure threshold")), true);
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].triggerReasons.includes("repeated_failure"), true);
+  const persisted = runSqlite(dbPath, [], [
+    { name: "task", sql: "SELECT status FROM tasks WHERE id = 'TASK-009'" },
+    { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-009'" },
+  ]);
+  assert.equal(persisted.queries.task[0].status, "failed");
+  assert.equal(persisted.queries.feature[0].status, "failed");
+});
+
+test("repeated failures mark active task and feature failed", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-active-threshold-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO projects (id, name, goal, project_type, tech_preferences_json, environment, status)
+        VALUES ('project-1', 'SpecDrive', 'Automate specs', 'typescript-service', '[]', 'local', 'ready')`,
+    },
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, priority, folder, primary_requirements_json)
+        VALUES ('FEAT-009', 'project-1', 'Status Checker', 'implementing', 10, 'feat-009-status-checker', '["REQ-040"]')`,
+    },
+    {
+      sql: `INSERT INTO tasks (id, feature_id, title, status, recovery_state, allowed_files_json)
+        VALUES ('TASK-009', 'FEAT-009', 'Run checks', 'running', 'pending', '[]')`,
+    },
+    {
+      sql: `INSERT INTO task_graphs (id, feature_id, graph_json)
+        VALUES ('TG-FEAT-009', 'FEAT-009', '{"tasks":[{"taskId":"GRAPH-TASK-009"}]}')`,
+    },
+    {
+      sql: `INSERT INTO task_graph_tasks (
+          id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
+          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+        ) VALUES (
+          'GRAPH-TASK-009', 'TG-FEAT-009', 'FEAT-009', 'Run checks', 'running',
+          '[]', '[]', '[]', '[]', 'medium', 'feature-spec-execution', 'coding', 1
+        )`,
+    },
+  ]);
+
+  runStatusCheck({
+    ...baseInput(root, dbPath),
+    runner: { status: "failed", exitCode: 1, stderr: "test failed" },
+    failureHistory: ["failed", "failed"],
+    failureThreshold: 3,
+  });
+
+  const persisted = runSqlite(dbPath, [], [
+    { name: "task", sql: "SELECT status FROM tasks WHERE id = 'TASK-009'" },
+    { name: "graphTask", sql: "SELECT status FROM task_graph_tasks WHERE id = 'GRAPH-TASK-009'" },
+    { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-009'" },
+  ]);
+  assert.equal(persisted.queries.task[0].status, "failed");
+  assert.equal(persisted.queries.graphTask[0].status, "failed");
+  assert.equal(persisted.queries.feature[0].status, "failed");
 });
 
 test("repeated blocked status check failures count toward the failure threshold", () => {
@@ -240,10 +315,326 @@ test("forbidden files, unauthorized files, and sensitive patterns route to revie
   assert.equal(result.evidencePack.diff.unauthorizedFiles.includes("secrets/prod.env"), true);
 });
 
+test("forbidden files route to review even when command checks fail", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-files-failed-checks-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const result = runStatusCheck({
+    ...baseInput(root, dbPath),
+    allowedFiles: ["src/status-checker.ts"],
+    forbiddenFiles: ["secrets/**"],
+    diff: {
+      files: ["src/status-checker.ts", "secrets/prod.env"],
+      patch: "password=hunter2",
+    },
+    commandChecks: [
+      { kind: "unit_test", command: "node --test tests/status-checker.test.ts", status: "failed", exitCode: 1 },
+    ],
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(result.status, "review_needed");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].triggerReasons.includes("forbidden_file"), true);
+});
+
+test("high-risk files route to review even when command checks fail", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-risk-files-failed-checks-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const result = runStatusCheck({
+    ...baseInput(root, dbPath),
+    diff: {
+      files: ["src/schema.ts"],
+      summary: "Changed schema code.",
+    },
+    commandChecks: [
+      { kind: "unit_test", command: "node --test tests/status-checker.test.ts", status: "failed", exitCode: 1 },
+    ],
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(result.status, "review_needed");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].triggerReasons.includes("high_risk_file"), true);
+});
+
+test("forbidden files route to review even when runner is blocked", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-files-blocked-runner-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const result = runStatusCheck({
+    ...baseInput(root, dbPath),
+    runner: {
+      status: "blocked",
+      exitCode: 0,
+      summary: "Runner blocked on external dependency.",
+      stdout: "",
+      stderr: "blocked",
+    },
+    allowedFiles: ["src/status-checker.ts"],
+    forbiddenFiles: ["secrets/**"],
+    diff: {
+      files: ["src/status-checker.ts", "secrets/prod.env"],
+      patch: "password=hunter2",
+    },
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(result.status, "review_needed");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].triggerReasons.includes("forbidden_file"), true);
+});
+
+test("large diffs route to Review Center with diff threshold trigger", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-large-diff-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const result = runStatusCheck({
+    ...baseInput(root, dbPath),
+    diff: {
+      files: ["src/status-checker.ts"],
+      patch: Array.from({ length: 401 }, (_, index) => `+line ${index}`).join("\n"),
+    },
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(result.status, "review_needed");
+  assert.equal(items[0].triggerReasons.includes("diff_threshold_exceeded"), true);
+});
+
+test("secret-only findings route to blocking security review actions", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-secret-only-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const result = runStatusCheck({
+    ...baseInput(root, dbPath),
+    allowedFiles: ["src/status-checker.ts"],
+    forbiddenFiles: undefined,
+    diff: {
+      files: ["src/status-checker.ts"],
+      patch: "password=secret-value",
+    },
+  });
+
+  assert.equal(result.status, "review_needed");
+  assert.deepEqual(result.evidencePack.diff.secretFindings, ["password"]);
+  assert.deepEqual(result.evidencePack.diff.forbiddenFiles, []);
+  assert.deepEqual(result.evidencePack.diff.unauthorizedFiles, []);
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(items[0].triggerReasons.includes("forbidden_file"), true);
+  assert.deepEqual(items[0].recommendedActions, ["reject", "rollback", "request_changes"]);
+});
+
+test("review-needed status checks create review center items", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-review-router-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const result = runStatusCheck({
+    ...baseInput(root, dbPath),
+    diff: { files: [".env"], summary: "Changed environment file." },
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(result.status, "review_needed");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].runId, "RUN-009");
+  assert.equal(items[0].taskId, "TASK-009");
+  assert.equal(items[0].evidence[0].id, result.evidencePack.id);
+  assert.equal(items[0].triggerReasons.includes("forbidden_file"), true);
+});
+
+test("repeated status checks reuse the open review gate instead of duplicating blockers", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-review-dedupe-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const input = {
+    ...baseInput(root, dbPath),
+    diff: { files: [".env"], summary: "Changed environment file." },
+  };
+
+  runStatusCheck(input);
+  runStatusCheck(input);
+  const rerun = runStatusCheck({ ...input, runId: "RUN-009-RERUN", diff: { files: [".env"], summary: "Changed environment file again." } });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].runId, "RUN-009-RERUN");
+  assert.equal(items[0].taskId, "TASK-009");
+  assert.deepEqual(items[0].evidenceRefs, [rerun.evidencePack.id]);
+  assert.deepEqual(items[0].body.diff, rerun.evidencePack.diff);
+});
+
+test("status review dedupe preserves distinct risk triggers", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-review-distinct-risks-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const input = {
+    ...baseInput(root, dbPath),
+    diff: { files: [".env"], summary: "Changed environment file." },
+  };
+
+  runStatusCheck(input);
+  runStatusCheck({
+    ...input,
+    runId: "RUN-009-REPEATED",
+    diff: { files: ["src/status-checker.ts"], summary: "No boundary diff." },
+    runner: { status: "failed", exitCode: 1, stderr: "test failed" },
+    failureHistory: ["failed", "failed"],
+    failureThreshold: 3,
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(items.length, 2);
+  assert.equal(items.some((item) => item.triggerReasons.includes("forbidden_file")), true);
+  assert.equal(items.some((item) => item.triggerReasons.includes("repeated_failure")), true);
+});
+
+test("status reruns reuse decided review threads for remediation", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-review-rerun-after-decision-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const input = {
+    ...baseInput(root, dbPath),
+    diff: { files: [".env"], summary: "Changed environment file." },
+  };
+
+  runStatusCheck(input);
+  const initial = listReviewCenterItems(dbPath, { status: "review_needed" })[0];
+  runSqlite(dbPath, [
+    { sql: "UPDATE review_items SET status = 'rejected' WHERE id = ?", params: [initial.id] },
+  ]);
+  runStatusCheck({ ...input, runId: "RUN-009-RERUN" });
+
+  const rows = runSqlite(dbPath, [], [
+    { name: "reviews", sql: "SELECT id, status FROM review_items ORDER BY created_at, id" },
+  ]).queries.reviews;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, initial.id);
+  assert.equal(rows[0].status, "review_needed");
+});
+
+test("clean reruns close remediated status-review blockers", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-review-clean-rerun-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const input = {
+    ...baseInput(root, dbPath),
+    diff: { files: [".env"], summary: "Changed environment file." },
+  };
+
+  runStatusCheck(input);
+  const initial = listReviewCenterItems(dbPath, { status: "review_needed" })[0];
+  runSqlite(dbPath, [
+    { sql: "UPDATE review_items SET status = 'changes_requested' WHERE id = ?", params: [initial.id] },
+  ]);
+  runStatusCheck({
+    ...input,
+    runId: "RUN-009-CLEAN",
+    diff: { files: ["src/status-checker.ts"], summary: "Remediated risky diff." },
+  });
+
+  const rows = runSqlite(dbPath, [], [
+    { name: "reviews", sql: "SELECT id, status FROM review_items ORDER BY created_at, id" },
+  ]).queries.reviews;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, initial.id);
+  assert.equal(rows[0].status, "closed");
+});
+
+test("clean reruns keep approval-needed status reviews open", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-approval-review-clean-rerun-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const input = {
+    ...baseInput(root, dbPath),
+    runner: {
+      status: "review_needed" as const,
+      exitCode: 0,
+      summary: "Runner stopped for a safety review.",
+      stdout: "runner requested review",
+      stderr: "",
+    },
+  };
+
+  runStatusCheck(input);
+  const initial = listReviewCenterItems(dbPath, { status: "review_needed" })[0];
+  runStatusCheck({
+    ...input,
+    runId: "RUN-009-APPROVAL-CLEAN",
+    runner: {
+      status: "completed",
+      exitCode: 0,
+      summary: "Clean rerun after review request.",
+      stdout: "runner ok",
+      stderr: "",
+    },
+  });
+
+  const rows = runSqlite(dbPath, [], [
+    { name: "reviews", sql: "SELECT id, status, review_needed_reason FROM review_items ORDER BY created_at, id" },
+  ]).queries.reviews;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, initial.id);
+  assert.equal(rows[0].status, "review_needed");
+  assert.equal(rows[0].review_needed_reason, "approval_needed");
+});
+
+test("runner review-needed status checks create approval-needed reviews", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-runner-review-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  runStatusCheck({
+    ...baseInput(root, dbPath),
+    runner: {
+      status: "review_needed",
+      exitCode: 0,
+      summary: "Runner stopped for a safety review.",
+      stdout: "runner requested review",
+      stderr: "",
+    },
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].reviewNeededReason, "approval_needed");
+  assert.equal(items[0].triggerReasons.includes("permission_escalation"), true);
+  assert.equal(items[0].recommendedActions.includes("approve_continue"), true);
+});
+
+test("runner review-needed can route failed command continuation to review", () => {
+  const root = mkdtempSync(join(tmpdir(), "feat-009-failed-command-review-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const result = runStatusCheck({
+    ...baseInput(root, dbPath),
+    runner: {
+      status: "review_needed",
+      exitCode: 0,
+      summary: "Runner requests approval to continue after a failed check.",
+      stdout: "runner requested review",
+      stderr: "",
+    },
+    commandChecks: [
+      { kind: "unit_test", command: "node --test tests/status-checker.test.ts", status: "failed", exitCode: 1 },
+    ],
+  });
+
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(result.status, "review_needed");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].triggerReasons.includes("failed_tests_continue"), true);
+});
+
 test("spec alignment file boundary rules participate in diff inspection", () => {
   const root = mkdtempSync(join(tmpdir(), "feat-009-spec-files-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
   const result = runStatusCheck({
-    ...baseInput(root),
+    ...baseInput(root, dbPath),
     allowedFiles: undefined,
     forbiddenFiles: undefined,
     diff: {
@@ -260,6 +651,9 @@ test("spec alignment file boundary rules participate in diff inspection", () => 
   assert.equal(result.status, "review_needed");
   assert.equal(result.evidencePack.diff.forbiddenFiles.includes("secrets/prod.env"), true);
   assert.equal(result.evidencePack.diff.unauthorizedFiles.includes("secrets/prod.env"), true);
+  const items = listReviewCenterItems(dbPath, { status: "review_needed" });
+  assert.equal(items[0].reviewNeededReason, "risk_review_needed");
+  assert.deepEqual(items[0].recommendedActions, ["reject", "rollback", "request_changes"]);
 });
 
 test("attachment checksums resolve relative to the workspace root", () => {

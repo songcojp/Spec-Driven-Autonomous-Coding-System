@@ -15,7 +15,7 @@
 | FEAT-008 | Codex Runner | `feat-008-codex-runner` | done | REQ-037 至 REQ-039、REQ-056 | M4 | FEAT-005、FEAT-007 |
 | FEAT-009 | Status Checker and Evidence | `feat-009-status-checker-evidence` | done | REQ-040 至 REQ-042、REQ-051 | M5 | FEAT-004、FEAT-008 |
 | FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | in-progress | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
-| FEAT-011 | Review Center | `feat-011-review-center` | pending | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
+| FEAT-011 | Review Center | `feat-011-review-center` | done | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
 | FEAT-012 | Delivery and Spec Evolution | `feat-012-delivery-spec-evolution` | pending | REQ-048 至 REQ-050 | M6 | FEAT-009、FEAT-011 |
 | FEAT-013 | Product Console | `feat-013-product-console` | done | REQ-052 至 REQ-056 | M2-M6 | FEAT-001、FEAT-004、FEAT-005、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
