@@ -570,7 +570,7 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 9,
-    description: "Add review center approval context",
+    description: "Add review center approval context and failure recovery history schema",
     statements: [
       "ALTER TABLE review_items ADD COLUMN project_id TEXT",
       "ALTER TABLE review_items ADD COLUMN task_id TEXT",
@@ -607,6 +607,32 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_review_items_project_status ON review_items(project_id, status, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_review_items_feature_task ON review_items(feature_id, task_id, status)",
       "CREATE INDEX IF NOT EXISTS idx_approval_records_review_item ON approval_records(review_item_id, decided_at)",
+      `CREATE TABLE IF NOT EXISTS recovery_attempts (
+        id TEXT PRIMARY KEY,
+        fingerprint_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        strategy TEXT NOT NULL,
+        command TEXT,
+        file_scope_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        evidence_pack_json TEXT,
+        attempted_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS forbidden_retry_records (
+        id TEXT PRIMARY KEY,
+        fingerprint_id TEXT NOT NULL,
+        task_id TEXT NOT NULL,
+        failed_strategy TEXT NOT NULL,
+        failed_command TEXT,
+        failed_file_scope_json TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        evidence_pack_id TEXT,
+        created_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_recovery_attempts_task_fingerprint ON recovery_attempts(task_id, fingerprint_id, attempted_at)",
+      "CREATE INDEX IF NOT EXISTS idx_forbidden_retry_records_task_fingerprint ON forbidden_retry_records(task_id, fingerprint_id, created_at)",
     ],
   },
 ];
