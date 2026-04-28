@@ -1,6 +1,6 @@
 ---
 name: feature-spec-execution
-description: Execute a feature spec end-to-end: select feature, update status, create worktree, implement, test, commit, create PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Implement and test stages delegate to subagents. Main agent and every subagent must plan before executing.
+description: "Execute a feature spec end-to-end: select feature, create an isolated worktree, update feature status, implement, test, commit, create a PR, and clean up. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded implement/test subagents when available; fall back to owner-thread execution when subagents are unavailable. Main agent and every subagent must plan before executing."
 ---
 
 # Feature Spec Execution
@@ -13,17 +13,18 @@ This skill runs one feature spec through its complete delivery lifecycle on the 
 - `gh` CLI authenticated, or `GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_PAT` available in the environment.
 - Feature spec folder exists under `docs/features/` with `requirements.md`, `design.md`, and `tasks.md`.
 - Feature index table exists at `docs/features/README.md`.
+- Base branch is clean and synced with its remote before creating the feature branch; if it is ahead or behind, resolve that first.
 
 ## Lifecycle Stages
 
 ```
 SELECT FEATURE
     ↓
-UPDATE STATUS → in-progress
-    ↓
 CREATE WORKTREE  (git worktree + feature branch)
     ↓
-GIT PULL         (align worktree with latest origin/main or origin/<base-branch>)
+ALIGN BASE       (fetch + rebase branch on latest origin/main or origin/<base-branch>)
+    ↓
+UPDATE STATUS → in-progress  (inside feature branch)
     ↓
 IMPLEMENT        (implementer-subagent: plan → implement)
     ↓
@@ -31,7 +32,7 @@ TEST             (test-subagent: plan → test)
     ↓
 UPDATE STATUS → done
     ↓
-GIT COMMIT       (follow git-commit-conventions skill)
+GIT COMMIT       (feature branch only; follow git-commit-conventions skill)
     ↓
 CREATE PR        (GitHub PR via gh CLI or REST API)
     ↓
@@ -50,69 +51,70 @@ DELETE WORKTREE  (git worktree remove + delete local feature branch)
    - `FEATURE_ID`: e.g. `FEAT-001`
    - `FEATURE_FOLDER`: e.g. `feat-001-project-repository-foundation`
    - `FEATURE_BRANCH`: `feat/<FEATURE_FOLDER>` (e.g. `feat/feat-001-project-repository-foundation`)
+   - `OWNER_REPO_PATH`: output of `git rev-parse --show-toplevel` in the original checkout
    - `WORKTREE_PATH`: sibling directory `../<repo-name>.worktrees/<FEATURE_FOLDER>/`
 
 ---
 
-## Stage 2 — Update Feature Status → `in-progress`
-
-Update the feature's row in `docs/features/README.md`:
-
-- Add a `Status` column to the table if it does not exist.
-- Set the selected feature's status cell to `in-progress`.
-- Commit this state update on the **main** branch (not the feature branch) so the index reflects live progress:
-
-```
-chore(feat-index): mark FEAT-XXX as in-progress
-
-Refs: FEAT-XXX
-```
-
----
-
-## Stage 3 — Create Worktree
+## Stage 2 — Create Worktree
 
 ```bash
 # From the repository root
+OWNER_REPO_PATH=$(git rev-parse --show-toplevel)
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 WORKTREE_PATH="../${REPO_NAME}.worktrees/${FEATURE_FOLDER}"
+BASE_BRANCH="${BASE_BRANCH:-main}"
 
 git fetch origin
-git worktree add -b "${FEATURE_BRANCH}" "${WORKTREE_PATH}" origin/main
+git worktree add -b "${FEATURE_BRANCH}" "${WORKTREE_PATH}" "origin/${BASE_BRANCH}"
 ```
 
 - If `FEATURE_BRANCH` already exists locally, use `git worktree add "${WORKTREE_PATH}" "${FEATURE_BRANCH}"` instead.
+- Use the current repository default branch if it is not `main`; record it as `BASE_BRANCH`.
+- Before creating the worktree, check `git status --short --branch`; if the base branch is ahead or behind its remote, sync it before continuing.
 - Confirm the worktree is listed in `git worktree list` before continuing.
 
 ---
 
-## Stage 4 — Git Pull
+## Stage 3 — Align Base
 
 ```bash
 cd "${WORKTREE_PATH}"
-git pull --rebase origin main
+git fetch origin
+git rebase "origin/${BASE_BRANCH}"
 ```
 
 - If rebase conflicts arise, resolve them before continuing.
-- After pull, verify `git log --oneline -3` to confirm the feature branch is aligned.
+- After rebase, verify `git log --oneline -3` to confirm the feature branch is aligned.
 
 ---
 
-## Stage 5 — Implement (implementer-subagent)
+## Stage 4 — Update Feature Status → `in-progress`
+
+Update the feature's row in `docs/features/README.md` inside `${WORKTREE_PATH}`:
+
+- Add a `Status` column to the table if it does not exist.
+- Set the selected feature's status cell to `in-progress`.
+- Do not commit this on the main checkout. It belongs to the feature branch and will be committed in Stage 8 with the implementation.
+- If execution aborts later, change this status to `blocked` in the feature branch when there is a PR-worthy artifact; otherwise leave the branch unpushed and report the failure.
+
+---
+
+## Stage 5 — Implement (implementer-subagent or owner fallback)
 
 **Owner thread responsibilities:**
 
 1. Read `docs/features/${FEATURE_FOLDER}/requirements.md`, `design.md`, and `tasks.md` fully.
-2. Compose a compact implementer dispatch prompt containing:
+2. If subagents are available, compose a compact implementer dispatch prompt containing:
    - Absolute worktree path.
    - Full content of `requirements.md`, `design.md`, and `tasks.md` (inline, not by path reference alone).
    - Explicit list of files the implementer is allowed to create or modify.
    - Expected verification command (from `tasks.md` or `design.md`).
    - Instruction: **plan first, then implement** (see Subagent Plan-Then-Execute Contract below).
-3. Dispatch `implementer-subagent` with the prompt.
-4. Wait for the subagent handoff summary.
-5. Validate the handoff: check that all tasks in `tasks.md` are ticked, the verification command passed, and no unexpected files were modified.
-6. If the handoff reveals blockers, update `tasks.md` with notes and decide whether to retry, adjust scope, or abort.
+3. Dispatch `implementer-subagent` with the prompt, then wait for the handoff summary.
+4. If subagents are unavailable, run the same plan-then-execute contract in the owner thread inside `${WORKTREE_PATH}`.
+5. Validate the handoff or owner-thread result: check that all tasks in `tasks.md` are ticked, the verification command passed, and no unexpected files were modified.
+6. If blockers appear, update `tasks.md` with notes and decide whether to retry, adjust scope, or abort.
 
 **Implementer-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
 
@@ -123,20 +125,20 @@ git pull --rebase origin main
 
 ---
 
-## Stage 6 — Test (test-subagent)
+## Stage 6 — Test (test-subagent or owner fallback)
 
 **Owner thread responsibilities:**
 
-1. Compose a compact test dispatch prompt containing:
+1. If subagents are available, compose a compact test dispatch prompt containing:
    - Absolute worktree path.
    - Acceptance criteria from `requirements.md`.
    - Implementer handoff summary (from Stage 5).
    - Explicit test scope: unit tests, integration tests, or both.
    - Instruction: **plan first, then test** (see Subagent Plan-Then-Execute Contract below).
-2. Dispatch `test-subagent` with the prompt.
-3. Wait for the test handoff summary.
+2. Dispatch `test-subagent` with the prompt, then wait for the test handoff summary.
+3. If subagents are unavailable, run the same plan-then-test contract in the owner thread inside `${WORKTREE_PATH}`.
 4. Validate: all acceptance criteria are covered, tests pass, no regressions.
-5. If tests fail, either re-dispatch `implementer-subagent` with the failure details or log the failure and decide on scope adjustment.
+5. If tests fail, either re-dispatch `implementer-subagent` with the failure details, fix locally under the same contract, or log the failure and decide on scope adjustment.
 
 **Test-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
 
@@ -148,10 +150,10 @@ git pull --rebase origin main
 
 ## Stage 7 — Update Feature Status → `done`
 
-1. Return to the repository root (not the feature worktree):
+1. Work inside the feature worktree:
 
 ```bash
-cd "$(git -C "${WORKTREE_PATH}" rev-parse --show-toplevel)"
+cd "${WORKTREE_PATH}"
 ```
 
 2. Update `docs/features/README.md`:
@@ -207,7 +209,7 @@ Spec folder: `docs/features/${FEATURE_FOLDER}/`
 Refs: ${FEATURE_ID}
 EOF
 )" \
-  --base main \
+  --base "${BASE_BRANCH}" \
   --head "${FEATURE_BRANCH}"
 ```
 
@@ -221,7 +223,7 @@ curl -s -X POST \
   -d "{
     \"title\": \"feat: implement ${FEATURE_ID} <short title>\",
     \"head\": \"${FEATURE_BRANCH}\",
-    \"base\": \"main\",
+    \"base\": \"${BASE_BRANCH}\",
     \"body\": \"<summary>\"
   }"
 ```
@@ -233,14 +235,11 @@ Record the PR URL in the session output.
 ## Stage 10 — Delete Local Worktree
 
 ```bash
-# Return to the repository root
-cd "$(git rev-parse --show-toplevel)"
-
-git worktree remove "${WORKTREE_PATH}" --force
-git branch -d "${FEATURE_BRANCH}"
+git -C "${OWNER_REPO_PATH}" worktree remove "${WORKTREE_PATH}" --force
+git -C "${OWNER_REPO_PATH}" branch -d "${FEATURE_BRANCH}"
 ```
 
-- Use `--force` on `git worktree remove` only if the worktree is confirmed clean (all commits pushed to remote).
+- Use `--force` on `git worktree remove` only if the worktree is confirmed clean and all commits were pushed to remote.
 - Verify `git worktree list` no longer shows the removed path.
 - Do NOT delete the remote branch; it remains for the open PR.
 
@@ -304,8 +303,8 @@ Use these exact values in the `Status` column of `docs/features/README.md`:
 
 ## Error and Abort Handling
 
-- If Stage 3 (worktree creation) fails, do not update status or continue. Diagnose and report.
-- If Stage 5 (implement) fails, update status to `blocked` in `docs/features/README.md`, commit to main, and report the blocker.
+- If Stage 2 (worktree creation) fails, do not update status or continue. Diagnose and report.
+- If Stage 5 (implement) fails, update status to `blocked` in the feature branch only when committing a useful partial artifact is appropriate; otherwise leave the branch unpushed and report the blocker.
 - If Stage 6 (test) fails, do not advance to Stage 7. Re-dispatch the implementer with failure details, or log the failure and mark `blocked`.
 - If Stage 9 (PR creation) fails, leave the commits in the worktree, report the error, and provide the manual push command.
 - Never force-delete the worktree if uncommitted changes exist.
