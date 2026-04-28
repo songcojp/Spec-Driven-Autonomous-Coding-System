@@ -225,6 +225,7 @@ This stage is mandatory after implementation and tests. Treat it as an independe
 
 ```bash
 CODEX_REVIEW_OUTPUT=".codex-code-review-${FEATURE_ID}.md"
+CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL:-gpt-5.4}"
 ```
 
 3. Run Codex CLI review from inside `${WORKTREE_PATH}`:
@@ -233,28 +234,30 @@ CODEX_REVIEW_OUTPUT=".codex-code-review-${FEATURE_ID}.md"
 cd "${WORKTREE_PATH}"
 
 # Preferred after Stage 4 status/doc edits and implementation changes are still uncommitted.
-codex exec review --uncommitted --output-last-message "${CODEX_REVIEW_OUTPUT}" \
+codex exec review --model "${CODEX_REVIEW_MODEL}" --uncommitted --output-last-message "${CODEX_REVIEW_OUTPUT}" \
   "Review this feature implementation against docs/features/${FEATURE_FOLDER}/requirements.md, design.md, tasks.md, and the Stage 5 restrictive requirements. Report only actionable bugs, regressions, requirement drift, incomplete tests, unsafe scope expansion, or security/privacy risks. Order findings by severity with file and line references when available."
 
 # Alternative when reviewing a branch diff against its base.
-codex exec review --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_OUTPUT}" \
+codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_BRANCH}" --output-last-message "${CODEX_REVIEW_OUTPUT}" \
   "Review this feature branch against ${BASE_BRANCH}. Focus on actionable correctness, regression, requirement, testing, and safety findings."
 ```
 
-4. If `codex exec review` is unavailable, use interactive Codex `/review` when practical, then copy the completed review summary into `"${CODEX_REVIEW_OUTPUT}"`. If neither Codex review path is available, run the same review in the owner thread and state that the dedicated Codex review path was unavailable.
-5. Read `"${CODEX_REVIEW_OUTPUT}"` and classify every finding as:
+4. Keep `CODEX_REVIEW_MODEL` explicit so the installed CLI does not silently select a newer unsupported default model. OpenAI's Codex CLI docs recommend `gpt-5.5` for most Codex tasks when available, and `gpt-5.4` when `gpt-5.5` is unavailable; this skill defaults to `gpt-5.4` for compatibility with older installed CLIs. Override the environment variable only after confirming the local `codex` version supports the target model. For interactive `/review`, the docs say review uses the current session model by default and can be overridden with `review_model` in `config.toml`.
+5. If `codex exec review` is unavailable, use interactive Codex `/review` when practical, then copy the completed review summary into `"${CODEX_REVIEW_OUTPUT}"`. If neither Codex review path is available, run the same review in the owner thread and state that the dedicated Codex review path was unavailable.
+6. Read `"${CODEX_REVIEW_OUTPUT}"` and classify every finding as:
    - `fix-now`: actionable, in scope, and does not change product intent.
    - `needs-clarification`: requires product clarification, scope expansion, or architecture change.
    - `no-action`: false positive, duplicate, already covered, or intentionally deferred with reason.
-6. Automatically fix `fix-now` findings.
-7. After every fix, rerun the relevant tests or verification commands. If a fix changes production code, rerun at least the targeted test command and any broader suite identified in `tasks.md`.
-8. Repeat Codex review/fix/test until there are no unresolved high or medium severity actionable findings, or until all remaining findings are classified with reasons.
-9. If a finding requires product clarification or scope expansion, stop, ask the user, and wait for the reply before continuing.
-10. Record a compact `CODE REVIEW:` note:
+7. Automatically fix `fix-now` findings.
+8. After every fix, rerun the relevant tests or verification commands. If a fix changes production code, rerun at least the targeted test command and any broader suite identified in `tasks.md`.
+9. Repeat Codex review/fix/test until there are no unresolved high or medium severity actionable findings, or until all remaining findings are classified with reasons.
+10. If a finding requires product clarification or scope expansion, stop, ask the user, and wait for the reply before continuing.
+11. Record a compact `CODE REVIEW:` note:
    - Findings fixed.
    - Findings intentionally left unresolved, with reason.
    - Codex review output file path.
    - Codex review command used.
+   - Codex review model used.
    - Verification rerun results.
 
 **Code-review-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
