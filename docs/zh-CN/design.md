@@ -56,7 +56,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-034 | 4.6, 7.4, 8 | Feature Scheduler 根据依赖、风险和资源推进任务。 |
 | REQ-035 | 4.10, 5, 11 | Workspace Manager 记录 worktree 生命周期并合并前检查。 |
 | REQ-036 | 4.6, 4.7, 4.10, 9 | Recovery Bootstrap 恢复 Run、任务、心跳、worktree 和 Memory。 |
-| REQ-037 | 4.9, 6.4, 7.5 | Codex Runner 调用 Codex CLI 并产出 Evidence Pack。 |
+| REQ-037 | 4.9, 6.4, 7.5 | Runner CLI Adapter 调用 Codex CLI 并产出 Evidence Pack。 |
 | REQ-038 | 4.9, 6.4, 10 | Runner Policy Resolver 设置 sandbox、approval、model 和 profile。 |
 | REQ-039 | 4.9, 4.15, 9, 10 | Safety Gate 阻止高风险操作或路由人工审批。 |
 | REQ-040 | 4.12, 7.6, 12 | Status Checker 检测 diff、构建、测试、安全和完成度。 |
@@ -81,6 +81,9 @@ MVP 采用本地优先的控制面架构：
 | REQ-062 | 4.16, 6.1, 11 | Product Console 默认中文，并支持界面语言切换。 |
 | REQ-063 | 3, 4.1, 4.16, 5, 6.1, 8, 11 | Project Service 维护项目目录和当前项目上下文，并自动完成阶段 1 初始化闭环；Product Console 提供创建和切换入口，所有查询和命令按 `project_id` 隔离。 |
 | REQ-064 | 4.4, 4.16, 6.2, 11, 12 | Spec Protocol Engine 自动扫描 Spec Sources；Spec Workspace 展示扫描状态、缺失项、冲突和阶段 2 / 阶段 3 边界。 |
+| REQ-065 | 4.9, 5, 6.4, 7.5, 11 | Runner CLI Adapter 以 JSON 配置解析 CLI 命令、输出映射、session resume 和安全能力。 |
+| REQ-066 | 4.9, 4.16, 6.1, 6.4, 11, 12 | 系统设置用同一份 JSON 配置驱动 CLI Adapter 原始 JSON 编辑和 JSON Schema 表单编辑，并提供 dry-run 校验与审计反馈。 |
+| REQ-067 | 4.16, 6.1, 11 | Product Console 提供系统设置入口，并将 CLI 配置放到系统设置下。 |
 | NFR-001 | 4.9, 10 | Runner 默认禁用 danger-full-access 和 bypass approvals。 |
 | NFR-002 | 4.10, 4.13, 9 | worktree、diff 快照和恢复策略提供回滚路径。 |
 | NFR-003 | 5, 8, 9 | Run、状态、Memory 和 Evidence 更新使用幂等键。 |
@@ -149,7 +152,7 @@ flowchart TD
 
 | Layer | Responsibility | MVP Decision |
 |---|---|---|
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center | 只消费控制面 API，不直接修改 Git 工作区。 |
+| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center、System Settings | 只消费控制面 API，不直接修改 Git 工作区。 |
 | Control Plane API | 项目、Spec、Skill、调度、审批、状态和查询接口 | 是调度和状态真实来源。 |
 | Orchestration Layer | Project Scheduler、Feature Scheduler、状态机和恢复启动 | 所有状态变化先写持久层，再触发副作用。 |
 | Execution Layer | Subagent Runtime、Codex Runner、Status Checker、Recovery Agent | 通过 Run Contract 和 Runner Policy 限制行为。 |
@@ -408,7 +411,8 @@ Dependencies:
 
 Responsibilities:
 
-- 调用 Codex CLI 执行代码修改、测试或修复。
+- 通过 Runner CLI Adapter 调用 Codex CLI 或后续等价 CLI 执行代码修改、测试或修复。
+- 读取 active CLI Adapter JSON 配置，解析 executable、argument template、workspace policy、output mode、Evidence 映射和 session resume 映射。
 - 根据任务风险设置 sandbox mode、approval policy、model、profile、output schema、JSON event stream、workspace root 和 session resume。
 - 采集 stdout、stderr、JSON event stream、命令结果和 Codex session 信息。
 - 每 10 至 30 秒写 Runner 心跳。
@@ -417,6 +421,7 @@ Inputs:
 
 - Agent Run Contract。
 - RunnerPolicy。
+- CliAdapterConfig。
 - Prompt。
 - Workspace path。
 
@@ -430,6 +435,7 @@ Outputs:
 Dependencies:
 
 - Codex CLI。
+- CLI Adapter JSON Schema。
 - Project Memory Injector。
 - Workspace Manager。
 - Evidence Store。
@@ -617,7 +623,8 @@ Responsibilities:
 - Spec Workspace 展示 Feature、Spec、澄清记录、Checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
 - Subagent Console 展示 Subagent、Run Contract、上下文切片、Evidence、token 使用和运行状态，并支持终止和重试。
-- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳，并支持暂停或恢复 Runner。
+- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳和 CLI Adapter 配置健康摘要，并支持暂停或恢复 Runner。
+- System Settings 提供 CLI Adapter 配置管理：原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈。
 - Review Center UI 展示待审批列表、风险筛选、diff、Evidence 和审批操作。
 - Product Console 默认使用中文界面，并提供语言切换入口；界面文案随所选语言变化，Evidence、diff、日志、文件路径和命令输出等事实数据保持原文。
 
@@ -627,6 +634,7 @@ Inputs:
 - Project create/switch action。
 - Approval action。
 - Runner pause/resume action。
+- CLI Adapter config edit/validate/activate action。
 - Subagent terminate/retry action。
 
 Outputs:

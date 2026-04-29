@@ -8,3 +8,7 @@
 - [x] TASK-006: 实现 Safety Gate Adapter，阻止高风险文件、危险命令、敏感配置和权限提升。
 - [x] TASK-007: 实现 Runner 心跳，每 10 至 30 秒更新状态。
 - [x] TASK-008: 添加 Runner Policy、安全阻断、心跳和输出采集测试。
+- [ ] TASK-009: 将 Codex CLI 调用升级为 Runner CLI Adapter，定义 `CliAdapterConfig` JSON schema、默认 `codex-cli` 配置和 active/draft/invalid 状态。
+- [ ] TASK-010: 实现 CLI Adapter 配置校验和 dry-run，覆盖命令模板变量、必填字段、workspace root、安全策略、output mapping 和 session resume 映射。
+- [ ] TASK-011: 将 Runner Queue Worker 接入 active CLI Adapter，确保无 active adapter 或配置无效时新 Run blocked，且不影响 running Run。
+- [ ] TASK-012: 添加 CLI Adapter 配置、dry-run、active 配置回退、Codex 等价命令生成和无效配置阻塞测试。

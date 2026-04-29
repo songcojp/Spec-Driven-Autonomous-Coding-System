@@ -58,13 +58,13 @@ MVP 采用本地优先的控制面架构：
 | REQ-024, REQ-025, REQ-026, REQ-027 | 7.4, 7.11, 8, 10, 14, 15 | Task Graph、Kanban Board 和任务状态机支撑任务可追踪执行。 |
 | REQ-028, REQ-029, REQ-030, REQ-031, REQ-032 | 7.4, 7.7, 10, 13, 14, 15 | Feature 状态机、选择器、计划流水线、聚合和并行策略由 Orchestration 负责。 |
 | REQ-033, REQ-034, REQ-035, REQ-036, REQ-060 | 7.4, 7.7, 10, 12, 13, 14 | Project Scheduler、Feature Scheduler、触发模式、worktree 生命周期和恢复启动是调度运行时核心。 |
-| REQ-037, REQ-038, REQ-039 | 5, 7.8, 9, 11, 12, 13 | Codex Runner 受 Runner Policy、Safety Gate、workspace root 和审批策略约束。 |
+| REQ-037, REQ-038, REQ-039, REQ-065, REQ-066 | 5, 7.8, 9, 11, 12, 13 | Runner CLI Adapter 受 Runner Policy、Safety Gate、workspace root、JSON 配置和审批策略约束。 |
 | REQ-040, REQ-041, REQ-042 | 7.9, 9, 10, 12, 14 | Status Checker 执行 diff、测试、安全、Spec Alignment 和状态判断。 |
 | REQ-043, REQ-044, REQ-045 | 7.10, 10, 11, 12, 14 | Recovery Manager 管理恢复任务、回滚、拆分、重试退避和失败指纹。 |
 | REQ-046, REQ-047, REQ-057 | 7.12, 9, 10, 11, 12, 15 | Review Center 是高风险、阻塞、澄清和审批动作的统一入口。 |
 | REQ-048, REQ-049, REQ-050 | 7.13, 8, 9, 10, 12, 14, 15 | Delivery Manager 生成 PR、交付报告和 Spec Evolution 建议。 |
 | REQ-051 | 7.9, 8, 9, 10, 12, 14 | Evidence Pack 是状态判断、恢复、审批和交付报告的共享证据格式。 |
-| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063, REQ-064 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换、Spec Sources 扫描状态和默认中文的界面语言切换。 |
+| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换、Spec Sources 扫描状态、系统设置、CLI Adapter JSON 表单配置和默认中文的界面语言切换。 |
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
@@ -118,7 +118,7 @@ flowchart LR
 | Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
 | Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、Evidence、审计和指标。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
-| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter | UI、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 CLI 边界，减少平台权限建模。 | Skill I/O 统一采用 JSON Schema；TypeScript 可用 Zod 生成或校验 schema。 |
+| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter | UI、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 CLI 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；TypeScript 可用 Zod 生成或校验 schema。 |
 | Background Jobs / Agents | SQLite-backed queue 或本地持久化队列 + Runner Worker；Subagent Run 通过 Agent Run Contract 启动 | 长时间任务不能只存在内存；Run、心跳、状态和 Evidence 必须可恢复。 | 写任务默认串行；只读 Subagent 可并发；写入型并行必须绑定 worktree。 |
 | Testing | Vitest/Jest 覆盖服务与状态机；Playwright 覆盖 Console；CLI adapter 使用 fixture 和本地集成测试 | 核心风险在状态机、schema、Runner policy、工作区隔离和 UI 状态展示，测试应围绕这些边界。 | 目标仓库的测试命令由项目健康检查发现，不由本系统固定。 |
 | Deployment / Operations | MVP 本地进程：Control Plane + Runner Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合 Codex CLI、Git worktree 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Runner 池。 |
@@ -136,7 +136,7 @@ Rejected / deferred alternatives:
 
 | Layer | Responsibility | Key Decision |
 |---|---|---|
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区。 |
+| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区。 |
 | Control Plane | 项目、Spec、Skill、调度、状态、审批、证据和查询 API | 是状态与调度决策的协调层。 |
 | Orchestration | Project Scheduler、Feature Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
 | Execution | Subagent Runtime、Context Broker、Codex Runner、Status Checker、Recovery Manager | 每次执行都受 Run Contract、Runner Policy 和 Evidence schema 约束。 |
@@ -288,14 +288,15 @@ Collaborates With:
 
 Responsibilities:
 
-- 调用 Codex CLI 执行代码修改、测试或修复。
+- 通过 Runner CLI Adapter 调用 Codex CLI 或后续等价 CLI 执行代码修改、测试或修复。
+- 读取 active CLI Adapter JSON 配置，并将 executable、argument template、workspace policy、output mode、Evidence 映射和 session resume 映射转换为实际执行计划。
 - 按任务风险解析 sandbox、approval policy、model、profile、workspace root、session resume 和 output schema。
 - 采集命令输出、JSON event stream、Codex session、心跳和原始日志。
 - 生成或转交 Evidence Pack。
 
 Owns:
 
-- RunnerPolicy、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog。
+- RunnerPolicy、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog。
 
 Collaborates With:
 
@@ -343,11 +344,12 @@ Responsibilities:
 - Spec Workspace 展示 Feature、Spec、澄清、Checklist、计划、数据模型、契约、任务图和版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
 - Subagent Console 展示 Run Contract、上下文切片、Evidence、token 使用、运行状态，并支持终止和重试。
-- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、日志和心跳。
+- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、日志、心跳和 CLI Adapter 配置健康摘要。
+- System Settings 提供 CLI Adapter 配置管理，支持原始 JSON、JSON Schema 表单、dry-run 校验、保存草稿、启用/禁用和字段级错误展示；Runner Console 仅提供状态摘要和跳转入口。
 
 Owns:
 
-- UI View Model、Dashboard Query Model、Console Action Command。
+- UI View Model、Dashboard Query Model、Console Action Command、System Settings View Model、CLI Adapter Form View Model。
 
 Collaborates With:
 
@@ -393,7 +395,7 @@ Collaborates With:
 | Spec Protocol | Spec Protocol Engine | Feature、Requirement、ClarificationLog、Checklist、SpecVersion、SpecSlice | SQLite + Markdown/JSON artifact。 |
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
 | Orchestration State | Orchestration and State Machine | Task、TaskGraph、StateTransition、FeatureSelectionDecision | SQLite source of truth。 |
-| Runtime Execution | Subagent Runtime and Codex Runner | Run、AgentRunContract、RunnerHeartbeat、CodexSessionRecord | SQLite + execution logs。 |
+| Runtime Execution | Subagent Runtime and Codex Runner | Run、AgentRunContract、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord | SQLite + JSON adapter config + execution logs。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Evidence and Audit | Evidence Store | EvidencePack、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/evidence/` artifact。 |
@@ -420,11 +422,15 @@ Data ownership rules:
 
 | Integration | MVP Strategy | Constraint |
 |---|---|---|
-| Codex CLI | 由 Codex Runner 调用 `codex exec` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行。 |
+| Codex CLI | 由 Runner CLI Adapter 调用 `codex exec` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行；命令模板和输出映射来自 active JSON adapter 配置。 |
 | Git CLI | 由 Repository Adapter 和 Workspace Manager 读取状态、创建分支和管理 worktree。 | Git 状态是代码事实来源。 |
 | GitHub `gh` CLI | 由 Delivery Manager 创建 PR，读取必要 PR 状态。 | MVP 不单独建模 Git 平台权限矩阵。 |
 | Local filesystem | 保存 Project Memory、Spec artifact、Evidence artifact 和 Delivery Report。 | Artifact root 统一为 `.autobuild/`。 |
 | Build/test tools | 由 Status Checker 和 Runner 根据项目健康检查发现并执行。 | 命令结果必须进入 Evidence。 |
+
+### CLI Adapter Configuration
+
+CLI Adapter 配置是 Runner 的机器可查询事实源，使用 JSON 持久化并由 JSON Schema 校验。配置变更流程为 draft -> dry-run validated -> active；启用失败时保留上一份 active 配置。Product Console 系统设置中的 JSON 表单只编辑该 JSON，不创建第二套配置事实源。
 
 ### Artifact Root Decision
 
@@ -614,12 +620,12 @@ Quality gates:
 | Subagent Runtime and Context Broker | Agent 类型、Run Contract、最小上下文、Subagent Console 后端数据层。 | REQ-014 至 REQ-018（REQ-017 写入隔离实现于 feat-007，feat-005 依赖其结果）、REQ-055（后端数据层主导实现于此，UI 由 feat-013 交付）。 |
 | Project Memory and Recovery Projection | Memory 初始化、注入、更新、压缩、版本和状态冲突修复。 | REQ-019 至 REQ-023、REQ-036 |
 | Workspace Isolation | worktree、分支、并行写入隔离、冲突检测和回滚边界。 | REQ-017（主导实现）、REQ-032、REQ-035；REQ-017 同时被 Subagent Runtime and Context Broker 依赖。 |
-| Codex Runner | Codex CLI 调用、Runner Policy、心跳、session resume、结构化输出。 | REQ-037 至 REQ-039、REQ-056 |
+| Codex Runner | CLI Adapter 调用、Runner Policy、JSON 配置、心跳、session resume、结构化输出。 | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066 |
 | Status Checker and Evidence | 检测项、Spec Alignment、状态判断、Evidence Pack。 | REQ-040 至 REQ-042、REQ-051 |
 | Failure Recovery | 恢复任务、恢复策略、失败指纹、重试退避和禁止重复。 | REQ-043 至 REQ-045 |
 | Review Center | Review Needed 触发、审批页面、审批动作和状态回流。 | REQ-046、REQ-047、REQ-057 |
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
-| Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Spec Sources 扫描状态、Skill Center、Subagent Console UI、Runner Console、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-064（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
+| Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Spec Sources 扫描状态、Skill Center、Subagent Console UI、Runner Console、系统设置、CLI Adapter JSON 表单、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066、REQ-067（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 
 Decomposition rules:

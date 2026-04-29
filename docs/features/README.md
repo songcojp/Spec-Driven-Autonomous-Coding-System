@@ -12,12 +12,12 @@
 | FEAT-005 | CLI Subagent Audit Integration | `feat-005-subagent-runtime-context-broker` | done | REQ-014 至 REQ-018、REQ-055 | M3 | FEAT-004、FEAT-007 |
 | FEAT-006 | Project Memory and Recovery Projection | `feat-006-project-memory-recovery-projection` | done | REQ-019 至 REQ-023、REQ-036 | M3 | FEAT-004 |
 | FEAT-007 | Workspace Isolation | `feat-007-workspace-isolation` | done | REQ-017、REQ-032、REQ-035 | M3/M4 | FEAT-004 |
-| FEAT-008 | Codex Runner | `feat-008-codex-runner` | done | REQ-037 至 REQ-039、REQ-056 | M4 | FEAT-007 |
+| FEAT-008 | Codex Runner | `feat-008-codex-runner` | in-progress | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066 | M4 | FEAT-007 |
 | FEAT-009 | Status Checker and Evidence | `feat-009-status-checker-evidence` | done | REQ-040 至 REQ-042、REQ-051 | M5 | FEAT-004、FEAT-008 |
 | FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | in-progress | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
 | FEAT-011 | Review Center | `feat-011-review-center` | done | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
 | FEAT-012 | Delivery and Spec Evolution | `feat-012-delivery-spec-evolution` | done | REQ-048 至 REQ-050 | M6 | FEAT-009、FEAT-011 |
-| FEAT-013 | Product Console | `feat-013-product-console` | in-progress | REQ-052 至 REQ-056、REQ-061 至 REQ-064 | M2-M7 | FEAT-001、FEAT-004、FEAT-008 |
+| FEAT-013 | Product Console | `feat-013-product-console` | in-progress | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066、REQ-067 | M2-M7 | FEAT-001、FEAT-004、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 
 ## Dependency Tree
@@ -94,6 +94,7 @@ FEAT-000 System Bootstrap
 | ADD-005 | FEAT-001 / FEAT-013 | 支持导入现有项目、在统一 `workspace/` 目录下创建新项目，并在 Product Console 中切换当前项目上下文；所有查询、命令、Memory 投影和调度入口按 `project_id` 隔离。 | Product Console UI 已执行 `TASK-020` 至 `TASK-022`；FEAT-001 仍需执行 `TASK-013` 至 `TASK-016` 补项目目录/上下文持久化与初始化目录规则。 |
 | CHG-011 | FEAT-001 / FEAT-013 | 阶段 1 项目初始化应在用户选择创建或导入项目后自动完成，不再要求用户逐步手动执行项目、仓库、Spec Protocol、项目宪章和 Project Memory 子步骤。 | FEAT-001 执行 `TASK-017` 至 `TASK-018`；FEAT-013 执行 `TASK-026` 展示自动初始化状态和阻塞反馈。 |
 | CHG-012 | FEAT-013 / FEAT-002 | 阶段 2 需求录入需要自动扫描 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources；扫描已有 HLD / Feature Spec 不等于生成 HLD 或拆分 Feature Spec。 | FEAT-013 执行 `TASK-027` 至 `TASK-028`；后续 FEAT-002 patch 提供 Spec Sources 扫描模型和生成 EARS / Feature Spec 的事实输入。 |
+| ADD-006 | FEAT-008 / FEAT-013 | CLI 调用升级为 Runner CLI Adapter；adapter 配置以 JSON 为唯一事实源，并通过 Product Console 系统设置中的 JSON 表单直接编辑、dry-run 校验和启用；Runner Console 只展示配置健康摘要和跳转入口。 | FEAT-008 执行 `TASK-009` 至 `TASK-012`；FEAT-013 执行 `TASK-029` 至 `TASK-033`。 |
 | CHG-009 | FEAT-013 | 当前 Product Console 实现只覆盖 Control Plane API 和 ViewModel，不能替代 PRD 第 8 节要求的用户可操作 UI。 | 已补真实前端应用、页面路由、shadcn/ui 组件体系和浏览器级验收。 |
 | CHG-007 | FEAT-010 | 失败重试上限、2/4/8 分钟退避和失败指纹已由现有实现与测试覆盖。 | 无需重新执行 Feature Spec。 |
 | CHG-006 / CHG-008 | Mainline Docs | Issue Tracker 非目标和性能阈值基线记录是文档约束，不形成实现任务。 | 无需执行 Feature Spec。 |

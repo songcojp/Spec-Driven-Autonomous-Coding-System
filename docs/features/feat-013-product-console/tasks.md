@@ -28,3 +28,8 @@
 - [ ] TASK-026: 将 Spec Workspace 阶段 1 改为展示 FEAT-001 自动初始化闭环状态，覆盖项目创建/导入、Git 仓库、Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文，不提供逐步手动执行子步骤入口。
 - [ ] TASK-027: 增加阶段 2 Spec Sources 自动扫描 ViewModel 和 UI，展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引的发现路径、类型、缺失项、冲突项和澄清项。
 - [ ] TASK-028: 更新 Product Console 单测和浏览器验证，覆盖 Spec Sources 自动扫描、阶段 1 自动初始化阻塞反馈、项目切换后的扫描结果隔离，以及阶段 2 不显示 HLD 生成、Feature Spec 拆分或规划流水线入口。
+- [ ] TASK-029: 在 Product Console App Shell 增加系统设置入口和 System Settings 页面框架，支持加载态、空态、错误态、真实数据态、项目上下文和语言切换。
+- [ ] TASK-030: 在系统设置中增加 CLI 配置页，展示 active adapter、配置状态、schema 版本、最近 dry-run 和审计反馈；Runner Console 仅展示配置健康摘要和跳转入口。
+- [ ] TASK-031: 在系统设置 CLI 配置页实现 CLI Adapter 原始 JSON 编辑器和 JSON Schema 表单编辑器，确保二者共享同一份待保存配置状态。
+- [ ] TASK-032: 将 CLI Adapter dry-run、保存草稿、启用/禁用暴露为系统设置受控命令，并展示字段级错误、命令模板错误、安全策略错误和成功反馈。
+- [ ] TASK-033: 更新 Product Console 单测和浏览器验证，覆盖系统设置入口、Runner Console 跳转、CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存、启用配置和无效配置不影响 running Run 的反馈。

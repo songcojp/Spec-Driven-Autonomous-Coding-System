@@ -4,8 +4,8 @@
 
 | Source | IDs / Sections |
 |---|---|
-| PRD | 第 8.1 至 8.7 节页面需求 |
-| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, REQ-063, REQ-064, NFR-006, NFR-007, NFR-008, NFR-010 |
+| PRD | 第 8.1 至 8.9 节页面需求 |
+| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067, NFR-006, NFR-007, NFR-008, NFR-010 |
 | HLD | 7.11 Product Console and Dashboard, 12 Observability and Operability |
 
 Spec Evolution:
@@ -16,6 +16,7 @@ Spec Evolution:
 - CHG-011：用户确认项目创建或导入后应自动完成阶段 1 初始化操作。Product Console 只展示阶段 1 自动初始化状态、事实来源和阻塞原因，不把这些子步骤设计成用户逐步手动操作。
 - CHG-012：用户确认阶段 2 需要自动扫描 PRD、EARS、HLD、Feature Spec 等。Product Console 必须展示 Spec Sources 自动扫描状态和结果；阶段 2 只扫描已有 HLD / Feature Spec 事实源，不展示 HLD 生成、Feature Spec 拆分或规划流水线入口。
 - CHG-013：2026-04-29 平台边界收缩为调度和状态维护，移除 Skill Center、Subagent Console 和规划流水线入口；Runner 页面仅展示外部执行状态、心跳、日志、证据和状态检测。
+- ADD-006：用户要求优化 CLI 调用并升级为 adapter；CLI 配置通过 JSON 管理，支持 JSON 表单并可通过 UI 直接编辑修改。Product Console 必须提供系统设置，并将 CLI Adapter 配置管理放到系统设置下；Runner Console 只展示配置健康摘要和跳转入口。
 
 ## Scope
 
@@ -31,6 +32,7 @@ Spec Evolution:
 - Skill Center 已移除，Console 不展示平台 Skill 页面。
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
+- System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。
 - Product Console 必须默认使用中文界面，并提供可见语言切换入口；切换范围覆盖导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息。
@@ -56,8 +58,11 @@ Spec Evolution:
 - 用户可以从 Spec Workspace 看到阶段 1 自动项目初始化是否阻塞阶段 2 需求录入，也可以看到阶段 3 规划执行状态；没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 / 阶段 3 Spec 流程。
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。
 - 用户可以判断 Runner 是否可执行新任务。
+- 用户可以通过系统设置查看 active CLI Adapter，并通过原始 JSON 或 JSON Schema 表单编辑 adapter 配置。
+- 用户保存或启用 CLI Adapter 配置前可以看到 dry-run 校验结果；无效配置不得影响正在运行的 Run。
 - 高风险、阻塞或需澄清任务能从 Review Center 被处理。
 - 用户可以在浏览器中打开 Product Console，并在 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center 之间切换。
+- 用户可以从 Product Console 导航进入系统设置，并从 Runner Console 跳转到系统设置中的 CLI 配置页。
 - 用户可以导入现有项目或通过表单创建新项目，在项目列表中切换当前项目，并看到各页面随当前项目刷新。
 - 每个页面必须有加载态、空态、错误态和真实数据态；页面文案不能替代状态数据、Evidence、diff、日志或命令结果。
 - 用户动作必须通过可见控件发起，且控件调用 Control Plane 受控命令后展示成功、阻塞或失败反馈。
@@ -87,7 +92,13 @@ Spec Evolution:
 - [ ] Spec Workspace 浏览器级验证覆盖阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 自动扫描、PRD 上传命令回执、项目切换后的数据隔离，以及阶段 2 不出现 HLD 生成、Feature Spec 拆分或规划流水线入口。
 - [ ] 阶段 2 扫描结果展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等来源类型，并标记缺失项、冲突项和需要澄清的问题。
 - [ ] Spec Workspace 阶段流程默认不展开阶段内步骤；用户点击阶段状态标签后才展开对应阶段详情，且头部流程只以标签承载状态和提示信息。
+- [ ] Product Console 提供系统设置入口，系统设置至少包含 CLI 配置页。
+- [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
+- [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
+- [ ] CLI Adapter 表单编辑和原始 JSON 编辑共享同一份配置事实源，切换编辑模式不得丢失未保存修改。
+- [ ] 浏览器级验证覆盖 CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存和无效配置不影响 running Run 的反馈。
 
 ## Risks and Open Questions
 
 - Product Console 需要避免把说明性文本做成替代真实状态的静态页面。
+- JSON 表单需要避免产生与 adapter JSON 分离的第二套配置事实源。
