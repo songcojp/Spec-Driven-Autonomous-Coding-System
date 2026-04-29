@@ -87,7 +87,8 @@ FEAT-000 System Bootstrap
 |---|---|---|---|
 | ADD-001 | FEAT-001 | 项目宪章创建、导入和生命周期管理作为 FEAT-001 patch 处理，不拆分独立 Feature。 | 执行 `feat-001-project-repository-foundation/tasks.md` 中的 `TASK-009` 至 `TASK-011`。 |
 | CHG-001 | FEAT-001 | Project `trust_level` 属于项目基础数据模型 patch，不拆分新 Feature。 | 执行 `feat-001-project-repository-foundation/tasks.md` 中的 `TASK-012`。 |
-| ADD-002 / CHG-003 | FEAT-004 | 调度触发模式和计划流水线强制阶段作为 Orchestration patch 处理。 | 执行 `feat-004-orchestration-state-machine/tasks.md` 中的 `TASK-010` 至 `TASK-011`。 |
+| ADD-002 | FEAT-004 | 调度触发模式作为 FEAT-004 patch 处理，不拆分独立 Feature。MVP 已实现触发记录、手动入口和时间类入口；CI 失败、审批通过、依赖完成先记录为受控事件触发请求，不直接绕过调度边界。 | 已执行 `feat-004-orchestration-state-machine/tasks.md` 中的 `TASK-010` 至 `TASK-012`。 |
+| CHG-003 | FEAT-004 | `quickstart-validation` 与 `spec-consistency-analysis` 作为后续 Orchestration patch 处理。 | 后续执行计划流水线强制阶段任务。 |
 | CHG-002 / CHG-004 | FEAT-007 | 并行写入策略和测试资源隔离属于 Workspace Isolation 安全边界 patch。 | 执行 `feat-007-workspace-isolation/tasks.md` 中的 `TASK-009` 至 `TASK-010`。 |
 | ADD-003 / CHG-005 | FEAT-013 | Dashboard Board 操作和入口作为 Product Console patch 处理，所有写操作走受控命令。 | 执行 `feat-013-product-console/tasks.md` 中的 `TASK-010` 至 `TASK-011`。 |
 | CHG-007 | FEAT-010 | 失败重试上限、2/4/8 分钟退避和失败指纹已由现有实现与测试覆盖。 | 无需重新执行 Feature Spec。 |

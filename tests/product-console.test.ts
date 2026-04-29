@@ -88,6 +88,7 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.deepEqual(specWorkspace.selectedFeature?.contracts, [{ endpoints: ["/console/dashboard"] }]);
   assert.equal(specWorkspace.selectedFeature?.versionDiffs.length, 2);
   assert.equal(specWorkspace.commands[0].action, "create_feature");
+  assert.equal(specWorkspace.commands.some((command) => command.action === "schedule_run"), true);
 
   const skillCenter = buildSkillCenterView(dbPath, "project-1");
   assert.equal(skillCenter.skills[0].slug, "console-skill");
@@ -200,6 +201,78 @@ test("console write commands persist rule and spec evolution evidence", () => {
   assert.equal(result.queries.evidence[0].summary, "Do not bypass review approvals.");
   assert.equal(result.queries.evidence[1].feature_id, "FEAT-013");
   assert.match(String(result.queries.evidence[1].metadata_json), /write_spec_evolution/);
+});
+
+test("console schedule command records scheduler triggers without bypassing boundaries", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  runSqlite(dbPath, [{ sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" }]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Schedule feature execution.",
+    payload: { projectId: "project-1", mode: "manual" },
+    now: stableDate,
+  });
+  const eventReceipt = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Record CI trigger.",
+    payload: { projectId: "project-1", mode: "ci_failed" },
+    now: stableDate,
+  });
+  assert.throws(
+    () =>
+      submitConsoleCommand(dbPath, {
+        action: "schedule_run",
+        entityType: "feature",
+        entityId: "FEAT-013",
+        requestedBy: "operator",
+        reason: "Malformed scheduled trigger.",
+        payload: { projectId: "project-1", mode: "scheduled_at" },
+        now: stableDate,
+      }),
+    /requires payload.requestedFor/,
+  );
+
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "triggers",
+      sql: "SELECT id, project_id, feature_id, target_type, target_id, mode, result FROM schedule_triggers ORDER BY rowid",
+    },
+    {
+      name: "audit",
+      sql: "SELECT entity_type, entity_id, event_type FROM audit_timeline_events WHERE event_type = 'schedule_triggered' ORDER BY rowid",
+    },
+    {
+      name: "decisions",
+      sql: "SELECT id, selected_feature_id, memory_summary FROM feature_selection_decisions ORDER BY rowid",
+    },
+  ]);
+
+  assert.equal(receipt.scheduleTriggerId, result.queries.triggers[0].id);
+  assert.equal(receipt.selectionDecisionId, result.queries.decisions[0].id);
+  assert.equal(eventReceipt.scheduleTriggerId, result.queries.triggers[1].id);
+  assert.equal(eventReceipt.selectionDecisionId, undefined);
+  assert.deepEqual(
+    result.queries.triggers.map((row) => [row.project_id, row.feature_id, row.target_type, row.target_id, row.mode, row.result]),
+    [
+      ["project-1", "FEAT-013", "feature", "FEAT-013", "manual", "accepted"],
+      ["project-1", "FEAT-013", "feature", "FEAT-013", "ci_failed", "recorded"],
+    ],
+  );
+  assert.deepEqual(result.queries.audit.map((row) => [row.entity_type, row.entity_id]), [
+    ["feature", "FEAT-013"],
+    ["feature", "FEAT-013"],
+  ]);
+  assert.deepEqual(result.queries.decisions.map((row) => [row.selected_feature_id, row.memory_summary]), [
+    ["FEAT-013", `schedule_trigger:${receipt.scheduleTriggerId}`],
+  ]);
 });
 
 function makeDbPath(): string {

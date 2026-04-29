@@ -9,5 +9,7 @@
 - [x] TASK-007: 实现 Feature Aggregator，聚合任务状态和验收结果。
 - [x] TASK-008: 添加状态机测试，覆盖合法迁移、非法迁移、review_needed reason、blocked 和 failed。
 - [x] TASK-009: 添加调度测试，验证 Project Memory 不是候选真实来源。
-- [ ] TASK-010: 实现调度触发模式记录与受控入口，覆盖立即执行、指定时间、每日、每小时、夜间、工作日、依赖完成、CI 失败和审批通过。
-- [ ] TASK-011: 将 `quickstart-validation-skill` 和 `spec-consistency-analysis-skill` 作为 Planning Pipeline 强制阶段执行，失败时进入 Review Needed 并保留证据。
+- [x] TASK-010: 定义 Schedule Trigger 模型、触发模式枚举和触发结果，覆盖手动、指定时间、周期和受控事件触发。
+- [x] TASK-011: 实现调度触发记录与受控入口，持久化触发模式、触发时间、来源、对象、结果和阻塞原因，并让 accepted 手动/时间触发进入 Feature 选择。
+- [x] TASK-012: 添加 ADD-002 调度触发测试，验证手动/时间类触发可进入选择，CI/审批/依赖事件不会绕过边界。
+- [ ] TASK-013: 将 `quickstart-validation-skill` 和 `spec-consistency-analysis-skill` 作为 Planning Pipeline 强制阶段执行，失败时进入 Review Needed 并保留证据。

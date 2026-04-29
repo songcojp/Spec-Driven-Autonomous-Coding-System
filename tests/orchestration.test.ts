@@ -9,6 +9,8 @@ import { createFeatureSpec } from "../src/spec-protocol.ts";
 import {
   aggregateFeatureStatus,
   buildTaskGraph,
+  createScheduleTrigger,
+  persistScheduleTrigger,
   persistSelectionDecision,
   persistPlanningPipelineResult,
   persistTaskSchedules,
@@ -36,6 +38,7 @@ test("orchestration schema owns task graphs, decisions, schedules, pipeline runs
     "feature_selection_decisions",
     "state_transitions",
     "task_schedules",
+    "schedule_triggers",
     "planning_pipeline_runs",
   ]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
@@ -206,6 +209,84 @@ test("feature scheduler gates tasks on dependencies, boundaries, runner, worktre
   );
 });
 
+test("schedule triggers accept manual and time modes while recording event modes behind boundaries", () => {
+  const manual = createScheduleTrigger({
+    projectId: "PROJECT-1",
+    mode: "manual",
+    source: "product-console",
+    target: { type: "project", id: "PROJECT-1" },
+    now: stableDate,
+  });
+  assert.equal(manual.result, "accepted");
+  assert.equal(manual.requestedFor, stableDate.toISOString());
+
+  const scheduled = createScheduleTrigger({
+    projectId: "PROJECT-1",
+    featureId: "FEAT-004",
+    mode: "scheduled_at",
+    requestedFor: "2026-04-29T02:00:00.000Z",
+    source: "project-scheduler",
+    target: { type: "feature", id: "FEAT-004" },
+    now: stableDate,
+  });
+  assert.equal(scheduled.result, "accepted");
+
+  const past = createScheduleTrigger({
+    projectId: "PROJECT-1",
+    mode: "scheduled_at",
+    requestedFor: "2026-04-27T02:00:00.000Z",
+    source: "project-scheduler",
+    target: { type: "project", id: "PROJECT-1" },
+    now: stableDate,
+  });
+  assert.equal(past.result, "blocked");
+  assert.equal(past.reason, "Scheduled trigger is in the past.");
+
+  const ciFailed = createScheduleTrigger({
+    projectId: "PROJECT-1",
+    featureId: "FEAT-004",
+    mode: "ci_failed",
+    source: "ci",
+    target: { type: "feature", id: "FEAT-004" },
+    now: stableDate,
+  });
+  assert.equal(ciFailed.result, "recorded");
+  assert.match(ciFailed.reason, /boundary evidence/);
+
+  const approval = createScheduleTrigger({
+    projectId: "PROJECT-1",
+    featureId: "FEAT-004",
+    mode: "approval_granted",
+    source: "review_center",
+    target: { type: "feature", id: "FEAT-004" },
+    boundaryEvidence: ["approval_records:APPROVAL-1"],
+    now: stableDate,
+  });
+  assert.equal(approval.result, "recorded");
+  assert.deepEqual(approval.boundaryEvidence, ["approval_records:APPROVAL-1"]);
+
+  const recurring = createScheduleTrigger({
+    projectId: "PROJECT-1",
+    mode: "daily",
+    requestedFor: "2026-04-27T02:00:00.000Z",
+    source: "project-scheduler",
+    target: { type: "project", id: "PROJECT-1" },
+    now: stableDate,
+  });
+  assert.equal(recurring.result, "accepted");
+
+  assert.throws(
+    () =>
+      createScheduleTrigger({
+        mode: "manual",
+        source: "product-console",
+        target: { type: "task" },
+        now: stableDate,
+      }),
+    /requires an id/,
+  );
+});
+
 test("feature aggregation requires tasks, acceptance, spec alignment, and required tests for done", () => {
   assert.deepEqual(
     aggregateFeatureStatus({
@@ -287,6 +368,28 @@ test("orchestration artifacts persist task graph, decisions, schedules, pipeline
     ),
     stableDate,
   );
+  const trigger = persistScheduleTrigger(
+    dbPath,
+    createScheduleTrigger({
+      projectId: "PROJECT-1",
+      featureId: "FEAT-004",
+      mode: "manual",
+      source: "product-console",
+      target: { type: "feature", id: "FEAT-004" },
+      now: stableDate,
+    }),
+  );
+  const featureScopedTrigger = persistScheduleTrigger(
+    dbPath,
+    createScheduleTrigger({
+      projectId: "PROJECT-1",
+      featureId: "FEAT-004",
+      mode: "manual",
+      source: "product-console",
+      target: { type: "feature", id: "FEAT-004" },
+      now: stableDate,
+    }),
+  );
   const pipeline = persistPlanningPipelineResult(
     dbPath,
     await runPlanningPipeline("FEAT-004", async (slug) => ({ output: { slug }, evidence: `${slug} completed` })),
@@ -307,6 +410,8 @@ test("orchestration artifacts persist task graph, decisions, schedules, pipeline
     { name: "tasks", sql: "SELECT COUNT(*) AS count FROM task_graph_tasks WHERE graph_id = ?", params: [graph.id] },
     { name: "decisions", sql: "SELECT selected_feature_id FROM feature_selection_decisions WHERE id = ?", params: [decision.id] },
     { name: "schedules", sql: "SELECT COUNT(*) AS count FROM task_schedules" },
+    { name: "triggers", sql: "SELECT mode, result FROM schedule_triggers WHERE id = ?", params: [trigger.id] },
+    { name: "featureAudit", sql: "SELECT entity_id FROM audit_timeline_events WHERE event_type = 'schedule_triggered' AND entity_id = ?", params: [featureScopedTrigger.featureId] },
     { name: "pipelines", sql: "SELECT status FROM planning_pipeline_runs WHERE feature_id = ?", params: [pipeline.featureId] },
     { name: "transitions", sql: "SELECT to_status FROM state_transitions WHERE id = ?", params: [transition.id] },
     { name: "audit", sql: "SELECT event_type FROM audit_timeline_events WHERE entity_id = 'FEAT-004'" },
@@ -316,9 +421,11 @@ test("orchestration artifacts persist task graph, decisions, schedules, pipeline
   assert.equal(result.queries.tasks[0].count, spec.requirements.length);
   assert.equal(result.queries.decisions[0].selected_feature_id, "FEAT-004");
   assert.equal(result.queries.schedules[0].count, schedules.length);
+  assert.deepEqual(result.queries.triggers[0], { mode: "manual", result: "accepted" });
+  assert.equal(result.queries.featureAudit[0].entity_id, "FEAT-004");
   assert.equal(result.queries.pipelines[0].status, "completed");
   assert.equal(result.queries.transitions[0].to_status, "planning");
-  assert.deepEqual(result.queries.audit.map((row) => row.event_type), ["state_changed"]);
+  assert.deepEqual(result.queries.audit.map((row) => row.event_type).sort(), ["schedule_triggered", "schedule_triggered", "state_changed"]);
 });
 
 function makeDbPath(): string {

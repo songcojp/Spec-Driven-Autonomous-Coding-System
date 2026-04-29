@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -339,6 +339,20 @@ export const MIGRATIONS: Migration[] = [
         reason TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
+      `CREATE TABLE IF NOT EXISTS schedule_triggers (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        feature_id TEXT,
+        mode TEXT NOT NULL,
+        requested_for TEXT NOT NULL,
+        source TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        result TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        boundary_evidence_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
       `CREATE TABLE IF NOT EXISTS planning_pipeline_runs (
         id TEXT PRIMARY KEY,
         feature_id TEXT NOT NULL,
@@ -350,6 +364,7 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_task_graph_tasks_feature_status ON task_graph_tasks(feature_id, status)",
       "CREATE INDEX IF NOT EXISTS idx_state_transitions_entity ON state_transitions(entity_type, entity_id, occurred_at)",
       "CREATE INDEX IF NOT EXISTS idx_feature_selection_project_created ON feature_selection_decisions(project_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_schedule_triggers_project_created ON schedule_triggers(project_id, created_at)",
     ],
   },
   {
@@ -720,6 +735,28 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_project_constitutions_project_status ON project_constitutions(project_id, status, version)",
       "CREATE INDEX IF NOT EXISTS idx_constitution_revalidation_project ON constitution_revalidation_marks(project_id, status, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_constitution_revalidation_entity ON constitution_revalidation_marks(entity_type, entity_id, status)",
+    ],
+  },
+  {
+    version: 12,
+    description: "Add scheduler trigger records",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS schedule_triggers (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        feature_id TEXT,
+        mode TEXT NOT NULL,
+        requested_for TEXT NOT NULL,
+        source TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        result TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        boundary_evidence_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_schedule_triggers_project_created ON schedule_triggers(project_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_schedule_triggers_feature_result ON schedule_triggers(feature_id, result, created_at)",
     ],
   },
 ];
