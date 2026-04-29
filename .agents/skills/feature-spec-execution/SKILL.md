@@ -1,6 +1,6 @@
 ---
 name: feature-spec-execution
-description: "Execute a feature spec end-to-end in full or simplified mode: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, run targeted tests, perform mode-specific code review and fixes, commit, create a PR, clean temporary review artifacts, and remove the local worktree. Full mode runs Codex review plus final regression and full-suite gates; simplified mode uses a code-review agent, does not call Codex review, and skips full-suite testing. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implementation, testing, and code-review subagents when available. Main agent and every subagent must plan before executing."
+description: "Execute a feature spec end-to-end in simplified mode by default, with full mode only for high-risk or explicitly requested delivery: select feature, create an isolated worktree, review requirements/design constraints before implementation, pause for user clarification when needed, implement, run targeted tests, perform mode-specific code review and fixes, commit, create a PR, clean temporary review artifacts, and remove the local worktree. Simplified mode uses a code-review agent, does not call Codex review, and skips full-suite testing; full mode runs Codex review plus final regression and full-suite gates. Use when asked to implement, execute, or deliver a feature from the feature spec index. Prefer bounded pre-implementation review, implementation, testing, and code-review subagents when available. Main agent and every subagent must plan before executing."
 ---
 
 # Feature Spec Execution
@@ -21,16 +21,16 @@ This skill runs one feature spec through its delivery lifecycle on the owner thr
 Select the execution mode before Stage 1 and record it in the `STAGE PLAN`.
 
 ```bash
-SPEC_EXECUTION_MODE="${SPEC_EXECUTION_MODE:-full}"
+SPEC_EXECUTION_MODE="${SPEC_EXECUTION_MODE:-simplified}"
 ```
 
 | Mode | Use when | Code review | Final tests |
 |---|---|---|---|
-| `full` | Default path for mainline-ready feature delivery, shared architecture, data migrations, security/privacy changes, public API changes, or any work with broad blast radius. | Run `codex exec review` to temporary logs, then owner analysis and bounded fixes. | Run final regression and one final full-suite test before commit. |
-| `simplified` | User explicitly requests simplified mode, or the feature is narrow, low risk, and already covered by targeted tests. | Use a `code-review-subagent` directly against the diff and spec inputs. Do not call `codex exec review`. | Run the targeted Stage 7 command after review fixes. Do not run a full-suite test. |
+| `simplified` | Default path for ordinary feature delivery, narrow or medium-sized changes, and work already covered by targeted tests. | Use a `code-review-subagent` directly against the diff and spec inputs. Do not call `codex exec review`. | Run the targeted Stage 7 command after review fixes. Do not run a full-suite test. |
+| `full` | User explicitly requests full mode, or delivery touches shared architecture, data migrations, security/privacy changes, public API changes, large refactors, unclear test coverage, or any work with broad blast radius. | Run `codex exec review` to temporary logs, then owner analysis and bounded fixes. | Run final regression and one final full-suite test before commit. |
 
-- If the user says "简化模式", "simple mode", or equivalent, set `SPEC_EXECUTION_MODE=simplified`.
-- If the user does not specify a mode, use `full`.
+- If the user says "完整模式", "full mode", or equivalent, set `SPEC_EXECUTION_MODE=full`.
+- If the user says "简化模式", "simple mode", or equivalent, or does not specify a mode, use `simplified`.
 - Upgrade from `simplified` to `full` when implementation reveals cross-feature impact, schema migrations, security/privacy risk, public API compatibility risk, large refactors, or unclear test coverage. Record the reason before switching.
 - Do not downgrade from `full` to `simplified` after Stage 8 starts unless the user explicitly approves the change.
 
@@ -256,7 +256,7 @@ This stage is mandatory after implementation and targeted tests. Treat review ou
 2. Define feature-scoped review, analysis, and final-gate variables:
 
 ```bash
-SPEC_EXECUTION_MODE="${SPEC_EXECUTION_MODE:-full}"
+SPEC_EXECUTION_MODE="${SPEC_EXECUTION_MODE:-simplified}"
 CODE_REVIEW_PASS="${CODE_REVIEW_PASS:-1}"
 REVIEW_ARTIFACT_DIR=".codex/tmp/feature-review/${FEATURE_ID}"
 CODEX_REVIEW_LOG="${REVIEW_ARTIFACT_DIR}/codex-review-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.log.md"
