@@ -66,8 +66,8 @@ const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | "blue">
 const copy = {
   "zh-CN": {
     nav: {
-      overview: "全局概况",
-      board: "看板",
+      overview: "仪表盘",
+      board: "项目主页",
       spec: "Spec 工作台",
       skills: "Skill 中心",
       subagents: "Subagent",
@@ -92,7 +92,7 @@ const copy = {
     runnerSuccessShort: "Runner 成功率",
     costUsd: "成本 (USD)",
     latestRisk: "最新风险",
-    viewBoard: "查看看板",
+    viewBoard: "查看项目主页",
     riskAndExecutionSignals: "风险与执行信号",
     viewAll: "查看全部",
     viewDetails: "查看详情",
@@ -300,8 +300,8 @@ const copy = {
   },
   en: {
     nav: {
-      overview: "Global Overview",
-      board: "Board",
+      overview: "Dashboard",
+      board: "Project Home",
       spec: "Spec Workspace",
       skills: "Skill Center",
       subagents: "Subagents",
@@ -326,7 +326,7 @@ const copy = {
     runnerSuccessShort: "Runner Success",
     costUsd: "Cost (USD)",
     latestRisk: "Latest Risk",
-    viewBoard: "View Board",
+    viewBoard: "View Project Home",
     riskAndExecutionSignals: "Risk & Execution Signals",
     viewAll: "View All",
     viewDetails: "View Details",

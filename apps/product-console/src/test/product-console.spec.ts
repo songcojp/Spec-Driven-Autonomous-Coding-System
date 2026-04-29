@@ -21,9 +21,9 @@ test("renders the console first screen and navigates across all pages", async ({
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
   await expect(page.getByRole("row", { name: /Northwind Supply Planner/ })).toBeVisible();
 
-  for (const label of ["看板", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "全局概况"]) {
+  for (const label of ["项目主页", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "仪表盘"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
-    const heading = label === "全局概况" ? "全局概况" : label === "看板" ? "项目主页" : label === "审查" ? /审查 \d+/ : label;
+    const heading = label === "仪表盘" ? "全局概况" : label === "审查" ? /审查 \d+/ : label;
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();
     if (label === "Runner") {
       await expect(page.getByText("任务调度中心")).toBeVisible();
@@ -70,20 +70,20 @@ test("defaults to Chinese and persists language switching", async ({ page }) => 
   await page.goto("/");
 
   await expect(page.getByLabel("语言")).toHaveValue("zh-CN");
-  await expect(page.getByRole("button", { name: "全局概况", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "看板", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "仪表盘", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "项目主页", exact: true })).toBeVisible();
   await expect(page.getByText("项目总数")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.getByLabel("语言").selectOption("en");
-  await expect(page.getByRole("button", { name: "Global Overview", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Board", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dashboard", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Project Home", exact: true })).toBeVisible();
   await expect(page.getByText("Total Projects")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.reload();
   await expect(page.getByLabel("Language")).toHaveValue("en");
-  await expect(page.getByRole("button", { name: "Global Overview", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dashboard", exact: true })).toBeVisible();
 });
 
 test("global overview switches projects and opens the selected board", async ({ page }) => {
@@ -93,7 +93,7 @@ test("global overview switches projects and opens the selected board", async ({ 
   await page.getByRole("row", { name: /Northwind Supply Planner/ }).click();
   await expect(page.getByLabel("项目列表")).toHaveValue("project-2");
 
-  await page.getByRole("row", { name: /Northwind Supply Planner/ }).getByRole("button", { name: "查看看板" }).click();
+  await page.getByRole("row", { name: /Northwind Supply Planner/ }).getByRole("button", { name: "查看项目主页" }).click();
   await expect(page.getByRole("heading", { name: "项目主页" })).toBeVisible();
   await expect(page.getByText("T-401 Model forecast confidence bands")).toBeVisible();
 });
@@ -135,7 +135,7 @@ test("creates projects and switches project-scoped console data", async ({ page 
 
   await page.getByLabel("项目列表").selectOption("project-2");
   await expect(page.getByText("Demand Forecast Review")).toBeVisible();
-  await page.getByRole("button", { name: "看板", exact: true }).click();
+  await page.getByRole("button", { name: "项目主页", exact: true }).click();
   await expect(page.getByText("T-401 Model forecast confidence bands")).toBeVisible();
 
   await page.getByRole("button", { name: "创建项目" }).click();
@@ -143,8 +143,8 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await expect(page.getByLabel("项目目标")).toHaveCount(0);
   await expect(page.getByLabel("项目名称")).toHaveCount(0);
   await page.getByLabel("现有项目目录").fill("/home/john/Projects/imported-console");
+  await expect(page.getByText("imported-console", { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText("识别项目")).toBeVisible();
-  await expect(page.getByText("imported-console", { exact: true })).toBeVisible();
   await expect(page.getByText("识别分支")).toBeVisible();
   await expect(page.getByText("main", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "创建新项目" }).click();
@@ -159,7 +159,7 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await expect(page.getByLabel("项目列表")).toContainText("New Client App");
   await expect(page.getByLabel("项目列表")).not.toHaveValue("project-1");
   await expect(page.getByText("项目目录: workspace/new-client-app")).toBeVisible();
-  await page.getByRole("button", { name: "看板", exact: true }).click();
+  await page.getByRole("button", { name: "项目主页", exact: true }).click();
   await expect(page.getByText("当前项目没有可用的看板任务。").first()).toBeVisible();
 });
 
@@ -169,7 +169,7 @@ test("uses a complete mock project instead of UI demo data modes", async ({ page
   await expect(page.getByLabel("数据状态")).toHaveCount(0);
   await expect(page.getByLabel("项目列表")).toContainText("Acme Returns Portal");
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
-  await page.getByRole("button", { name: "看板", exact: true }).click();
+  await page.getByRole("button", { name: "项目主页", exact: true }).click();
   await expect(page.getByRole("heading", { name: "项目主页" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "任务看板" })).toBeVisible();
   await expect(page.getByText("T-230 Review refund approval copy")).toBeVisible();
@@ -179,7 +179,7 @@ test("uses a complete mock project instead of UI demo data modes", async ({ page
 test("submits a controlled command and shows blocked feedback", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "看板", exact: true }).click();
+  await page.getByRole("button", { name: "项目主页", exact: true }).click();
   await page.getByRole("button", { name: "运行", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
