@@ -7,6 +7,19 @@ import { recordAuditEvent } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
 import { readRepositorySummary, type CommandRunner, type RepositorySummary } from "./repository.ts";
 
+// ── Error types ────────────────────────────────────────────────────────────────
+
+export class ProjectNotFoundError extends Error {
+  readonly projectId: string;
+  constructor(projectId: string) {
+    super(`Project not found: ${projectId}`);
+    this.name = "ProjectNotFoundError";
+    this.projectId = projectId;
+  }
+}
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
 export type ProjectTrustLevel = "trusted" | "standard" | "restricted";
 
 export type ProjectInput = {
@@ -76,6 +89,37 @@ export type ConstitutionRevalidationMark = ConstitutionRevalidationInput & {
   id: string;
   status: string;
   createdAt?: string;
+};
+
+// TASK-013: Project summary with lifecycle status + recent activity
+export type ProjectSummary = ProjectRecord & {
+  lastActivityAt?: string;
+  recentHealthStatus?: ProjectHealthStatus;
+};
+
+// TASK-014: Project selection context
+export type ProjectSwitchSource = "manual" | "auto" | "session_restore";
+
+export type ProjectSelectionContext = {
+  projectId: string;
+  switchSource: ProjectSwitchSource;
+  switchedAt: string;
+};
+
+// TASK-016: Workspace directory input variant
+export type ProjectWorkspaceRoot = {
+  workspaceRoot?: string;
+};
+
+// TASK-017: Phase 1 auto-initialization result
+export type Phase1InitResult = {
+  project: ProjectRecord;
+  repositoryConnected: boolean;
+  constitutionCreated: boolean;
+  memoryInitialized: boolean;
+  healthStatus: ProjectHealthStatus;
+  blockingReasons: string[];
+  success: boolean;
 };
 
 export type RepositoryConnectionRecord = {
@@ -754,4 +798,204 @@ function inferProjectName(targetRepoPath: string, summary: RepositorySummary): s
 
 function nullableString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+// ── FEAT-001 TASK-013: Project directory query ─────────────────────────────────
+
+export function listProjects(dbPath: string): ProjectSummary[] {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "projects",
+      sql: `SELECT p.*,
+          rc.remote_url,
+          hc.status AS health_status,
+          MAX(COALESCE(p.updated_at, p.created_at)) AS last_activity_at
+        FROM projects p
+        LEFT JOIN repository_connections rc ON rc.project_id = p.id
+        LEFT JOIN project_health_checks hc ON hc.project_id = p.id
+          AND hc.checked_at = (
+            SELECT MAX(checked_at) FROM project_health_checks WHERE project_id = p.id
+          )
+        GROUP BY p.id
+        ORDER BY last_activity_at DESC`,
+    },
+  ]);
+  return result.queries.projects.map(mapProjectSummary);
+}
+
+// ── FEAT-001 TASK-014: ProjectSelectionContext persistence ─────────────────────
+
+export function setCurrentProject(
+  dbPath: string,
+  projectId: string,
+  switchSource: ProjectSwitchSource = "manual",
+): ProjectSelectionContext {
+  const project = getProject(dbPath, projectId);
+  if (!project) {
+    throw new ProjectNotFoundError(projectId);
+  }
+  const switchedAt = new Date().toISOString();
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO project_selection_context (id, project_id, switch_source, switched_at)
+        VALUES (1, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          project_id = excluded.project_id,
+          switch_source = excluded.switch_source,
+          switched_at = excluded.switched_at`,
+      params: [projectId, switchSource, switchedAt],
+    },
+  ]);
+  recordAuditEvent(dbPath, {
+    entityType: "project",
+    entityId: projectId,
+    eventType: "project_selected",
+    source: "project-service",
+    reason: `Project switched via ${switchSource}`,
+    payload: { switchSource, switchedAt },
+  });
+  return { projectId, switchSource, switchedAt };
+}
+
+export function getCurrentProjectSelection(dbPath: string): ProjectSelectionContext | undefined {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "ctx",
+      sql: "SELECT * FROM project_selection_context WHERE id = 1",
+    },
+  ]);
+  const row = result.queries.ctx[0];
+  if (!row) return undefined;
+  return {
+    projectId: String(row.project_id),
+    switchSource: normalizeProjectSwitchSource(row.switch_source),
+    switchedAt: String(row.switched_at),
+  };
+}
+
+// ── FEAT-001 TASK-015: project_id isolation ────────────────────────────────────
+
+export function assertProjectExists(dbPath: string, projectId: string): ProjectRecord {
+  const project = getProject(dbPath, projectId);
+  if (!project) {
+    throw new ProjectNotFoundError(projectId);
+  }
+  return project;
+}
+
+// ── FEAT-001 TASK-017: Phase 1 auto-initialization closure ────────────────────
+
+export function initializeProjectPhase1(
+  dbPath: string,
+  input: ProjectInput & ProjectWorkspaceRoot,
+  runner?: CommandRunner,
+): Phase1InitResult {
+  // TASK-016: derive workspace path for new projects
+  const resolvedInput = resolveProjectDirectory(input);
+
+  let project: ProjectRecord;
+  try {
+    project = createProject(dbPath, resolvedInput);
+  } catch (error) {
+    return {
+      project: {
+        id: "",
+        name: resolvedInput.name,
+        goal: resolvedInput.goal,
+        projectType: resolvedInput.projectType,
+        techPreferences: resolvedInput.techPreferences ?? [],
+        targetRepoPath: resolvedInput.targetRepoPath,
+        defaultBranch: resolvedInput.defaultBranch ?? "main",
+        trustLevel: resolvedInput.trustLevel ?? "standard",
+        environment: resolvedInput.environment,
+        automationEnabled: Boolean(resolvedInput.automationEnabled),
+        status: "failed",
+      },
+      repositoryConnected: false,
+      constitutionCreated: false,
+      memoryInitialized: false,
+      healthStatus: "failed",
+      blockingReasons: [error instanceof Error ? error.message : "project_creation_failed"],
+      success: false,
+    };
+  }
+
+  const blockingReasons: string[] = [];
+
+  // Repository connection was established in createProject if targetRepoPath is set
+  const repositoryConnected = Boolean(project.targetRepoPath);
+
+  // Constitution
+  const constitutionCreated = Boolean(resolvedInput.constitution);
+
+  // Project memory — check if initialization succeeded
+  let memoryInitialized = false;
+  if (project.targetRepoPath && existsSync(project.targetRepoPath)) {
+    const autobuildPath = join(project.targetRepoPath, ".autobuild");
+    memoryInitialized = existsSync(autobuildPath);
+    if (!memoryInitialized) {
+      blockingReasons.push("memory_initialization_failed");
+    }
+  }
+
+  // Health check
+  let healthStatus: ProjectHealthStatus = "ready";
+  try {
+    const healthCheck = runProjectHealthCheck(dbPath, project.id, runner);
+    healthStatus = healthCheck.status;
+    if (healthStatus !== "ready") {
+      blockingReasons.push(...healthCheck.reasons);
+    }
+  } catch {
+    healthStatus = "failed";
+    blockingReasons.push("health_check_failed");
+  }
+
+  // Set current project context
+  try {
+    setCurrentProject(dbPath, project.id, "auto");
+  } catch {
+    blockingReasons.push("project_selection_failed");
+  }
+
+  return {
+    project,
+    repositoryConnected,
+    constitutionCreated,
+    memoryInitialized,
+    healthStatus,
+    blockingReasons,
+    success: blockingReasons.length === 0,
+  };
+}
+
+// ── Private helpers for FEAT-001 ───────────────────────────────────────────────
+
+function mapProjectSummary(row: Record<string, unknown>): ProjectSummary {
+  return {
+    ...mapProject(row),
+    lastActivityAt: nullableString(row.last_activity_at),
+    recentHealthStatus: row.health_status
+      ? (String(row.health_status) as ProjectHealthStatus)
+      : undefined,
+  };
+}
+
+function normalizeProjectSwitchSource(value: unknown): ProjectSwitchSource {
+  if (value === "auto" || value === "session_restore") return value;
+  return "manual";
+}
+
+// TASK-016: For create_new projects with no targetRepoPath, auto-derive path under workspace/<slug>.
+function resolveProjectDirectory(input: ProjectInput & ProjectWorkspaceRoot): ProjectInput {
+  if (input.creationMode !== "create_new" || input.targetRepoPath) {
+    return input;
+  }
+  const slug = input.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  const workspaceRoot = input.workspaceRoot ?? process.cwd();
+  const targetRepoPath = join(workspaceRoot, "workspace", slug);
+  return { ...input, targetRepoPath };
 }

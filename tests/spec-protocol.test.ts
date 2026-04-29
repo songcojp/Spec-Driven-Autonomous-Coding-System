@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,6 +11,7 @@ import {
   createSpecVersion,
   projectSpecArtifact,
   recordSpecVersion,
+  scanSpecSources,
 } from "../src/spec-protocol.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
@@ -245,4 +246,168 @@ RP: When review starts, the system shall return spec JSON for inspection.
   });
 
   assert.throws(() => projectSpecArtifact(spec, join(root, ".autobuild")), /Invalid spec artifact id/);
+});
+
+test("scanSpecSources returns scan results for existing project spec files", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-"));
+
+  // Create a minimal project structure
+  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
+  mkdirSync(join(root, "docs", "features", "feat-002"), { recursive: true });
+
+  writeFileSync(join(root, "README.md"), "# My Project\nREQ-001 is satisfied by FEAT-001.");
+  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"),
+    "REQ-001: The system shall create a project.\nREQ-002: The system shall validate input.");
+  writeFileSync(join(root, "docs", "zh-CN", "hld.md"), "## HLD\nFEAT-001 covers REQ-001.");
+  writeFileSync(join(root, "docs", "zh-CN", "PRD.md"), "## PRD\n# Goal\nCreate a project management system.");
+
+  // feat-001 has all three files
+  writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "REQ-001, REQ-002");
+  writeFileSync(join(root, "docs", "features", "feat-001", "design.md"), "## Design for FEAT-001");
+  writeFileSync(join(root, "docs", "features", "feat-001", "tasks.md"), "- [ ] TASK-001: Implement REQ-001");
+
+  // feat-002 has requirements but no design or tasks
+  writeFileSync(join(root, "docs", "features", "feat-002", "requirements.md"), "REQ-002");
+
+  const stableDate = new Date("2026-04-29T00:00:00.000Z");
+  const summary = scanSpecSources(root, stableDate);
+
+  assert.equal(summary.projectPath, root);
+  assert.equal(summary.scannedAt, stableDate.toISOString());
+
+  const fileTypes = summary.sources.map((s) => s.fileType);
+  assert.ok(fileTypes.includes("README"), "README should be scanned");
+  assert.ok(fileTypes.includes("PRD"), "PRD should be scanned");
+  assert.ok(fileTypes.includes("EARS"), "requirements.md should be scanned as EARS");
+  assert.ok(fileTypes.includes("HLD"), "hld.md should be scanned");
+  assert.ok(fileTypes.includes("feature-requirements"), "feature requirements should be scanned");
+  assert.ok(fileTypes.includes("design"), "feature design should be scanned");
+  assert.ok(fileTypes.includes("tasks"), "feature tasks should be scanned");
+
+  // All returned sources should exist
+  assert.ok(summary.sources.every((s) => s.exists), "All scanned sources should exist");
+});
+
+test("scanSpecSources detects trace IDs in spec files", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-trace-"));
+  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
+
+  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"),
+    "REQ-001: The system shall validate.\nREQ-002: The system shall record.\nNFR-001: Performance under 200ms.\nEDGE-001: Empty input is rejected.");
+  writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "Covers REQ-001, REQ-002");
+  writeFileSync(join(root, "docs", "features", "feat-001", "design.md"), "## Design\nFEAT-001");
+  writeFileSync(join(root, "docs", "features", "feat-001", "tasks.md"), "TASK-001: implement REQ-001");
+
+  const summary = scanSpecSources(root);
+
+  const earsSrc = summary.sources.find((s) => s.fileType === "EARS");
+  assert.ok(earsSrc, "Should find EARS source");
+  assert.ok(earsSrc.traceIds.includes("REQ-001"));
+  assert.ok(earsSrc.traceIds.includes("REQ-002"));
+  assert.ok(earsSrc.traceIds.includes("NFR-001"));
+  assert.ok(earsSrc.traceIds.includes("EDGE-001"));
+});
+
+test("scanSpecSources detects missing design file when tasks exist", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-miss-"));
+  mkdirSync(join(root, "docs", "features", "feat-003"), { recursive: true });
+
+  // Tasks without design
+  writeFileSync(join(root, "docs", "features", "feat-003", "requirements.md"), "REQ-010: The system shall run.");
+  writeFileSync(join(root, "docs", "features", "feat-003", "tasks.md"), "- [x] TASK-001 done");
+
+  const summary = scanSpecSources(root);
+
+  const missingDesign = summary.missingItems.find((m) => m.kind === "missing_design");
+  assert.ok(missingDesign, "Should detect missing design.md");
+  assert.ok(missingDesign.description.includes("feat-003"));
+  assert.ok(missingDesign.relatedPath.includes("feat-003"));
+});
+
+test("scanSpecSources detects missing requirements file when tasks exist", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-miss2-"));
+  mkdirSync(join(root, "docs", "features", "feat-004"), { recursive: true });
+
+  // Tasks without requirements
+  writeFileSync(join(root, "docs", "features", "feat-004", "design.md"), "## Design");
+  writeFileSync(join(root, "docs", "features", "feat-004", "tasks.md"), "TASK-001: implement something");
+
+  const summary = scanSpecSources(root);
+
+  const missingReqs = summary.missingItems.find((m) => m.kind === "missing_requirements");
+  assert.ok(missingReqs, "Should detect missing requirements.md");
+  assert.ok(missingReqs.description.includes("feat-004"));
+});
+
+test("scanSpecSources detects orphaned traceability (REQ not in any feature spec)", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-orphan-"));
+  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
+
+  // REQ-001 and REQ-002 in EARS, only REQ-001 in feature spec
+  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "REQ-001: feature one.\nREQ-002: unassigned requirement.");
+  writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "REQ-001");
+  writeFileSync(join(root, "docs", "features", "feat-001", "design.md"), "REQ-001 design.");
+  writeFileSync(join(root, "docs", "features", "feat-001", "tasks.md"), "TASK-001: implement REQ-001");
+
+  const summary = scanSpecSources(root);
+
+  const orphaned = summary.missingItems.find((m) => m.kind === "orphaned_traceability");
+  assert.ok(orphaned, "Should detect orphaned REQ-002");
+  assert.ok(orphaned.description.includes("REQ-002"));
+
+  const clarItem = summary.clarificationItems.find((c) => c.type === "orphaned");
+  assert.ok(clarItem, "Should generate clarification for orphaned traceability");
+  assert.ok(clarItem.description.includes("REQ-002"));
+});
+
+test("scanSpecSources scan summary integrates into createFeatureSpec clarification log", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-integrate-"));
+  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
+
+  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "REQ-001: validate.\nREQ-999: unassigned requirement.");
+  writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "REQ-001");
+  writeFileSync(join(root, "docs", "features", "feat-001", "design.md"), "Design for REQ-001.");
+  writeFileSync(join(root, "docs", "features", "feat-001", "tasks.md"), "TASK-001");
+
+  const scanSummary = scanSpecSources(root);
+
+  // scanSummary should have clarification items for the orphaned REQ-999
+  assert.ok(scanSummary.clarificationItems.length > 0);
+
+  const spec = createFeatureSpec({
+    featureId: "FEAT-SCAN-TEST",
+    now: new Date("2026-04-29T00:00:00.000Z"),
+    rawInput: `
+Goal: Validate scan integration.
+Roles: developer
+Assumptions: Source docs are available.
+PRD: When the scan runs, the system shall detect missing traceability.
+`,
+    scanSummary,
+  });
+
+  // Spec clarification log should include entries from the scan summary
+  const scanEntries = spec.clarificationLog.filter((e) => e.id.startsWith("CLAR-1"));
+  assert.ok(scanEntries.length > 0, "Scan clarifications should appear in clarification log");
+  assert.ok(spec.status === "review_needed", "Spec with orphaned traceability should be review_needed");
+});
+
+test("scanSpecSources is read-only and does not modify project files", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-readonly-"));
+  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+
+  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "REQ-001: The system shall validate.");
+  const mtime = readFileSync(join(root, "docs", "zh-CN", "requirements.md")).length;
+
+  scanSpecSources(root);
+
+  // File should be unchanged
+  const mtimeAfter = readFileSync(join(root, "docs", "zh-CN", "requirements.md")).length;
+  assert.equal(mtime, mtimeAfter, "scanSpecSources must not modify spec files");
+  // No new files created
+  assert.equal(existsSync(join(root, "docs", "zh-CN", "hld.md")), false, "Scanner must not create missing files");
 });
