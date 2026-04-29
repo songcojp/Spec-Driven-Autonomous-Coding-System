@@ -130,6 +130,61 @@ export type TaskSchedule = {
   reason: string;
 };
 
+export type ScheduleTriggerMode =
+  | "manual"
+  | "scheduled_at"
+  | "daily"
+  | "hourly"
+  | "nightly"
+  | "weekdays"
+  | "dependency_completed"
+  | "ci_failed"
+  | "approval_granted";
+
+export const SCHEDULE_TRIGGER_MODES: ScheduleTriggerMode[] = [
+  "manual",
+  "scheduled_at",
+  "daily",
+  "hourly",
+  "nightly",
+  "weekdays",
+  "dependency_completed",
+  "ci_failed",
+  "approval_granted",
+];
+
+export type ScheduleTriggerResult = "accepted" | "recorded" | "blocked";
+
+export type ScheduleTriggerTarget = {
+  type: "project" | "feature" | "task";
+  id?: string;
+};
+
+export type ScheduleTrigger = {
+  id: string;
+  projectId?: string;
+  featureId?: string;
+  mode: ScheduleTriggerMode;
+  requestedFor: string;
+  source: string;
+  target: ScheduleTriggerTarget;
+  result: ScheduleTriggerResult;
+  reason: string;
+  boundaryEvidence: string[];
+  createdAt: string;
+};
+
+export type CreateScheduleTriggerInput = {
+  projectId?: string;
+  featureId?: string;
+  mode: ScheduleTriggerMode;
+  requestedFor?: string | Date;
+  source: string;
+  target: ScheduleTriggerTarget;
+  boundaryEvidence?: string[];
+  now?: Date;
+};
+
 export type SchedulerAvailability = {
   runnerAvailable: boolean;
   worktreeAvailable: boolean;
@@ -369,6 +424,44 @@ export function scheduleFeatureTasks(graph: TaskGraph, availability: SchedulerAv
   });
 }
 
+export function createScheduleTrigger(input: CreateScheduleTriggerInput): ScheduleTrigger {
+  if (!SCHEDULE_TRIGGER_MODES.includes(input.mode)) {
+    throw new Error(`Unsupported schedule trigger mode: ${String(input.mode)}`);
+  }
+  const now = input.now ?? new Date();
+  const requestedFor = normalizeTriggerDate(input.requestedFor ?? now);
+  const boundaryEvidence = input.boundaryEvidence ?? [];
+  const normalized = normalizeScheduleTriggerTarget(input);
+  const eventMode = isEventTriggerMode(input.mode);
+  let result: ScheduleTriggerResult = "accepted";
+  let reason = "Trigger accepted for scheduler candidate selection.";
+
+  if (input.mode === "scheduled_at" && new Date(requestedFor).getTime() < now.getTime()) {
+    result = "blocked";
+    reason = "Scheduled trigger is in the past.";
+  } else if (eventMode && boundaryEvidence.length === 0) {
+    result = "recorded";
+    reason = "Event trigger recorded; upstream boundary evidence is required before candidate selection.";
+  } else if (eventMode) {
+    result = "recorded";
+    reason = "Event trigger recorded with boundary evidence; candidate selection remains gated by scheduler policy.";
+  }
+
+  return {
+    id: randomUUID(),
+    projectId: normalized.projectId,
+    featureId: normalized.featureId,
+    mode: input.mode,
+    requestedFor,
+    source: input.source,
+    target: normalized.target,
+    result,
+    reason,
+    boundaryEvidence,
+    createdAt: now.toISOString(),
+  };
+}
+
 export function aggregateFeatureStatus(input: FeatureAggregationInput): { status: FeatureLifecycleStatus; reason: string; reviewNeededReason?: ReviewNeededReason } {
   if (input.tasks.length === 0) {
     return {
@@ -481,6 +574,45 @@ export function persistTaskSchedules(dbPath: string, schedules: TaskSchedule[], 
   return schedules;
 }
 
+export function persistScheduleTrigger(dbPath: string, trigger: ScheduleTrigger): ScheduleTrigger {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO schedule_triggers (
+        id, project_id, feature_id, mode, requested_for, source, target_type,
+        target_id, result, reason, boundary_evidence_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        trigger.id,
+        trigger.projectId ?? null,
+        trigger.featureId ?? null,
+        trigger.mode,
+        trigger.requestedFor,
+        trigger.source,
+        trigger.target.type,
+        trigger.target.id ?? null,
+        trigger.result,
+        trigger.reason,
+        JSON.stringify(trigger.boundaryEvidence),
+        trigger.createdAt,
+      ],
+    },
+  ]);
+  recordAuditEvent(dbPath, {
+    entityType: trigger.target.type,
+    entityId: resolveScheduleTriggerEntityId(trigger),
+    eventType: "schedule_triggered",
+    source: trigger.source,
+    reason: trigger.reason,
+    payload: {
+      mode: trigger.mode,
+      requestedFor: trigger.requestedFor,
+      result: trigger.result,
+      boundaryEvidence: trigger.boundaryEvidence,
+    },
+  });
+  return trigger;
+}
+
 export function persistPlanningPipelineResult(
   dbPath: string,
   result: PlanningPipelineResult,
@@ -582,4 +714,54 @@ function compareCandidates(a: FeatureCandidate, b: FeatureCandidate): number {
     return riskRank[a.acceptanceRisk] - riskRank[b.acceptanceRisk];
   }
   return new Date(a.readySince).getTime() - new Date(b.readySince).getTime();
+}
+
+function isTimeTriggerMode(mode: ScheduleTriggerMode): boolean {
+  return mode === "scheduled_at" || mode === "daily" || mode === "hourly" || mode === "nightly" || mode === "weekdays";
+}
+
+function isEventTriggerMode(mode: ScheduleTriggerMode): boolean {
+  return mode === "dependency_completed" || mode === "ci_failed" || mode === "approval_granted";
+}
+
+function normalizeScheduleTriggerTarget(input: CreateScheduleTriggerInput): {
+  projectId?: string;
+  featureId?: string;
+  target: ScheduleTriggerTarget;
+} {
+  const projectId = input.projectId ?? (input.target.type === "project" ? input.target.id : undefined);
+  const featureId = input.featureId ?? (input.target.type === "feature" ? input.target.id : undefined);
+  const targetId = input.target.id
+    ?? (input.target.type === "project" ? projectId : input.target.type === "feature" ? featureId : undefined);
+
+  if (!targetId) {
+    throw new Error(`Schedule trigger target ${input.target.type} requires an id.`);
+  }
+  if (input.target.type === "project" && input.projectId && input.target.id && input.projectId !== input.target.id) {
+    throw new Error("Schedule trigger projectId must match target.id.");
+  }
+  if (input.target.type === "feature" && input.featureId && input.target.id && input.featureId !== input.target.id) {
+    throw new Error("Schedule trigger featureId must match target.id.");
+  }
+
+  return {
+    projectId,
+    featureId,
+    target: { type: input.target.type, id: targetId },
+  };
+}
+
+function resolveScheduleTriggerEntityId(trigger: ScheduleTrigger): string {
+  if (!trigger.target.id) {
+    throw new Error(`Persisted schedule trigger target ${trigger.target.type} requires an id.`);
+  }
+  return trigger.target.id;
+}
+
+function normalizeTriggerDate(value: string | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Schedule trigger requestedFor must be a valid date.");
+  }
+  return date.toISOString();
 }

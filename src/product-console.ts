@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
-import type { BoardColumn, RiskLevel } from "./orchestration.ts";
+import {
+  createScheduleTrigger,
+  persistSelectionDecision,
+  persistScheduleTrigger,
+  selectNextFeature,
+  type BoardColumn,
+  type FeatureCandidate,
+  type FeatureLifecycleStatus,
+  type RiskLevel,
+  type ScheduleTriggerMode,
+} from "./orchestration.ts";
 import type { RunnerApprovalPolicy, RunnerQueueStatus, RunnerSandboxMode } from "./codex-runner.ts";
 import { listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
 
@@ -18,6 +28,7 @@ export type ConsoleCommandAction =
   | "split_review_task"
   | "update_spec"
   | "mark_review_complete"
+  | "schedule_run"
   | "write_project_rule"
   | "write_spec_evolution";
 
@@ -42,6 +53,8 @@ export type ConsoleCommandReceipt = {
   auditEventId: string;
   acceptedAt: string;
   approvalRecordId?: string;
+  scheduleTriggerId?: string;
+  selectionDecisionId?: string;
 };
 
 export type DashboardQueryOptions = {
@@ -406,7 +419,11 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
           ],
         }
       : undefined,
-    commands: [{ action: "create_feature", entityType: "project" }],
+    commands: [
+      { action: "create_feature", entityType: "project" },
+      { action: "schedule_run", entityType: "project" },
+      { action: "schedule_run", entityType: "feature" },
+    ],
   };
 }
 
@@ -573,6 +590,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
   const acceptedAt = normalizeCommandTime(input.now).toISOString();
   const id = randomUUID();
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
+  const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
   const auditEventId = recordAuditEvent(dbPath, {
     entityType,
@@ -585,6 +603,8 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
       requestedBy,
       acceptedAt,
       writeArtifactId,
+      scheduleTriggerId: scheduleResult?.triggerId,
+      selectionDecisionId: scheduleResult?.selectionDecisionId,
       payload: input.payload ?? {},
     },
   });
@@ -598,6 +618,92 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
     auditEventId,
     acceptedAt,
     approvalRecordId: approvalRecord?.id,
+    scheduleTriggerId: scheduleResult?.triggerId,
+    selectionDecisionId: scheduleResult?.selectionDecisionId,
+  };
+}
+
+function executeScheduleCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+): { triggerId: string; selectionDecisionId?: string } | undefined {
+  if (input.action !== "schedule_run") {
+    return undefined;
+  }
+  if (input.entityType !== "project" && input.entityType !== "feature" && input.entityType !== "task") {
+    throw new Error("schedule_run supports only project, feature, or task entities.");
+  }
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const mode = requirePayloadString(payload, "mode") as ScheduleTriggerMode;
+  const requestedFor = optionalString(payload.requestedFor);
+  if (mode === "scheduled_at" && !requestedFor) {
+    throw new Error("schedule_run with mode scheduled_at requires payload.requestedFor.");
+  }
+  const trigger = persistScheduleTrigger(
+    dbPath,
+    createScheduleTrigger({
+      projectId: optionalString(payload.projectId) ?? (input.entityType === "project" ? input.entityId : undefined),
+      featureId: optionalString(payload.featureId) ?? (input.entityType === "feature" ? input.entityId : undefined),
+      mode,
+      requestedFor: requestedFor ?? acceptedAt,
+      source: "product_console",
+      target: { type: input.entityType, id: input.entityId },
+      boundaryEvidence: optionalStringArray(payload.boundaryEvidence),
+      now: new Date(acceptedAt),
+    }),
+  );
+  if (trigger.result !== "accepted") {
+    return { triggerId: trigger.id };
+  }
+
+  const { candidates, completedFeatureIds } = loadScheduleCandidates(dbPath, input, trigger.projectId);
+  const decision = persistSelectionDecision(
+    dbPath,
+    selectNextFeature(candidates, completedFeatureIds, `schedule_trigger:${trigger.id}`, new Date(acceptedAt)),
+    trigger.projectId,
+  );
+  return { triggerId: trigger.id, selectionDecisionId: decision.id };
+}
+
+function loadScheduleCandidates(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  projectId?: string,
+): { candidates: FeatureCandidate[]; completedFeatureIds: string[] } {
+  const projectClause = projectId ? "project_id = ?" : "1 = 1";
+  const projectParams = projectId ? [projectId] : [];
+  const featureClause = input.entityType === "feature" ? " AND id = ?" : "";
+  const featureParams = input.entityType === "feature" ? [input.entityId] : [];
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "features",
+      sql: `SELECT id, title, status, COALESCE(priority, 0) AS priority,
+          COALESCE(dependencies_json, '[]') AS dependencies_json,
+          COALESCE(primary_requirements_json, '[]') AS primary_requirements_json,
+          created_at
+        FROM features
+        WHERE ${projectClause}${featureClause}
+        ORDER BY priority DESC, created_at`,
+      params: [...projectParams, ...featureParams],
+    },
+  ]);
+
+  const rows = result.queries.features;
+  return {
+    candidates: rows.map((row) => ({
+      id: String(row.id),
+      title: String(row.title),
+      status: normalizeFeatureStatus(row.status),
+      priority: Number(row.priority ?? 0),
+      dependencies: parseJsonArray(row.dependencies_json).map(String),
+      requirementIds: parseJsonArray(row.primary_requirements_json).map(String),
+      acceptanceRisk: "low",
+      readySince: optionalString(row.created_at) ?? new Date(0).toISOString(),
+    })),
+    completedFeatureIds: rows
+      .filter((row) => String(row.status) === "done" || String(row.status) === "delivered")
+      .map((row) => String(row.id)),
   };
 }
 
@@ -847,6 +953,36 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
 
 function optionalString(value: unknown): string | undefined {
   return value === null || value === undefined || value === "" ? undefined : String(value);
+}
+
+function requirePayloadString(payload: Record<string, unknown>, key: string): string {
+  const value = optionalString(payload[key]);
+  if (!value) {
+    throw new Error(`Missing payload.${key}`);
+  }
+  return value;
+}
+
+function optionalStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0) : [];
+}
+
+function normalizeFeatureStatus(value: unknown): FeatureLifecycleStatus {
+  const status = String(value);
+  return [
+    "draft",
+    "ready",
+    "planning",
+    "tasked",
+    "implementing",
+    "done",
+    "delivered",
+    "review_needed",
+    "blocked",
+    "failed",
+  ].includes(status)
+    ? status as FeatureLifecycleStatus
+    : "draft";
 }
 
 function escapeLike(value: string): string {
