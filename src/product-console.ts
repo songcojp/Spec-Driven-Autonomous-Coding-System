@@ -194,13 +194,31 @@ export type SpecWorkspaceViewModel = {
     primaryRequirements: string[];
   }>;
   prdWorkflow: {
+    targetRepoPath?: string;
     sourcePath: string;
+    resolvedSourcePath?: string;
     sourceName?: string;
     sourceVersion?: string;
     scanMode?: string;
     lastScanAt?: string;
     runtime?: string;
     blockedReasons: string[];
+    phases: Array<{
+      key: "project_initialization" | "requirement_intake";
+      status: "pending" | "accepted" | "blocked" | "completed";
+      updatedAt?: string;
+      blockedReasons: string[];
+      facts: Array<{ label: string; value: string }>;
+      stages: Array<{
+        key: string;
+        action?: ConsoleCommandAction;
+        status: "pending" | "accepted" | "blocked" | "completed";
+        updatedAt?: string;
+        auditEventId?: string;
+        evidencePath?: string;
+        blockedReason?: string;
+      }>;
+    }>;
     stages: Array<{
       key: string;
       action: ConsoleCommandAction;
@@ -710,6 +728,31 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
   const featureFilter = projectId ? "WHERE project_id = ?" : "";
   const featureParams = projectId ? [projectId] : [];
   const result = runSqlite(dbPath, [], [
+    {
+      name: "projects",
+      sql: `SELECT * FROM projects ${projectId ? "WHERE id = ?" : ""} ORDER BY created_at DESC LIMIT 1`,
+      params: projectId ? [projectId] : [],
+    },
+    {
+      name: "repositoryConnections",
+      sql: `SELECT * FROM repository_connections ${projectId ? "WHERE project_id = ?" : ""} ORDER BY connected_at DESC LIMIT 1`,
+      params: projectId ? [projectId] : [],
+    },
+    {
+      name: "constitutions",
+      sql: `SELECT * FROM project_constitutions ${projectId ? "WHERE project_id = ? AND status = 'active'" : "WHERE status = 'active'"} ORDER BY version DESC LIMIT 1`,
+      params: projectId ? [projectId] : [],
+    },
+    {
+      name: "memoryVersions",
+      sql: "SELECT * FROM memory_version_records WHERE content LIKE ? ORDER BY created_at DESC LIMIT 1",
+      params: projectId ? [`%${escapeLike(projectId)}%`] : ["%"],
+    },
+    {
+      name: "healthChecks",
+      sql: `SELECT * FROM project_health_checks ${projectId ? "WHERE project_id = ?" : ""} ORDER BY checked_at DESC LIMIT 1`,
+      params: projectId ? [projectId] : [],
+    },
     { name: "features", sql: `SELECT * FROM features ${featureFilter} ORDER BY created_at DESC`, params: featureParams },
     {
       name: "requirements",
@@ -777,7 +820,16 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
 
   return {
     features,
-    prdWorkflow: buildPrdWorkflow(result.queries.workflowAudit),
+    prdWorkflow: buildPrdWorkflow({
+      auditRows: result.queries.workflowAudit,
+      project: result.queries.projects[0],
+      repositoryConnection: result.queries.repositoryConnections[0],
+      constitution: result.queries.constitutions[0],
+      memoryVersion: result.queries.memoryVersions[0],
+      healthCheck: result.queries.healthChecks[0],
+      features,
+      selectedRequirementCount: result.queries.requirements.length,
+    }),
     selectedFeature: feature
       ? {
           ...feature,
@@ -819,8 +871,6 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       { action: "scan_prd_source", entityType: "project" },
       { action: "upload_prd_source", entityType: "project" },
       { action: "generate_ears", entityType: "project" },
-      { action: "generate_hld", entityType: "project" },
-      { action: "split_feature_specs", entityType: "project" },
       { action: "schedule_run", entityType: "project" },
       { action: "schedule_run", entityType: "feature" },
     ],
@@ -835,17 +885,23 @@ export function buildSkillCenterView(dbPath: string, projectId?: string, project
   };
 }
 
-function buildPrdWorkflow(auditRows: Record<string, unknown>[]): SpecWorkspaceViewModel["prdWorkflow"] {
+function buildPrdWorkflow(input: {
+  auditRows: Record<string, unknown>[];
+  project?: Record<string, unknown>;
+  repositoryConnection?: Record<string, unknown>;
+  constitution?: Record<string, unknown>;
+  memoryVersion?: Record<string, unknown>;
+  healthCheck?: Record<string, unknown>;
+  features: SpecWorkspaceViewModel["features"];
+  selectedRequirementCount: number;
+}): SpecWorkspaceViewModel["prdWorkflow"] {
   const stages: SpecWorkspaceViewModel["prdWorkflow"]["stages"] = [
     { key: "scan_prd", action: "scan_prd_source", status: "pending" },
     { key: "upload_prd", action: "upload_prd_source", status: "pending" },
     { key: "generate_ears", action: "generate_ears", status: "pending" },
-    { key: "generate_hld", action: "generate_hld", status: "pending" },
-    { key: "split_feature_specs", action: "split_feature_specs", status: "pending" },
-    { key: "planning_pipeline", action: "schedule_run", status: "pending" },
   ];
   const latestByAction = new Map<ConsoleCommandAction, Record<string, unknown>>();
-  for (const row of auditRows) {
+  for (const row of input.auditRows) {
     const action = String(row.event_type).replace(/^console_command_/, "") as ConsoleCommandAction;
     if (!latestByAction.has(action)) {
       latestByAction.set(action, row);
@@ -875,15 +931,128 @@ function buildPrdWorkflow(auditRows: Record<string, unknown>[]): SpecWorkspaceVi
     .find((payload) => optionalString(payload.sourcePath) || optionalString(payload.fileName)) ?? {};
   const allBlockedReasons = [...latestByAction.values()]
     .flatMap((row) => arrayValue(parseJsonObject(parseJsonObject(row.payload_json).boardValidation).blockedReasons).map(String));
+  const project = input.project;
+  const repositoryConnection = input.repositoryConnection;
+  const constitution = input.constitution;
+  const memoryVersion = input.memoryVersion;
+  const healthCheck = input.healthCheck;
+  const projectStatus = optionalString(project?.status);
+  const projectPath = optionalString(repositoryConnection?.local_path) ?? optionalString(project?.target_repo_path);
+  const projectBlockedReasons = [
+    ...arrayValue(parseJsonObject(healthCheck?.reasons_json)).map(String),
+    ...(!project ? ["Create or import a project before PRD intake."] : []),
+    ...(project && !repositoryConnection ? ["Connect a Git repository before PRD intake."] : []),
+  ];
+  const projectStageStatus = (done: boolean, blockedReason?: string): "pending" | "accepted" | "blocked" | "completed" => {
+    if (done) {
+      return "completed";
+    }
+    return blockedReason ? "blocked" : "pending";
+  };
+  const latestProjectUpdatedAt = optionalString(healthCheck?.checked_at)
+    ?? optionalString(memoryVersion?.created_at)
+    ?? optionalString(constitution?.created_at)
+    ?? optionalString(repositoryConnection?.connected_at)
+    ?? optionalString(project?.updated_at);
+  const projectStages = [
+    {
+      key: "create_or_import_project",
+      status: projectStageStatus(Boolean(project), "Create or import a project before PRD intake."),
+      updatedAt: optionalString(project?.created_at),
+      blockedReason: project ? undefined : "Create or import a project before PRD intake.",
+    },
+    {
+      key: "connect_git_repository",
+      status: projectStageStatus(Boolean(repositoryConnection), project ? "Connect a Git repository before PRD intake." : undefined),
+      updatedAt: optionalString(repositoryConnection?.connected_at),
+      blockedReason: project && !repositoryConnection ? "Connect a Git repository before PRD intake." : undefined,
+    },
+    {
+      key: "initialize_spec_protocol",
+      status: projectStageStatus(projectStatus === "ready" || Boolean(projectPath), project ? "Initialize .autobuild / Spec Protocol before PRD intake." : undefined),
+      updatedAt: optionalString(healthCheck?.checked_at),
+      blockedReason: project && !projectPath ? "Initialize .autobuild / Spec Protocol before PRD intake." : undefined,
+    },
+    {
+      key: "import_or_create_constitution",
+      status: projectStageStatus(Boolean(constitution), undefined),
+      updatedAt: optionalString(constitution?.created_at),
+    },
+    {
+      key: "initialize_project_memory",
+      status: projectStageStatus(Boolean(memoryVersion) || Boolean(projectPath), undefined),
+      updatedAt: optionalString(memoryVersion?.created_at),
+    },
+  ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
+  const stageStatusByKey = new Map(decoratedStages.map((stage) => [stage.key, stage.status]));
+  const requirementIntakeStages = [
+    ...decoratedStages,
+    {
+      key: "recognize_requirement_format",
+      status: stageStatusByKey.get("scan_prd") === "completed" || stageStatusByKey.get("scan_prd") === "accepted" ? "completed" as const : "pending" as const,
+      updatedAt: decoratedStages.find((stage) => stage.key === "scan_prd")?.updatedAt,
+    },
+    {
+      key: "complete_clarifications",
+      status: input.features.length > 0 ? "completed" as const : "pending" as const,
+    },
+    {
+      key: "run_requirement_quality_check",
+      status: input.selectedRequirementCount > 0 ? "completed" as const : "pending" as const,
+    },
+    {
+      key: "feature_spec_pool",
+      status: input.features.some((feature) => feature.status === "ready") ? "completed" as const : input.features.length > 0 ? "accepted" as const : "pending" as const,
+    },
+  ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
+  const projectPhaseStatus = projectStages.some((stage) => stage.status === "blocked")
+    ? "blocked"
+    : projectStages.every((stage) => stage.status === "completed")
+      ? "completed"
+      : "accepted";
+  const intakeBlockedReasons = projectPhaseStatus === "blocked" ? ["Complete Stage 1 before requirement intake."] : [...new Set(allBlockedReasons)];
+  const intakePhaseStatus = intakeBlockedReasons.length > 0
+    ? "blocked"
+    : requirementIntakeStages.some((stage) => stage.status === "accepted" || stage.status === "completed")
+      ? "accepted"
+      : "pending";
 
   return {
+    targetRepoPath: optionalString(sourcePayload.targetRepoPath),
     sourcePath: optionalString(sourcePayload.sourcePath) ?? "docs/zh-CN/PRD.md",
+    resolvedSourcePath: optionalString(sourcePayload.resolvedSourcePath),
     sourceName: optionalString(sourcePayload.fileName),
     sourceVersion: optionalString(sourcePayload.sourceVersion) ?? "v1.3.0",
     scanMode: optionalString(sourcePayload.scanMode) ?? "smart",
     lastScanAt: decoratedStages.find((stage) => stage.updatedAt)?.updatedAt,
     runtime: optionalString(sourcePayload.runtime) ?? "10m 24s",
-    blockedReasons: [...new Set(allBlockedReasons)],
+    blockedReasons: [...new Set([...projectBlockedReasons, ...allBlockedReasons])],
+    phases: [
+      {
+        key: "project_initialization",
+        status: projectPhaseStatus,
+        updatedAt: latestProjectUpdatedAt,
+        blockedReasons: [...new Set(projectBlockedReasons)],
+        facts: [
+          { label: "Project", value: optionalString(project?.name) ?? "Not created" },
+          { label: "Repository", value: projectPath ?? "Not connected" },
+          { label: "Health", value: projectStatus ?? "unknown" },
+        ],
+        stages: projectStages,
+      },
+      {
+        key: "requirement_intake",
+        status: intakePhaseStatus,
+        updatedAt: decoratedStages.find((stage) => stage.updatedAt)?.updatedAt,
+        blockedReasons: intakeBlockedReasons,
+        facts: [
+          { label: "PRD", value: optionalString(sourcePayload.resolvedSourcePath) ?? optionalString(sourcePayload.sourcePath) ?? "docs/zh-CN/PRD.md" },
+          { label: "Features", value: String(input.features.length) },
+          { label: "Requirements", value: String(input.selectedRequirementCount) },
+        ],
+        stages: requirementIntakeStages,
+      },
+    ],
     stages: decoratedStages,
   };
 }

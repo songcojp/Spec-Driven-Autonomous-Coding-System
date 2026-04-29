@@ -199,19 +199,58 @@ const returnsPortalData: ConsoleProjectData = {
   },
   spec: {
     prdWorkflow: {
+      targetRepoPath: "workspace/acme-returns-portal",
       sourcePath: "docs/zh-CN/PRD.md",
+      resolvedSourcePath: "workspace/acme-returns-portal/docs/zh-CN/PRD.md",
       sourceVersion: "v1.3.0",
       scanMode: "smart",
       lastScanAt: "05-19 09:12",
       runtime: "10m 24s",
       blockedReasons: ["存在阻塞项，无法进入规划流水线"],
+      phases: [
+        {
+          key: "project_initialization",
+          status: "completed",
+          updatedAt: "05-19 09:10",
+          blockedReasons: [],
+          facts: [
+            { label: "Project", value: "Acme Returns Portal" },
+            { label: "Repository", value: "workspace/acme-returns-portal" },
+            { label: "Health", value: "ready" },
+          ],
+          stages: [
+            { key: "create_or_import_project", status: "completed", updatedAt: "05-19 09:04" },
+            { key: "connect_git_repository", status: "completed", updatedAt: "05-19 09:05" },
+            { key: "initialize_spec_protocol", status: "completed", updatedAt: "05-19 09:07" },
+            { key: "import_or_create_constitution", status: "completed", updatedAt: "05-19 09:08" },
+            { key: "initialize_project_memory", status: "completed", updatedAt: "05-19 09:10" },
+          ],
+        },
+        {
+          key: "requirement_intake",
+          status: "blocked",
+          updatedAt: "05-19 09:16",
+          blockedReasons: ["存在阻塞项，无法进入规划流水线"],
+          facts: [
+            { label: "PRD", value: "workspace/acme-returns-portal/docs/zh-CN/PRD.md" },
+            { label: "Features", value: "3" },
+            { label: "Requirements", value: "3" },
+          ],
+          stages: [
+            { key: "scan_prd", action: "scan_prd_source", status: "completed", updatedAt: "05-19 09:12", auditEventId: "AUD-PRD-001", evidencePath: "reports/FEAT-013-scan.md" },
+            { key: "upload_prd", action: "upload_prd_source", status: "completed", updatedAt: "05-19 09:14", auditEventId: "AUD-PRD-002", evidencePath: "reports/FEAT-013-upload.md" },
+            { key: "recognize_requirement_format", status: "completed", updatedAt: "05-19 09:15" },
+            { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", evidencePath: "ears/FEAT-013.md" },
+            { key: "complete_clarifications", status: "completed", updatedAt: "05-19 09:17" },
+            { key: "run_requirement_quality_check", status: "completed", updatedAt: "05-19 09:18" },
+            { key: "feature_spec_pool", status: "completed", updatedAt: "05-19 09:19" },
+          ],
+        },
+      ],
       stages: [
         { key: "scan_prd", action: "scan_prd_source", status: "completed", updatedAt: "05-19 09:12", auditEventId: "AUD-PRD-001", evidencePath: "reports/FEAT-013-scan.md" },
         { key: "upload_prd", action: "upload_prd_source", status: "completed", updatedAt: "05-19 09:14", auditEventId: "AUD-PRD-002", evidencePath: "reports/FEAT-013-upload.md" },
         { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", evidencePath: "ears/FEAT-013.md" },
-        { key: "generate_hld", action: "generate_hld", status: "completed", updatedAt: "05-19 09:18", auditEventId: "AUD-PRD-004", evidencePath: "hld/FEAT-013.md" },
-        { key: "split_feature_specs", action: "split_feature_specs", status: "blocked", updatedAt: "05-19 09:22", auditEventId: "AUD-PRD-005", evidencePath: "reports/FEAT-013-split.md" },
-        { key: "planning_pipeline", action: "schedule_run", status: "pending" },
       ],
     },
     features: [

@@ -38,6 +38,11 @@ export type ProjectRecord = {
   status: string;
 };
 
+export type ProjectDeleteResult = {
+  project: ProjectRecord;
+  deleted: boolean;
+};
+
 export type ProjectConstitutionInput = {
   source?: "created" | "imported";
   title?: string;
@@ -91,6 +96,18 @@ export type ProjectHealthCheck = {
   repositorySummary: RepositorySummary;
 };
 
+export class DuplicateProjectPathError extends Error {
+  readonly targetRepoPath: string;
+  readonly existingProjectId: string;
+
+  constructor(targetRepoPath: string, existingProjectId: string) {
+    super(`Project path already registered: ${targetRepoPath}`);
+    this.name = "DuplicateProjectPathError";
+    this.targetRepoPath = targetRepoPath;
+    this.existingProjectId = existingProjectId;
+  }
+}
+
 export type ProjectDirectoryScan = {
   targetRepoPath: string;
   name: string;
@@ -111,6 +128,13 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
   const repositoryUrl = input.repositoryUrl;
   const techPreferences = input.techPreferences ?? [];
   const trustLevel = input.trustLevel ?? "standard";
+
+  if (targetRepoPath) {
+    const existingProject = findProjectByTargetRepoPath(dbPath, targetRepoPath);
+    if (existingProject) {
+      throw new DuplicateProjectPathError(targetRepoPath, existingProject.id);
+    }
+  }
 
   runSqlite(dbPath, [
     {
@@ -253,6 +277,103 @@ export function getProject(dbPath: string, id: string): ProjectRecord | undefine
   ]);
   const row = result.queries.project[0];
   return row ? mapProject(row) : undefined;
+}
+
+export function deleteProject(dbPath: string, id: string): ProjectDeleteResult | undefined {
+  const project = getProject(dbPath, id);
+  if (!project) {
+    return undefined;
+  }
+
+  recordAuditEvent(dbPath, {
+    entityType: "project",
+    entityId: id,
+    eventType: "project_deleted",
+    source: "project-service",
+    reason: "Project removed from control plane",
+    payload: {
+      name: project.name,
+      targetRepoPath: project.targetRepoPath,
+      repositoryUrl: project.repositoryUrl,
+    },
+  });
+
+  runSqlite(dbPath, projectDeletionStatements(id));
+  return { project, deleted: true };
+}
+
+export function findProjectByTargetRepoPath(dbPath: string, targetRepoPath: string): ProjectRecord | undefined {
+  const normalizedPath = resolve(targetRepoPath);
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "project",
+      sql: `SELECT p.*, rc.remote_url
+        FROM projects p
+        LEFT JOIN repository_connections rc ON rc.project_id = p.id
+        WHERE p.target_repo_path = ?
+        ORDER BY p.created_at DESC, rc.connected_at DESC
+        LIMIT 1`,
+      params: [normalizedPath],
+    },
+  ]);
+  const row = result.queries.project[0];
+  return row ? mapProject(row) : undefined;
+}
+
+function projectDeletionStatements(projectId: string) {
+  const featureScope = "SELECT id FROM features WHERE project_id = ?";
+  const taskScope = `SELECT id FROM tasks WHERE feature_id IN (${featureScope})`;
+  const graphTaskScope = `SELECT id FROM task_graph_tasks WHERE feature_id IN (${featureScope})`;
+  const runScope = `SELECT id FROM runs WHERE project_id = ? OR feature_id IN (${featureScope})`;
+  const reviewScope = `SELECT id FROM review_items
+    WHERE project_id = ?
+      OR feature_id IN (${featureScope})
+      OR task_id IN (${taskScope})
+      OR task_id IN (${graphTaskScope})
+      OR run_id IN (${runScope})`;
+  const worktreeScope = `SELECT id FROM worktree_records WHERE project_id = ? OR feature_id IN (${featureScope})`;
+  const memoryScope = "SELECT id FROM project_memories WHERE project_id = ?";
+  const p = (count: number) => Array.from({ length: count }, () => projectId);
+
+  return [
+    { sql: `DELETE FROM approval_records WHERE review_item_id IN (${reviewScope})`, params: p(6) },
+    { sql: `DELETE FROM review_items WHERE id IN (${reviewScope})`, params: p(6) },
+    { sql: `DELETE FROM evidence_attachment_refs WHERE run_id IN (${runScope})`, params: p(2) },
+    { sql: `DELETE FROM status_check_results WHERE project_id = ? OR feature_id IN (${featureScope}) OR run_id IN (${runScope})`, params: p(4) },
+    { sql: `DELETE FROM spec_alignment_results WHERE feature_id IN (${featureScope}) OR run_id IN (${runScope})`, params: p(3) },
+    { sql: `DELETE FROM runner_policies WHERE run_id IN (${runScope})`, params: p(2) },
+    { sql: `DELETE FROM runner_heartbeats WHERE run_id IN (${runScope})`, params: p(2) },
+    { sql: `DELETE FROM codex_session_records WHERE run_id IN (${runScope})`, params: p(2) },
+    { sql: `DELETE FROM raw_execution_logs WHERE run_id IN (${runScope})`, params: p(2) },
+    { sql: `DELETE FROM subagent_events WHERE run_id IN (${runScope})`, params: p(2) },
+    { sql: `DELETE FROM recovery_attempts WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
+    { sql: `DELETE FROM forbidden_retry_records WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
+    { sql: `DELETE FROM task_schedules WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
+    { sql: `DELETE FROM evidence_packs WHERE feature_id IN (${featureScope}) OR task_id IN (${taskScope}) OR run_id IN (${runScope})`, params: p(4) },
+    { sql: `DELETE FROM delivery_reports WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM pull_request_records WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM spec_evolution_suggestions WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM planning_pipeline_runs WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM schedule_triggers WHERE project_id = ? OR feature_id IN (${featureScope})`, params: p(2) },
+    { sql: `DELETE FROM feature_selection_decisions WHERE project_id = ? OR selected_feature_id IN (${featureScope})`, params: p(2) },
+    { sql: `DELETE FROM merge_readiness_results WHERE worktree_id IN (${worktreeScope})`, params: p(2) },
+    { sql: `DELETE FROM rollback_boundaries WHERE worktree_id IN (${worktreeScope}) OR feature_id IN (${featureScope})`, params: p(3) },
+    { sql: `DELETE FROM worktree_records WHERE id IN (${worktreeScope})`, params: p(2) },
+    { sql: `DELETE FROM task_graph_tasks WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM task_graphs WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM requirements WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM tasks WHERE feature_id IN (${featureScope})`, params: p(1) },
+    { sql: `DELETE FROM runs WHERE project_id = ? OR feature_id IN (${featureScope})`, params: p(2) },
+    { sql: `DELETE FROM features WHERE project_id = ?`, params: p(1) },
+    { sql: `DELETE FROM memory_compaction_events WHERE project_memory_id IN (${memoryScope})`, params: p(1) },
+    { sql: `DELETE FROM memory_version_records WHERE project_memory_id IN (${memoryScope})`, params: p(1) },
+    { sql: "DELETE FROM project_memories WHERE project_id = ?", params: p(1) },
+    { sql: "DELETE FROM constitution_revalidation_marks WHERE project_id = ?", params: p(1) },
+    { sql: "DELETE FROM project_constitutions WHERE project_id = ?", params: p(1) },
+    { sql: "DELETE FROM project_health_checks WHERE project_id = ?", params: p(1) },
+    { sql: "DELETE FROM repository_connections WHERE project_id = ?", params: p(1) },
+    { sql: "DELETE FROM projects WHERE id = ?", params: p(1) },
+  ];
 }
 
 export function getRepositoryConnection(dbPath: string, projectId: string): RepositoryConnectionRecord | undefined {

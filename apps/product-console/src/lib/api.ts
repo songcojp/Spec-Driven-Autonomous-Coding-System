@@ -1,4 +1,4 @@
-import type { CommandAction, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "../types";
+import type { CommandAction, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectOverviewModel, ProjectSummary } from "../types";
 
 function endpoints(projectId: string) {
   const encodedProjectId = encodeURIComponent(projectId);
@@ -25,6 +25,27 @@ export async function fetchConsoleData(projectId: string): Promise<Omit<ConsoleD
     }),
   );
   return Object.fromEntries(entries) as ConsoleData;
+}
+
+export async function fetchProjectOverview(): Promise<ProjectOverviewModel> {
+  const response = await fetch("/console/project-overview", { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`/console/project-overview returned ${response.status}`);
+  }
+  return await response.json() as ProjectOverviewModel;
+}
+
+export async function fetchProjectSummaries(): Promise<ProjectSummary[]> {
+  const overview = await fetchProjectOverview();
+  return overview.projects.map((project) => ({
+    id: project.id,
+    name: project.name,
+    repository: project.repository,
+    projectDirectory: project.projectDirectory,
+    defaultBranch: project.defaultBranch,
+    health: project.health,
+    lastActivityAt: project.lastActivityAt,
+  }));
 }
 
 export async function submitCommand(input: {
@@ -70,7 +91,11 @@ export async function createConsoleProject(input: ProjectCreateForm): Promise<Pr
     }),
   });
   if (!response.ok) {
-    throw new Error(`/projects returned ${response.status}`);
+    const detail = await response.json().catch(() => undefined) as { error?: string; targetRepoPath?: string; existingProjectId?: string } | undefined;
+    if (response.status === 409 && detail?.error === "project_path_already_registered") {
+      throw new Error(`project_path_already_registered:${detail.targetRepoPath ?? targetRepoPath}`);
+    }
+    throw new Error(detail?.error ?? `/projects returned ${response.status}`);
   }
   const project = await response.json() as { id: string; name: string; repositoryUrl?: string; targetRepoPath?: string; defaultBranch?: string; status?: string };
   const health = await fetchProjectHealth(project.id);
@@ -84,6 +109,20 @@ export async function createConsoleProject(input: ProjectCreateForm): Promise<Pr
     health: health ?? (project.status === "failed" ? "failed" : project.status === "ready" ? "ready" : "blocked"),
     lastActivityAt: new Date().toISOString(),
   };
+}
+
+export async function deleteConsoleProject(projectId: string): Promise<void> {
+  const response = await fetch(`/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => undefined) as { error?: string } | undefined;
+    if (response.status === 404 && detail?.error === "project_not_found") {
+      return;
+    }
+    throw new Error(detail?.error ?? `/projects/${projectId} returned ${response.status}`);
+  }
 }
 
 async function fetchProjectHealth(projectId: string): Promise<ProjectSummary["health"] | undefined> {

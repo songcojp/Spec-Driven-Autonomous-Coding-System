@@ -21,6 +21,8 @@ Spec Evolution:
 - Project Home 是当前单个项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并在页面内提供 Task Board 分区。
 - Task Board 分区支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
+- Spec Workspace 的 PRD 操作流程必须拆为“阶段 1 项目初始化”和“阶段 2 需求录入”：阶段 1 展示项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章和 Project Memory 状态；阶段 2 展示 PRD 扫描/上传、PR/RP/PRD/EARS 识别、EARS / Feature Spec 生成、澄清、质量检查和 Feature Spec Pool 状态。
+- 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；这些阶段 3 操作只能作为选中 Feature 的独立受控操作出现。
 - Skill Center 展示项目本地 `.agents/skills/*/SKILL.md` 发现到的 Skill 列表、详情和文件路径。
 - Subagent Console 展示 CLI delegation 相关 run、Subagent event、Evidence Pack、Status Check、token 使用和运行状态。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳状态，并支持暂停或恢复 Runner。
@@ -46,6 +48,7 @@ Spec Evolution:
 - Task Board 可以展示任务依赖、diff、测试结果、审批状态和失败恢复历史入口。
 - Task Board 的拖拽或批量操作只能产生受状态机允许的状态变更或调度请求。
 - 用户可以从 Spec Workspace 追踪需求到任务图。
+- 用户可以从 Spec Workspace 看到项目初始化是否阻塞 PRD 需求录入，并在没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 PRD 流程。
 - 用户可以查看 Skill 是否启用以及最近执行情况。
 - 用户可以定位每个 Subagent 的输入、输出和当前状态。
 - 用户可以判断 Runner 是否可执行新任务。
@@ -77,6 +80,7 @@ Spec Evolution:
 - [ ] 新建项目表单提交的新项目目录必须为 `workspace/<project-slug>`；导入现有项目提交用户填写的现有项目目录。
 - [ ] 切换项目后 Dashboard、Project Home、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 只展示当前项目数据。
 - [ ] 浏览器级验证覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及 `project_id` 缺失/不匹配时的阻塞反馈。
+- [ ] Spec Workspace 浏览器级验证覆盖阶段 1 项目初始化、阶段 2 需求录入、PRD 扫描/上传命令回执、项目切换后的数据隔离，以及阶段 2 不出现 HLD 生成、Feature Spec 拆分或规划流水线入口。
 
 ## Risks and Open Questions
 

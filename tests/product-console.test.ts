@@ -312,6 +312,12 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.equal(specWorkspace.commands.some((command) => command.action === "scan_prd_source"), true);
   assert.equal(specWorkspace.commands.some((command) => command.action === "generate_ears"), true);
   assert.equal(specWorkspace.prdWorkflow.sourcePath, "docs/zh-CN/PRD.md");
+  assert.deepEqual(specWorkspace.prdWorkflow.phases.map((phase) => phase.key), ["project_initialization", "requirement_intake"]);
+  assert.equal(specWorkspace.prdWorkflow.phases[0].stages.some((stage) => stage.key === "initialize_project_memory"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "generate_ears"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "feature_spec_pool"), true);
+  assert.equal(specWorkspace.prdWorkflow.stages.some((stage) => stage.key === "generate_hld"), false);
+  assert.equal(specWorkspace.commands.some((command) => command.action === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "schedule_run"), true);
 
   const skillCenter = buildSkillCenterView(dbPath, "project-1");
@@ -449,7 +455,12 @@ test("console command gateway audits controlled writes without mutating worktree
     entityId: "project-1",
     requestedBy: "operator",
     reason: "Scan project PRD.",
-    payload: { sourcePath: "docs/zh-CN/PRD.md", scanMode: "smart" },
+    payload: {
+      targetRepoPath: "workspace/acme-returns-portal",
+      sourcePath: "docs/zh-CN/PRD.md",
+      resolvedSourcePath: "workspace/acme-returns-portal/docs/zh-CN/PRD.md",
+      scanMode: "smart",
+    },
     now: stableDate,
   });
   const after = runSqlite(dbPath, [], [
@@ -466,7 +477,7 @@ test("console command gateway audits controlled writes without mutating worktree
   assert.equal(after.queries.audit[0].source, "product_console");
   assert.match(String(after.queries.audit[0].payload_json), /operator/);
   assert.equal(after.queries.workflowAudit[0].event_type, "console_command_scan_prd_source");
-  assert.equal(String(after.queries.workflowAudit[0].payload_json).includes("docs/zh-CN/PRD.md"), true);
+  assert.equal(String(after.queries.workflowAudit[0].payload_json).includes("workspace/acme-returns-portal/docs/zh-CN/PRD.md"), true);
 });
 
 test("console write commands persist rule and spec evolution evidence", () => {
@@ -658,6 +669,27 @@ function seedConsoleData(dbPath: string): void {
     {
       sql: `INSERT INTO projects (id, name, goal, project_type, tech_preferences_json, environment, status)
         VALUES ('project-2', 'Other Project', 'Unrelated work', 'typescript-service', '[]', 'local', 'blocked')`,
+    },
+    {
+      sql: `INSERT INTO repository_connections (id, project_id, provider, remote_url, local_path, default_branch, connected_at)
+        VALUES ('RC-1', 'project-1', 'github', 'git@github.com:example/specdrive.git', '/workspace/specdrive', 'main', '2026-04-28T07:00:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO project_health_checks (id, project_id, status, reasons_json, checked_at)
+        VALUES ('HC-1', 'project-1', 'ready', '[]', '2026-04-28T07:05:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO project_constitutions (
+          id, project_id, version, source, title, project_goal,
+          engineering_principles_json, boundary_rules_json, approval_rules_json, default_constraints_json, status, created_at
+        ) VALUES (
+          'CONST-1', 'project-1', 1, 'manual', 'SpecDrive Constitution', 'Automate specs',
+          '[]', '[]', '[]', '[]', 'active', '2026-04-28T07:06:00.000Z'
+        )`,
+    },
+    {
+      sql: `INSERT INTO memory_version_records (id, project_memory_id, version, run_id, summary, checksum, content, created_at)
+        VALUES ('MEM-1', 'memory-project-1', 1, NULL, 'Initial project memory.', 'checksum', '{"projectId":"project-1"}', '2026-04-28T07:07:00.000Z')`,
     },
     {
       sql: `INSERT INTO features (

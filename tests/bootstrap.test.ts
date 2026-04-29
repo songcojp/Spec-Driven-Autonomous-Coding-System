@@ -10,13 +10,17 @@ import { ARTIFACT_DIRECTORIES } from "../src/artifacts.ts";
 import { runBootstrap, initialReadyState } from "../src/bootstrap.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
 import { listTables, initializeSchema, getCurrentSchemaVersion, SCHEMA_VERSION } from "../src/schema.ts";
+import { runSqlite } from "../src/sqlite.ts";
 import { countProjectSkills } from "../src/skills.ts";
 import { listAuditEvents } from "../src/persistence.ts";
 import { readRepositorySummary } from "../src/repository.ts";
 import {
   createProject,
+  deleteProject,
+  DuplicateProjectPathError,
   getCurrentProjectConstitution,
   getProject,
+  getRepositoryConnection,
   listConstitutionRevalidationMarks,
   listProjectConstitutions,
   markConstitutionRevalidation,
@@ -152,6 +156,89 @@ test("project service creates queryable project and repository connection record
   assert.equal(summary?.isGitRepository, true);
   assert.equal(summary?.currentBranch, "main");
   assert.equal(summary?.hasUncommittedChanges, false);
+});
+
+test("project service rejects duplicate target repository paths", async () => {
+  const root = makeTempDir();
+  createProjectSkill(root);
+  const repo = createReadyGitRepo(join(root, "repo"));
+  const config = loadConfig({ cwd: root, env: {}, argv: [] });
+  await runBootstrap(config);
+
+  const project = createProject(config.dbPath, {
+    name: "SpecDrive",
+    goal: "Automate spec-driven delivery",
+    projectType: "typescript-service",
+    targetRepoPath: repo,
+    defaultBranch: "main",
+    environment: "local",
+  });
+
+  assert.throws(
+    () =>
+      createProject(config.dbPath, {
+        name: "SpecDrive Copy",
+        goal: "Duplicate path",
+        projectType: "typescript-service",
+        targetRepoPath: join(repo, "."),
+        defaultBranch: "main",
+        environment: "local",
+      }),
+    (error) =>
+      error instanceof DuplicateProjectPathError &&
+      error.existingProjectId === project.id &&
+      error.targetRepoPath === repo,
+  );
+});
+
+test("project service deletes project registration without deleting the repository directory", async () => {
+  const root = makeTempDir();
+  createProjectSkill(root);
+  const repo = createReadyGitRepo(join(root, "repo"));
+  const config = loadConfig({ cwd: root, env: {}, argv: [] });
+  await runBootstrap(config);
+
+  const project = createProject(config.dbPath, {
+    name: "Disposable",
+    goal: "Delete project registration",
+    projectType: "typescript-service",
+    targetRepoPath: repo,
+    defaultBranch: "main",
+    environment: "local",
+    constitution: {
+      projectGoal: "Delete project registration",
+      engineeringPrinciples: ["Keep deletion bounded"],
+      boundaryRules: ["Do not remove repository files"],
+      approvalRules: ["Allow operator deletion"],
+      defaultConstraints: ["Preserve audit evidence"],
+    },
+  });
+  runProjectHealthCheck(config.dbPath, project.id);
+
+  const deleted = deleteProject(config.dbPath, project.id);
+
+  assert.equal(deleted?.deleted, true);
+  assert.equal(getProject(config.dbPath, project.id), undefined);
+  assert.equal(getRepositoryConnection(config.dbPath, project.id), undefined);
+  assert.equal(getCurrentProjectConstitution(config.dbPath, project.id), undefined);
+  assert.equal(existsSync(repo), true);
+  assert.equal(listAuditEvents(config.dbPath, "project", project.id).some((event) => event.eventType === "project_deleted"), true);
+  assert.deepEqual(runSqlite(config.dbPath, [], [
+    { name: "connections", sql: "SELECT id FROM repository_connections WHERE project_id = ?", params: [project.id] },
+    { name: "health", sql: "SELECT id FROM project_health_checks WHERE project_id = ?", params: [project.id] },
+    { name: "constitutions", sql: "SELECT id FROM project_constitutions WHERE project_id = ?", params: [project.id] },
+  ]).queries, { connections: [], health: [], constitutions: [] });
+
+  const recreated = createProject(config.dbPath, {
+    name: "Recreated",
+    goal: "Use the same path again",
+    projectType: "typescript-service",
+    targetRepoPath: repo,
+    defaultBranch: "main",
+    environment: "local",
+  });
+  assert.notEqual(recreated.id, project.id);
+  assert.equal(recreated.targetRepoPath, repo);
 });
 
 test("project health checker classifies ready, blocked, and failed states with reasons", async () => {
@@ -301,6 +388,18 @@ test("project API exposes project creation, repository summary, and health check
     assert.equal(project.name, "API Project");
     assert.equal(project.trustLevel, "trusted");
 
+    const duplicateProject = await postJsonWithStatus(`http://127.0.0.1:${port}/projects`, {
+      name: "API Project Copy",
+      goal: "Duplicate project path",
+      projectType: "typescript-service",
+      targetRepoPath: join(repo, "."),
+      defaultBranch: "main",
+      environment: "local",
+    });
+    assert.equal(duplicateProject.statusCode, 409);
+    assert.equal(duplicateProject.body.error, "project_path_already_registered");
+    assert.equal(duplicateProject.body.existingProjectId, project.id);
+
     const repository = await getJson(`http://127.0.0.1:${port}/projects/${project.id}/repository`);
     assert.equal(repository.isGitRepository, true);
 
@@ -333,6 +432,14 @@ test("project API exposes project creation, repository summary, and health check
       reason: "constitution changed",
     });
     assert.equal(mark.status, "pending");
+
+    const deletion = await deleteJsonWithStatus(`http://127.0.0.1:${port}/projects/${project.id}`);
+    assert.equal(deletion.statusCode, 200);
+    assert.equal(deletion.body.deleted, true);
+
+    const missing = await deleteJsonWithStatus(`http://127.0.0.1:${port}/projects/${project.id}`);
+    assert.equal(missing.statusCode, 404);
+    assert.equal(missing.body.error, "project_not_found");
   } finally {
     await new Promise<void>((resolve) => controlPlane.server.close(() => resolve()));
   }
@@ -467,6 +574,25 @@ function getJson(url: string): Promise<Record<string, unknown>> {
 }
 
 function postJson(url: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return postJsonWithStatus(url, payload).then((result) => result.body);
+}
+
+function postJsonWithStatus(
+  url: string,
+  payload: Record<string, unknown>,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+  return requestJsonWithStatus("POST", url, payload);
+}
+
+function deleteJsonWithStatus(url: string): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+  return requestJsonWithStatus("DELETE", url, {});
+}
+
+function requestJsonWithStatus(
+  method: "POST" | "DELETE",
+  url: string,
+  payload: Record<string, unknown>,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload);
     const request = new URL(url);
@@ -475,7 +601,7 @@ function postJson(url: string, payload: Record<string, unknown>): Promise<Record
         hostname: request.hostname,
         port: request.port,
         path: request.pathname,
-        method: "POST",
+        method,
         headers: {
           "content-type": "application/json",
           "content-length": Buffer.byteLength(body),
@@ -489,7 +615,10 @@ function postJson(url: string, payload: Record<string, unknown>): Promise<Record
         });
         response.on("end", () => {
           try {
-            resolve(JSON.parse(responseBody));
+            resolve({
+              statusCode: response.statusCode ?? 0,
+              body: JSON.parse(responseBody),
+            });
           } catch (error) {
             reject(error);
           }

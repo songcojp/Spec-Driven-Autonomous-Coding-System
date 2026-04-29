@@ -3,6 +3,8 @@ import type { AppConfig } from "./config.ts";
 import type { ReadyState } from "./bootstrap.ts";
 import {
   createProject,
+  deleteProject,
+  DuplicateProjectPathError,
   getCurrentProjectConstitution,
   getProject,
   listConstitutionRevalidationMarks,
@@ -88,6 +90,12 @@ async function routeRequest(
     if (request.method === "GET" && projectMatch && !projectMatch[2]) {
       const project = getProject(config.dbPath, projectMatch[1]);
       writeJson(response, project ? 200 : 404, project ?? { error: "project_not_found" });
+      return;
+    }
+
+    if (request.method === "DELETE" && projectMatch && !projectMatch[2]) {
+      const result = deleteProject(config.dbPath, projectMatch[1]);
+      writeJson(response, result ? 200 : 404, result ?? { error: "project_not_found" });
       return;
     }
 
@@ -202,6 +210,14 @@ async function routeRequest(
     writeJson(response, 404, { error: "not_found" });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof DuplicateProjectPathError) {
+      writeJson(response, 409, {
+        error: "project_path_already_registered",
+        targetRepoPath: error.targetRepoPath,
+        existingProjectId: error.existingProjectId,
+      });
+      return;
+    }
     writeJson(response, message.startsWith("Console command") ? 400 : 500, { error: message });
   }
 }

@@ -16,6 +16,7 @@ import {
   Home,
   LayoutDashboard,
   Loader2,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Pause,
@@ -29,9 +30,10 @@ import {
   Upload,
   Workflow,
   XCircle,
+  Trash2,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { createConsoleProject, scanProjectDirectory, submitCommand } from "./lib/api";
+import { createConsoleProject, deleteConsoleProject, fetchProjectSummaries, scanProjectDirectory, submitCommand } from "./lib/api";
 import { demoData, getDemoDataForProject } from "./lib/demo-data";
 import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "./types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
@@ -41,6 +43,7 @@ type ViewKey = "overview" | "board" | "spec" | "skills" | "subagents" | "runner"
 
 const localeStorageKey = "specdrive-console-locale";
 const projectStorageKey = "specdrive-current-project";
+const demoProjectIds = new Set(demoData.projects.projects.map((project) => project.id));
 
 const navItems: Array<{ key: ViewKey; icon: typeof Home }> = [
   { key: "overview", icon: LayoutDashboard },
@@ -101,6 +104,10 @@ const copy = {
     itemsTotal: (total: number) => `共 ${total} 项`,
     projectList: "项目列表",
     createProject: "创建项目",
+    deleteProject: "删除项目",
+    deleteProjectConfirm: (name: string) => `确认删除项目“${name}”？这只会移除控制台登记，不会删除磁盘仓库。`,
+    deleteProjectSuccess: "项目已删除",
+    deleteProjectFailed: "项目删除失败",
     createProjectDescription: "导入已有项目时只需设置目录，系统会自动扫描仓库信息；新项目统一创建到 workspace 目录。",
     importExistingProject: "导入现有项目",
     createNewProject: "创建新项目",
@@ -246,7 +253,20 @@ const copy = {
     scheduleMore: "排期...",
     specWorkspace: "Spec 工作台",
     prdWorkflow: "PRD 操作流程",
-    prdWorkflowSubtitle: "按 PRD 流程提交受控命令，生成 EARS、HLD 并拆分 Feature Spec。",
+    prdWorkflowSubtitle: "先确认项目初始化，再录入 PRD 需求，生成可进入 Feature Spec Pool 的需求事实。",
+    projectInitialization: "阶段 1 项目初始化",
+    requirementIntake: "阶段 2 需求录入",
+    phaseFacts: "阶段事实",
+    createOrImportProject: "创建/导入项目",
+    connectGitRepository: "连接 Git 仓库",
+    initializeSpecProtocol: "初始化 .autobuild / Spec Protocol",
+    importOrCreateConstitution: "导入或创建项目宪章",
+    initializeProjectMemory: "初始化 Project Memory",
+    recognizeRequirementFormat: "识别 PR/RP/PRD/EARS",
+    completeClarifications: "完成关键澄清",
+    runRequirementQualityCheck: "执行需求质量检查",
+    featureSpecPool: "推入 Feature Spec Pool",
+    fixProjectInitialization: "请先完成项目初始化或修复仓库状态。",
     scanPrd: "扫描 PRD",
     uploadPrd: "上传 PRD",
     uploadPrdFileInput: "上传 PRD 文件",
@@ -358,6 +378,10 @@ const copy = {
     itemsTotal: (total: number) => `${total} items`,
     projectList: "Project List",
     createProject: "Create Project",
+    deleteProject: "Delete Project",
+    deleteProjectConfirm: (name: string) => `Delete project "${name}"? This only removes the console registration and does not delete the repository on disk.`,
+    deleteProjectSuccess: "Project deleted",
+    deleteProjectFailed: "Project deletion failed",
     createProjectDescription: "Set a directory to import an existing project and scan repository details automatically, or create a new project under workspace.",
     importExistingProject: "Import Existing",
     createNewProject: "Create New",
@@ -503,7 +527,20 @@ const copy = {
     scheduleMore: "Schedule...",
     specWorkspace: "Spec Workspace",
     prdWorkflow: "PRD Workflow",
-    prdWorkflowSubtitle: "Submit governed commands to generate EARS, HLD, and split Feature Specs from the PRD.",
+    prdWorkflowSubtitle: "Confirm project initialization first, then intake PRD requirements into the Feature Spec Pool.",
+    projectInitialization: "Stage 1 Project Initialization",
+    requirementIntake: "Stage 2 Requirement Intake",
+    phaseFacts: "Phase Facts",
+    createOrImportProject: "Create / Import Project",
+    connectGitRepository: "Connect Git Repository",
+    initializeSpecProtocol: "Initialize .autobuild / Spec Protocol",
+    importOrCreateConstitution: "Import or Create Constitution",
+    initializeProjectMemory: "Initialize Project Memory",
+    recognizeRequirementFormat: "Recognize PR/RP/PRD/EARS",
+    completeClarifications: "Complete Clarifications",
+    runRequirementQualityCheck: "Run Requirement Quality Check",
+    featureSpecPool: "Push to Feature Spec Pool",
+    fixProjectInitialization: "Complete project initialization or fix repository status first.",
     scanPrd: "Scan PRD",
     uploadPrd: "Upload PRD",
     uploadPrdFileInput: "Upload PRD File",
@@ -626,6 +663,18 @@ function bindProjects(data: Omit<ConsoleData, "projects"> | ConsoleData, project
   };
 }
 
+function mergeLoadedProjects(loadedProjects: ProjectSummary[], currentProjects: ProjectSummary[]): ProjectSummary[] {
+  const merged = new Map(loadedProjects.map((project) => [project.id, project]));
+  currentProjects
+    .filter((project) => !demoProjectIds.has(project.id))
+    .forEach((project) => {
+      if (!merged.has(project.id)) {
+        merged.set(project.id, project);
+      }
+    });
+  return Array.from(merged.values());
+}
+
 export function App() {
   const [view, setView] = useState<ViewKey>("overview");
   const [locale, setLocale] = useState<Locale>(readInitialLocale);
@@ -642,6 +691,34 @@ export function App() {
     () => currentData.board.tasks.find((task) => task.id === selectedTaskId) ?? currentData.board.tasks[0],
     [currentData.board.tasks, selectedTaskId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchProjectSummaries()
+      .then((loadedProjects) => {
+        if (cancelled || loadedProjects.length === 0) {
+          return;
+        }
+        setProjects((previousProjects) => {
+          const nextProjects = mergeLoadedProjects(loadedProjects, previousProjects);
+          setCurrentProjectId((previousProjectId) => {
+            if (nextProjects.some((project) => project.id === previousProjectId)) {
+              return previousProjectId;
+            }
+            const nextProjectId = nextProjects[0]?.id ?? previousProjectId;
+            window.localStorage.setItem(projectStorageKey, nextProjectId);
+            return nextProjectId;
+          });
+          return nextProjects;
+        });
+      })
+      .catch(() => {
+        // The console can still run against bundled demo data when the API is unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (currentData.board.tasks.length === 0 || currentData.board.tasks.some((task) => task.id === selectedTaskId)) {
@@ -708,6 +785,8 @@ export function App() {
         nextProject = await createConsoleProject(normalizedForm);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const isDuplicatePath = message.startsWith("project_path_already_registered:");
+        const duplicatePath = isDuplicatePath ? message.slice("project_path_already_registered:".length) : "";
         setReceipt({
           id: `create-error-${Date.now()}`,
           action: "create_project",
@@ -715,7 +794,15 @@ export function App() {
           entityType: "project",
           entityId: normalizedForm.name,
           acceptedAt: new Date().toISOString(),
-          blockedReasons: [locale === "zh-CN" ? `项目创建失败：${message}` : `Project creation failed: ${message}`],
+          blockedReasons: [
+            isDuplicatePath
+              ? locale === "zh-CN"
+                ? `项目创建失败：路径已绑定到已有项目，不能重复创建。${duplicatePath}`
+                : `Project creation failed: this path is already registered to an existing project. ${duplicatePath}`
+              : locale === "zh-CN"
+                ? `项目创建失败：${message}`
+                : `Project creation failed: ${message}`,
+          ],
         });
         return;
       }
@@ -729,6 +816,52 @@ export function App() {
         entityId: nextProject.id,
         projectId: nextProject.id,
         acceptedAt: new Date().toISOString(),
+      });
+    });
+  }
+
+  function removeProject(project: ProjectSummary) {
+    if (!window.confirm(text.deleteProjectConfirm(project.name))) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await deleteConsoleProject(project.id);
+      } catch (error) {
+        setReceipt({
+          id: `delete-error-${Date.now()}`,
+          action: "delete_project",
+          status: "blocked",
+          entityType: "project",
+          entityId: project.id,
+          projectId: project.id,
+          acceptedAt: new Date().toISOString(),
+          blockedReasons: [
+            `${text.deleteProjectFailed}: ${error instanceof Error ? error.message : String(error)}`,
+          ],
+        });
+        return;
+      }
+      let remainingProjects = projects.filter((item) => item.id !== project.id);
+      try {
+        const loadedProjects = await fetchProjectSummaries();
+        remainingProjects = loadedProjects.filter((item) => item.id !== project.id);
+      } catch {
+        // Local state still reflects the operator's delete action when refresh is unavailable.
+      }
+      const fallbackProject = remainingProjects[0] ?? demoData.projects.projects[0];
+      setProjects(remainingProjects.length ? remainingProjects : [fallbackProject]);
+      if (currentProjectId === project.id) {
+        switchProject(fallbackProject.id);
+      }
+      setReceipt({
+        id: `delete-${project.id}`,
+        action: "delete_project",
+        status: "accepted",
+        entityType: "project",
+        entityId: project.id,
+        acceptedAt: new Date().toISOString(),
+        blockedReasons: [`${text.deleteProjectSuccess}: ${project.name}`],
       });
     });
   }
@@ -791,6 +924,16 @@ export function App() {
                     {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                   </select>
                   <CreateProjectDialog text={text} onCreate={createProject} />
+                  <Button
+                    tone="danger"
+                    className="size-9 px-0"
+                    aria-label={text.deleteProject}
+                    title={text.deleteProject}
+                    onClick={() => removeProject(currentProject)}
+                    disabled={isPending || projects.length === 0}
+                  >
+                    <Trash2 size={15} />
+                  </Button>
                 </div>
               </div>
               <Button className="h-8">
@@ -841,7 +984,7 @@ export function App() {
                 <ProjectHomeView data={currentData} text={text} project={currentProject} selectedTask={selectedTask} onSelectTask={setSelectedTaskId} onCommand={runCommand} busy={isPending} />
               </Tabs.Content>
               <Tabs.Content value="spec">
-                <SpecWorkspace data={currentData} text={text} currentProjectId={currentProject.id} onCommand={runCommand} />
+                <SpecWorkspace data={currentData} text={text} currentProject={currentProject} onCommand={runCommand} />
               </Tabs.Content>
               <Tabs.Content value="skills">
                 <SkillCenter data={currentData} text={text} />
@@ -1790,7 +1933,8 @@ function InspectorBlock({ title, children }: { title: string; children: ReactNod
   );
 }
 
-function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: ConsoleData; text: ConsoleCopy; currentProjectId: string; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void }) {
+function SpecWorkspace({ data, text, currentProject, onCommand }: { data: ConsoleData; text: ConsoleCopy; currentProject: ProjectSummary; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void }) {
+  const currentProjectId = currentProject.id;
   const initialFeatureId = data.spec.selectedFeature?.id ?? data.spec.features[0]?.id ?? "";
   const [selectedFeatureId, setSelectedFeatureId] = useState(initialFeatureId);
   const [query, setQuery] = useState("");
@@ -1860,7 +2004,7 @@ function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: Cons
   if (!selected) {
     return (
       <div className="space-y-4">
-        <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProjectId={currentProjectId} selectedFeatureId={undefined} onCommand={onCommand} />
+        <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={undefined} onCommand={onCommand} />
         <Panel><SectionTitle title={text.specWorkspace} /><EmptyState title={text.noFeatureSpecs} /></Panel>
       </div>
     );
@@ -1868,7 +2012,7 @@ function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: Cons
 
   return (
     <div className="space-y-4">
-      <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProjectId={currentProjectId} selectedFeatureId={selected.id} onCommand={onCommand} />
+      <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={selected.id} onCommand={onCommand} />
       <Panel>
         <SectionTitle title={text.specWorkspace} />
       <div className="grid grid-cols-[280px_minmax(0,1fr)_320px] gap-4 p-4 max-xl:grid-cols-1">
@@ -1973,7 +2117,7 @@ function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: Cons
             <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">{text.controlledActions}</div>
             <div className="space-y-2 p-3">
               <Button className="w-full justify-start" onClick={() => onCommand("create_feature", "project", currentProjectId)}><Plus size={15} />{text.createFeature}</Button>
-              <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "planning_pipeline" })}><Workflow size={15} />{text.planPipeline}</Button>
+              <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "planning_pipeline", mode: "manual", requestedFor: new Date().toISOString(), featureId: selected.id })}><Workflow size={15} />{text.planPipeline}</Button>
               <Button className="w-full justify-start" onClick={() => onCommand("schedule_board_tasks", "feature", selected.id, { taskIds: featureTasks.map((task) => task.id) })}><CalendarCheck size={15} />{text.scheduleTasks}</Button>
               <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "status_check" })}><ShieldCheck size={15} />{text.runChecks}</Button>
               <Button className="w-full justify-start" onClick={() => onCommand("write_spec_evolution", "spec", selected.id, { featureId: selected.id })}><FileText size={15} />{text.writeSpecEvolution}</Button>
@@ -2026,24 +2170,64 @@ function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: Cons
 }
 
 const workflowStageFallbacks = [
-  { key: "scan_prd", action: "scan_prd_source" },
-  { key: "upload_prd", action: "upload_prd_source" },
-  { key: "generate_ears", action: "generate_ears" },
-  { key: "generate_hld", action: "generate_hld" },
-  { key: "split_feature_specs", action: "split_feature_specs" },
-  { key: "planning_pipeline", action: "schedule_run" },
-] satisfies Array<{ key: string; action: CommandReceipt["action"] }>;
+  { key: "scan_prd", action: "scan_prd_source", status: "pending" as const },
+  { key: "upload_prd", action: "upload_prd_source", status: "pending" as const },
+  { key: "generate_ears", action: "generate_ears", status: "pending" as const },
+] satisfies NonNullable<ConsoleData["spec"]["prdWorkflow"]>["stages"];
+
+const workflowStageIcons: Record<string, typeof Home> = {
+  create_or_import_project: Plus,
+  connect_git_repository: GitBranch,
+  initialize_spec_protocol: Boxes,
+  import_or_create_constitution: FileText,
+  initialize_project_memory: ShieldCheck,
+  scan_prd: Search,
+  upload_prd: Upload,
+  recognize_requirement_format: FileText,
+  generate_ears: FileText,
+  complete_clarifications: MessageSquare,
+  run_requirement_quality_check: CheckCircle2,
+  feature_spec_pool: GitBranch,
+};
+
+function workflowStageLabel(key: string, text: ConsoleCopy): string {
+  const labels: Record<string, string> = {
+    create_or_import_project: text.createOrImportProject,
+    connect_git_repository: text.connectGitRepository,
+    initialize_spec_protocol: text.initializeSpecProtocol,
+    import_or_create_constitution: text.importOrCreateConstitution,
+    initialize_project_memory: text.initializeProjectMemory,
+    scan_prd: text.scanPrd,
+    upload_prd: text.uploadPrd,
+    recognize_requirement_format: text.recognizeRequirementFormat,
+    generate_ears: text.generateEars,
+    complete_clarifications: text.completeClarifications,
+    run_requirement_quality_check: text.runRequirementQualityCheck,
+    feature_spec_pool: text.featureSpecPool,
+  };
+  return labels[key] ?? humanizeSpecKey(key);
+}
+
+function workflowStatusLabel(status: "pending" | "accepted" | "blocked" | "completed", text: ConsoleCopy): string {
+  return status === "blocked"
+    ? text.workflowBlocked
+    : status === "completed"
+      ? text.workflowCompleted
+      : status === "accepted"
+        ? text.workflowAccepted
+        : text.workflowPending;
+}
 
 function SpecPrdWorkflowPanel({
   workflow,
   text,
-  currentProjectId,
+  currentProject,
   selectedFeatureId,
   onCommand,
 }: {
   workflow?: ConsoleData["spec"]["prdWorkflow"];
   text: ConsoleCopy;
-  currentProjectId: string;
+  currentProject: ProjectSummary;
   selectedFeatureId?: string;
   onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void;
 }) {
@@ -2051,26 +2235,52 @@ function SpecPrdWorkflowPanel({
   const [uploadName, setUploadName] = useState(workflow?.sourceName ?? "");
   useEffect(() => {
     setUploadName(workflow?.sourceName ?? "");
-  }, [currentProjectId, workflow?.sourceName]);
+  }, [currentProject.id, workflow?.sourceName]);
   const stages = workflow?.stages?.length ? workflow.stages : workflowStageFallbacks.map((stage) => ({ ...stage, status: "pending" as const }));
-  const stageByKey = new Map(stages.map((stage) => [stage.key, stage]));
-  const sourcePath = workflow?.sourceName ?? workflow?.sourcePath ?? "docs/zh-CN/PRD.md";
+  const targetRepoPath = workflow?.targetRepoPath ?? currentProject.projectDirectory;
+  const relativeSourcePath = workflow?.sourcePath ?? "docs/zh-CN/PRD.md";
+  const resolvedSourcePath = workflow?.resolvedSourcePath ?? joinDisplayPath(targetRepoPath, relativeSourcePath);
+  const sourcePath = workflow?.sourceName ?? resolvedSourcePath;
   const blockedReasons = workflow?.blockedReasons?.length ? workflow.blockedReasons : [];
-  const stageDefinitions = [
-    { key: "scan_prd", label: text.scanPrd, icon: Search, action: "scan_prd_source" as const },
-    { key: "upload_prd", label: text.uploadPrd, icon: Upload, action: "upload_prd_source" as const },
-    { key: "generate_ears", label: text.generateEars, icon: FileText, action: "generate_ears" as const },
-    { key: "generate_hld", label: text.generateHld, icon: Boxes, action: "generate_hld" as const },
-    { key: "split_feature_specs", label: text.splitFeatureSpecs, icon: GitBranch, action: "split_feature_specs" as const },
-    { key: "planning_pipeline", label: text.enterPlanningPipeline, icon: Workflow, action: "schedule_run" as const },
-  ];
+  const workflowPhases = workflow?.phases?.length
+    ? workflow.phases
+    : [
+        {
+          key: "project_initialization" as const,
+          status: currentProject.health === "ready" ? "completed" as const : "blocked" as const,
+          updatedAt: currentProject.lastActivityAt,
+          blockedReasons: currentProject.health === "ready" ? [] : [text.fixProjectInitialization],
+          facts: [
+            { label: text.project, value: currentProject.name },
+            { label: text.projectDirectory, value: currentProject.projectDirectory },
+            { label: text.projectHealth, value: currentProject.health },
+          ],
+          stages: [
+            { key: "create_or_import_project", status: "completed" as const },
+            { key: "connect_git_repository", status: currentProject.repository ? "completed" as const : "blocked" as const },
+            { key: "initialize_spec_protocol", status: currentProject.health === "ready" ? "completed" as const : "blocked" as const },
+            { key: "import_or_create_constitution", status: "pending" as const },
+            { key: "initialize_project_memory", status: "pending" as const },
+          ],
+        },
+        {
+          key: "requirement_intake" as const,
+          status: currentProject.health === "ready" ? "pending" as const : "blocked" as const,
+          blockedReasons: currentProject.health === "ready" ? [] : [text.fixProjectInitialization],
+          facts: [
+            { label: text.currentPrdFile, value: sourcePath },
+            { label: text.scanMode, value: workflow?.scanMode ?? text.smartMode },
+          ],
+          stages,
+        },
+      ];
 
   function runWorkflowAction(action: CommandReceipt["action"], key: string) {
-    const entityType = key === "planning_pipeline" && selectedFeatureId ? "feature" : "project";
-    const entityId = entityType === "feature" ? selectedFeatureId! : currentProjectId;
-    onCommand(action, entityType, entityId, {
+    onCommand(action, "project", currentProject.id, {
       stage: key,
-      sourcePath: workflow?.sourcePath ?? "docs/zh-CN/PRD.md",
+      targetRepoPath,
+      sourcePath: relativeSourcePath,
+      resolvedSourcePath,
       sourceVersion: workflow?.sourceVersion ?? "v1.3.0",
       scanMode: workflow?.scanMode ?? "smart",
     });
@@ -2080,9 +2290,12 @@ function SpecPrdWorkflowPanel({
     if (!file) return;
     setUploadName(file.name);
     const content = await file.text();
-    onCommand("upload_prd_source", "project", currentProjectId, {
+    onCommand("upload_prd_source", "project", currentProject.id, {
       stage: "upload_prd",
       sourceType: "upload",
+      targetRepoPath,
+      sourcePath: relativeSourcePath,
+      resolvedSourcePath: joinDisplayPath(targetRepoPath, file.name),
       fileName: file.name,
       contentPreview: content.slice(0, 5000),
       contentLength: content.length,
@@ -2099,39 +2312,63 @@ function SpecPrdWorkflowPanel({
         </div>
         <Button tone="quiet"><RefreshCw size={14} />{text.viewAuditLog}</Button>
       </div>
-      <div className="grid grid-cols-6 divide-x divide-line max-xl:grid-cols-3 max-xl:divide-x-0 max-xl:divide-y max-md:grid-cols-1">
-        {stageDefinitions.map((definition, index) => {
-          const Icon = definition.icon;
-          const stage = stageByKey.get(definition.key);
-          const status = stage?.status ?? "pending";
-          const isBlocked = status === "blocked";
-          const isAccepted = status === "accepted" || status === "completed";
-          const statusLabel = status === "blocked" ? text.workflowBlocked : status === "completed" ? text.workflowCompleted : status === "accepted" ? text.workflowAccepted : text.workflowPending;
-          const tone = isBlocked ? "red" : isAccepted ? "green" : "amber";
+      <div className="grid grid-cols-2 divide-x divide-line max-xl:grid-cols-1 max-xl:divide-x-0 max-xl:divide-y">
+        {workflowPhases.map((phase) => {
+          const phaseTitle = phase.key === "project_initialization" ? text.projectInitialization : text.requirementIntake;
+          const phaseTone = phase.status === "blocked" ? "red" : phase.status === "completed" ? "green" : phase.status === "accepted" ? "blue" : "amber";
           return (
-            <div key={definition.key} className="relative min-w-0 p-4">
-              {index < stageDefinitions.length - 1 ? <div className="absolute right-3 top-9 h-px w-8 bg-slate-300 max-xl:hidden" /> : null}
-              <div className="flex items-start gap-3">
-                <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">{index + 1}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <Icon size={18} className={isBlocked ? "text-red-600" : "text-action"} />
-                    <div className="truncate text-[13px] font-semibold text-ink">{definition.label}</div>
-                  </div>
+            <section key={phase.key} className="min-w-0 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[16px] font-semibold tracking-normal text-ink">{phaseTitle}</h3>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Chip tone={tone}>{statusLabel}</Chip>
-                    <span className="text-[12px] text-muted">{stage?.updatedAt ?? "--"}</span>
+                    <Chip tone={phaseTone}>{workflowStatusLabel(phase.status, text)}</Chip>
+                    <span className="text-[12px] text-muted">{phase.updatedAt ?? "--"}</span>
                   </div>
-                  <Button
-                    className="mt-3 w-full"
-                    tone={definition.key === "planning_pipeline" ? "primary" : "default"}
-                    onClick={() => definition.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(definition.action, definition.key)}
-                  >
-                    {definition.label}
-                  </Button>
                 </div>
+                {phase.blockedReasons.length > 0 ? (
+                  <div className="max-w-[260px] rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+                    {phase.blockedReasons[0]}
+                  </div>
+                ) : null}
               </div>
-            </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 max-md:grid-cols-1">
+                {phase.facts.map((fact) => (
+                  <div key={`${phase.key}-${fact.label}`} className="min-w-0 rounded-md border border-line bg-slate-50 px-3 py-2">
+                    <div className="text-[11px] text-muted">{fact.label}</div>
+                    <div className="mt-1 truncate text-[12px] font-semibold text-ink">{fact.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 space-y-2">
+                {phase.stages.map((stage, index) => {
+                  const Icon = workflowStageIcons[stage.key] ?? FileText;
+                  const isBlocked = stage.status === "blocked";
+                  const canRun = phase.key === "requirement_intake" && stage.action;
+                  return (
+                    <div key={`${phase.key}-${stage.key}`} className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-white p-3">
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">{index + 1}</div>
+                      <Icon size={17} className={isBlocked ? "text-red-600" : "text-action"} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold text-ink">{workflowStageLabel(stage.key, text)}</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <Chip tone={isBlocked ? "red" : stage.status === "completed" ? "green" : stage.status === "accepted" ? "blue" : "amber"}>{workflowStatusLabel(stage.status, text)}</Chip>
+                          <span className="text-[12px] text-muted">{stage.updatedAt ?? stage.blockedReason ?? "--"}</span>
+                        </div>
+                      </div>
+                      {canRun ? (
+                        <Button
+                          className="h-8 shrink-0"
+                          onClick={() => stage.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(stage.action!, stage.key)}
+                        >
+                          {workflowStageLabel(stage.key, text)}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
           );
         })}
       </div>
@@ -2148,7 +2385,7 @@ function SpecPrdWorkflowPanel({
             </div>
             <span className="text-[12px]">{workflow?.runtime ?? "10m 24s"}</span>
           </div>
-          <div className="mt-1 truncate pl-6">{blockedReasons[0] ?? `${text.sourcePath}: ${workflow?.sourcePath ?? "docs/zh-CN/PRD.md"}`}</div>
+          <div className="mt-1 truncate pl-6">{blockedReasons[0] ?? `${text.sourcePath}: ${resolvedSourcePath}`}</div>
         </div>
       </div>
       <input
@@ -2164,6 +2401,12 @@ function SpecPrdWorkflowPanel({
       />
     </Panel>
   );
+}
+
+function joinDisplayPath(root: string, path: string): string {
+  const normalizedRoot = root.replace(/\/+$/, "");
+  const normalizedPath = path.replace(/^\/+/, "");
+  return normalizedRoot ? `${normalizedRoot}/${normalizedPath}` : normalizedPath;
 }
 
 function WorkflowFact({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Home }) {

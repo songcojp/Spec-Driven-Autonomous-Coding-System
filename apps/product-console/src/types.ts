@@ -1,5 +1,6 @@
 export type CommandAction =
   | "create_project"
+  | "delete_project"
   | "create_feature"
   | "scan_prd_source"
   | "upload_prd_source"
@@ -135,13 +136,31 @@ export type BoardModel = {
 export type SpecWorkspaceModel = {
   features: Array<{ id: string; title: string; folder?: string; status: string; primaryRequirements: string[] }>;
   prdWorkflow?: {
+    targetRepoPath?: string;
     sourcePath: string;
+    resolvedSourcePath?: string;
     sourceName?: string;
     sourceVersion?: string;
     scanMode?: string;
     lastScanAt?: string;
     runtime?: string;
     blockedReasons: string[];
+    phases: Array<{
+      key: "project_initialization" | "requirement_intake";
+      status: "pending" | "accepted" | "blocked" | "completed";
+      updatedAt?: string;
+      blockedReasons: string[];
+      facts: Array<{ label: string; value: string }>;
+      stages: Array<{
+        key: string;
+        action?: CommandAction;
+        status: "pending" | "accepted" | "blocked" | "completed";
+        updatedAt?: string;
+        auditEventId?: string;
+        evidencePath?: string;
+        blockedReason?: string;
+      }>;
+    }>;
     stages: Array<{
       key: string;
       action: CommandAction;

@@ -104,13 +104,17 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Spec 工作台" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "PRD 操作流程" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "阶段 1 项目初始化" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "阶段 2 需求录入" })).toBeVisible();
+  await expect(page.getByText("创建/导入项目")).toBeVisible();
+  await expect(page.getByText("推入 Feature Spec Pool")).toBeVisible();
   await expect(page.getByRole("button", { name: "扫描 PRD" })).toBeVisible();
   await expect(page.getByRole("button", { name: "上传 PRD", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 EARS" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "生成 HLD" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "拆分 Feature Spec" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "进入规划流水线" })).toBeVisible();
-  await expect(page.getByText("docs/zh-CN/PRD.md")).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成 HLD" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "拆分 Feature Spec" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "进入规划流水线" })).toHaveCount(0);
+  await expect(page.getByText("workspace/acme-returns-portal/docs/zh-CN/PRD.md").first()).toBeVisible();
   await expect(page.getByText("Feature Spec", { exact: true })).toBeVisible();
   await expect(page.getByText("FEAT-204 Mobile Returns Portal")).toBeVisible();
   await expect(page.getByText("需求列表")).toBeVisible();
@@ -145,10 +149,6 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByLabel("Notifications (F8)").getByText("upload_prd_source recorded")).toBeVisible();
   await page.getByRole("button", { name: "生成 EARS" }).click();
   await expect(page.getByLabel("Notifications (F8)").getByText("generate_ears recorded")).toBeVisible();
-  await page.getByRole("button", { name: "生成 HLD" }).click();
-  await expect(page.getByLabel("Notifications (F8)").getByText("generate_hld recorded")).toBeVisible();
-  await page.getByRole("button", { name: "拆分 Feature Spec" }).click();
-  await expect(page.getByLabel("Notifications (F8)").getByText("split_feature_specs recorded")).toBeVisible();
 });
 
 test("creates projects and switches project-scoped console data", async ({ page }) => {
@@ -286,7 +286,7 @@ async function installConsoleRoutes(page: Page) {
   });
   await page.route("**/console/commands", async (route) => {
     const body = route.request().postDataJSON() as { action: string; entityId: string; projectId?: string };
-    const workflowActions = new Set(["scan_prd_source", "upload_prd_source", "generate_ears", "generate_hld", "split_feature_specs"]);
+    const workflowActions = new Set(["scan_prd_source", "upload_prd_source", "generate_ears"]);
     const accepted = body.action === "create_project" || workflowActions.has(body.action);
     await route.fulfill({
       json: {
