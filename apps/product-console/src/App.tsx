@@ -972,7 +972,7 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
       </Dialog.Trigger>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-ink/20" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 max-h-[88vh] w-[520px] max-w-[calc(100vw-32px)] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-line bg-white p-5 shadow-panel">
+        <Dialog.Content className="fixed left-1/2 top-6 max-h-[calc(100vh-48px)] w-[520px] max-w-[calc(100vw-32px)] -translate-x-1/2 overflow-auto rounded-lg border border-line bg-white p-5 shadow-panel">
           <Dialog.Title className="text-[16px] font-semibold">{text.createProject}</Dialog.Title>
           <Dialog.Description className="mt-2 text-[13px] text-muted">{text.createProjectDescription}</Dialog.Description>
           <div className="mt-4 space-y-3">
