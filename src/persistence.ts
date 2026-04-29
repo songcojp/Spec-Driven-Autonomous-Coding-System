@@ -11,6 +11,7 @@ export type CoreEntitySnapshot = {
     name: string;
     goal: string;
     projectType: string;
+    trustLevel: string;
     environment: string;
     status: string;
   };
@@ -133,13 +134,14 @@ export function persistCoreEntitySnapshot(dbPath: string, input: CoreEntityInput
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO projects (
-        id, name, goal, project_type, tech_preferences_json, environment, status, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        id, name, goal, project_type, tech_preferences_json, trust_level, environment, status, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         goal = excluded.goal,
         project_type = excluded.project_type,
         tech_preferences_json = excluded.tech_preferences_json,
+        trust_level = excluded.trust_level,
         environment = excluded.environment,
         status = excluded.status,
         updated_at = excluded.updated_at`,
@@ -149,6 +151,7 @@ export function persistCoreEntitySnapshot(dbPath: string, input: CoreEntityInput
         input.project.goal,
         input.project.projectType,
         projectPreferences,
+        input.project.trustLevel,
         input.project.environment,
         input.project.status,
         now,
@@ -334,6 +337,7 @@ export function getCoreEntitySnapshot(
       name: String(project.name),
       goal: String(project.goal),
       projectType: String(project.project_type),
+      trustLevel: String(project.trust_level),
       environment: String(project.environment),
       status: String(project.status),
     },

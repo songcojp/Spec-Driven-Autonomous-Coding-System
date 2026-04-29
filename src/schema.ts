@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -682,6 +682,44 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_pull_request_records_feature ON pull_request_records(feature_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_spec_evolution_feature_status ON spec_evolution_suggestions(feature_id, status, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_delivery_reports_feature_status ON delivery_reports(feature_id, status, created_at)",
+    ],
+  },
+  {
+    version: 11,
+    description: "Add project trust and constitution schema",
+    statements: [
+      "ALTER TABLE projects ADD COLUMN trust_level TEXT NOT NULL DEFAULT 'standard'",
+      `CREATE TABLE IF NOT EXISTS project_constitutions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        title TEXT NOT NULL,
+        project_goal TEXT NOT NULL,
+        engineering_principles_json TEXT NOT NULL,
+        boundary_rules_json TEXT NOT NULL,
+        approval_rules_json TEXT NOT NULL,
+        default_constraints_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projects(id),
+        UNIQUE(project_id, version)
+      )`,
+      `CREATE TABLE IF NOT EXISTS constitution_revalidation_marks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        constitution_id TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(project_id) REFERENCES projects(id),
+        FOREIGN KEY(constitution_id) REFERENCES project_constitutions(id)
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_project_constitutions_project_status ON project_constitutions(project_id, status, version)",
+      "CREATE INDEX IF NOT EXISTS idx_constitution_revalidation_project ON constitution_revalidation_marks(project_id, status, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_constitution_revalidation_entity ON constitution_revalidation_marks(entity_type, entity_id, status)",
     ],
   },
 ];
