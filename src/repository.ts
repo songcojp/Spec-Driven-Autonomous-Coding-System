@@ -69,10 +69,10 @@ export function readRepositorySummary(localPath: string, runner: CommandRunner =
   }
 
   summary.isGitRepository = true;
-  summary.remoteUrl = firstNonEmpty(git(["config", "--get", "remote.origin.url"], localPath, runner).stdout);
+  summary.remoteUrl = firstSuccessfulLine(git(["config", "--get", "remote.origin.url"], localPath, runner));
   summary.defaultBranch = readDefaultBranch(localPath, runner);
-  summary.currentBranch = firstNonEmpty(git(["branch", "--show-current"], localPath, runner).stdout);
-  summary.latestCommit = firstNonEmpty(git(["rev-parse", "HEAD"], localPath, runner).stdout);
+  summary.currentBranch = firstSuccessfulLine(git(["branch", "--show-current"], localPath, runner));
+  summary.latestCommit = firstSuccessfulLine(git(["rev-parse", "HEAD"], localPath, runner));
 
   const status = git(["status", "--short"], localPath, runner);
   summary.uncommittedChanges = lines(status.stdout).filter((line) => !isControlPlaneArtifactStatus(line));
@@ -128,11 +128,11 @@ function readGhLines(args: string[], cwd: string, runner: CommandRunner): string
 }
 
 function readDefaultBranch(localPath: string, runner: CommandRunner): string | undefined {
-  const originHead = firstNonEmpty(git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], localPath, runner).stdout);
+  const originHead = firstSuccessfulLine(git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], localPath, runner));
   if (originHead?.startsWith("origin/")) {
     return originHead.slice("origin/".length);
   }
-  return firstNonEmpty(git(["branch", "--show-current"], localPath, runner).stdout);
+  return firstSuccessfulLine(git(["branch", "--show-current"], localPath, runner));
 }
 
 function parseWorktrees(output: string): RepositorySummary["worktrees"] {
@@ -196,6 +196,10 @@ function isControlPlaneArtifactStatus(line: string): boolean {
 
 function firstNonEmpty(value: string): string | undefined {
   return lines(value)[0];
+}
+
+function firstSuccessfulLine(result: CommandResult): string | undefined {
+  return result.status === 0 ? firstNonEmpty(result.stdout) : undefined;
 }
 
 function lines(value: string): string[] {

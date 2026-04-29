@@ -554,19 +554,18 @@ export function App() {
       let nextProject: ProjectSummary;
       try {
         nextProject = await createConsoleProject(normalizedForm);
-      } catch {
-        const projectDirectory = normalizedForm.mode === "create_new"
-          ? `workspace/${normalizedForm.workspaceSlug}`
-          : normalizedForm.existingProjectPath || "not-connected";
-        nextProject = {
-          id: `project-${Date.now()}`,
-          name: normalizedForm.name,
-          repository: projectDirectory,
-          projectDirectory,
-          defaultBranch: normalizedForm.defaultBranch,
-          health: "blocked",
-          lastActivityAt: new Date().toISOString(),
-        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setReceipt({
+          id: `create-error-${Date.now()}`,
+          action: "create_project",
+          status: "blocked",
+          entityType: "project",
+          entityId: normalizedForm.name,
+          acceptedAt: new Date().toISOString(),
+          blockedReasons: [locale === "zh-CN" ? `项目创建失败：${message}` : `Project creation failed: ${message}`],
+        });
+        return;
       }
       setProjects((previous) => [...previous.filter((project) => project.id !== nextProject.id), nextProject]);
       switchProject(nextProject.id);

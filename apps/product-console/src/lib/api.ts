@@ -72,6 +72,7 @@ export async function createConsoleProject(input: ProjectCreateForm): Promise<Pr
     throw new Error(`/projects returned ${response.status}`);
   }
   const project = await response.json() as { id: string; name: string; repositoryUrl?: string; targetRepoPath?: string; defaultBranch?: string; status?: string };
+  const health = await fetchProjectHealth(project.id);
   const projectDirectory = project.targetRepoPath ?? targetRepoPath;
   return {
     id: project.id,
@@ -79,9 +80,23 @@ export async function createConsoleProject(input: ProjectCreateForm): Promise<Pr
     repository: project.repositoryUrl ?? projectDirectory,
     projectDirectory,
     defaultBranch: project.defaultBranch ?? "main",
-    health: project.status === "failed" ? "failed" : project.status === "ready" ? "ready" : "blocked",
+    health: health ?? (project.status === "failed" ? "failed" : project.status === "ready" ? "ready" : "blocked"),
     lastActivityAt: new Date().toISOString(),
   };
+}
+
+async function fetchProjectHealth(projectId: string): Promise<ProjectSummary["health"] | undefined> {
+  const response = await fetch(`/projects/${encodeURIComponent(projectId)}/health`, {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    return undefined;
+  }
+  const health = await response.json() as { status?: string };
+  return health.status === "ready" || health.status === "blocked" || health.status === "failed"
+    ? health.status
+    : undefined;
 }
 
 export async function scanProjectDirectory(targetRepoPath: string): Promise<ProjectDirectoryScan> {

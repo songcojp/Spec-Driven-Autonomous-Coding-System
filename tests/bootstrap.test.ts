@@ -12,6 +12,7 @@ import { createControlPlaneServer, listen } from "../src/server.ts";
 import { listTables, initializeSchema, getCurrentSchemaVersion, SCHEMA_VERSION } from "../src/schema.ts";
 import { countProjectSkills } from "../src/skills.ts";
 import { listAuditEvents } from "../src/persistence.ts";
+import { readRepositorySummary } from "../src/repository.ts";
 import {
   createProject,
   getCurrentProjectConstitution,
@@ -22,6 +23,7 @@ import {
   readProjectRepository,
   runProjectHealthCheck,
   saveProjectConstitution,
+  scanProjectDirectory,
 } from "../src/projects.ts";
 
 test("config loader merges file, environment, and CLI with normalized defaults", () => {
@@ -195,6 +197,22 @@ test("project health checker classifies ready, blocked, and failed states with r
   const failed = runProjectHealthCheck(config.dbPath, failedProject.id);
   assert.equal(failed.status, "failed");
   assert.equal(failed.reasons.includes("git_repository_missing"), true);
+});
+
+test("project directory scan does not treat an unborn HEAD as a commit", () => {
+  const root = makeTempDir();
+  const repo = join(root, "docs-only");
+  mkdirSync(join(repo, "docs"), { recursive: true });
+  writeFileSync(join(repo, "docs", "PRD.md"), "# PRD\n", "utf8");
+  execFileSync("git", ["init", "-b", "main"], { cwd: repo });
+
+  const scan = scanProjectDirectory({ targetRepoPath: repo });
+  const summary = readRepositorySummary(repo);
+
+  assert.equal(scan.isGitRepository, true);
+  assert.equal(scan.defaultBranch, "main");
+  assert.equal(scan.errors.length, 0);
+  assert.equal(summary.latestCommit, undefined);
 });
 
 test("project constitution versions are auditable and mark downstream revalidation", async () => {
