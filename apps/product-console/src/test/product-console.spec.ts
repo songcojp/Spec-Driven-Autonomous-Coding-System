@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { demoData, emptyData } from "../lib/demo-data";
+import { demoData } from "../lib/demo-data";
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -17,7 +17,7 @@ test("renders the console first screen and navigates across all pages", async ({
   await expect(page.getByText("SpecDrive Console")).toBeVisible();
   await expect(page.getByLabel("项目列表")).toHaveValue("project-1");
   await expect(page.getByText("项目健康")).toBeVisible();
-  await expect(page.getByText("Product Console")).toBeVisible();
+  await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
   await expect(page.getByText("看板运行被阻塞")).toBeVisible();
 
   for (const label of ["看板", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "仪表盘"]) {
@@ -33,12 +33,12 @@ test("defaults to Chinese and persists language switching", async ({ page }) => 
   await expect(page.getByLabel("语言")).toHaveValue("zh-CN");
   await expect(page.getByRole("button", { name: "仪表盘", exact: true })).toBeVisible();
   await expect(page.getByText("项目健康")).toBeVisible();
-  await expect(page.getByText("Product Console")).toBeVisible();
+  await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.getByLabel("语言").selectOption("en");
   await expect(page.getByRole("button", { name: "Dashboard", exact: true })).toBeVisible();
   await expect(page.getByText("Project Health")).toBeVisible();
-  await expect(page.getByText("Product Console")).toBeVisible();
+  await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.reload();
   await expect(page.getByLabel("Language")).toHaveValue("en");
@@ -49,11 +49,11 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await page.goto("/");
 
   await expect(page.getByLabel("项目列表")).toHaveValue("project-1");
-  await expect(page.getByText("Product Console")).toBeVisible();
+  await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.getByLabel("项目列表").selectOption("project-2");
-  await expect(page.getByText("Workspace Isolation")).toBeVisible();
-  await expect(page.getByText("T-222 Verify project-scoped")).toBeVisible();
+  await expect(page.getByText("Demand Forecast Review")).toBeVisible();
+  await expect(page.getByText("T-401 Model forecast confidence bands")).toBeVisible();
 
   await page.getByRole("button", { name: "创建项目" }).click();
   await expect(page.getByLabel("现有项目目录")).toBeVisible();
@@ -80,15 +80,15 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await expect(page.getByText("当前项目没有可用的看板任务。")).toBeVisible();
 });
 
-test("renders empty and error states", async ({ page }) => {
+test("uses a complete mock project instead of UI demo data modes", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByLabel("数据状态").selectOption("empty");
+  await expect(page.getByLabel("数据状态")).toHaveCount(0);
+  await expect(page.getByLabel("项目列表")).toContainText("Acme Returns Portal");
+  await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
   await page.getByRole("button", { name: "看板", exact: true }).click();
-  await expect(page.getByText("当前项目没有可用的看板任务。")).toBeVisible();
-
-  await page.getByLabel("数据状态").selectOption("error");
-  await expect(page.getByText("Control Plane API returned a simulated failure.")).toBeVisible();
+  await expect(page.getByText("T-230 Review refund approval copy")).toBeVisible();
+  await expect(page.getByText("T-231 Run mobile browser acceptance")).toBeVisible();
 });
 
 test("submits a controlled command and shows blocked feedback", async ({ page }) => {
@@ -96,7 +96,7 @@ test("submits a controlled command and shows blocked feedback", async ({ page })
 
   await page.getByRole("button", { name: "运行", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Notifications (F8)").getByText("Dependencies are not done: T-121.")).toBeVisible();
+  await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
 });
 
 async function installConsoleRoutes(page: Page) {
@@ -185,9 +185,8 @@ async function installConsoleRoutes(page: Page) {
         projectId: body.projectId,
         auditEventId: "audit-1",
         acceptedAt: "2026-04-29T03:40:00.000Z",
-        blockedReasons: body.action === "create_project" ? [] : ["Dependencies are not done: T-121."],
+        blockedReasons: body.action === "create_project" ? [] : ["Product approval is required for customer-facing refund decision copy."],
       },
     });
   });
-  await page.route("**/console/dashboard-board?projectId=empty", async (route) => route.fulfill({ json: emptyData.board }));
 }

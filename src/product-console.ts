@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
+import { getProject } from "./projects.ts";
 import { runSqlite } from "./sqlite.ts";
 import { listProjectSkills } from "./skills.ts";
 import {
@@ -534,9 +535,10 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
 }
 
 export function buildSkillCenterView(dbPath: string, projectId?: string, projectRoot = dirname(dirname(dbPath))): SkillCenterViewModel {
-  void projectId;
+  const project = projectId ? getProject(dbPath, projectId) : undefined;
+  const skillRoot = project?.targetRepoPath ?? projectRoot;
   return {
-    skills: listProjectSkills({ root: projectRoot }),
+    skills: listProjectSkills({ root: skillRoot }),
   };
 }
 

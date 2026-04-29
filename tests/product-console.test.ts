@@ -323,6 +323,25 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.equal(reviews.commands.some((command) => command.action === "write_spec_evolution"), true);
 });
 
+test("skill center reads skills from the selected project directory", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const targetRoot = mkdtempSync(join(tmpdir(), "feat-013-target-project-"));
+  writeSkill(targetRoot, "target-project-skill", "---\nname: Target Project Skill\ndescription: Reads from selected project.\n---\n");
+
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'",
+      params: [targetRoot],
+    },
+  ]);
+
+  const skillCenter = buildSkillCenterView(dbPath, "project-1");
+
+  assert.deepEqual(skillCenter.skills.map((skill) => skill.slug), ["target-project-skill"]);
+  assert.equal(skillCenter.skills[0].path, join(targetRoot, ".agents", "skills", "target-project-skill", "SKILL.md"));
+});
+
 test("console command gateway audits controlled writes without mutating worktrees", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -480,9 +499,13 @@ function makeDbPath(): string {
 }
 
 function writeConsoleSkill(root: string): void {
-  const skillDir = join(root, ".agents", "skills", "console-skill");
+  writeSkill(root, "console-skill", "---\nname: Console Skill\ndescription: Displays console data.\n---\n");
+}
+
+function writeSkill(root: string, slug: string, content: string): void {
+  const skillDir = join(root, ".agents", "skills", slug);
   mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, "SKILL.md"), "---\nname: Console Skill\ndescription: Displays console data.\n---\n", "utf8");
+  writeFileSync(join(skillDir, "SKILL.md"), content, "utf8");
 }
 
 function seedBoardPatchData(dbPath: string): void {

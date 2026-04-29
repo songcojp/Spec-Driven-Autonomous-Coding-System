@@ -23,12 +23,11 @@ import {
   SquareKanban,
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { createConsoleProject, fetchConsoleData, scanProjectDirectory, submitCommand } from "./lib/api";
-import { demoData, emptyData } from "./lib/demo-data";
+import { createConsoleProject, scanProjectDirectory, submitCommand } from "./lib/api";
+import { demoData, getDemoDataForProject } from "./lib/demo-data";
 import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "./types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
 
-type DataMode = "live" | "empty" | "error";
 type Locale = "zh-CN" | "en";
 type ViewKey = "dashboard" | "board" | "spec" | "skills" | "subagents" | "runner" | "reviews";
 
@@ -99,10 +98,6 @@ const copy = {
     language: "语言",
     chinese: "中文",
     english: "English",
-    dataState: "数据状态",
-    liveData: "实时数据",
-    emptyStateMode: "空状态",
-    errorStateMode: "错误状态",
     healthy: "健康",
     operator: "操作员",
     autobuildTeam: "AutoBuild 团队",
@@ -225,10 +220,6 @@ const copy = {
     language: "Language",
     chinese: "中文",
     english: "English",
-    dataState: "Data state",
-    liveData: "Live data",
-    emptyStateMode: "Empty state",
-    errorStateMode: "Error state",
     healthy: "Healthy",
     operator: "Operator",
     autobuildTeam: "AutoBuild Team",
@@ -359,58 +350,26 @@ function bindProjects(data: Omit<ConsoleData, "projects"> | ConsoleData, project
 
 export function App() {
   const [view, setView] = useState<ViewKey>("dashboard");
-  const [mode, setMode] = useState<DataMode>("live");
   const [locale, setLocale] = useState<Locale>(readInitialLocale);
   const [projects, setProjects] = useState<ProjectSummary[]>(demoData.projects.projects);
   const [currentProjectId, setCurrentProjectId] = useState(readInitialProjectId);
-  const [data, setData] = useState<ConsoleData | undefined>();
-  const [error, setError] = useState<string | undefined>();
-  const [selectedTaskId, setSelectedTaskId] = useState("T-129");
+  const [selectedTaskId, setSelectedTaskId] = useState("T-230");
   const [receipt, setReceipt] = useState<CommandReceipt | undefined>();
   const [isPending, startTransition] = useTransition();
   const text = copy[locale];
   const currentProject = projects.find((project) => project.id === currentProjectId) ?? projects[0] ?? demoData.projects.projects[0];
-
-  useEffect(() => {
-    let cancelled = false;
-    if (mode === "empty") {
-      setData(bindProjects(emptyData, projects, currentProject.id));
-      setError(undefined);
-      return;
-    }
-    if (mode === "error") {
-      setData(undefined);
-      setError("Control Plane API returned a simulated failure.");
-      return;
-    }
-    if (currentProject.repository === "not-connected") {
-      setData(bindProjects(emptyData, projects, currentProject.id));
-      setError(undefined);
-      return;
-    }
-    setError(undefined);
-    fetchConsoleData(currentProject.id)
-      .then((nextData) => {
-        if (!cancelled) {
-          setData(bindProjects(nextData, projects, currentProject.id));
-        }
-      })
-      .catch((nextError: Error) => {
-        if (!cancelled) {
-          setData(bindProjects(demoData, projects, currentProject.id));
-          setError(`Live API unavailable; showing seeded console data. ${nextError.message}`);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentProject.id, mode, projects]);
-
-  const currentData = data ?? demoData;
+  const currentData = bindProjects(getDemoDataForProject(currentProject.id), projects, currentProject.id);
   const selectedTask = useMemo(
     () => currentData.board.tasks.find((task) => task.id === selectedTaskId) ?? currentData.board.tasks[0],
     [currentData.board.tasks, selectedTaskId],
   );
+
+  useEffect(() => {
+    if (currentData.board.tasks.length === 0 || currentData.board.tasks.some((task) => task.id === selectedTaskId)) {
+      return;
+    }
+    setSelectedTaskId(currentData.board.tasks[0].id);
+  }, [currentData.board.tasks, selectedTaskId]);
 
   async function runCommand(action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>, commandProjectId = currentProject.id) {
     startTransition(async () => {
@@ -420,7 +379,7 @@ export function App() {
           entityType,
           entityId,
           projectId: commandProjectId,
-          reason: action === "run_board_tasks" ? "Run selected board task from Product Console." : `Operator requested ${action}.`,
+          reason: action === "run_board_tasks" ? "Run selected board task from demo project." : `Operator requested ${action}.`,
           payload: { projectId: commandProjectId, ...payload },
         });
         setReceipt(nextReceipt);
@@ -447,7 +406,7 @@ export function App() {
   function switchProject(nextProjectId: string) {
     setCurrentProjectId(nextProjectId);
     window.localStorage.setItem(projectStorageKey, nextProjectId);
-    setSelectedTaskId("T-129");
+    setSelectedTaskId(getDemoDataForProject(nextProjectId).board.tasks[0]?.id ?? "");
     setReceipt(undefined);
   }
 
@@ -459,7 +418,7 @@ export function App() {
     const normalizedForm = {
       ...form,
       name: projectName,
-      goal: form.goal.trim() || "Created from Product Console",
+      goal: form.goal.trim() || "Created from SpecDrive Console",
       projectType: form.projectType.trim() || "autobuild-project",
       workspaceSlug: slugifyProjectName(form.workspaceSlug || projectName),
       defaultBranch: form.defaultBranch.trim() || "main",
@@ -552,7 +511,7 @@ export function App() {
                 {currentProject.defaultBranch}
               </Button>
               <div className="text-[12px] text-muted">
-                {text.projectDirectory}: {currentProject.projectDirectory}
+                <span className="font-medium text-ink">{currentProject.name}</span> · {text.projectDirectory}: {currentProject.projectDirectory}
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -568,16 +527,6 @@ export function App() {
                   <option value="en">{text.english}</option>
                 </select>
               </label>
-              <select
-                className="h-9 rounded-md border border-line bg-white px-3 text-[13px]"
-                aria-label={text.dataState}
-                value={mode}
-                onChange={(event) => setMode(event.target.value as DataMode)}
-              >
-                <option value="live">{text.liveData}</option>
-                <option value="empty">{text.emptyStateMode}</option>
-                <option value="error">{text.errorStateMode}</option>
-              </select>
               <Chip tone="green">{text.healthy}</Chip>
               <Bell size={18} />
               <div className="grid size-9 place-items-center rounded-full bg-slate-100 text-[13px] font-semibold">OP</div>
@@ -585,7 +534,6 @@ export function App() {
           </header>
 
           <div className="space-y-5 p-5 pb-14">
-            {error ? <StatusBanner message={error} /> : null}
             <MetricsStrip data={currentData} text={text} project={currentProject} onCreateFeature={() => runCommand("create_feature", "project", currentProject.id)} />
 
             <Tabs.Root value={view} onValueChange={(value) => setView(value as ViewKey)}>
@@ -639,15 +587,6 @@ export function App() {
       ) : null}
       <Toast.Viewport />
     </Toast.Provider>
-  );
-}
-
-function StatusBanner({ message }: { message: string }) {
-  return (
-    <div role="status" className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
-      <ShieldAlert size={17} />
-      {message}
-    </div>
   );
 }
 
@@ -729,6 +668,8 @@ function BoardPanel({ tasks, text, selectedTask, onSelectTask, onCommand, busy, 
   if (tasks.length === 0) {
     return <Panel><SectionTitle title={text.board} /><EmptyState title={text.noBoardTasks} /></Panel>;
   }
+  const targetTask = selectedTask ?? tasks[0];
+  const targetFeatureId = targetTask.featureId ?? "demo-feature";
   return (
     <Panel>
       <SectionTitle
@@ -739,8 +680,8 @@ function BoardPanel({ tasks, text, selectedTask, onSelectTask, onCommand, busy, 
               <Search size={15} />
               {text.searchTasks}
             </div>
-            <Button onClick={() => onCommand("schedule_board_tasks", "feature", "FEAT-013", { taskIds: [selectedTask?.id ?? tasks[0].id] })}>{text.schedule}</Button>
-            <Button tone="primary" disabled={busy} onClick={() => onCommand("run_board_tasks", "feature", "FEAT-013", { taskIds: [selectedTask?.id ?? tasks[0].id] })}>
+            <Button onClick={() => onCommand("schedule_board_tasks", "feature", targetFeatureId, { taskIds: [targetTask.id] })}>{text.schedule}</Button>
+            <Button tone="primary" disabled={busy} onClick={() => onCommand("run_board_tasks", "feature", targetFeatureId, { taskIds: [targetTask.id] })}>
               {busy ? <Loader2 className="animate-spin" size={15} /> : <Play size={15} />}
               {text.run}
             </Button>
@@ -798,7 +739,7 @@ function BoardPanel({ tasks, text, selectedTask, onSelectTask, onCommand, busy, 
 }
 
 function CommandFeedback({ task, text, receipt }: { task?: BoardTask; text: ConsoleCopy; receipt?: CommandReceipt }) {
-  const blockedReasons = receipt?.blockedReasons ?? task?.blockedReasons ?? ["Dependency T-121 is not completed."];
+  const blockedReasons = receipt?.blockedReasons ?? task?.blockedReasons ?? ["Selected task is waiting for dependency completion."];
   const blocked = receipt?.status === "blocked" || blockedReasons.length > 0;
   return (
     <Panel className={blocked ? "border-red-200" : ""}>
@@ -813,7 +754,7 @@ function CommandFeedback({ task, text, receipt }: { task?: BoardTask; text: Cons
         </div>
         <div className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600">
           <div>{text.requestedBy}: {text.operator}</div>
-          <div>{text.command}: run board --task {task?.id ?? "T-129"}</div>
+          <div>{text.command}: run board --task {task?.id ?? "selected-task"}</div>
           <div>{text.runner}: runner-01</div>
         </div>
       </div>
@@ -1191,9 +1132,9 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
                 </label>
               </>
             )}
-            <div className="flex justify-end">
+            <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end border-t border-line bg-white p-5">
               <Dialog.Close asChild>
-                <Button tone="primary" onClick={() => onCreate(form)}>{text.submitCommand}</Button>
+                <Button tone="primary" className="w-full sm:w-auto" onClick={() => onCreate(form)}>{text.submitCommand}</Button>
               </Dialog.Close>
             </div>
           </div>
@@ -1213,7 +1154,7 @@ function CreateFeatureDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
           <Dialog.Title className="text-[16px] font-semibold">{text.createFeature}</Dialog.Title>
           <Dialog.Description className="mt-2 text-[13px] text-muted">{text.createFeatureDescription}</Dialog.Description>
           <div className="mt-4 space-y-3">
-            <input className="h-10 w-full rounded-md border border-line px-3 text-[13px]" value="Product Console UI acceptance" readOnly />
+            <input className="h-10 w-full rounded-md border border-line px-3 text-[13px]" value="Mobile returns portal launch" readOnly />
             <div className="flex justify-end"><Dialog.Close asChild><Button tone="primary" onClick={onCreate}>{text.submitCommand}</Button></Dialog.Close></div>
           </div>
         </Dialog.Content>
