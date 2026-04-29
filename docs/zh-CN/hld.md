@@ -48,21 +48,21 @@ MVP 采用本地优先的控制面架构：
 
 | Requirement ID | HLD Section | Coverage Notes |
 |---|---|---|
-| REQ-001, REQ-002, REQ-003 | 4, 5, 7.1, 8, 12, 13 | Project、Repository、Health Check 属于项目管理和仓库适配边界。 |
+| REQ-001, REQ-002, REQ-003, REQ-059 | 4, 5, 7.1, 8, 12, 13 | Project、Repository、Project Constitution、Health Check 属于项目管理和仓库适配边界。 |
 | REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009 | 7.2, 8, 9, 10, 14, 15 | Spec Protocol Engine 负责 Feature Spec、EARS、切片、澄清、Checklist 和版本化。 |
 | REQ-010, REQ-011, REQ-012, REQ-013 | 7.3, 8, 9, 11, 14, 15 | Skill System 管理注册、内置 Skill、schema 校验、版本治理和项目级覆盖。 |
 | REQ-014, REQ-015, REQ-016, REQ-017, REQ-018 | 7.5, 7.7, 8, 9, 10, 11, 13 | Subagent Runtime、Context Broker、Workspace Manager 和 Result Merger 保证边界、并行隔离和结果合并。 |
 | REQ-019, REQ-020, REQ-021, REQ-022, REQ-023 | 7.6, 8, 9, 10, 11, 12, 13 | Project Memory Service 负责初始化、注入、更新、压缩、版本和回滚。 |
 | REQ-024, REQ-025, REQ-026, REQ-027 | 7.4, 7.11, 8, 10, 14, 15 | Task Graph、Kanban Board 和任务状态机支撑任务可追踪执行。 |
 | REQ-028, REQ-029, REQ-030, REQ-031, REQ-032 | 7.4, 7.7, 10, 13, 14, 15 | Feature 状态机、选择器、计划流水线、聚合和并行策略由 Orchestration 负责。 |
-| REQ-033, REQ-034, REQ-035, REQ-036 | 7.4, 7.7, 10, 12, 13, 14 | Project Scheduler、Feature Scheduler、worktree 生命周期和恢复启动是调度运行时核心。 |
+| REQ-033, REQ-034, REQ-035, REQ-036, REQ-060 | 7.4, 7.7, 10, 12, 13, 14 | Project Scheduler、Feature Scheduler、触发模式、worktree 生命周期和恢复启动是调度运行时核心。 |
 | REQ-037, REQ-038, REQ-039 | 5, 7.8, 9, 11, 12, 13 | Codex Runner 受 Runner Policy、Safety Gate、workspace root 和审批策略约束。 |
 | REQ-040, REQ-041, REQ-042 | 7.9, 9, 10, 12, 14 | Status Checker 执行 diff、测试、安全、Spec Alignment 和状态判断。 |
 | REQ-043, REQ-044, REQ-045 | 7.10, 10, 11, 12, 14 | Recovery Manager 管理恢复任务、回滚、拆分、重试退避和失败指纹。 |
 | REQ-046, REQ-047, REQ-057 | 7.12, 9, 10, 11, 12, 15 | Review Center 是高风险、阻塞、澄清和审批动作的统一入口。 |
 | REQ-048, REQ-049, REQ-050 | 7.13, 8, 9, 10, 12, 14, 15 | Delivery Manager 生成 PR、交付报告和 Spec Evolution 建议。 |
 | REQ-051 | 7.9, 8, 9, 10, 12, 14 | Evidence Pack 是状态判断、恢复、审批和交付报告的共享证据格式。 |
-| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Spec、Skill、Subagent 和 Runner 状态。 |
+| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态。 |
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
@@ -150,6 +150,7 @@ Rejected / deferred alternatives:
 | Git 事实 | 目标仓库与 worktree 的实时 Git 状态 | Repository Adapter、Workspace Manager、Status Checker。 |
 | Project Memory | `.autobuild/memory/project.md` + 版本元数据 | Codex CLI 会话恢复上下文。 |
 | Skill 列表 | Skill Registry，内置 Skill 以 PRD 第 6.3 节为事实源 | Orchestrator、Skill Center、Review Center。 |
+| Project Constitution | Project Management 持久层与版本记录 | Project Memory、Scheduler、Review Center、Feature Spec 流程。 |
 | Evidence | Evidence Store | Status Checker、Review Center、Recovery Manager、Delivery Manager。 |
 
 ## 7. Capability and Subsystem Boundaries
@@ -158,13 +159,14 @@ Rejected / deferred alternatives:
 
 Responsibilities:
 
-- 创建 AutoBuild 项目并保存项目目标、技术偏好、仓库、默认分支、运行环境和自动化开关。
+- 创建 AutoBuild 项目并保存项目目标、技术偏好、仓库、默认分支、信任级别、运行环境和自动化开关。
 - 连接目标 Git 仓库并读取分支、commit、未提交变更、PR、CI 和 worktree 状态。
+- 导入、创建和版本化项目宪章，并向 Memory、调度、审批和 Feature Spec 流程提供项目级规则。
 - 执行项目健康检查，输出 `ready`、`blocked` 或 `failed`。
 
 Owns:
 
-- Project、RepositoryConnection、ProjectHealthCheck。
+- Project、RepositoryConnection、ProjectConstitution、ProjectHealthCheck。
 
 Collaborates With:
 
@@ -209,6 +211,7 @@ Collaborates With:
 Responsibilities:
 
 - Project Scheduler 从 Feature Spec Pool 动态选择 `ready` Feature。
+- Project Scheduler 接收立即执行、指定时间、周期巡检、依赖完成、CI 失败和审批通过等触发模式。
 - Feature Scheduler 在 Feature 内根据依赖、风险、文件范围、Runner 可用性、预算和审批状态调度任务。
 - Planning Pipeline 自动执行计划阶段 Skill 并生成 Task Graph。
 - Feature Aggregator 根据任务状态、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
@@ -328,6 +331,7 @@ Collaborates With:
 Responsibilities:
 
 - Dashboard 展示项目健康度、活跃 Feature、看板数量、运行中 Subagent、失败任务、待审批任务、成本、最近 PR 和风险提醒。
+- Dashboard Board 支持受状态机约束的拖拽、批量排期、批量运行，以及依赖、diff、测试结果、审批状态和失败恢复历史入口。
 - Spec Workspace 展示 Feature、Spec、澄清、Checklist、计划、数据模型、契约、任务图和版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
 - Subagent Console 展示 Run Contract、上下文切片、Evidence、token 使用、运行状态，并支持终止和重试。
@@ -595,10 +599,10 @@ Quality gates:
 | Feature Spec | Scope | Primary Requirements |
 |---|---|---|
 | AutoBuild System Bootstrap | Control Plane 进程引導配置、`.autobuild/` artifact root 目录创建、SQLite schema 初始化与迁移、内置 Skill 种子化触发、系统就绪状态暴露。 | REQ-058（schema 创建是持久化的前置条件）、REQ-011（内置 Skill 种子化在系统初始化完成后触发，联动 feat-003）、NFR-004（崩溃恢复依赖应用正确完成初始化）；是 feat-001 至 feat-014 所有 Feature Spec 的基础先决条件。 |
-| Project and Repository Foundation | 项目创建、仓库连接、健康检查、项目配置。 | REQ-001 至 REQ-003 |
+| Project and Repository Foundation | 项目创建、仓库连接、项目宪章、健康检查、项目配置。 | REQ-001 至 REQ-003、REQ-059 |
 | Spec Protocol Foundation | Feature Spec、EARS 拆解、澄清、Checklist、版本和切片。 | REQ-004 至 REQ-009 |
 | Skill Center and Schema Governance | Skill 注册、内置 Skill、schema 校验、版本管理。 | REQ-010 至 REQ-013 |
-| Orchestration and State Machine | Feature/Task 状态机、任务图、Feature 选择、计划流水线、看板列。 | REQ-024 至 REQ-034 |
+| Orchestration and State Machine | Feature/Task 状态机、任务图、Feature 选择、计划流水线、调度触发模式、看板列。 | REQ-024 至 REQ-034、REQ-060 |
 | Subagent Runtime and Context Broker | Agent 类型、Run Contract、最小上下文、Subagent Console 后端数据层。 | REQ-014 至 REQ-018（REQ-017 写入隔离实现于 feat-007，feat-005 依赖其结果）、REQ-055（后端数据层主导实现于此，UI 由 feat-013 交付）。 |
 | Project Memory and Recovery Projection | Memory 初始化、注入、更新、压缩、版本和状态冲突修复。 | REQ-019 至 REQ-023、REQ-036 |
 | Workspace Isolation | worktree、分支、并行写入隔离、冲突检测和回滚边界。 | REQ-017（主导实现）、REQ-032、REQ-035；REQ-017 同时被 Subagent Runtime and Context Broker 依赖。 |
@@ -607,7 +611,7 @@ Quality gates:
 | Failure Recovery | 恢复任务、恢复策略、失败指纹、重试退避和禁止重复。 | REQ-043 至 REQ-045 |
 | Review Center | Review Needed 触发、审批页面、审批动作和状态回流。 | REQ-046、REQ-047、REQ-057 |
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console UI、Runner Console、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
+| Product Console | Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console UI、Runner Console、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 
 Decomposition rules:
@@ -652,5 +656,4 @@ Decomposition rules:
 - Project Memory 默认 8000 tokens 预算是否需要按项目规模配置？
 - MVP 是否允许用户在本地单用户模式之外启用多用户访问？
 - 多 CLI Runner 抽象属于 MVP 内还是 M2 扩展？
-- Dashboard Board 是否允许拖拽改变状态，还是仅允许触发受控状态命令？
 - 完整 diff 是否默认进入 Evidence artifact，还是只保存摘要并按需引用 Git commit？
