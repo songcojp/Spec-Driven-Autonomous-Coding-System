@@ -77,7 +77,8 @@ MVP 采用本地优先的控制面架构：
 | REQ-057 | 4.15, 4.16, 6.1, 7.9 | Review Center 管理待审批、高风险、阻塞和需澄清任务。 |
 | REQ-058 | 5, 6, 9 | Persistence Layer 持久化 MVP 核心实体必填字段。 |
 | REQ-062 | 4.16, 6.1, 11 | Product Console 默认中文，并支持界面语言切换。 |
-| REQ-063 | 3, 4.1, 4.16, 5, 6.1, 8, 11 | Project Service 维护项目目录和当前项目上下文，Product Console 提供创建和切换入口，所有查询和命令按 `project_id` 隔离。 |
+| REQ-063 | 3, 4.1, 4.16, 5, 6.1, 8, 11 | Project Service 维护项目目录和当前项目上下文，并自动完成阶段 1 初始化闭环；Product Console 提供创建和切换入口，所有查询和命令按 `project_id` 隔离。 |
+| REQ-064 | 4.4, 4.16, 6.2, 11, 12 | Spec Protocol Engine 自动扫描 Spec Sources；Spec Workspace 展示扫描状态、缺失项、冲突和阶段 2 / 阶段 3 边界。 |
 | NFR-001 | 4.9, 10 | Runner 默认禁用 danger-full-access 和 bypass approvals。 |
 | NFR-002 | 4.10, 4.13, 9 | worktree、diff 快照和恢复策略提供回滚路径。 |
 | NFR-003 | 5, 8, 9 | Run、状态、Memory 和 Evidence 更新使用幂等键。 |
@@ -174,7 +175,7 @@ Responsibilities:
 - 创建和查询 AutoBuild 项目。
 - 维护项目目录、项目生命周期状态和当前项目选择上下文；导入现有项目时保留用户目录，新建项目时统一创建到 `workspace/<project-slug>`。
 - 保存项目名称、目标、类型、技术偏好、目标仓库、默认分支、运行环境和自动化开关。
-- 初始化项目状态、Spec Protocol 目录和 Project Memory。
+- 自动初始化项目状态、仓库探测或连接、Spec Protocol 目录、默认或导入项目宪章、Project Memory、健康检查和当前项目上下文。
 
 Inputs:
 
@@ -252,12 +253,14 @@ Responsibilities:
 
 - 创建 Feature Spec。
 - 拆解 PR、RP、PRD、EARS 或混合输入为原子 EARS 需求。
+- 扫描 PRD、EARS、requirements、HLD、design、已有 Feature Spec、tasks 和 README / 索引等 Spec Sources，识别已有规格产物、来源追踪、缺失项和冲突。
 - 维护 Clarification Log、Requirement Checklist、Spec Version 和 Spec 切片。
 - 生成和读取 Technical Plan、Research Decision、Data Model、Contract、Quickstart、Task Graph。
 
 Inputs:
 
 - 自然语言、PRD、EARS 或混合格式需求。
+- PRD、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources。
 - 已有 Feature Spec。
 - 用户澄清答案。
 
@@ -271,6 +274,7 @@ Outputs:
 - RequirementChecklist。
 - SpecSlice。
 - SpecVersionRecord。
+- SpecSourceScanResult。
 
 Dependencies:
 
@@ -1592,25 +1596,27 @@ Evidence Pack 必须可被以下模块直接引用：
 覆盖 MVP 端到端路径：
 
 1. 创建项目、连接本地 Git 仓库、健康检查 ready。
-2. 提交 PRD 片段，生成 Feature Spec、EARS 需求、Checklist 和 ready 状态。
-3. Scheduler 自动选择 Feature 并完成 planning。
-4. 生成任务图，看板显示 Ready 任务。
-5. 调度低风险编码任务，Runner mock 或真实 Codex CLI 生成 Evidence。
-6. Status Checker 判定 Done 并更新 Project Memory。
-7. 制造测试失败，验证 Recovery 和最大重试。
-8. 制造高风险 diff，验证 Review Needed 和审批操作。
-9. Feature 验收通过后生成 PR body 和 Delivery Report。
+2. 阶段 1 自动完成 Spec Protocol、项目宪章、Project Memory 和当前项目上下文初始化。
+3. 阶段 2 自动扫描 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources。
+4. 提交或复用 PRD 片段，生成 Feature Spec、EARS 需求、Checklist 和 ready 状态。
+5. Scheduler 自动选择 Feature 并完成 planning。
+6. 生成任务图，看板显示 Ready 任务。
+7. 调度低风险编码任务，Runner mock 或真实 Codex CLI 生成 Evidence。
+8. Status Checker 判定 Done 并更新 Project Memory。
+9. 制造测试失败，验证 Recovery 和最大重试。
+10. 制造高风险 diff，验证 Review Needed 和审批操作。
+11. Feature 验收通过后生成 PR body 和 Delivery Report。
 
 ### 12.4 Acceptance Tests
 
 每个 `REQ-*` 应至少映射到一个验收用例：
 
 - Project and repository: REQ-001 至 REQ-003、REQ-063。
-- Spec Protocol and Skill: REQ-004 至 REQ-013。
+- Spec Protocol and Skill: REQ-004 至 REQ-013、REQ-064。
 - Subagent and Memory: REQ-014 至 REQ-023。
 - Planning, task graph, board, scheduler: REQ-024 至 REQ-036。
 - Runner, status, recovery, review, delivery: REQ-037 至 REQ-051。
-- Console and persistence: REQ-052 至 REQ-058、REQ-062、REQ-063。
+- Console and persistence: REQ-052 至 REQ-058、REQ-062 至 REQ-064。
 
 每个 `NFR-*` 应至少映射到策略或监控验证：
 

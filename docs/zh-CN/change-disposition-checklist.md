@@ -32,6 +32,8 @@
 | CHG-006 | PRD 明确 MVP 不接入 Issue Tracker | PRD 非目标 | 已写入 PRD | 人工确认 requirements/HLD 是否需要补充为显式非目标或约束；当前未新增 REQ。 |
 | CHG-007 | PRD 明确失败自动重试上限与退避策略 | PRD 第 6.11 节 FR-092 | 已写入 PRD | 人工确认现有 failure recovery 实现是否已匹配 3 次、2/4/8 分钟退避和失败指纹规则。 |
 | CHG-008 | PRD 明确性能阈值在 MVP 中只作基线记录 | PRD 第 9.4 节 | 已写入 PRD | 人工确认 requirements 中 NFR-007 至 NFR-009 是否已足够表达；当前看起来已覆盖。 |
+| CHG-011 | 阶段 1 项目初始化自动完成 | 用户指令：项目创建或导入流程应自动完成用户流程第一阶段操作；PRD 第 5 节阶段 1；REQ-063 | 已写入 PRD、requirements、HLD/design、FEAT-001、FEAT-013 | 作为 FEAT-001 + FEAT-013 patch：FEAT-001 编排自动初始化闭环；FEAT-013 展示自动状态和阻塞原因。 |
+| CHG-012 | 阶段 2 自动扫描 Spec Sources | 用户指令：阶段 2 自动扫描 PRD、EARS、HLD、Feature Spec 等；PRD 第 5 节阶段 2；REQ-064 | 已写入 PRD、requirements、HLD/design、FEAT-002、FEAT-013 | 作为 FEAT-002 + FEAT-013 patch：FEAT-002 提供扫描模型；FEAT-013 展示扫描状态，且阶段 2 不触发 HLD 生成、Feature Spec 拆分或规划流水线。 |
 | CHG-009 | Product Console 完成标准修正：API/ViewModel 不能替代用户 UI | 用户审查；实现证据 `src/product-console.ts`、`src/server.ts`、`tests/product-console.test.ts` | 已同步 FEAT-013 和技能契约 | 重新打开 FEAT-013；补真实前端应用、页面组件、浏览器级验收，并修复拆分/执行技能避免再次漏 UI。 |
 
 ## 人工处置顺序建议
@@ -67,6 +69,8 @@
 | CHG-006 | 仅保留文档一致性；PRD、requirements、HLD 和 design 已明确 MVP 不接入 Issue Tracker，仅保留外部链接/追踪字段。 | 无需新增 REQ 或 Feature Spec；后续实现不得新增 Issue Tracker 深度集成。 | 无需执行 |
 | CHG-007 | 已由 FEAT-010 实现覆盖；代码和测试已包含同一失败模式最多 3 次、2/4/8 分钟退避、失败指纹和禁止重复策略。 | FEAT-010 requirements/design/tasks 与 `tests/recovery.test.ts` 已覆盖；无需重新执行 feature spec。 | 无需执行 |
 | CHG-008 | 仅保留文档一致性；PRD、requirements 和 HLD 已明确性能阈值在 MVP 中作为基线记录，不作为阻塞验收门槛。 | 无需新增 Feature Spec；FEAT-013 继续记录看板加载/状态刷新基线。 | 无需执行 |
+| CHG-011 | 进入 FEAT-001 / FEAT-013 patch；阶段 1 由系统在创建或导入项目后自动完成初始化闭环。 | 已同步 PRD、REQ-063、HLD/design、Feature Index、FEAT-001 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
+| CHG-012 | 进入 FEAT-002 / FEAT-013 patch；阶段 2 自动扫描 Spec Sources，扫描 HLD / Feature Spec 事实源但不生成 HLD 或拆分 Feature Spec。 | 已新增 REQ-064，并同步 PRD、HLD/design、Feature Index、FEAT-002 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
 | CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `task-slicing-skill` / `codex-coding-skill` 技能契约。 | 需同步实现 |
 
 ## Feature Spec Execute 评估

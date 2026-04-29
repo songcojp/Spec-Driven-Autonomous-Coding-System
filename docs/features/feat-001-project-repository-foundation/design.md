@@ -2,13 +2,13 @@
 
 ## Design Summary
 
-本 Feature 提供项目、项目目录、当前项目上下文、项目宪章和仓库接入的控制面基础。Project Service 负责项目实体、初始化命令、项目列表、导入现有项目、新建 workspace 项目和当前项目选择，Project Constitution Service 负责项目级规则事实源，Repository Adapter 负责读取 Git 事实，Project Health Checker 负责将环境状态归类为可调度状态。
+本 Feature 提供项目、项目目录、当前项目上下文、项目宪章和仓库接入的控制面基础。Project Service 负责项目实体、自动初始化命令、项目列表、导入现有项目、新建 workspace 项目和当前项目选择，Project Constitution Service 负责项目级规则事实源，Repository Adapter 负责读取 Git 事实，Project Health Checker 负责将环境状态归类为可调度状态。
 
 ## Components
 
 | Component | Responsibility |
 |---|---|
-| Project Service | 创建、导入、查询、列出和更新 Project，保存项目目录、项目配置、信任级别、生命周期状态、当前项目选择和自动化开关。 |
+| Project Service | 创建、导入、查询、列出和更新 Project，保存项目目录、项目配置、信任级别、生命周期状态、当前项目选择和自动化开关，并编排阶段 1 自动初始化闭环。 |
 | Project Constitution Service | 导入、创建和版本化项目宪章，并暴露项目目标、工程原则、边界规则和审批规则。 |
 | Repository Adapter | 读取仓库 URL、本地路径、默认分支、当前分支、commit、PR、CI 和 worktree 状态。 |
 | Project Health Checker | 检测仓库、包管理器、测试/构建命令、Codex 配置、AGENTS.md、Spec 目录和敏感风险。 |
@@ -27,10 +27,12 @@
 3. 创建新项目时，Project Service 在统一 `workspace/` 目录下创建 `workspace/<project-slug>` 项目目录。
 4. Project Service 持久化 Project 和初始配置。
 5. Project Service 将项目加入项目目录，并在首次创建或用户显式选择时更新 ProjectSelectionContext。
-6. Project Constitution Service 导入或创建项目宪章，并写入版本记录。
-7. Repository Adapter 读取仓库状态。
-8. Project Health Checker 输出 `ready`、`blocked` 或 `failed`。
-9. 状态写入持久层并供 Dashboard、Scheduler、Project Memory 和 Review Center 按 Project ID 查询。
+6. Project Service 自动初始化 `.autobuild/` / Spec Protocol，并调用 Project Memory 初始化。
+7. Project Constitution Service 自动导入已有宪章或创建默认项目宪章，并写入版本记录。
+8. Repository Adapter 读取仓库状态。
+9. Project Health Checker 输出 `ready`、`blocked` 或 `failed`。
+10. 状态写入持久层并供 Dashboard、Scheduler、Project Memory 和 Review Center 按 Project ID 查询。
+11. 任一自动初始化子步骤失败时，Project Service 返回结构化 blocked 原因，并保留已创建的项目记录和审计事件供用户修复后重试。
 
 ## Project Switch Flow
 

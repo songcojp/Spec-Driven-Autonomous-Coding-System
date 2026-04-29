@@ -688,15 +688,29 @@ THE SYSTEM SHALL 默认使用中文界面，并提供可见的语言切换入口
 优先级：Must
 
 WHEN 用户在 Product Console 创建、导入、查看或切换 AutoBuild 项目
-THE SYSTEM SHALL 维护项目目录和当前项目上下文，并确保所有项目级查询、受控命令、Project Memory 投影、调度入口、审计事件和反馈提示都绑定到当前项目。
+THE SYSTEM SHALL 维护项目目录和当前项目上下文，并自动完成项目记录、仓库探测或连接、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文初始化，确保所有项目级查询、受控命令、Project Memory 投影、调度入口、审计事件和反馈提示都绑定到当前项目。
 
 验收：
 - [ ] 用户可以通过项目创建表单创建新项目，新项目目录必须位于统一 `workspace/` 目录下。
-- [ ] 用户可以导入现有项目目录，系统将该目录作为项目目录并进入仓库探测和健康检查。
+- [ ] 用户可以导入现有项目目录，系统将该目录作为项目目录并自动执行仓库探测、Spec Protocol 初始化、项目宪章导入或默认创建、Project Memory 初始化和健康检查。
 - [ ] 用户可以创建或导入多个项目，并在项目列表中看到每个项目的名称、项目目录、仓库摘要、健康状态和最近活动时间。
 - [ ] 用户切换项目后，Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center 和 Board 都只展示当前项目的数据。
 - [ ] 项目级受控命令必须携带当前 `project_id`；缺少或不匹配时不得执行，并返回可观察的阻塞原因。
 - [ ] Project Memory 注入、Feature 选择、调度运行和 Evidence 查询不得跨项目复用状态。
+- [ ] 阶段 1 自动初始化失败时，系统返回具体阻塞原因，不要求用户在 Product Console 中逐步手动执行初始化子步骤。
+
+### REQ-064：自动扫描 Spec Sources
+来源：用户指令：阶段 2 自动扫描 PRD、EARS、HLD、Feature Spec 等；PRD 第 5 节阶段 2；PRD 第 6.2 节 FR-011
+优先级：Must
+
+WHEN 项目完成阶段 1 初始化并进入需求录入
+THE SYSTEM SHALL 自动扫描当前项目中的 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources，识别已有需求格式、规格产物、来源追踪、缺失项和冲突，并将扫描结果提供给 EARS / Feature Spec 生成、澄清和需求质量检查。
+
+验收：
+- [ ] 阶段 2 扫描结果包含已发现的 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引路径及其类型。
+- [ ] 系统能区分“扫描已有 HLD / Feature Spec 事实源”和“生成 HLD / 拆分 Feature Spec”两个边界；阶段 2 不得触发 HLD 生成、Feature Spec 拆分或规划流水线。
+- [ ] 扫描结果必须标记已有需求、设计和 Feature Spec 的来源追踪关系、缺失项、冲突项和需要澄清的问题。
+- [ ] Spec Workspace 必须展示 Spec Sources 自动扫描状态，并在扫描失败或缺少关键来源时给出阻塞原因。
 
 ## 7. 非功能需求
 

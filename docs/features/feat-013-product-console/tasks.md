@@ -25,3 +25,6 @@
 - [x] TASK-023: 将 Spec Workspace PRD 操作流程拆为“阶段 1 项目初始化”和“阶段 2 需求录入”，展示阶段状态、阻塞原因、事实来源和阶段内步骤，并在没有 Feature Spec 时仍显示流程入口。
 - [x] TASK-024: 从阶段 2 PRD 需求录入流程中移除 HLD 生成、Feature Spec 拆分和规划流水线入口；保留选中 Feature 的阶段 3 受控操作，并修复 `schedule_run` 命令 payload。
 - [x] TASK-025: 更新 Product Console 单测和浏览器验证，覆盖阶段 1、阶段 2、PRD 扫描/上传回执、项目级隔离，以及阶段 2 不显示阶段 3 操作。
+- [ ] TASK-026: 将 Spec Workspace 阶段 1 改为展示 FEAT-001 自动初始化闭环状态，覆盖项目创建/导入、Git 仓库、Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文，不提供逐步手动执行子步骤入口。
+- [ ] TASK-027: 增加阶段 2 Spec Sources 自动扫描 ViewModel 和 UI，展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引的发现路径、类型、缺失项、冲突项和澄清项。
+- [ ] TASK-028: 更新 Product Console 单测和浏览器验证，覆盖 Spec Sources 自动扫描、阶段 1 自动初始化阻塞反馈、项目切换后的扫描结果隔离，以及阶段 2 不显示 HLD 生成、Feature Spec 拆分或规划流水线入口。

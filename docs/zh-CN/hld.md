@@ -49,7 +49,7 @@ MVP 采用本地优先的控制面架构：
 | Requirement ID | HLD Section | Coverage Notes |
 |---|---|---|
 | REQ-001, REQ-002, REQ-003, REQ-059, REQ-063 | 4, 5, 7.1, 8, 12, 13 | Project、Repository、Project Constitution、Project Selection、Health Check 属于项目管理和仓库适配边界。 |
-| REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009 | 7.2, 8, 9, 10, 14, 15 | Spec Protocol Engine 负责 Feature Spec、EARS、切片、澄清、Checklist 和版本化。 |
+| REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-064 | 7.2, 8, 9, 10, 14, 15 | Spec Protocol Engine 负责 Feature Spec、EARS、Spec Sources 扫描、切片、澄清、Checklist 和版本化。 |
 | REQ-010, REQ-011, REQ-012, REQ-013 | 7.3, 8, 9, 11, 14, 15 | Skill System 管理注册、内置 Skill、schema 校验、版本治理和项目级覆盖。 |
 | REQ-014, REQ-015, REQ-016, REQ-017, REQ-018 | 7.5, 7.7, 8, 9, 10, 11, 13 | Subagent Runtime、Context Broker、Workspace Manager 和 Result Merger 保证边界、并行隔离和结果合并。 |
 | REQ-019, REQ-020, REQ-021, REQ-022, REQ-023 | 7.6, 8, 9, 10, 11, 12, 13 | Project Memory Service 负责初始化、注入、更新、压缩、版本和回滚。 |
@@ -62,7 +62,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-046, REQ-047, REQ-057 | 7.12, 9, 10, 11, 12, 15 | Review Center 是高风险、阻塞、澄清和审批动作的统一入口。 |
 | REQ-048, REQ-049, REQ-050 | 7.13, 8, 9, 10, 12, 14, 15 | Delivery Manager 生成 PR、交付报告和 Spec Evolution 建议。 |
 | REQ-051 | 7.9, 8, 9, 10, 12, 14 | Evidence Pack 是状态判断、恢复、审批和交付报告的共享证据格式。 |
-| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换和默认中文的界面语言切换。 |
+| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063, REQ-064 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换、Spec Sources 扫描状态和默认中文的界面语言切换。 |
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
@@ -180,8 +180,11 @@ Responsibilities:
 
 - 从自然语言、PR、RP、PRD、EARS 或混合输入创建 Feature Spec。
 - 拆解原子化、可测试、可追踪的 EARS Requirement。
+- 自动扫描 PRD、EARS、requirements、HLD、design、已有 Feature Spec、tasks 和 README / 索引等 Spec Sources，并识别已有规格产物、来源追踪、缺失项和冲突。
 - 维护 Clarification Log、Requirement Checklist、Spec Version、Spec Slice 和来源追踪。
 - 为计划流水线提供 Feature Spec、需求、验收、数据域、契约和任务图输入。
+
+Spec Sources 扫描只读取和归类已有事实源，不在阶段 2 生成 HLD、拆分 Feature Spec 或启动规划流水线；这些写入性规划动作由选中 Feature 在阶段 3 通过受控操作触发。
 
 Owns:
 
@@ -603,7 +606,7 @@ Quality gates:
 |---|---|---|
 | AutoBuild System Bootstrap | Control Plane 进程引導配置、`.autobuild/` artifact root 目录创建、SQLite schema 初始化与迁移、内置 Skill 种子化触发、系统就绪状态暴露。 | REQ-058（schema 创建是持久化的前置条件）、REQ-011（内置 Skill 种子化在系统初始化完成后触发，联动 feat-003）、NFR-004（崩溃恢复依赖应用正确完成初始化）；是 feat-001 至 feat-014 所有 Feature Spec 的基础先决条件。 |
 | Project and Repository Foundation | 项目创建、项目目录与切换上下文、仓库连接、项目宪章、健康检查、项目配置。 | REQ-001 至 REQ-003、REQ-059、REQ-063 |
-| Spec Protocol Foundation | Feature Spec、EARS 拆解、澄清、Checklist、版本和切片。 | REQ-004 至 REQ-009 |
+| Spec Protocol Foundation | Feature Spec、EARS 拆解、Spec Sources 扫描、澄清、Checklist、版本和切片。 | REQ-004 至 REQ-009、REQ-064 |
 | Skill Center and Schema Governance | Skill 注册、内置 Skill、schema 校验、版本管理。 | REQ-010 至 REQ-013 |
 | Orchestration and State Machine | Feature/Task 状态机、任务图、Feature 选择、计划流水线、调度触发模式、看板列。 | REQ-024 至 REQ-034、REQ-060 |
 | Subagent Runtime and Context Broker | Agent 类型、Run Contract、最小上下文、Subagent Console 后端数据层。 | REQ-014 至 REQ-018（REQ-017 写入隔离实现于 feat-007，feat-005 依赖其结果）、REQ-055（后端数据层主导实现于此，UI 由 feat-013 交付）。 |
@@ -614,7 +617,7 @@ Quality gates:
 | Failure Recovery | 恢复任务、恢复策略、失败指纹、重试退避和禁止重复。 | REQ-043 至 REQ-045 |
 | Review Center | Review Needed 触发、审批页面、审批动作和状态回流。 | REQ-046、REQ-047、REQ-057 |
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
-| Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console UI、Runner Console、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-063（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
+| Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Spec Sources 扫描状态、Skill Center、Subagent Console UI、Runner Console、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-064（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 
 Decomposition rules:
