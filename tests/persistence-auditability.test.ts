@@ -271,6 +271,7 @@ function sampleCoreEntityInput(): CoreEntityInput {
       name: "SpecDrive",
       goal: "Automate spec driven delivery",
       projectType: "typescript-service",
+      trustLevel: "standard",
       environment: "local",
       status: "ready",
       techPreferences: ["node", "sqlite"],

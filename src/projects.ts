@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { initializeProjectMemory } from "./memory.ts";
+import { recordAuditEvent } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
 import { readRepositorySummary, type CommandRunner, type RepositorySummary } from "./repository.ts";
+
+export type ProjectTrustLevel = "trusted" | "standard" | "restricted";
 
 export type ProjectInput = {
   name: string;
@@ -13,8 +16,10 @@ export type ProjectInput = {
   targetRepoPath?: string;
   repositoryUrl?: string;
   defaultBranch?: string;
+  trustLevel?: ProjectTrustLevel;
   environment: string;
   automationEnabled?: boolean;
+  constitution?: ProjectConstitutionInput;
 };
 
 export type ProjectRecord = {
@@ -26,9 +31,44 @@ export type ProjectRecord = {
   targetRepoPath?: string;
   repositoryUrl?: string;
   defaultBranch: string;
+  trustLevel: ProjectTrustLevel;
   environment: string;
   automationEnabled: boolean;
   status: string;
+};
+
+export type ProjectConstitutionInput = {
+  source?: "created" | "imported";
+  title?: string;
+  projectGoal: string;
+  engineeringPrinciples: string[];
+  boundaryRules: string[];
+  approvalRules: string[];
+  defaultConstraints: string[];
+};
+
+export type ProjectConstitutionRecord = ProjectConstitutionInput & {
+  id: string;
+  projectId: string;
+  version: number;
+  source: "created" | "imported";
+  title: string;
+  status: string;
+  createdAt?: string;
+};
+
+export type ConstitutionRevalidationInput = {
+  projectId: string;
+  constitutionId: string;
+  entityType: "feature" | "task" | "run";
+  entityId: string;
+  reason: string;
+};
+
+export type ConstitutionRevalidationMark = ConstitutionRevalidationInput & {
+  id: string;
+  status: string;
+  createdAt?: string;
 };
 
 export type RepositoryConnectionRecord = {
@@ -56,13 +96,14 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
   const targetRepoPath = input.targetRepoPath ? resolve(input.targetRepoPath) : undefined;
   const repositoryUrl = input.repositoryUrl;
   const techPreferences = input.techPreferences ?? [];
+  const trustLevel = input.trustLevel ?? "standard";
 
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO projects (
         id, name, goal, project_type, tech_preferences_json, target_repo_path,
-        default_branch, environment, automation_enabled, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        default_branch, trust_level, environment, automation_enabled, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
         input.name,
@@ -71,6 +112,7 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
         JSON.stringify(techPreferences),
         targetRepoPath ?? null,
         defaultBranch,
+        trustLevel,
         input.environment,
         input.automationEnabled ? 1 : 0,
         "created",
@@ -99,6 +141,10 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
     }
   }
 
+  if (input.constitution) {
+    saveProjectConstitution(dbPath, id, input.constitution);
+  }
+
   return {
     id,
     name: input.name,
@@ -108,6 +154,7 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
     targetRepoPath,
     repositoryUrl,
     defaultBranch,
+    trustLevel,
     environment: input.environment,
     automationEnabled: Boolean(input.automationEnabled),
     status: "created",
@@ -171,6 +218,157 @@ export function readProjectRepository(
     },
   ]);
   return summary;
+}
+
+export function saveProjectConstitution(
+  dbPath: string,
+  projectId: string,
+  input: ProjectConstitutionInput,
+): ProjectConstitutionRecord {
+  const project = getProject(dbPath, projectId);
+  if (!project) {
+    throw new Error(`Project not found: ${projectId}`);
+  }
+  validateConstitution(input);
+
+  const version = nextConstitutionVersion(dbPath, projectId);
+  const id = randomUUID();
+  const source = input.source ?? "created";
+  const title = input.title ?? `${project.name} Constitution`;
+
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE project_constitutions SET status = 'superseded' WHERE project_id = ? AND status = 'active'",
+      params: [projectId],
+    },
+    {
+      sql: `INSERT INTO project_constitutions (
+        id, project_id, version, source, title, project_goal, engineering_principles_json,
+        boundary_rules_json, approval_rules_json, default_constraints_json, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+      params: [
+        id,
+        projectId,
+        version,
+        source,
+        title,
+        input.projectGoal,
+        JSON.stringify(input.engineeringPrinciples),
+        JSON.stringify(input.boundaryRules),
+        JSON.stringify(input.approvalRules),
+        JSON.stringify(input.defaultConstraints),
+      ],
+    },
+  ]);
+
+  recordAuditEvent(dbPath, {
+    entityType: "project",
+    entityId: projectId,
+    eventType: version === 1 ? "project_constitution_created" : "project_constitution_versioned",
+    source: "project-constitution-skill",
+    reason: `${source} project constitution version ${version}`,
+    payload: { constitutionId: id, version, source, title },
+  });
+
+  return {
+    id,
+    projectId,
+    version,
+    source,
+    title,
+    projectGoal: input.projectGoal,
+    engineeringPrinciples: [...input.engineeringPrinciples],
+    boundaryRules: [...input.boundaryRules],
+    approvalRules: [...input.approvalRules],
+    defaultConstraints: [...input.defaultConstraints],
+    status: "active",
+  };
+}
+
+export function getCurrentProjectConstitution(
+  dbPath: string,
+  projectId: string,
+): ProjectConstitutionRecord | undefined {
+  return listProjectConstitutions(dbPath, projectId).find((constitution) => constitution.status === "active");
+}
+
+export function listProjectConstitutions(dbPath: string, projectId: string): ProjectConstitutionRecord[] {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "constitutions",
+      sql: `SELECT * FROM project_constitutions
+        WHERE project_id = ?
+        ORDER BY version DESC`,
+      params: [projectId],
+    },
+  ]);
+  return result.queries.constitutions.map(mapConstitution);
+}
+
+export function markConstitutionRevalidation(
+  dbPath: string,
+  input: ConstitutionRevalidationInput,
+): ConstitutionRevalidationMark {
+  const constitution = listProjectConstitutions(dbPath, input.projectId).find((item) => item.id === input.constitutionId);
+  if (!constitution) {
+    throw new Error(`Project constitution not found: ${input.constitutionId}`);
+  }
+  const id = randomUUID();
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO constitution_revalidation_marks (
+        id, project_id, constitution_id, entity_type, entity_id, reason, status
+      ) VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+      params: [
+        id,
+        input.projectId,
+        input.constitutionId,
+        input.entityType,
+        input.entityId,
+        input.reason,
+      ],
+    },
+  ]);
+
+  recordAuditEvent(dbPath, {
+    entityType: input.entityType,
+    entityId: input.entityId,
+    eventType: "constitution_revalidation_marked",
+    source: "project-constitution-skill",
+    reason: input.reason,
+    payload: {
+      projectId: input.projectId,
+      constitutionId: input.constitutionId,
+      markId: id,
+    },
+  });
+
+  return { ...input, id, status: "pending" };
+}
+
+export function listConstitutionRevalidationMarks(
+  dbPath: string,
+  projectId: string,
+): ConstitutionRevalidationMark[] {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "marks",
+      sql: `SELECT * FROM constitution_revalidation_marks
+        WHERE project_id = ?
+        ORDER BY created_at, rowid`,
+      params: [projectId],
+    },
+  ]);
+  return result.queries.marks.map((row) => ({
+    id: String(row.id),
+    projectId: String(row.project_id),
+    constitutionId: String(row.constitution_id),
+    entityType: String(row.entity_type) as ConstitutionRevalidationMark["entityType"],
+    entityId: String(row.entity_id),
+    reason: String(row.reason),
+    status: String(row.status),
+    createdAt: nullableString(row.created_at),
+  }));
 }
 
 export function runProjectHealthCheck(
@@ -268,10 +466,60 @@ function mapProject(row: Record<string, unknown>): ProjectRecord {
     targetRepoPath: nullableString(row.target_repo_path),
     repositoryUrl: nullableString(row.remote_url),
     defaultBranch: String(row.default_branch),
+    trustLevel: normalizeTrustLevel(row.trust_level),
     environment: String(row.environment),
     automationEnabled: Number(row.automation_enabled) === 1,
     status: String(row.status),
   };
+}
+
+function mapConstitution(row: Record<string, unknown>): ProjectConstitutionRecord {
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    version: Number(row.version),
+    source: String(row.source) === "imported" ? "imported" : "created",
+    title: String(row.title),
+    projectGoal: String(row.project_goal),
+    engineeringPrinciples: parseJsonArray(row.engineering_principles_json),
+    boundaryRules: parseJsonArray(row.boundary_rules_json),
+    approvalRules: parseJsonArray(row.approval_rules_json),
+    defaultConstraints: parseJsonArray(row.default_constraints_json),
+    status: String(row.status),
+    createdAt: nullableString(row.created_at),
+  };
+}
+
+function validateConstitution(input: ProjectConstitutionInput): void {
+  const requiredLists: Array<[keyof ProjectConstitutionInput, string[]]> = [
+    ["engineeringPrinciples", input.engineeringPrinciples],
+    ["boundaryRules", input.boundaryRules],
+    ["approvalRules", input.approvalRules],
+    ["defaultConstraints", input.defaultConstraints],
+  ];
+  if (typeof input.projectGoal !== "string" || !input.projectGoal.trim()) {
+    throw new Error("Project constitution requires projectGoal");
+  }
+  for (const [field, values] of requiredLists) {
+    if (!Array.isArray(values) || values.length === 0 || values.some((value) => !value.trim())) {
+      throw new Error(`Project constitution requires ${String(field)}`);
+    }
+  }
+}
+
+function nextConstitutionVersion(dbPath: string, projectId: string): number {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "version",
+      sql: "SELECT COALESCE(MAX(version), 0) + 1 AS version FROM project_constitutions WHERE project_id = ?",
+      params: [projectId],
+    },
+  ]);
+  return Number(result.queries.version[0]?.version ?? 1);
+}
+
+function normalizeTrustLevel(value: unknown): ProjectTrustLevel {
+  return value === "trusted" || value === "restricted" ? value : "standard";
 }
 
 function parseJsonArray(value: unknown): string[] {

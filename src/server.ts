@@ -1,7 +1,18 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AppConfig } from "./config.ts";
 import type { ReadyState } from "./bootstrap.ts";
-import { createProject, getProject, readProjectRepository, runProjectHealthCheck } from "./projects.ts";
+import {
+  createProject,
+  getCurrentProjectConstitution,
+  getProject,
+  listConstitutionRevalidationMarks,
+  listProjectConstitutions,
+  markConstitutionRevalidation,
+  readProjectRepository,
+  runProjectHealthCheck,
+  saveProjectConstitution,
+  type ProjectConstitutionInput,
+} from "./projects.ts";
 import {
   buildDashboardQuery,
   buildReviewCenterView,
@@ -56,13 +67,15 @@ async function routeRequest(
   response: ServerResponse,
 ): Promise<void> {
   try {
+    const url = new URL(request.url ?? "/", "http://control-plane.local");
+
     if (request.method === "POST" && request.url === "/projects") {
       const project = createProject(config.dbPath, await readJsonBody(request));
       writeJson(response, 201, project);
       return;
     }
 
-    const projectMatch = request.url?.match(/^\/projects\/([^/]+)(?:\/(repository|health))?$/);
+    const projectMatch = url.pathname.match(/^\/projects\/([^/]+)(?:\/(repository|health))?$/);
     if (request.method === "GET" && projectMatch && !projectMatch[2]) {
       const project = getProject(config.dbPath, projectMatch[1]);
       writeJson(response, project ? 200 : 404, project ?? { error: "project_not_found" });
@@ -80,7 +93,51 @@ async function routeRequest(
       return;
     }
 
-    const url = new URL(request.url ?? "/", "http://control-plane.local");
+    const constitutionMatch = url.pathname.match(/^\/projects\/([^/]+)\/constitution$/);
+    if (constitutionMatch && request.method === "POST") {
+      writeJson(response, 201, saveProjectConstitution(
+        config.dbPath,
+        constitutionMatch[1],
+        await readJsonBody(request) as ProjectConstitutionInput,
+      ));
+      return;
+    }
+
+    if (constitutionMatch && request.method === "GET") {
+      const constitution = getCurrentProjectConstitution(config.dbPath, constitutionMatch[1]);
+      writeJson(response, constitution ? 200 : 404, constitution ?? { error: "constitution_not_found" });
+      return;
+    }
+
+    const constitutionsMatch = url.pathname.match(/^\/projects\/([^/]+)\/constitutions$/);
+    if (constitutionsMatch && request.method === "GET") {
+      writeJson(response, 200, listProjectConstitutions(config.dbPath, constitutionsMatch[1]));
+      return;
+    }
+
+    const revalidationMatch = url.pathname.match(/^\/projects\/([^/]+)\/constitution\/revalidations$/);
+    if (revalidationMatch && request.method === "POST") {
+      const body = await readJsonBody(request);
+      const entityType = String(body.entityType);
+      if (entityType !== "feature" && entityType !== "task" && entityType !== "run") {
+        writeJson(response, 400, { error: "invalid_revalidation_entity_type" });
+        return;
+      }
+      writeJson(response, 201, markConstitutionRevalidation(config.dbPath, {
+        projectId: revalidationMatch[1],
+        constitutionId: String(body.constitutionId),
+        entityType,
+        entityId: String(body.entityId),
+        reason: String(body.reason),
+      }));
+      return;
+    }
+
+    if (revalidationMatch && request.method === "GET") {
+      writeJson(response, 200, listConstitutionRevalidationMarks(config.dbPath, revalidationMatch[1]));
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/console/dashboard") {
       writeJson(response, 200, buildDashboardQuery(config.dbPath, {
         projectId: url.searchParams.get("projectId") ?? undefined,

@@ -11,7 +11,18 @@ import { runBootstrap, initialReadyState } from "../src/bootstrap.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
 import { listTables, initializeSchema, getCurrentSchemaVersion, SCHEMA_VERSION } from "../src/schema.ts";
 import { BUILT_IN_SKILLS, countBuiltInSkills } from "../src/skills.ts";
-import { createProject, getProject, readProjectRepository, runProjectHealthCheck } from "../src/projects.ts";
+import { listAuditEvents } from "../src/persistence.ts";
+import {
+  createProject,
+  getCurrentProjectConstitution,
+  getProject,
+  listConstitutionRevalidationMarks,
+  listProjectConstitutions,
+  markConstitutionRevalidation,
+  readProjectRepository,
+  runProjectHealthCheck,
+  saveProjectConstitution,
+} from "../src/projects.ts";
 
 test("config loader merges file, environment, and CLI with normalized defaults", () => {
   const root = makeTempDir();
@@ -83,6 +94,8 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
     "state_transitions",
     "task_schedules",
     "planning_pipeline_runs",
+    "project_constitutions",
+    "constitution_revalidation_marks",
   ]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
@@ -109,14 +122,25 @@ test("project service creates queryable project and repository connection record
     targetRepoPath: repo,
     repositoryUrl: "https://github.com/songcojp/Spec-Driven-Autonomous-Coding-System.git",
     defaultBranch: "main",
+    trustLevel: "trusted",
     environment: "local",
     automationEnabled: false,
+    constitution: {
+      source: "created",
+      projectGoal: "Automate spec-driven delivery",
+      engineeringPrinciples: ["Keep specs traceable"],
+      boundaryRules: ["Do not write outside allowed files"],
+      approvalRules: ["Require review for high risk changes"],
+      defaultConstraints: ["Use isolated worktrees"],
+    },
   });
 
   const saved = getProject(config.dbPath, project.id);
   assert.equal(saved?.name, "SpecDrive");
   assert.deepEqual(saved?.techPreferences, ["node", "sqlite"]);
+  assert.equal(saved?.trustLevel, "trusted");
   assert.equal(saved?.automationEnabled, false);
+  assert.equal(getCurrentProjectConstitution(config.dbPath, project.id)?.version, 1);
 
   const summary = readProjectRepository(config.dbPath, project.id);
   assert.equal(summary?.isGitRepository, true);
@@ -168,6 +192,65 @@ test("project health checker classifies ready, blocked, and failed states with r
   assert.equal(failed.reasons.includes("git_repository_missing"), true);
 });
 
+test("project constitution versions are auditable and mark downstream revalidation", async () => {
+  const root = makeTempDir();
+  const config = loadConfig({ cwd: root, env: {}, argv: [] });
+  await runBootstrap(config);
+
+  const project = createProject(config.dbPath, {
+    name: "Governed",
+    goal: "Govern feature execution",
+    projectType: "typescript-service",
+    trustLevel: "restricted",
+    environment: "local",
+  });
+
+  const first = saveProjectConstitution(config.dbPath, project.id, {
+    source: "imported",
+    title: "Initial Constitution",
+    projectGoal: "Govern feature execution",
+    engineeringPrinciples: ["Trace every requirement"],
+    boundaryRules: ["Keep feature worktree isolated"],
+    approvalRules: ["Approval is required for security risk"],
+    defaultConstraints: ["Run targeted tests"],
+  });
+  const second = saveProjectConstitution(config.dbPath, project.id, {
+    title: "Updated Constitution",
+    projectGoal: "Govern feature execution safely",
+    engineeringPrinciples: ["Trace every requirement", "Preserve auditability"],
+    boundaryRules: ["Keep feature worktree isolated"],
+    approvalRules: ["Approval is required for security risk"],
+    defaultConstraints: ["Run targeted tests"],
+  });
+
+  assert.equal(first.version, 1);
+  assert.equal(second.version, 2);
+  assert.equal(getCurrentProjectConstitution(config.dbPath, project.id)?.id, second.id);
+  assert.deepEqual(listProjectConstitutions(config.dbPath, project.id).map((item) => item.status), [
+    "active",
+    "superseded",
+  ]);
+
+  const mark = markConstitutionRevalidation(config.dbPath, {
+    projectId: project.id,
+    constitutionId: second.id,
+    entityType: "feature",
+    entityId: "FEAT-001",
+    reason: "constitution updated",
+  });
+
+  assert.equal(mark.status, "pending");
+  assert.equal(listConstitutionRevalidationMarks(config.dbPath, project.id)[0].entityId, "FEAT-001");
+  assert.equal(
+    listAuditEvents(config.dbPath, "project", project.id).some((event) => event.eventType === "project_constitution_versioned"),
+    true,
+  );
+  assert.equal(
+    listAuditEvents(config.dbPath, "feature", "FEAT-001").some((event) => event.eventType === "constitution_revalidation_marked"),
+    true,
+  );
+});
+
 test("project API exposes project creation, repository summary, and health checks", async () => {
   const root = makeTempDir();
   const repo = createReadyGitRepo(join(root, "api-repo"));
@@ -187,15 +270,35 @@ test("project API exposes project creation, repository summary, and health check
       projectType: "typescript-service",
       targetRepoPath: repo,
       defaultBranch: "main",
+      trustLevel: "trusted",
       environment: "local",
     });
     assert.equal(project.name, "API Project");
+    assert.equal(project.trustLevel, "trusted");
 
     const repository = await getJson(`http://127.0.0.1:${port}/projects/${project.id}/repository`);
     assert.equal(repository.isGitRepository, true);
 
     const health = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/health`, {});
     assert.equal(health.status, "ready");
+
+    const constitution = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/constitution`, {
+      source: "created",
+      projectGoal: "Expose governed project initialization",
+      engineeringPrinciples: ["Keep user decisions traceable"],
+      boundaryRules: ["Use controlled commands"],
+      approvalRules: ["Route high risk changes to Review Center"],
+      defaultConstraints: ["Run targeted tests"],
+    });
+    assert.equal(constitution.version, 1);
+
+    const mark = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/constitution/revalidations`, {
+      constitutionId: constitution.id,
+      entityType: "task",
+      entityId: "TASK-001",
+      reason: "constitution changed",
+    });
+    assert.equal(mark.status, "pending");
   } finally {
     await new Promise<void>((resolve) => controlPlane.server.close(() => resolve()));
   }

@@ -8,7 +8,7 @@
 - [x] TASK-006: 覆盖缺少 Git 仓库的 EDGE-001 流程，确认自动执行被阻止。
 - [x] TASK-007: 添加单元测试或集成测试，验证项目创建、仓库读取和健康检查状态输出。
 - [x] TASK-008: 更新 Dashboard 查询模型所需的项目和仓库状态字段。
-- [ ] TASK-009: 实现 Project Constitution 创建/导入命令，校验项目目标、工程原则、边界规则、审批规则和默认约束，并绑定到 Project 初始化事实源。
-- [ ] TASK-010: 实现 ProjectConstitution 版本记录和审计事件，支持查询当前有效版本与历史版本。
-- [ ] TASK-011: 在宪章变更后标记受影响 Feature、Task 或 Run 需要重新校验，并让 Project Memory、Scheduler、Review Center 和 Feature Spec 流程可读取当前宪章。
-- [ ] TASK-012: 补充 Project `trust_level` schema、创建输入、查询输出和默认值，并让安全策略与调度流程可读取该信任级别。
+- [x] TASK-009: 实现 Project Constitution 创建/导入命令，校验项目目标、工程原则、边界规则、审批规则和默认约束，并绑定到 Project 初始化事实源。
+- [x] TASK-010: 实现 ProjectConstitution 版本记录和审计事件，支持查询当前有效版本与历史版本。
+- [x] TASK-011: 在宪章变更后标记受影响 Feature、Task 或 Run 需要重新校验，并让 Project Memory、Scheduler、Review Center 和 Feature Spec 流程可读取当前宪章。
+- [x] TASK-012: 补充 Project `trust_level` schema、创建输入、查询输出和默认值，并让安全策略与调度流程可读取该信任级别。
