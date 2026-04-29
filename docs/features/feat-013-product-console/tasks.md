@@ -22,8 +22,8 @@
 - [x] TASK-020: 在 Product Console App Shell 增加导入现有项目、新建项目表单、项目列表和当前项目切换控件，展示项目名称、项目目录、仓库摘要、健康状态和最近活动时间。
 - [x] TASK-021: 将 Dashboard、Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 的查询与受控命令绑定到当前 `project_id`，并展示缺失/不匹配时的阻塞反馈。
 - [x] TASK-022: 添加浏览器级 UI 验证，覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及不同项目数据不串读。
-- [x] TASK-023: 将 Spec Workspace PRD 操作流程拆为“阶段 1 项目初始化”和“阶段 2 需求录入”，展示阶段状态、阻塞原因、事实来源和阶段内步骤，并在没有 Feature Spec 时仍显示流程入口。
-- [x] TASK-024: 从阶段 2 PRD 需求录入流程中移除 HLD 生成、Feature Spec 拆分和规划流水线入口；保留选中 Feature 的阶段 3 受控操作，并修复 `schedule_run` 命令 payload。
+- [x] TASK-023: 将 Spec Workspace Spec 操作流程拆为“阶段 1 项目初始化”和“阶段 2 需求录入”，以可点击状态标签默认折叠展示阶段状态、阻塞原因、事实来源和阶段内步骤，并在没有 Feature Spec 时仍显示流程入口。
+- [x] TASK-024: 从阶段 2 Spec 需求录入流程中移除 HLD 生成、Feature Spec 拆分和规划流水线入口；保留选中 Feature 的阶段 3 受控操作，并修复 `schedule_run` 命令 payload。
 - [x] TASK-025: 更新 Product Console 单测和浏览器验证，覆盖阶段 1、阶段 2、PRD 扫描/上传回执、项目级隔离，以及阶段 2 不显示阶段 3 操作。
 - [ ] TASK-026: 将 Spec Workspace 阶段 1 改为展示 FEAT-001 自动初始化闭环状态，覆盖项目创建/导入、Git 仓库、Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文，不提供逐步手动执行子步骤入口。
 - [ ] TASK-027: 增加阶段 2 Spec Sources 自动扫描 ViewModel 和 UI，展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引的发现路径、类型、缺失项、冲突项和澄清项。

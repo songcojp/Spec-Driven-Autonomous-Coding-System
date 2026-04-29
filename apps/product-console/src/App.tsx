@@ -7,6 +7,8 @@ import {
   Boxes,
   CalendarCheck,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CircleDollarSign,
   ClipboardList,
   Code2,
@@ -252,10 +254,11 @@ const copy = {
     executionPlanNext: "下一步执行计划",
     scheduleMore: "排期...",
     specWorkspace: "Spec 工作台",
-    prdWorkflow: "PRD 操作流程",
-    prdWorkflowSubtitle: "先确认项目初始化，再录入 PRD 需求，生成可进入 Feature Spec Pool 的需求事实。",
+    prdWorkflow: "Spec 操作流程",
+    prdWorkflowSubtitle: "先确认项目初始化，再录入 Spec 来源，生成可进入 Feature Spec Pool 的需求事实。",
     projectInitialization: "阶段 1 项目初始化",
     requirementIntake: "阶段 2 需求录入",
+    featurePlanning: "阶段 3 规划执行",
     phaseFacts: "阶段事实",
     createOrImportProject: "创建/导入项目",
     connectGitRepository: "连接 Git 仓库",
@@ -267,15 +270,17 @@ const copy = {
     runRequirementQualityCheck: "执行需求质量检查",
     featureSpecPool: "推入 Feature Spec Pool",
     fixProjectInitialization: "请先完成项目初始化或修复仓库状态。",
-    scanPrd: "扫描 PRD",
-    uploadPrd: "上传 PRD",
-    uploadPrdFileInput: "上传 PRD 文件",
+    scanPrd: "扫描 Spec",
+    uploadPrd: "上传 Spec",
+    uploadPrdFileInput: "上传 Spec 文件",
     generateEars: "生成 EARS",
     generateHld: "生成 HLD",
     splitFeatureSpecs: "拆分 Feature Spec",
     enterPlanningPipeline: "进入规划流水线",
-    currentPrdFile: "当前源文件",
-    prdVersion: "PRD 版本",
+    planningPipeline: "规划流水线",
+    runStatusChecks: "状态检查",
+    currentPrdFile: "当前 Spec 来源",
+    prdVersion: "Spec 版本",
     scanMode: "扫描模式",
     smartMode: "智能模式",
     lastScan: "最后扫描",
@@ -526,10 +531,11 @@ const copy = {
     executionPlanNext: "Execution Plan (Next)",
     scheduleMore: "Schedule...",
     specWorkspace: "Spec Workspace",
-    prdWorkflow: "PRD Workflow",
-    prdWorkflowSubtitle: "Confirm project initialization first, then intake PRD requirements into the Feature Spec Pool.",
+    prdWorkflow: "Spec Workflow",
+    prdWorkflowSubtitle: "Confirm project initialization first, then intake Spec sources into the Feature Spec Pool.",
     projectInitialization: "Stage 1 Project Initialization",
     requirementIntake: "Stage 2 Requirement Intake",
+    featurePlanning: "Stage 3 Planning Execution",
     phaseFacts: "Phase Facts",
     createOrImportProject: "Create / Import Project",
     connectGitRepository: "Connect Git Repository",
@@ -541,15 +547,17 @@ const copy = {
     runRequirementQualityCheck: "Run Requirement Quality Check",
     featureSpecPool: "Push to Feature Spec Pool",
     fixProjectInitialization: "Complete project initialization or fix repository status first.",
-    scanPrd: "Scan PRD",
-    uploadPrd: "Upload PRD",
-    uploadPrdFileInput: "Upload PRD File",
+    scanPrd: "Scan Spec",
+    uploadPrd: "Upload Spec",
+    uploadPrdFileInput: "Upload Spec File",
     generateEars: "Generate EARS",
     generateHld: "Generate HLD",
     splitFeatureSpecs: "Split Feature Spec",
     enterPlanningPipeline: "Enter Planning Pipeline",
-    currentPrdFile: "Current Source",
-    prdVersion: "PRD Version",
+    planningPipeline: "Planning Pipeline",
+    runStatusChecks: "Status Checks",
+    currentPrdFile: "Current Spec Source",
+    prdVersion: "Spec Version",
     scanMode: "Scan Mode",
     smartMode: "Smart Mode",
     lastScan: "Last Scan",
@@ -2005,7 +2013,7 @@ function SpecWorkspace({ data, text, currentProject, onCommand }: { data: Consol
     return (
       <div className="space-y-4">
         <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={undefined} onCommand={onCommand} />
-        <Panel><SectionTitle title={text.specWorkspace} /><EmptyState title={text.noFeatureSpecs} /></Panel>
+        <Panel><SectionTitle title={text.featureSpec} /><EmptyState title={text.noFeatureSpecs} /></Panel>
       </div>
     );
   }
@@ -2014,12 +2022,11 @@ function SpecWorkspace({ data, text, currentProject, onCommand }: { data: Consol
     <div className="space-y-4">
       <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={selected.id} onCommand={onCommand} />
       <Panel>
-        <SectionTitle title={text.specWorkspace} />
+        <SectionTitle title={text.featureSpec} />
       <div className="grid grid-cols-[280px_minmax(0,1fr)_320px] gap-4 p-4 max-xl:grid-cols-1">
         <aside className="min-w-0 rounded-md border border-line bg-white">
           <div className="border-b border-line p-3">
-            <div className="text-[15px] font-semibold">{text.featureSpec}</div>
-            <label className="mt-3 flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-[13px] text-muted">
+            <label className="flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-[13px] text-muted">
               <Search size={15} />
               <input
                 className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] text-ink outline-none"
@@ -2188,6 +2195,10 @@ const workflowStageIcons: Record<string, typeof Home> = {
   complete_clarifications: MessageSquare,
   run_requirement_quality_check: CheckCircle2,
   feature_spec_pool: GitBranch,
+  generate_hld: FileText,
+  split_feature_specs: Workflow,
+  planning_pipeline: Workflow,
+  status_check: ShieldCheck,
 };
 
 function workflowStageLabel(key: string, text: ConsoleCopy): string {
@@ -2204,6 +2215,10 @@ function workflowStageLabel(key: string, text: ConsoleCopy): string {
     complete_clarifications: text.completeClarifications,
     run_requirement_quality_check: text.runRequirementQualityCheck,
     feature_spec_pool: text.featureSpecPool,
+    generate_hld: text.generateHld,
+    split_feature_specs: text.splitFeatureSpecs,
+    planning_pipeline: text.planningPipeline,
+    status_check: text.runStatusChecks,
   };
   return labels[key] ?? humanizeSpecKey(key);
 }
@@ -2216,6 +2231,17 @@ function workflowStatusLabel(status: "pending" | "accepted" | "blocked" | "compl
       : status === "accepted"
         ? text.workflowAccepted
         : text.workflowPending;
+}
+
+type WorkflowPhase = NonNullable<ConsoleData["spec"]["prdWorkflow"]>["phases"][number];
+type WorkflowPhaseKey = WorkflowPhase["key"];
+
+function workflowPhaseTitle(key: WorkflowPhaseKey, text: ConsoleCopy): string {
+  return key === "project_initialization"
+    ? text.projectInitialization
+    : key === "requirement_intake"
+      ? text.requirementIntake
+      : text.featurePlanning;
 }
 
 function SpecPrdWorkflowPanel({
@@ -2233,8 +2259,10 @@ function SpecPrdWorkflowPanel({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploadName, setUploadName] = useState(workflow?.sourceName ?? "");
+  const [expandedPhaseKey, setExpandedPhaseKey] = useState<WorkflowPhaseKey | null>(null);
   useEffect(() => {
     setUploadName(workflow?.sourceName ?? "");
+    setExpandedPhaseKey(null);
   }, [currentProject.id, workflow?.sourceName]);
   const stages = workflow?.stages?.length ? workflow.stages : workflowStageFallbacks.map((stage) => ({ ...stage, status: "pending" as const }));
   const targetRepoPath = workflow?.targetRepoPath ?? currentProject.projectDirectory;
@@ -2242,7 +2270,8 @@ function SpecPrdWorkflowPanel({
   const resolvedSourcePath = workflow?.resolvedSourcePath ?? joinDisplayPath(targetRepoPath, relativeSourcePath);
   const sourcePath = workflow?.sourceName ?? resolvedSourcePath;
   const blockedReasons = workflow?.blockedReasons?.length ? workflow.blockedReasons : [];
-  const workflowPhases = workflow?.phases?.length
+  const hasProjectDirectory = Boolean(currentProject.projectDirectory);
+  const baseWorkflowPhases = workflow?.phases?.length
     ? workflow.phases
     : [
         {
@@ -2258,7 +2287,7 @@ function SpecPrdWorkflowPanel({
           stages: [
             { key: "create_or_import_project", status: "completed" as const },
             { key: "connect_git_repository", status: currentProject.repository ? "completed" as const : "blocked" as const },
-            { key: "initialize_spec_protocol", status: currentProject.health === "ready" ? "completed" as const : "blocked" as const },
+            { key: "initialize_spec_protocol", status: hasProjectDirectory ? "completed" as const : "blocked" as const },
             { key: "import_or_create_constitution", status: "pending" as const },
             { key: "initialize_project_memory", status: "pending" as const },
           ],
@@ -2274,6 +2303,47 @@ function SpecPrdWorkflowPanel({
           stages,
         },
       ];
+  const featurePlanningPhase: WorkflowPhase = {
+    key: "feature_planning",
+    status: selectedFeatureId ? "accepted" : "pending",
+    blockedReasons: selectedFeatureId ? [] : [text.noFeatureSpecs],
+    facts: [
+      { label: text.featureSpec, value: selectedFeatureId ?? text.none },
+      { label: text.command, value: "schedule_run" },
+    ],
+    stages: [
+      {
+        key: "generate_hld",
+        status: selectedFeatureId ? "pending" : "pending",
+      },
+      {
+        key: "split_feature_specs",
+        status: selectedFeatureId ? "pending" : "pending",
+      },
+      {
+        key: "planning_pipeline",
+        status: selectedFeatureId ? "accepted" : "pending",
+      },
+      {
+        key: "status_check",
+        status: selectedFeatureId ? "pending" : "pending",
+      },
+    ],
+  };
+  const workflowPhases: WorkflowPhase[] = baseWorkflowPhases.some((phase) => phase.key === "feature_planning")
+    ? baseWorkflowPhases
+    : [...baseWorkflowPhases, featurePlanningPhase];
+  const workflowSummaryTags = [
+    { label: text.currentPrdFile, value: uploadName || sourcePath, tone: "neutral" as const },
+    { label: text.prdVersion, value: workflow?.sourceVersion ?? "v1.3.0", tone: "blue" as const },
+    { label: text.scanMode, value: workflow?.scanMode === "smart" || !workflow?.scanMode ? text.smartMode : workflow.scanMode, tone: "neutral" as const },
+    { label: text.lastScan, value: workflow?.lastScanAt ?? "--", tone: "neutral" as const },
+    {
+      label: blockedReasons.length > 0 ? text.workflowBlockedItems : text.runtime,
+      value: blockedReasons.length > 0 ? String(blockedReasons.length) : workflow?.runtime ?? "10m 24s",
+      tone: blockedReasons.length > 0 ? "red" as const : "green" as const,
+    },
+  ];
 
   function runWorkflowAction(action: CommandReceipt["action"], key: string) {
     onCommand(action, "project", currentProject.id, {
@@ -2306,88 +2376,98 @@ function SpecPrdWorkflowPanel({
   return (
     <Panel className="overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <div>
-          <h2 className="text-[17px] font-semibold tracking-normal text-ink">{text.prdWorkflow}</h2>
-          <p className="mt-1 text-[12px] text-muted">{text.prdWorkflowSubtitle}</p>
+        <div className="min-w-0">
+          <h2 className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[17px] font-semibold tracking-normal text-ink">
+            <span>{text.prdWorkflow}</span>
+            <span className="text-[12px] font-normal text-muted">{text.prdWorkflowSubtitle}</span>
+          </h2>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {workflowSummaryTags.map((tag) => (
+              <Chip key={`${tag.label}-${tag.value}`} tone={tag.tone}>
+                <span className="max-w-[240px] truncate">{tag.label}: {tag.value}</span>
+              </Chip>
+            ))}
+          </div>
         </div>
         <Button tone="quiet"><RefreshCw size={14} />{text.viewAuditLog}</Button>
       </div>
-      <div className="grid grid-cols-2 divide-x divide-line max-xl:grid-cols-1 max-xl:divide-x-0 max-xl:divide-y">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
         {workflowPhases.map((phase) => {
-          const phaseTitle = phase.key === "project_initialization" ? text.projectInitialization : text.requirementIntake;
+          const phaseTitle = workflowPhaseTitle(phase.key, text);
           const phaseTone = phase.status === "blocked" ? "red" : phase.status === "completed" ? "green" : phase.status === "accepted" ? "blue" : "amber";
+          const isExpanded = expandedPhaseKey === phase.key;
           return (
-            <section key={phase.key} className="min-w-0 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-[16px] font-semibold tracking-normal text-ink">{phaseTitle}</h3>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Chip tone={phaseTone}>{workflowStatusLabel(phase.status, text)}</Chip>
-                    <span className="text-[12px] text-muted">{phase.updatedAt ?? "--"}</span>
-                  </div>
-                </div>
-                {phase.blockedReasons.length > 0 ? (
-                  <div className="max-w-[260px] rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
-                    {phase.blockedReasons[0]}
-                  </div>
-                ) : null}
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-2 max-md:grid-cols-1">
-                {phase.facts.map((fact) => (
-                  <div key={`${phase.key}-${fact.label}`} className="min-w-0 rounded-md border border-line bg-slate-50 px-3 py-2">
-                    <div className="text-[11px] text-muted">{fact.label}</div>
-                    <div className="mt-1 truncate text-[12px] font-semibold text-ink">{fact.value}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 space-y-2">
-                {phase.stages.map((stage, index) => {
-                  const Icon = workflowStageIcons[stage.key] ?? FileText;
-                  const isBlocked = stage.status === "blocked";
-                  const canRun = phase.key === "requirement_intake" && stage.action;
-                  return (
-                    <div key={`${phase.key}-${stage.key}`} className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-white p-3">
-                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">{index + 1}</div>
-                      <Icon size={17} className={isBlocked ? "text-red-600" : "text-action"} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-semibold text-ink">{workflowStageLabel(stage.key, text)}</div>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <Chip tone={isBlocked ? "red" : stage.status === "completed" ? "green" : stage.status === "accepted" ? "blue" : "amber"}>{workflowStatusLabel(stage.status, text)}</Chip>
-                          <span className="text-[12px] text-muted">{stage.updatedAt ?? stage.blockedReason ?? "--"}</span>
-                        </div>
-                      </div>
-                      {canRun ? (
-                        <Button
-                          className="h-8 shrink-0"
-                          onClick={() => stage.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(stage.action!, stage.key)}
-                        >
-                          {workflowStageLabel(stage.key, text)}
-                        </Button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+            <button
+              key={phase.key}
+              type="button"
+              aria-expanded={isExpanded}
+              onClick={() => setExpandedPhaseKey(isExpanded ? null : phase.key)}
+              className={`inline-flex min-h-10 max-w-full items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-action/30 ${
+                isExpanded ? "border-action bg-blue-50" : "border-line bg-white hover:bg-slate-50"
+              }`}
+            >
+              {isExpanded ? <ChevronDown size={15} className="shrink-0 text-action" /> : <ChevronRight size={15} className="shrink-0 text-muted" />}
+              <span className="truncate text-[13px] font-semibold text-ink">{phaseTitle}</span>
+              <Chip tone={phaseTone}>{workflowStatusLabel(phase.status, text)}</Chip>
+              <span className="shrink-0 text-[12px] text-muted">{phase.updatedAt ?? "--"}</span>
+            </button>
           );
         })}
       </div>
-      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1.4fr] gap-0 border-t border-line bg-slate-50 max-xl:grid-cols-2 max-md:grid-cols-1">
-        <WorkflowFact label={text.currentPrdFile} value={uploadName || sourcePath} icon={FileText} />
-        <WorkflowFact label={text.prdVersion} value={workflow?.sourceVersion ?? "v1.3.0"} icon={GitBranch} />
-        <WorkflowFact label={text.scanMode} value={workflow?.scanMode === "smart" || !workflow?.scanMode ? text.smartMode : workflow.scanMode} icon={Search} />
-        <WorkflowFact label={text.lastScan} value={workflow?.lastScanAt ?? "--"} icon={CalendarCheck} />
-        <div className={`m-3 rounded-md border p-3 text-[13px] ${blockedReasons.length > 0 ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 font-semibold">
-              {blockedReasons.length > 0 ? <ShieldAlert size={16} /> : <CheckCircle2 size={16} />}
-              {blockedReasons.length > 0 ? `${text.workflowBlockedItems} ${blockedReasons.length}` : text.workflowAccepted}
+      {workflowPhases.map((phase) => {
+        if (expandedPhaseKey !== phase.key) {
+          return null;
+        }
+        const phaseTitle = workflowPhaseTitle(phase.key, text);
+        return (
+          <section key={phase.key} className="border-t border-line p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h3 className="text-[16px] font-semibold tracking-normal text-ink">{phaseTitle}</h3>
+              {phase.blockedReasons.length > 0 ? (
+                <div className="max-w-[360px] rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+                  {phase.blockedReasons[0]}
+                </div>
+              ) : null}
             </div>
-            <span className="text-[12px]">{workflow?.runtime ?? "10m 24s"}</span>
-          </div>
-          <div className="mt-1 truncate pl-6">{blockedReasons[0] ?? `${text.sourcePath}: ${resolvedSourcePath}`}</div>
-        </div>
-      </div>
+            <div className="mt-4 grid grid-cols-3 gap-2 max-xl:grid-cols-2 max-md:grid-cols-1">
+              {phase.facts.map((fact) => (
+                <div key={`${phase.key}-${fact.label}`} className="min-w-0 rounded-md border border-line bg-slate-50 px-3 py-2">
+                  <div className="text-[11px] text-muted">{fact.label}</div>
+                  <div className="mt-1 truncate text-[12px] font-semibold text-ink">{fact.value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 max-xl:grid-cols-1">
+              {phase.stages.map((stage, index) => {
+                const Icon = workflowStageIcons[stage.key] ?? FileText;
+                const isBlocked = stage.status === "blocked";
+                const canRun = phase.key === "requirement_intake" && stage.action;
+                return (
+                  <div key={`${phase.key}-${stage.key}`} className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-white p-3">
+                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">{index + 1}</div>
+                    <Icon size={17} className={isBlocked ? "text-red-600" : "text-action"} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-ink">{workflowStageLabel(stage.key, text)}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <Chip tone={isBlocked ? "red" : stage.status === "completed" ? "green" : stage.status === "accepted" ? "blue" : "amber"}>{workflowStatusLabel(stage.status, text)}</Chip>
+                        <span className="text-[12px] text-muted">{stage.updatedAt ?? stage.blockedReason ?? "--"}</span>
+                      </div>
+                    </div>
+                    {canRun ? (
+                      <Button
+                        className="h-8 shrink-0"
+                        onClick={() => stage.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(stage.action!, stage.key)}
+                      >
+                        {workflowStageLabel(stage.key, text)}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
       <input
         ref={inputRef}
         aria-label={text.uploadPrdFileInput}
@@ -2407,15 +2487,6 @@ function joinDisplayPath(root: string, path: string): string {
   const normalizedRoot = root.replace(/\/+$/, "");
   const normalizedPath = path.replace(/^\/+/, "");
   return normalizedRoot ? `${normalizedRoot}/${normalizedPath}` : normalizedPath;
-}
-
-function WorkflowFact({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Home }) {
-  return (
-    <div className="min-w-0 border-r border-line px-4 py-3 last:border-r-0 max-xl:border-r-0">
-      <div className="flex items-center gap-2 text-[12px] text-muted"><Icon size={14} />{label}</div>
-      <div className="mt-2 truncate text-[13px] font-semibold text-ink">{value}</div>
-    </div>
-  );
 }
 
 function RequirementsSection({ selected, tasks, text }: { selected: NonNullable<ConsoleData["spec"]["selectedFeature"]>; tasks: BoardTask[]; text: ConsoleCopy }) {

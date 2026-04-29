@@ -23,8 +23,8 @@ test("renders the console first screen and navigates across all pages", async ({
 
   for (const label of ["项目主页", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "全局概况"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
-    const heading = label === "审查" ? /审查 \d+/ : label;
-    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    const heading = label === "审查" ? /审查 \d+/ : label === "Spec 工作台" ? "Feature Spec" : label;
+    await expect(page.getByRole("heading", { name: heading, exact: typeof heading === "string" })).toBeVisible();
     if (label === "Runner") {
       await expect(page.getByText("任务调度中心")).toBeVisible();
       await expect(page.getByText("Ready 1")).toBeVisible();
@@ -53,7 +53,7 @@ test("supports collapsible navigation and keeps the content header fixed", async
   }
 
   await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Spec 工作台" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Feature Spec", exact: true })).toBeVisible();
 });
 
 test("omits the project metric summary strip from workbench pages", async ({ page }) => {
@@ -102,20 +102,37 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await page.goto("/");
 
   await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Spec 工作台" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "PRD 操作流程" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "阶段 1 项目初始化" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "阶段 2 需求录入" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Feature Spec", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Spec 操作流程" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /阶段 3 规划执行/ })).toBeVisible();
+  await expect(page.getByText(/当前 Spec 来源:/)).toBeVisible();
+  await expect(page.getByText(/阻塞项:/)).toBeVisible();
+  await expect(page.getByText("创建/导入项目")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("button", { name: /阶段 1 项目初始化/ }).click();
+  await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("创建/导入项目")).toBeVisible();
+  await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
+  await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("button", { name: /阶段 3 规划执行/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText("创建/导入项目")).toHaveCount(0);
   await expect(page.getByText("推入 Feature Spec Pool")).toBeVisible();
-  await expect(page.getByRole("button", { name: "扫描 PRD" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "上传 PRD", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "扫描 Spec" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "上传 Spec", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 EARS" })).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 HLD" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "拆分 Feature Spec" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "进入规划流水线" })).toHaveCount(0);
   await expect(page.getByText("workspace/acme-returns-portal/docs/zh-CN/PRD.md").first()).toBeVisible();
-  await expect(page.getByText("Feature Spec", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /阶段 3 规划执行/ }).click();
+  await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText("生成 HLD")).toBeVisible();
+  await expect(page.getByText("拆分 Feature Spec")).toBeVisible();
+  await expect(page.getByText("规划流水线").first()).toBeVisible();
+  await expect(page.getByText("Feature Spec", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("FEAT-204 Mobile Returns Portal")).toBeVisible();
   await expect(page.getByText("需求列表")).toBeVisible();
   await expect(page.getByRole("cell", { name: "REQ-204-001" }).first()).toBeVisible();
@@ -138,9 +155,10 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
 
-  await page.getByRole("button", { name: "扫描 PRD" }).click();
+  await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
+  await page.getByRole("button", { name: "扫描 Spec" }).click();
   await expect(page.getByLabel("Notifications (F8)").getByText("scan_prd_source recorded")).toBeVisible();
-  await page.getByLabel("上传 PRD 文件").setInputFiles({
+  await page.getByLabel("上传 Spec 文件").setInputFiles({
     name: "uploaded-prd.md",
     mimeType: "text/markdown",
     buffer: Buffer.from("# Uploaded PRD\n\nWHEN a user scans a PRD\nTHE SYSTEM SHALL create governed workflow input."),

@@ -204,7 +204,7 @@ export type SpecWorkspaceViewModel = {
     runtime?: string;
     blockedReasons: string[];
     phases: Array<{
-      key: "project_initialization" | "requirement_intake";
+      key: "project_initialization" | "requirement_intake" | "feature_planning";
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       blockedReasons: string[];
@@ -828,6 +828,8 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       memoryVersion: result.queries.memoryVersions[0],
       healthCheck: result.queries.healthChecks[0],
       features,
+      selectedFeatureId: feature?.id,
+      selectedFeatureStatus: feature?.status,
       selectedRequirementCount: result.queries.requirements.length,
     }),
     selectedFeature: feature
@@ -893,6 +895,8 @@ function buildPrdWorkflow(input: {
   memoryVersion?: Record<string, unknown>;
   healthCheck?: Record<string, unknown>;
   features: SpecWorkspaceViewModel["features"];
+  selectedFeatureId?: string;
+  selectedFeatureStatus?: string;
   selectedRequirementCount: number;
 }): SpecWorkspaceViewModel["prdWorkflow"] {
   const stages: SpecWorkspaceViewModel["prdWorkflow"]["stages"] = [
@@ -938,10 +942,12 @@ function buildPrdWorkflow(input: {
   const healthCheck = input.healthCheck;
   const projectStatus = optionalString(project?.status);
   const projectPath = optionalString(repositoryConnection?.local_path) ?? optionalString(project?.target_repo_path);
+  const healthReasons = parseJsonArray(healthCheck?.reasons_json).map(String);
+  const isSpecProtocolMissing = healthReasons.includes("spec_protocol_directory_missing");
   const projectBlockedReasons = [
-    ...arrayValue(parseJsonObject(healthCheck?.reasons_json)).map(String),
-    ...(!project ? ["Create or import a project before PRD intake."] : []),
-    ...(project && !repositoryConnection ? ["Connect a Git repository before PRD intake."] : []),
+    ...healthReasons,
+    ...(!project ? ["Create or import a project before Spec intake."] : []),
+    ...(project && !repositoryConnection ? ["Connect a Git repository before Spec intake."] : []),
   ];
   const projectStageStatus = (done: boolean, blockedReason?: string): "pending" | "accepted" | "blocked" | "completed" => {
     if (done) {
@@ -957,21 +963,21 @@ function buildPrdWorkflow(input: {
   const projectStages = [
     {
       key: "create_or_import_project",
-      status: projectStageStatus(Boolean(project), "Create or import a project before PRD intake."),
+      status: projectStageStatus(Boolean(project), "Create or import a project before Spec intake."),
       updatedAt: optionalString(project?.created_at),
-      blockedReason: project ? undefined : "Create or import a project before PRD intake.",
+      blockedReason: project ? undefined : "Create or import a project before Spec intake.",
     },
     {
       key: "connect_git_repository",
-      status: projectStageStatus(Boolean(repositoryConnection), project ? "Connect a Git repository before PRD intake." : undefined),
+      status: projectStageStatus(Boolean(repositoryConnection), project ? "Connect a Git repository before Spec intake." : undefined),
       updatedAt: optionalString(repositoryConnection?.connected_at),
-      blockedReason: project && !repositoryConnection ? "Connect a Git repository before PRD intake." : undefined,
+      blockedReason: project && !repositoryConnection ? "Connect a Git repository before Spec intake." : undefined,
     },
     {
       key: "initialize_spec_protocol",
-      status: projectStageStatus(projectStatus === "ready" || Boolean(projectPath), project ? "Initialize .autobuild / Spec Protocol before PRD intake." : undefined),
+      status: projectStageStatus(Boolean(projectPath) && !isSpecProtocolMissing, project ? "Initialize .autobuild / Spec Protocol before Spec intake." : undefined),
       updatedAt: optionalString(healthCheck?.checked_at),
-      blockedReason: project && !projectPath ? "Initialize .autobuild / Spec Protocol before PRD intake." : undefined,
+      blockedReason: project && (!projectPath || isSpecProtocolMissing) ? "Initialize .autobuild / Spec Protocol before Spec intake." : undefined,
     },
     {
       key: "import_or_create_constitution",
@@ -980,7 +986,7 @@ function buildPrdWorkflow(input: {
     },
     {
       key: "initialize_project_memory",
-      status: projectStageStatus(Boolean(memoryVersion) || Boolean(projectPath), undefined),
+      status: projectStageStatus(Boolean(memoryVersion), undefined),
       updatedAt: optionalString(memoryVersion?.created_at),
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
@@ -1014,6 +1020,31 @@ function buildPrdWorkflow(input: {
   const intakePhaseStatus = intakeBlockedReasons.length > 0
     ? "blocked"
     : requirementIntakeStages.some((stage) => stage.status === "accepted" || stage.status === "completed")
+      ? "accepted"
+      : "pending";
+  const planningActionStages = [
+    {
+      key: "generate_hld",
+      status: latestByAction.has("generate_hld") ? "accepted" as const : "pending" as const,
+      updatedAt: optionalString(latestByAction.get("generate_hld")?.created_at),
+    },
+    {
+      key: "split_feature_specs",
+      status: latestByAction.has("split_feature_specs") ? "accepted" as const : "pending" as const,
+      updatedAt: optionalString(latestByAction.get("split_feature_specs")?.created_at),
+    },
+    {
+      key: "planning_pipeline",
+      status: latestByAction.has("schedule_run") ? "accepted" as const : input.selectedFeatureId ? "pending" as const : "pending" as const,
+      updatedAt: optionalString(latestByAction.get("schedule_run")?.created_at),
+    },
+  ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
+  const planningBlockedReasons = intakePhaseStatus === "blocked"
+    ? ["Complete Stage 2 before planning execution."]
+    : [];
+  const planningPhaseStatus = planningBlockedReasons.length > 0
+    ? "blocked"
+    : planningActionStages.some((stage) => stage.status === "accepted" || stage.status === "completed")
       ? "accepted"
       : "pending";
 
@@ -1051,6 +1082,18 @@ function buildPrdWorkflow(input: {
           { label: "Requirements", value: String(input.selectedRequirementCount) },
         ],
         stages: requirementIntakeStages,
+      },
+      {
+        key: "feature_planning",
+        status: planningPhaseStatus,
+        updatedAt: planningActionStages.find((stage) => stage.updatedAt)?.updatedAt,
+        blockedReasons: planningBlockedReasons,
+        facts: [
+          { label: "Feature", value: input.selectedFeatureId ?? "Not selected" },
+          { label: "Status", value: input.selectedFeatureStatus ?? "unknown" },
+          { label: "Command", value: "schedule_run" },
+        ],
+        stages: planningActionStages,
       },
     ],
     stages: decoratedStages,

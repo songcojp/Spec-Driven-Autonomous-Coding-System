@@ -23,7 +23,9 @@ Spec Evolution:
 - Project Home 是当前单个项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并在页面内提供 Task Board 分区。
 - Task Board 分区支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
-- Spec Workspace 的 PRD 操作流程必须拆为“阶段 1 项目初始化”和“阶段 2 需求录入”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 展示 Spec Sources 自动扫描、PRD 上传、PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS / Feature Spec 生成、澄清、质量检查和 Feature Spec Pool 状态。
+- Spec Workspace 的 Spec 操作流程必须拆为“阶段 1 项目初始化”、“阶段 2 需求录入”和“阶段 3 规划执行”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 展示 Spec Sources 自动扫描、PRD 上传、PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS / Feature Spec 生成、澄清、质量检查和 Feature Spec Pool 状态；阶段 3 展示 HLD 生成、Feature Spec 拆分、规划流水线和状态检查状态。
+- Spec Workspace 头部的阶段流程必须默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；点击阶段标签后展开阶段事实、阻塞原因和阶段内步骤。
+- Spec Workflow 的来源、版本、扫描模式、最后扫描时间、运行耗时和阻塞数量必须以标签形式显示在流程说明栏；流程后方不得保留独立提示信息栏。
 - 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；这些阶段 3 操作只能作为选中 Feature 的独立受控操作出现。
 - Skill Center 展示项目本地 `.agents/skills/*/SKILL.md` 发现到的 Skill 列表、详情和文件路径。
 - Subagent Console 展示 CLI delegation 相关 run、Subagent event、Evidence Pack、Status Check、token 使用和运行状态。
@@ -50,7 +52,7 @@ Spec Evolution:
 - Task Board 可以展示任务依赖、diff、测试结果、审批状态和失败恢复历史入口。
 - Task Board 的拖拽或批量操作只能产生受状态机允许的状态变更或调度请求。
 - 用户可以从 Spec Workspace 追踪需求到任务图。
-- 用户可以从 Spec Workspace 看到阶段 1 自动项目初始化是否阻塞阶段 2 需求录入，并在没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 PRD 流程。
+- 用户可以从 Spec Workspace 看到阶段 1 自动项目初始化是否阻塞阶段 2 需求录入，也可以看到阶段 3 规划执行状态；没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 / 阶段 3 Spec 流程。
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。
 - 用户可以查看 Skill 是否启用以及最近执行情况。
 - 用户可以定位每个 Subagent 的输入、输出和当前状态。
@@ -85,6 +87,7 @@ Spec Evolution:
 - [ ] 浏览器级验证覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及 `project_id` 缺失/不匹配时的阻塞反馈。
 - [ ] Spec Workspace 浏览器级验证覆盖阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 自动扫描、PRD 上传命令回执、项目切换后的数据隔离，以及阶段 2 不出现 HLD 生成、Feature Spec 拆分或规划流水线入口。
 - [ ] 阶段 2 扫描结果展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等来源类型，并标记缺失项、冲突项和需要澄清的问题。
+- [ ] Spec Workspace 阶段流程默认不展开阶段内步骤；用户点击阶段状态标签后才展开对应阶段详情，且头部流程只以标签承载状态和提示信息。
 
 ## Risks and Open Questions
 

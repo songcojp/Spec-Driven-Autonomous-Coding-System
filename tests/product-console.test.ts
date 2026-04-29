@@ -312,13 +312,68 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.equal(specWorkspace.commands.some((command) => command.action === "scan_prd_source"), true);
   assert.equal(specWorkspace.commands.some((command) => command.action === "generate_ears"), true);
   assert.equal(specWorkspace.prdWorkflow.sourcePath, "docs/zh-CN/PRD.md");
-  assert.deepEqual(specWorkspace.prdWorkflow.phases.map((phase) => phase.key), ["project_initialization", "requirement_intake"]);
+  assert.deepEqual(specWorkspace.prdWorkflow.phases.map((phase) => phase.key), ["project_initialization", "requirement_intake", "feature_planning"]);
   assert.equal(specWorkspace.prdWorkflow.phases[0].stages.some((stage) => stage.key === "initialize_project_memory"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "generate_ears"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "feature_spec_pool"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "planning_pipeline"), true);
   assert.equal(specWorkspace.prdWorkflow.stages.some((stage) => stage.key === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "schedule_run"), true);
+
+  runSqlite(dbPath, [
+    { sql: "DELETE FROM memory_version_records WHERE id = 'MEM-1'" },
+    { sql: "DELETE FROM project_constitutions WHERE id = 'CONST-1'" },
+  ]);
+  const initializationWorkspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+  const initializationStages = initializationWorkspace.prdWorkflow.phases[0].stages;
+  assert.equal(
+    initializationStages.find((stage) => stage.key === "import_or_create_constitution")?.status,
+    "pending",
+  );
+  assert.equal(
+    initializationStages.find((stage) => stage.key === "initialize_project_memory")?.status,
+    "pending",
+  );
+
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO project_constitutions (
+          id, project_id, version, source, title, project_goal,
+          engineering_principles_json, boundary_rules_json, approval_rules_json, default_constraints_json, status, created_at
+        ) VALUES (
+          'CONST-1', 'project-1', 1, 'manual', 'SpecDrive Constitution', 'Automate specs',
+          '[]', '[]', '[]', '[]', 'active', '2026-04-28T07:06:00.000Z'
+        )`,
+    },
+    {
+      sql: `INSERT INTO memory_version_records (id, project_memory_id, version, run_id, summary, checksum, content, created_at)
+        VALUES ('MEM-1', 'memory-project-1', 1, NULL, 'Initial project memory.', 'checksum', '{"projectId":"project-1"}', '2026-04-28T07:07:00.000Z')`,
+    },
+  ]);
+
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE project_health_checks SET status = 'blocked', reasons_json = ? WHERE id = 'HC-1'",
+      params: [JSON.stringify(["uncommitted_changes_present"])],
+    },
+  ]);
+  const dirtyWorkspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+  assert.equal(
+    dirtyWorkspace.prdWorkflow.phases[0].stages.find((stage) => stage.key === "initialize_spec_protocol")?.status,
+    "completed",
+  );
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE project_health_checks SET reasons_json = ? WHERE id = 'HC-1'",
+      params: [JSON.stringify(["spec_protocol_directory_missing"])],
+    },
+  ]);
+  const missingSpecWorkspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+  assert.equal(
+    missingSpecWorkspace.prdWorkflow.phases[0].stages.find((stage) => stage.key === "initialize_spec_protocol")?.status,
+    "blocked",
+  );
 
   const skillCenter = buildSkillCenterView(dbPath, "project-1");
   assert.equal(skillCenter.skills[0].slug, "console-skill");

@@ -146,7 +146,7 @@ export type SpecWorkspaceModel = {
     runtime?: string;
     blockedReasons: string[];
     phases: Array<{
-      key: "project_initialization" | "requirement_intake";
+      key: "project_initialization" | "requirement_intake" | "feature_planning";
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       blockedReasons: string[];
