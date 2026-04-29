@@ -1,19 +1,46 @@
 ---
 name: pr-ears-requirement-decomposition-skill
-description: "Decompose PRD or PR/RP product input into atomic EARS requirements. Use when product prose must become testable REQ, NFR, EDGE entries with traceability and acceptance checks."
+description: "Decompose PRD, PR/RP, product brief, or natural-language product input into atomic EARS requirements. Use when product prose must become testable REQ, NFR, EDGE entries, acceptance criteria, open questions, and traceability."
 ---
 
 # PR EARS Requirement Decomposition Skill
 
-This is the design-slug entry point for PRD-to-EARS conversion. Prefer the existing `parse-prd-to-ears` workflow for the detailed output structure.
+This is the design-named PRD-to-EARS conversion entry point.
 
 ## Workflow
 
-1. Locate the source PRD, product request, PR/RP, or feature brief.
-2. Extract goals, non-goals, actors, user stories, constraints, risks, and open questions.
-3. Convert observable behavior into EARS statements using `WHEN`, `WHILE`, `IF`, `WHERE`, or error-case forms.
-4. Assign stable IDs and priorities without renumbering existing requirements.
-5. Add acceptance checks and traceability back to the source sections.
+1. Locate the source PRD, product request, PR/RP, or feature brief. If no path is given, prefer existing files such as `docs/PRD.md`, `docs/en/PRD.md`, or language-specific PRD files.
+2. Preserve the source language unless the user asks for another language.
+3. Extract product goals, non-goals, actors, user stories, functional requirements, non-functional requirements, risks, constraints, and unresolved questions.
+4. Convert observable behavior into EARS statements using stable IDs:
+   - `REQ-001`, `REQ-002`, ... for functional requirements.
+   - `NFR-001`, `NFR-002`, ... for non-functional requirements.
+   - `EDGE-001`, `EDGE-002`, ... for boundary, error, recovery, or exceptional paths.
+5. Keep each requirement atomic, observable, testable, and free of implementation choices unless the source states a hard constraint.
+6. Add traceability back to PRD sections or source bullets when possible.
+7. Surface gaps as open questions instead of inventing product intent.
+8. Write the output to the requested file. If the user does not specify a target, create or update `requirements.md` near the PRD or inside the relevant feature spec folder.
+
+## EARS Patterns
+
+Use the simplest pattern that fits the behavior:
+
+```markdown
+WHEN [event or trigger]
+THE SYSTEM SHALL [observable expected behavior]
+
+WHILE [state or mode]
+THE SYSTEM SHALL [observable expected behavior]
+
+IF [optional feature or configuration is enabled]
+THEN THE SYSTEM SHALL [observable expected behavior]
+
+WHERE [context or actor scope applies]
+THE SYSTEM SHALL [observable expected behavior]
+
+WHEN [unwanted condition or error occurs]
+THE SYSTEM SHALL [safe handling, error message, rollback, retry, or blocked action]
+```
 
 ## Output
 
@@ -21,6 +48,14 @@ This is the design-slug entry point for PRD-to-EARS conversion. Prefer the exist
 - Non-functional requirements and edge cases.
 - Traceability matrix.
 - Open questions for unresolved product intent.
+
+## Quality Bar
+
+- Every requirement has exactly one primary behavior.
+- Every requirement can become a test case without interpretation.
+- Error, empty, permission, duplicate, timeout, and recovery paths are covered when relevant.
+- Design, data model, framework, database, and algorithm choices stay out of requirements unless explicitly required by the source.
+- Ambiguity is captured in `Open Questions` with the smallest useful question.
 
 ## Failure Routing
 

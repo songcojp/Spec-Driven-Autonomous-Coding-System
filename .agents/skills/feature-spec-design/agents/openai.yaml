@@ -1,4 +1,0 @@
-interface:
-  display_name: "Feature Spec Design"
-  short_description: "Draft Feature Spec design.md"
-  default_prompt: "Use $feature-spec-design to draft a Feature Spec design.md from the feature requirements."

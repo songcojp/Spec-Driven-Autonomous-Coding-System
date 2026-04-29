@@ -1,19 +1,39 @@
 ---
 name: requirement-intake-skill
-description: "Intake new product requirements for SpecDrive. Use when a natural-language request, user story, capability, constraint, review finding, or implementation-discovered requirement must become governed PRD, EARS, design, and Feature Spec updates."
+description: "Intake and add new product requirements into the SpecDrive documentation flow. Use when a natural-language request, user story, capability, constraint, non-functional requirement, edge case, review finding, or implementation-discovered scope item must become governed PRD, EARS, design, and Feature Spec updates with traceability."
 ---
 
 # Requirement Intake Skill
 
-This is the design-slug entry point for adding requirements. Prefer the existing `add-requirement` workflow for detailed document propagation.
+Before editing, follow the governance checklist in `docs/zh-CN/change-management.md` when it exists. This skill is the design-named requirement intake entry point and owns new requirement propagation.
 
 ## Workflow
 
-1. Classify the source: user request, PRD change, review finding, test result, delivery report, or implementation evidence.
-2. Determine whether the intake is a new requirement, a change to an existing requirement, or a clarification.
-3. Create or update stable IDs: `REQ-*`, `NFR-*`, `EDGE-*`, or change IDs when needed.
-4. Propagate scope through PRD, `requirements.md`, HLD/design, and affected Feature Specs.
-5. Preserve traceability from source to requirement to feature acceptance.
+1. Locate the active source lane. If the user does not provide paths, prefer `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md` in this repo.
+2. Classify the source: user request, PRD change, review finding, test result, delivery report, or implementation evidence.
+3. Determine whether the intake is a new requirement, a change to an existing requirement, or a clarification. Use `spec-evolution-skill` for changes to existing requirements.
+4. Classify the new requirement:
+   - Functional behavior -> `REQ-*`.
+   - Non-functional quality, security, reliability, observability, or performance -> `NFR-*`.
+   - Error, boundary, recovery, ambiguity, or exceptional path -> `EDGE-*`.
+5. Update the PRD first when the new requirement changes product scope, user value, milestones, risks, data model, page surface, or non-goals. Keep the PRD concise and conclusion-first.
+6. Update the adjacent `requirements.md` next. Add a stable ID, source trace, priority, EARS statement, and testable acceptance checks.
+7. Run a consistency pass:
+   - Every new requirement must point back to a PRD section, source note, clarification, or explicit user instruction.
+   - Every new behavior must be atomic and observable.
+   - Do not invent product intent; add a pending question when the input is ambiguous.
+8. If the new requirement affects architecture, technology stack, data ownership, workflows, interfaces, state machines, or security boundaries, update `hld.md` or `design.md`.
+9. Update Feature Specs:
+   - If it belongs to an existing feature, update that feature's `requirements.md`, `design.md`, and `tasks.md`.
+   - If it is independently deliverable, create a new feature folder and update `docs/features/README.md`.
+   - Keep dependencies, milestone, status, and source `REQ-*`/`NFR-*`/`EDGE-*` mapping aligned.
+10. Re-check downstream references: traceability matrix, MVP mapping, feature index, HLD split/dependency mapping, and open questions.
+
+## Versioning
+
+- Use `MINOR` for a new user story, capability, constraint, or externally visible behavior.
+- Use `PATCH` only when the addition is a clarification or acceptance detail that does not expand scope.
+- Use `MAJOR` when the addition changes product goals, core boundaries, or delivery model.
 
 ## Output
 
@@ -21,6 +41,14 @@ This is the design-slug entry point for adding requirements. Prefer the existing
 - Requirement IDs and affected documents.
 - Acceptance criteria or open questions.
 - Downstream sync notes.
+
+## Output Rules
+
+- Preserve the source language unless the user asks otherwise.
+- Prefer in-place edits to the current formal docs over creating scratch files.
+- Keep IDs stable; append new IDs instead of renumbering existing requirements unless the user explicitly asks for a rebase.
+- Keep implementation details out of requirements unless the PRD states them as hard constraints.
+- If only documentation changed, do not touch code or feature worktrees.
 
 ## Failure Routing
 

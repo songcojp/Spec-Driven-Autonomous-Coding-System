@@ -37,7 +37,7 @@
 
 ### 3.1 新增需求
 
-使用 `add-requirement` 技能，并按以下顺序处理：
+使用 `requirement-intake-skill` 技能，并按以下顺序处理：
 
 1. 确认事实源：优先定位 PRD 段落、用户指令或明确证据。
 2. 判断 ID 类型：功能行为进入 `REQ-*`，质量属性进入 `NFR-*`，错误/边界/恢复路径进入 `EDGE-*`。
@@ -49,7 +49,7 @@
 
 ### 3.2 需求变更
 
-使用 `change-requirement` 技能，并按以下顺序处理：
+使用 `spec-evolution-skill` 技能，并按以下顺序处理：
 
 1. 定位被变更需求的当前事实源和所有引用位置。
 2. 判断是否保持原 ID：语义相同则保留 ID；语义替换则标记 superseded/deprecated，并新增 ID。

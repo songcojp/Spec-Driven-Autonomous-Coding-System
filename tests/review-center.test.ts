@@ -889,7 +889,7 @@ test("task completion derives parent feature status from graph task state", () =
           allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
         ) VALUES (
           'TASK-011-GRAPH-FAILED', 'TG-FEAT-011', 'FEAT-011', 'Failed graph task', 'failed',
-          '[]', '[]', '[]', '[]', 'medium', 'feature-spec-execution', 'coding', 1
+          '[]', '[]', '[]', '[]', 'medium', 'codex-coding-skill', 'coding', 1
         )`,
     },
   ]);
@@ -1866,7 +1866,7 @@ function seedReviewData(): string {
           allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
         ) VALUES (
           'TASK-011', 'TG-FEAT-011', 'FEAT-011', 'Implement approval gate', 'review_needed',
-          '[]', '[]', '[]', '[]', 'medium', 'feature-spec-execution', 'coding', 1
+          '[]', '[]', '[]', '[]', 'medium', 'codex-coding-skill', 'coding', 1
         )`,
     },
     {

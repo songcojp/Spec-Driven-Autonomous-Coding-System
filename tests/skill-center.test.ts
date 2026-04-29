@@ -28,24 +28,24 @@ test("schema removes SQL skill registry and custom context broker tables", () =>
 
 test("project skill discovery reads SKILL.md files from .agents/skills", () => {
   const root = mkdtempSync(join(tmpdir(), "skill-discovery-"));
-  writeSkill(root, "feature-spec-execution", `---
-name: feature-spec-execution
-description: "Execute a feature spec with CLI-native delegation."
+  writeSkill(root, "codex-coding-skill", `---
+name: codex-coding-skill
+description: "Implement bounded coding tasks through Codex."
 ---
 
-# Feature Spec Execution
+# Codex Coding Skill
 `);
-  writeSkill(root, "parse-prd-to-ears", `# Parse PRD to EARS
+  writeSkill(root, "pr-ears-requirement-decomposition-skill", `# PR EARS Requirement Decomposition Skill
 `);
   mkdirSync(join(root, ".agents", "skills", "missing-skill-file"), { recursive: true });
 
   const skills = listProjectSkills({ root });
 
-  assert.deepEqual(skills.map((skill) => skill.slug), ["feature-spec-execution", "parse-prd-to-ears"]);
-  assert.equal(skills[0].name, "feature-spec-execution");
-  assert.equal(skills[0].description, "Execute a feature spec with CLI-native delegation.");
-  assert.equal(skills[1].name, "parse-prd-to-ears");
-  assert.equal(skills[1].description, "Parse PRD to EARS");
+  assert.deepEqual(skills.map((skill) => skill.slug), ["codex-coding-skill", "pr-ears-requirement-decomposition-skill"]);
+  assert.equal(skills[0].name, "codex-coding-skill");
+  assert.equal(skills[0].description, "Implement bounded coding tasks through Codex.");
+  assert.equal(skills[1].name, "pr-ears-requirement-decomposition-skill");
+  assert.equal(skills[1].description, "PR EARS Requirement Decomposition Skill");
   assert.equal(countProjectSkills({ root }), 2);
 });
 

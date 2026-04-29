@@ -1,4 +1,0 @@
-interface:
-  display_name: "Add Requirement"
-  short_description: "Add new requirements across SpecDrive docs"
-  default_prompt: "Use $add-requirement to add this new requirement and propagate it through the SpecDrive docs."

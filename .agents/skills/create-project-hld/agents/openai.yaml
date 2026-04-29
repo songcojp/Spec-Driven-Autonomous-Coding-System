@@ -1,4 +1,0 @@
-interface:
-  display_name: "Create Project HLD"
-  short_description: "Draft HLD and project tech stack"
-  default_prompt: "Use $create-project-hld to draft a project-level HLD and determine the technology stack from the PRD and requirements."

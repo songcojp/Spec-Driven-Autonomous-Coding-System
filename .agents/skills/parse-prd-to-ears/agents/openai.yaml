@@ -1,4 +1,0 @@
-interface:
-  display_name: "Parse PRD to EARS"
-  short_description: "Turn PRDs into testable EARS requirements"
-  default_prompt: "Use $parse-prd-to-ears to convert this PRD into EARS requirements."

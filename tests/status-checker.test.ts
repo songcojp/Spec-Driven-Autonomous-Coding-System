@@ -249,7 +249,7 @@ test("repeated failures mark active task and feature failed", () => {
           allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
         ) VALUES (
           'GRAPH-TASK-009', 'TG-FEAT-009', 'FEAT-009', 'Run checks', 'running',
-          '[]', '[]', '[]', '[]', 'medium', 'feature-spec-execution', 'coding', 1
+          '[]', '[]', '[]', '[]', 'medium', 'codex-coding-skill', 'coding', 1
         )`,
     },
   ]);
