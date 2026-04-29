@@ -1,6 +1,13 @@
 import type { ConsoleData } from "../types";
 
 export const demoData: ConsoleData = {
+  projects: {
+    currentProjectId: "project-1",
+    projects: [
+      { id: "project-1", name: "AutoBuild Platform", repository: "specdrive-autobuild", projectDirectory: "workspace/autobuild-platform", defaultBranch: "main", health: "ready", lastActivityAt: "2026-04-29T03:31:00.000Z" },
+      { id: "project-2", name: "Docs Automation", repository: "docs-automation", projectDirectory: "workspace/docs-automation", defaultBranch: "develop", health: "blocked", lastActivityAt: "2026-04-29T02:05:00.000Z" },
+    ],
+  },
   dashboard: {
     projectHealth: { totalProjects: 1, ready: 1, blocked: 0, failed: 0 },
     activeFeatures: [{ id: "FEAT-013", title: "Product Console", status: "in-progress", priority: 8 }],
@@ -69,13 +76,14 @@ export const demoData: ConsoleData = {
     factSources: ["task_graph_tasks", "review_items", "approval_records", "evidence_packs", "state_transitions"],
   },
   spec: {
-    features: [{ id: "FEAT-013", title: "Product Console", folder: "feat-013-product-console", status: "in-progress", primaryRequirements: ["REQ-052", "REQ-053", "REQ-061"] }],
+    features: [{ id: "FEAT-013", title: "Product Console", folder: "feat-013-product-console", status: "done", primaryRequirements: ["REQ-052", "REQ-053", "REQ-061", "REQ-062"] }],
     selectedFeature: {
       id: "FEAT-013",
       title: "Product Console",
       requirements: [
         { id: "REQ-052", body: "Dashboard can show project and task status summaries.", priority: "MVP" },
         { id: "REQ-061", body: "Board actions must go through controlled commands.", priority: "MVP" },
+        { id: "REQ-062", body: "Product Console defaults to Chinese and supports UI language switching.", priority: "MVP" },
       ],
       clarificationRecords: [{ id: "CHG-009", summary: "API/ViewModel is not UI completion evidence." }],
       qualityChecklist: [
@@ -115,6 +123,7 @@ export const demoData: ConsoleData = {
 };
 
 export const emptyData: ConsoleData = {
+  projects: demoData.projects,
   dashboard: { ...demoData.dashboard, activeFeatures: [], failedTasks: [], pendingApprovals: 0, runningSubagents: 0, risks: [], recentPullRequests: [], boardCounts: {} },
   board: { tasks: [], commands: demoData.board.commands, factSources: demoData.board.factSources },
   spec: { features: [], selectedFeature: undefined },

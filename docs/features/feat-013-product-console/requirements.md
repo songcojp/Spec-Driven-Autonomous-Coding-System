@@ -5,16 +5,18 @@
 | Source | IDs / Sections |
 |---|---|
 | PRD | 第 8.1 至 8.7 节页面需求 |
-| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, NFR-006, NFR-007, NFR-008, NFR-010 |
+| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, REQ-063, NFR-006, NFR-007, NFR-008, NFR-010 |
 | HLD | 7.11 Product Console and Dashboard, 12 Observability and Operability |
 
 Spec Evolution:
 - CHG-009：实现证据显示当前仓库只有 Control Plane API、Query/ViewModel 和 API 层测试，没有用户可访问的前端应用、页面路由、组件系统或浏览器验收。FEAT-013 从 `done` 重新打开为 `in-progress`；API/ViewModel 只能作为 UI 后端基础，不能替代 Product Console 用户界面。
 - ADD-004：用户要求 UI 支持多语言切换，且默认中文。该需求作为 Product Console patch 处理，必须覆盖界面文案、语言偏好和浏览器级验证。
+- ADD-005：用户要求支持项目创建、导入现有项目和多个项目切换。该需求由 FEAT-001 提供项目目录与当前项目上下文，Product Console 必须提供导入/新建表单、项目列表、项目切换控件和项目级查询隔离反馈。
 
 ## Scope
 
 - Dashboard 展示项目健康度、当前活跃 Feature、看板任务数量、运行中 Subagent、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
+- Product Console App Shell 提供导入现有项目入口、新建项目表单、项目列表和当前项目切换控件；当前项目上下文驱动所有页面查询和受控命令。
 - Dashboard Board 支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
 - Skill Center 展示项目本地 `.agents/skills/*/SKILL.md` 发现到的 Skill 列表、详情和文件路径。
@@ -46,8 +48,10 @@ Spec Evolution:
 - 用户可以判断 Runner 是否可执行新任务。
 - 高风险、阻塞或需澄清任务能从 Review Center 被处理。
 - 用户可以在浏览器中打开 Product Console，并在 Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 之间切换。
+- 用户可以导入现有项目或通过表单创建新项目，在项目列表中切换当前项目，并看到各页面随当前项目刷新。
 - 每个页面必须有加载态、空态、错误态和真实数据态；页面文案不能替代状态数据、Evidence、diff、日志或命令结果。
 - 用户动作必须通过可见控件发起，且控件调用 Control Plane 受控命令后展示成功、阻塞或失败反馈。
+- 所有项目级受控命令必须携带当前 `project_id`；缺少或不匹配时展示阻塞反馈，不得静默使用上一个项目。
 - 用户可以切换界面语言并保留选择；Evidence、diff、日志、文件路径、命令输出和用户输入内容保持原文，不被界面翻译层改写。
 
 ## Acceptance Criteria
@@ -65,6 +69,10 @@ Spec Evolution:
 - [ ] 语言切换后当前页面和后续导航使用所选语言，刷新后仍保留用户选择。
 - [ ] 语言切换不得翻译或改写 Evidence、diff、日志、文件路径、命令输出和用户输入内容。
 - [ ] 浏览器级验证覆盖默认中文和至少一次语言切换。
+- [ ] Product Console 提供导入现有项目、新建项目表单、项目列表和当前项目切换控件。
+- [ ] 新建项目表单提交的新项目目录必须为 `workspace/<project-slug>`；导入现有项目提交用户填写的现有项目目录。
+- [ ] 切换项目后 Dashboard、Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 只展示当前项目数据。
+- [ ] 浏览器级验证覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及 `project_id` 缺失/不匹配时的阻塞反馈。
 
 ## Risks and Open Questions
 

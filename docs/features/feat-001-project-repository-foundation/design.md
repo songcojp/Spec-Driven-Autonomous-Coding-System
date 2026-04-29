@@ -2,13 +2,13 @@
 
 ## Design Summary
 
-本 Feature 提供项目、项目宪章和仓库接入的控制面基础。Project Service 负责项目实体和初始化命令，Project Constitution Service 负责项目级规则事实源，Repository Adapter 负责读取 Git 事实，Project Health Checker 负责将环境状态归类为可调度状态。
+本 Feature 提供项目、项目目录、当前项目上下文、项目宪章和仓库接入的控制面基础。Project Service 负责项目实体、初始化命令、项目列表、导入现有项目、新建 workspace 项目和当前项目选择，Project Constitution Service 负责项目级规则事实源，Repository Adapter 负责读取 Git 事实，Project Health Checker 负责将环境状态归类为可调度状态。
 
 ## Components
 
 | Component | Responsibility |
 |---|---|
-| Project Service | 创建、查询和更新 Project，保存项目配置、信任级别和自动化开关。 |
+| Project Service | 创建、导入、查询、列出和更新 Project，保存项目目录、项目配置、信任级别、生命周期状态、当前项目选择和自动化开关。 |
 | Project Constitution Service | 导入、创建和版本化项目宪章，并暴露项目目标、工程原则、边界规则和审批规则。 |
 | Repository Adapter | 读取仓库 URL、本地路径、默认分支、当前分支、commit、PR、CI 和 worktree 状态。 |
 | Project Health Checker | 检测仓库、包管理器、测试/构建命令、Codex 配置、AGENTS.md、Spec 目录和敏感风险。 |
@@ -16,18 +16,28 @@
 
 ## Data Ownership
 
-- Owns: Project、ProjectConstitution、RepositoryConnection、ProjectHealthCheck。
+- Owns: Project、ProjectSelectionContext、ProjectConstitution、RepositoryConnection、ProjectHealthCheck。
 - Reads: Git CLI、`gh` CLI、文件系统。
 - Writes: Persistent Store；必要时写项目初始化事件。
 
 ## State and Flow
 
-1. 用户提交项目创建命令。
-2. Project Service 持久化 Project 和初始配置。
-3. Project Constitution Service 导入或创建项目宪章，并写入版本记录。
-4. Repository Adapter 读取仓库状态。
-5. Project Health Checker 输出 `ready`、`blocked` 或 `failed`。
-6. 状态写入持久层并供 Dashboard、Scheduler、Project Memory 和 Review Center 查询。
+1. 用户选择导入现有项目或创建新项目。
+2. 导入现有项目时，Project Service 校验并保存用户填写的已有项目目录。
+3. 创建新项目时，Project Service 在统一 `workspace/` 目录下创建 `workspace/<project-slug>` 项目目录。
+4. Project Service 持久化 Project 和初始配置。
+5. Project Service 将项目加入项目目录，并在首次创建或用户显式选择时更新 ProjectSelectionContext。
+6. Project Constitution Service 导入或创建项目宪章，并写入版本记录。
+7. Repository Adapter 读取仓库状态。
+8. Project Health Checker 输出 `ready`、`blocked` 或 `failed`。
+9. 状态写入持久层并供 Dashboard、Scheduler、Project Memory 和 Review Center 按 Project ID 查询。
+
+## Project Switch Flow
+
+1. 用户从项目列表选择目标项目。
+2. Project Service 校验目标项目存在且未归档，并更新 ProjectSelectionContext。
+3. 后续项目级查询、健康检查、Project Memory 注入、Feature 选择、调度运行和 Evidence 查询都必须携带当前 `project_id`。
+4. 命令网关发现 `project_id` 缺失或与当前上下文不匹配时，返回 blocked 结果并写入审计事件。
 
 ## Constitution Follow-up Flow
 
@@ -41,6 +51,7 @@
 
 - FEAT-014 提供 Project、RepositoryConnection 和 HealthCheckResult 的持久化能力。
 - FEAT-013 负责展示项目健康和仓库摘要。
+- FEAT-013 负责展示项目创建入口、项目列表和项目切换控件。
 
 ## Review and Evidence
 

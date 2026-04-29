@@ -683,6 +683,21 @@ THE SYSTEM SHALL 默认使用中文界面，并提供可见的语言切换入口
 - [ ] 系统不得翻译 Evidence、diff、日志、文件路径、命令输出或用户输入内容等事实数据。
 - [ ] 浏览器级 UI 验证覆盖默认中文和至少一次语言切换。
 
+### REQ-063：支持多项目创建与切换
+来源：用户指令：支持项目创建，支持多个项目切换；PRD 第 6.1 节 FR-001；PRD 第 8.1 节
+优先级：Must
+
+WHEN 用户在 Product Console 创建、导入、查看或切换 AutoBuild 项目
+THE SYSTEM SHALL 维护项目目录和当前项目上下文，并确保所有项目级查询、受控命令、Project Memory 投影、调度入口、审计事件和反馈提示都绑定到当前项目。
+
+验收：
+- [ ] 用户可以通过项目创建表单创建新项目，新项目目录必须位于统一 `workspace/` 目录下。
+- [ ] 用户可以导入现有项目目录，系统将该目录作为项目目录并进入仓库探测和健康检查。
+- [ ] 用户可以创建或导入多个项目，并在项目列表中看到每个项目的名称、项目目录、仓库摘要、健康状态和最近活动时间。
+- [ ] 用户切换项目后，Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center 和 Board 都只展示当前项目的数据。
+- [ ] 项目级受控命令必须携带当前 `project_id`；缺少或不匹配时不得执行，并返回可观察的阻塞原因。
+- [ ] Project Memory 注入、Feature 选择、调度运行和 Evidence 查询不得跨项目复用状态。
+
 ## 7. 非功能需求
 
 ### NFR-001：默认沙箱优先
@@ -881,7 +896,7 @@ THE SYSTEM SHALL 暂停受影响任务，并阻止自动进入 Done 或 Delivere
 | PRD 第 4.4 节 Project Memory | REQ-019, REQ-020, REQ-021, REQ-022, REQ-023 | CLI 持久记忆 |
 | PRD 第 4.5 节 Evidence Pack | REQ-018, REQ-049, REQ-051 | 状态判断与交付证据 |
 | PRD 第 5 节 用户流程 | REQ-029, REQ-030, REQ-033, REQ-034, REQ-040, REQ-046, REQ-059 | 自主执行闭环 |
-| PRD 第 6.1 节 项目管理 | REQ-001, REQ-002, REQ-003, REQ-059 | 项目创建与健康检查 |
+| PRD 第 6.1 节 项目管理 | REQ-001, REQ-002, REQ-003, REQ-059, REQ-063 | 项目创建、项目切换与健康检查 |
 | PRD 第 6.2 节 Spec Protocol Engine | REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009 | Spec 创建与管理 |
 | PRD 第 6.3 节 Skill Center | REQ-010, REQ-011, REQ-012, REQ-013, REQ-059 | Skill 生命周期 |
 | PRD 第 6.4 节 Subagent Runtime | REQ-014, REQ-015, REQ-017, REQ-018 | Agent 合同与并行 |
@@ -895,7 +910,7 @@ THE SYSTEM SHALL 暂停受影响任务，并阻止自动进入 Done 或 Delivere
 | PRD 第 6.12 节 审批中心 | REQ-046, REQ-047, REQ-057 | 审批触发与处理 |
 | PRD 第 6.13 节 PR 与交付 | REQ-048, REQ-049, REQ-050 | 交付生命周期 |
 | PRD 第 7 节 核心数据模型 | REQ-001, REQ-004, REQ-024, REQ-051, REQ-058 | 数据模型覆盖范围 |
-| PRD 第 8 节 页面需求 | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062 | UI 表面需求 |
+| PRD 第 8 节 页面需求 | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, REQ-063 | UI 表面需求 |
 | PRD 第 9 节 非功能需求 | NFR-001 至 NFR-011 | 安全、稳定、可观测性、性能 |
 | PRD 第 10 节 成功指标 | NFR-012 | MVP 成功指标 |
 | PRD 第 11 节 MVP 版本规划 | 第 10 节 | 发布顺序参考 |
@@ -905,13 +920,13 @@ THE SYSTEM SHALL 暂停受影响任务，并阻止自动进入 Done 或 Delivere
 
 | 里程碑 | 需求 ID |
 |---|---|
-| M1：Spec Protocol + Skill 基础 | REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-013, REQ-058, REQ-059 |
+| M1：Spec Protocol + Skill 基础 | REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009, REQ-010, REQ-011, REQ-012, REQ-013, REQ-058, REQ-059, REQ-063 |
 | M2：Plan + Task Graph + Feature 选择器 | REQ-024, REQ-025, REQ-026, REQ-027, REQ-028, REQ-029, REQ-030, REQ-031, REQ-060 |
 | M3：Subagent Runtime + Project Memory | REQ-014, REQ-015, REQ-016, REQ-017, REQ-018, REQ-019, REQ-020, REQ-021, REQ-022, REQ-023 |
 | M4：Codex Runner | REQ-035, REQ-037, REQ-038, REQ-039 |
 | M5：状态检测与恢复 | REQ-040, REQ-041, REQ-042, REQ-043, REQ-044, REQ-045 |
 | M6：审批与交付 | REQ-046, REQ-047, REQ-048, REQ-049, REQ-050, REQ-057 |
-| M7：Product Console | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062 |
+| M7：Product Console | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063 |
 
 ## 11. 待确认问题
 

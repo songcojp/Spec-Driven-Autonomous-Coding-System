@@ -77,6 +77,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-057 | 4.15, 4.16, 6.1, 7.9 | Review Center 管理待审批、高风险、阻塞和需澄清任务。 |
 | REQ-058 | 5, 6, 9 | Persistence Layer 持久化 MVP 核心实体必填字段。 |
 | REQ-062 | 4.16, 6.1, 11 | Product Console 默认中文，并支持界面语言切换。 |
+| REQ-063 | 3, 4.1, 4.16, 5, 6.1, 8, 11 | Project Service 维护项目目录和当前项目上下文，Product Console 提供创建和切换入口，所有查询和命令按 `project_id` 隔离。 |
 | NFR-001 | 4.9, 10 | Runner 默认禁用 danger-full-access 和 bypass approvals。 |
 | NFR-002 | 4.10, 4.13, 9 | worktree、diff 快照和恢复策略提供回滚路径。 |
 | NFR-003 | 5, 8, 9 | Run、状态、Memory 和 Evidence 更新使用幂等键。 |
@@ -159,6 +160,7 @@ flowchart TD
 | Feature 候选集 | Feature Spec Pool | Project Memory 只保存最近选择结果和候选快照。 |
 | Task / Feature 状态 | Persistent Store 中的内部状态机 | Dashboard 和 Project Memory 都是投影。 |
 | Git 事实 | 目标仓库和 worktree 的实时 Git 状态 | Project Memory 冲突时以 Git 和文件系统核查为准。 |
+| 当前项目上下文 | Project Service 和用户选择状态 | Console、Scheduler、Project Memory Injector 和命令网关都必须携带 `project_id`。 |
 | Project Memory | `.autobuild/memory/project.md` + 版本记录 | CLI 上下文恢复来源，但不是调度候选真实来源。 |
 | Evidence | Evidence Store | Status Checker、Review Center、Delivery Report 复用。 |
 | Skill 列表 | Skill Registry，内置 Skill 以 PRD 第 6.3 节为事实源 | 新增、删除、重命名前必须更新 PRD。 |
@@ -170,18 +172,21 @@ flowchart TD
 Responsibilities:
 
 - 创建和查询 AutoBuild 项目。
+- 维护项目目录、项目生命周期状态和当前项目选择上下文；导入现有项目时保留用户目录，新建项目时统一创建到 `workspace/<project-slug>`。
 - 保存项目名称、目标、类型、技术偏好、目标仓库、默认分支、运行环境和自动化开关。
 - 初始化项目状态、Spec Protocol 目录和 Project Memory。
 
 Inputs:
 
 - 项目创建请求。
+- 项目切换请求。
 - 仓库连接配置。
 - 自动化开关和默认运行环境。
 
 Outputs:
 
 - Project 实体。
+- ProjectSelectionContext。
 - 初始化状态事件。
 - `.autobuild/` 目录结构。
 
@@ -602,6 +607,7 @@ Dependencies:
 Responsibilities:
 
 - Dashboard 展示项目健康度、活跃 Feature、看板数量、运行中 Subagent、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
+- 提供项目创建入口、项目列表、当前项目切换控件，并在页面切换和刷新后保留当前项目上下文。
 - Spec Workspace 展示 Feature、Spec、澄清记录、Checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
 - Subagent Console 展示 Subagent、Run Contract、上下文切片、Evidence、token 使用和运行状态，并支持终止和重试。
@@ -612,6 +618,7 @@ Responsibilities:
 Inputs:
 
 - Query request。
+- Project create/switch action。
 - Approval action。
 - Runner pause/resume action。
 - Subagent terminate/retry action。
@@ -635,6 +642,7 @@ Dependencies:
 | Entity | Owner Component | Persistence | Lifecycle Notes |
 |---|---|---|---|
 | Project | Project Service | Database + `.autobuild/project.json` projection | 创建后长期存在，可更新配置。 |
+| ProjectSelectionContext | Project Service | Database + local UI preference projection | 记录当前项目、可用项目列表和最近切换来源。 |
 | RepositoryConnection | Repository Adapter | Database | 保存连接元数据，不保存明文密钥。 |
 | ProjectHealthCheck | Project Health Checker | Database | 每次检查生成不可变记录，项目保存最新摘要。 |
 | Feature | Spec Protocol Engine | Database + Markdown/JSON artifact | 从 draft 到 delivered，状态由 State Machine 管理。 |
@@ -1569,7 +1577,7 @@ Evidence Pack 必须可被以下模块直接引用：
 
 覆盖：
 
-- 项目创建到健康检查和 Memory 初始化。
+- 项目创建、项目列表、项目切换到健康检查和 Memory 初始化。
 - 需求输入到 Feature ready。
 - Feature 选择到 Planning Pipeline 和任务图生成。
 - 任务调度到 Run Contract 创建。
@@ -1597,12 +1605,12 @@ Evidence Pack 必须可被以下模块直接引用：
 
 每个 `REQ-*` 应至少映射到一个验收用例：
 
-- Project and repository: REQ-001 至 REQ-003。
+- Project and repository: REQ-001 至 REQ-003、REQ-063。
 - Spec Protocol and Skill: REQ-004 至 REQ-013。
 - Subagent and Memory: REQ-014 至 REQ-023。
 - Planning, task graph, board, scheduler: REQ-024 至 REQ-036。
 - Runner, status, recovery, review, delivery: REQ-037 至 REQ-051。
-- Console and persistence: REQ-052 至 REQ-058、REQ-062。
+- Console and persistence: REQ-052 至 REQ-058、REQ-062、REQ-063。
 
 每个 `NFR-*` 应至少映射到策略或监控验证：
 

@@ -48,7 +48,7 @@ MVP 采用本地优先的控制面架构：
 
 | Requirement ID | HLD Section | Coverage Notes |
 |---|---|---|
-| REQ-001, REQ-002, REQ-003, REQ-059 | 4, 5, 7.1, 8, 12, 13 | Project、Repository、Project Constitution、Health Check 属于项目管理和仓库适配边界。 |
+| REQ-001, REQ-002, REQ-003, REQ-059, REQ-063 | 4, 5, 7.1, 8, 12, 13 | Project、Repository、Project Constitution、Project Selection、Health Check 属于项目管理和仓库适配边界。 |
 | REQ-004, REQ-005, REQ-006, REQ-007, REQ-008, REQ-009 | 7.2, 8, 9, 10, 14, 15 | Spec Protocol Engine 负责 Feature Spec、EARS、切片、澄清、Checklist 和版本化。 |
 | REQ-010, REQ-011, REQ-012, REQ-013 | 7.3, 8, 9, 11, 14, 15 | Skill System 管理注册、内置 Skill、schema 校验、版本治理和项目级覆盖。 |
 | REQ-014, REQ-015, REQ-016, REQ-017, REQ-018 | 7.5, 7.7, 8, 9, 10, 11, 13 | Subagent Runtime、Context Broker、Workspace Manager 和 Result Merger 保证边界、并行隔离和结果合并。 |
@@ -62,7 +62,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-046, REQ-047, REQ-057 | 7.12, 9, 10, 11, 12, 15 | Review Center 是高风险、阻塞、澄清和审批动作的统一入口。 |
 | REQ-048, REQ-049, REQ-050 | 7.13, 8, 9, 10, 12, 14, 15 | Delivery Manager 生成 PR、交付报告和 Spec Evolution 建议。 |
 | REQ-051 | 7.9, 8, 9, 10, 12, 14 | Evidence Pack 是状态判断、恢复、审批和交付报告的共享证据格式。 |
-| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供默认中文的界面语言切换。 |
+| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换和默认中文的界面语言切换。 |
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
@@ -114,7 +114,7 @@ flowchart LR
 | Frontend | TypeScript + React + Next.js 或 Vite React，MVP 优先单页 Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 都是状态密集型工作台，React 生态适合看板、表格、日志、实时状态 UI 和界面多语言切换。 | 当前仓库没有既有实现栈；若实现阶段已有宿主框架，以宿主框架优先；Product Console 首次打开默认中文，语言选择应可持久化。 |
 | UI Component System | shadcn/ui + Tailwind CSS + Radix UI primitives | Product Console 需要稳定、可组合、可审计的工作台组件体系；shadcn/ui 以源码方式进入项目，便于定制表格、表单、弹窗、标签页、命令菜单、状态徽标和 Review 操作面板，同时保留无障碍基础能力。 | 不引入重型封闭组件库；组件主题、设计 token、暗色模式和状态语义应在 Product Console Feature Spec 中细化。 |
 | Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
-| Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 单项目、本地优先、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、Feature、Task、Run、Evidence、审计和指标。 | 多项目/团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
+| Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、Evidence、审计和指标。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
 | API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter | UI、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 CLI 边界，减少平台权限建模。 | Skill I/O 统一采用 JSON Schema；TypeScript 可用 Zod 生成或校验 schema。 |
 | Background Jobs / Agents | SQLite-backed queue 或本地持久化队列 + Runner Worker；Subagent Run 通过 Agent Run Contract 启动 | 长时间任务不能只存在内存；Run、心跳、状态和 Evidence 必须可恢复。 | 写任务默认串行；只读 Subagent 可并发；写入型并行必须绑定 worktree。 |
@@ -148,6 +148,7 @@ Rejected / deferred alternatives:
 | Feature 候选集 | Feature Spec Pool | Project Memory 只保存最近选择快照。 |
 | Feature / Task 状态 | Persistent Store 中的内部状态机 | Dashboard、Project Memory、Delivery Report。 |
 | Git 事实 | 目标仓库与 worktree 的实时 Git 状态 | Repository Adapter、Workspace Manager、Status Checker。 |
+| 当前项目上下文 | Project Management 持久层和用户选择状态 | Product Console、Scheduler、Project Memory Injector、Control Plane 命令网关。 |
 | Project Memory | `.autobuild/memory/project.md` + 版本元数据 | Codex CLI 会话恢复上下文。 |
 | Skill 列表 | Skill Registry，内置 Skill 以 PRD 第 6.3 节为事实源 | Orchestrator、Skill Center、Review Center。 |
 | Project Constitution | Project Management 持久层与版本记录 | Project Memory、Scheduler、Review Center、Feature Spec 流程。 |
@@ -160,13 +161,14 @@ Rejected / deferred alternatives:
 Responsibilities:
 
 - 创建 AutoBuild 项目并保存项目目标、技术偏好、仓库、默认分支、信任级别、运行环境和自动化开关。
+- 维护项目目录、项目生命周期状态和当前项目选择上下文，支持导入现有项目、在统一 `workspace/` 目录下创建新项目，并支持用户在多个项目之间切换。
 - 连接目标 Git 仓库并读取分支、commit、未提交变更、PR、CI 和 worktree 状态。
 - 导入、创建和版本化项目宪章，并向 Memory、调度、审批和 Feature Spec 流程提供项目级规则。
 - 执行项目健康检查，输出 `ready`、`blocked` 或 `failed`。
 
 Owns:
 
-- Project、RepositoryConnection、ProjectConstitution、ProjectHealthCheck。
+- Project、ProjectSelectionContext、RepositoryConnection、ProjectConstitution、ProjectHealthCheck。
 
 Collaborates With:
 
@@ -331,6 +333,7 @@ Collaborates With:
 Responsibilities:
 
 - Dashboard 展示项目健康度、活跃 Feature、看板数量、运行中 Subagent、失败任务、待审批任务、成本、最近 PR 和风险提醒。
+- 提供项目创建入口、项目列表和当前项目切换控件，并将所有页面查询限定在当前项目。
 - Dashboard Board 支持受状态机约束的拖拽、批量排期、批量运行，以及依赖、diff、测试结果、审批状态和失败恢复历史入口。
 - Spec Workspace 展示 Feature、Spec、澄清、Checklist、计划、数据模型、契约、任务图和版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
@@ -381,7 +384,7 @@ Collaborates With:
 
 | Data Domain | Primary Owner | Key Entities | Persistence Strategy |
 |---|---|---|---|
-| Project and Repository | Project Management | Project、RepositoryConnection、ProjectHealthCheck | SQLite + project artifact projection。 |
+| Project and Repository | Project Management | Project、ProjectSelectionContext、RepositoryConnection、ProjectHealthCheck | SQLite + project artifact projection。 |
 | Spec Protocol | Spec Protocol Engine | Feature、Requirement、ClarificationLog、Checklist、SpecVersion、SpecSlice | SQLite + Markdown/JSON artifact。 |
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
 | Orchestration State | Orchestration and State Machine | Task、TaskGraph、StateTransition、FeatureSelectionDecision | SQLite source of truth。 |
@@ -599,7 +602,7 @@ Quality gates:
 | Feature Spec | Scope | Primary Requirements |
 |---|---|---|
 | AutoBuild System Bootstrap | Control Plane 进程引導配置、`.autobuild/` artifact root 目录创建、SQLite schema 初始化与迁移、内置 Skill 种子化触发、系统就绪状态暴露。 | REQ-058（schema 创建是持久化的前置条件）、REQ-011（内置 Skill 种子化在系统初始化完成后触发，联动 feat-003）、NFR-004（崩溃恢复依赖应用正确完成初始化）；是 feat-001 至 feat-014 所有 Feature Spec 的基础先决条件。 |
-| Project and Repository Foundation | 项目创建、仓库连接、项目宪章、健康检查、项目配置。 | REQ-001 至 REQ-003、REQ-059 |
+| Project and Repository Foundation | 项目创建、项目目录与切换上下文、仓库连接、项目宪章、健康检查、项目配置。 | REQ-001 至 REQ-003、REQ-059、REQ-063 |
 | Spec Protocol Foundation | Feature Spec、EARS 拆解、澄清、Checklist、版本和切片。 | REQ-004 至 REQ-009 |
 | Skill Center and Schema Governance | Skill 注册、内置 Skill、schema 校验、版本管理。 | REQ-010 至 REQ-013 |
 | Orchestration and State Machine | Feature/Task 状态机、任务图、Feature 选择、计划流水线、调度触发模式、看板列。 | REQ-024 至 REQ-034、REQ-060 |
@@ -611,7 +614,7 @@ Quality gates:
 | Failure Recovery | 恢复任务、恢复策略、失败指纹、重试退避和禁止重复。 | REQ-043 至 REQ-045 |
 | Review Center | Review Needed 触发、审批页面、审批动作和状态回流。 | REQ-046、REQ-047、REQ-057 |
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
-| Product Console | Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console UI、Runner Console、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061、REQ-062（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
+| Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console UI、Runner Console、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-063（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 
 Decomposition rules:
@@ -641,7 +644,7 @@ Decomposition rules:
 
 ### Tradeoffs
 
-- 本地优先拓扑降低 MVP 复杂度，但限制了多项目、多 Runner 和云端协作能力。
+- 本地优先拓扑降低 MVP 复杂度，但多项目能力先限定为本地项目目录和当前项目切换；团队级多项目协作、多 Runner 和云端协作仍需后续架构扩展。
 - TypeScript/Node.js 能简化 Console、schema 和 CLI 编排的一体化实现，但 Python Skill 需要通过进程 adapter 或 Runner adapter 接入。
 - SQLite 降低本地运维成本，但团队协作、远程 Runner 和高并发场景需要迁移 PostgreSQL 或等价外部数据库。
 - Project Memory 作为文件注入适配 CLI 恢复，但需要额外机制避免与持久状态漂移。

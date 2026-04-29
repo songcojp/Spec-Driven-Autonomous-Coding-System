@@ -1,4 +1,5 @@
 export type CommandAction =
+  | "create_project"
   | "create_feature"
   | "terminate_subagent"
   | "retry_subagent"
@@ -15,8 +16,33 @@ export type CommandReceipt = {
   status: "accepted" | "blocked";
   entityType: string;
   entityId: string;
+  projectId?: string;
   acceptedAt: string;
   blockedReasons?: string[];
+};
+
+export type ProjectSummary = {
+  id: string;
+  name: string;
+  repository: string;
+  projectDirectory: string;
+  defaultBranch: string;
+  health: "ready" | "blocked" | "failed";
+  lastActivityAt: string;
+};
+
+export type ProjectCreateMode = "import_existing" | "create_new";
+
+export type ProjectCreateForm = {
+  mode: ProjectCreateMode;
+  name: string;
+  goal: string;
+  projectType: string;
+  techPreferences: string;
+  existingProjectPath: string;
+  workspaceSlug: string;
+  defaultBranch: string;
+  automationEnabled: boolean;
 };
 
 export type DashboardModel = {
@@ -130,6 +156,10 @@ export type ReviewModel = {
 };
 
 export type ConsoleData = {
+  projects: {
+    currentProjectId: string;
+    projects: ProjectSummary[];
+  };
   dashboard: DashboardModel;
   board: BoardModel;
   spec: SpecWorkspaceModel;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { initializeProjectMemory } from "./memory.ts";
 import { recordAuditEvent } from "./persistence.ts";
@@ -19,6 +19,7 @@ export type ProjectInput = {
   trustLevel?: ProjectTrustLevel;
   environment: string;
   automationEnabled?: boolean;
+  creationMode?: "import_existing" | "create_new";
   constitution?: ProjectConstitutionInput;
 };
 
@@ -119,6 +120,10 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
       ],
     },
   ]);
+
+  if (targetRepoPath && input.creationMode === "create_new") {
+    mkdirSync(targetRepoPath, { recursive: true });
+  }
 
   if (targetRepoPath) {
     upsertRepositoryConnection(dbPath, {

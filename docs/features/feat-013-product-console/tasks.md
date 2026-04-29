@@ -16,6 +16,9 @@
 - [x] TASK-014: 实现 Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 的用户可见页面组件，消费现有 Control Plane API/ViewModel。
 - [x] TASK-015: 将创建 Feature、终止/重试 Subagent、暂停/恢复 Runner、审批动作、Board 拖拽意图、批量排期和批量运行暴露为可见控件，并展示成功、阻塞或失败反馈。
 - [x] TASK-016: 添加浏览器级 UI 验证，覆盖首屏非空、页面切换、真实数据渲染、空态/错误态和至少一个受控命令动作；API 层测试不能单独完成此任务。
-- [ ] TASK-017: 为 Product Console App Shell 增加语言切换入口和 locale preference 持久化，首次打开默认中文。
-- [ ] TASK-018: 将导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息接入 UI 文案资源，同时保持 Evidence、diff、日志、文件路径、命令输出和用户输入原文。
-- [ ] TASK-019: 添加浏览器级 UI 验证，覆盖默认中文、至少一次语言切换、刷新后语言偏好保留，以及事实数据不被翻译。
+- [x] TASK-017: 为 Product Console App Shell 增加语言切换入口和 locale preference 持久化，首次打开默认中文。
+- [x] TASK-018: 将导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息接入 UI 文案资源，同时保持 Evidence、diff、日志、文件路径、命令输出和用户输入原文。
+- [x] TASK-019: 添加浏览器级 UI 验证，覆盖默认中文、至少一次语言切换、刷新后语言偏好保留，以及事实数据不被翻译。
+- [x] TASK-020: 在 Product Console App Shell 增加导入现有项目、新建项目表单、项目列表和当前项目切换控件，展示项目名称、项目目录、仓库摘要、健康状态和最近活动时间。
+- [x] TASK-021: 将 Dashboard、Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 的查询与受控命令绑定到当前 `project_id`，并展示缺失/不匹配时的阻塞反馈。
+- [x] TASK-022: 添加浏览器级 UI 验证，覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及不同项目数据不串读。

@@ -5,12 +5,13 @@
 | Source | IDs / Sections |
 |---|---|
 | PRD | 第 6.1 节 FR-001 至 FR-003；第 11 节 M1 |
-| Requirements | REQ-001, REQ-002, REQ-003, REQ-059, EDGE-001 |
+| Requirements | REQ-001, REQ-002, REQ-003, REQ-059, REQ-063, EDGE-001 |
 | HLD | 7.1 Project Management, 10.1 Project Initialization, 12 Observability and Operability |
 
 ## Scope
 
 - 创建 AutoBuild 项目并保存项目身份、目标、类型、技术偏好、目标仓库、默认分支、信任级别、运行环境和自动化开关。
+- 维护项目目录、项目生命周期状态和当前项目选择上下文，支持导入现有项目、在统一 `workspace/` 目录下创建新项目，以及多个项目切换。
 - 连接 GitHub、GitLab、本地 Git 或私有 Git 仓库，并读取分支、commit、未提交变更、PR、CI、任务分支和 worktree 状态。
 - 导入、创建和版本化项目宪章，并将项目级规则提供给 Project Memory、Scheduler、Review Center 和后续 Feature Spec 流程。
 - 执行项目健康检查，覆盖 Git 仓库、包管理器、测试命令、构建命令、Codex 配置、AGENTS.md、Spec Protocol 目录、未提交变更和敏感文件风险。
@@ -29,6 +30,8 @@
 ## Requirements
 
 - 系统必须能创建和查询 AutoBuild 项目记录。
+- 系统必须能列出多个 AutoBuild 项目，并保存当前项目选择上下文。
+- 系统必须把新建项目目录统一创建在 `workspace/` 目录下；导入项目必须保留用户填写的现有项目目录。
 - 系统必须保存项目信任级别，并让安全策略和调度流程可读取。
 - 系统必须支持导入或创建项目宪章，并保留宪章版本记录。
 - 系统必须保存仓库连接，并让后续计划、调度和 Runner 流程复用。
@@ -38,6 +41,9 @@
 ## Acceptance Criteria
 
 - [ ] 新项目创建后可以被查询，并包含项目身份、信任级别、初始配置和初始状态。
+- [ ] 多个项目可以被创建、导入、列出和切换，且切换后返回当前项目上下文。
+- [ ] 新建项目目录位于 `workspace/<project-slug>`；导入项目目录指向用户填写的已有路径。
+- [ ] 项目级查询、健康检查、Project Memory 初始化和调度入口必须携带当前 `project_id`。
 - [ ] 项目宪章可以被 Project Memory、Skill Center、Scheduler、Review Center 和后续 Feature Spec 流程引用。
 - [ ] 项目宪章变更触发受影响 Feature 或任务的重新校验。
 - [ ] 已连接仓库可以返回当前分支、最新 commit、未提交变更、PR、CI 和 worktree 摘要。
@@ -53,3 +59,4 @@
 
 - ADD-001 已确认作为本 Feature 的 follow-up 处理，不拆分独立 Project Constitution Feature。
 - FEAT-001 原完成结论保持不变；项目宪章创建、导入、版本记录和下游重新校验能力进入 patch 任务。
+- ADD-005 / REQ-063 作为本 Feature 的项目基础 patch 处理，补项目目录、当前项目选择上下文和项目级命令隔离；Product Console 入口由 FEAT-013 同步。
