@@ -265,7 +265,7 @@ REVIEW_ANALYSIS_OUTPUT="${REVIEW_ARTIFACT_DIR}/review-analysis-${FEATURE_ID}-pas
 FIX_LOG="${REVIEW_ARTIFACT_DIR}/fix-pass-${FEATURE_ID}-${CODE_REVIEW_PASS}.md"
 REVIEW_LOOP_ANALYSIS="${REVIEW_ARTIFACT_DIR}/review-loop-analysis-${FEATURE_ID}.md"
 REVIEW_FIX_CHECKPOINT_INTERVAL="${REVIEW_FIX_CHECKPOINT_INTERVAL:-3}"
-CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL:-gpt-5.4}"
+CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL:-gpt-5.3-codex-spark}"
 FINAL_REGRESSION_COMMAND="${FINAL_REGRESSION_COMMAND:-<targeted Stage 7 command>}"
 FINAL_FULL_TEST_COMMAND="${FINAL_FULL_TEST_COMMAND:-npm test}"
 ```
@@ -274,7 +274,7 @@ FINAL_FULL_TEST_COMMAND="${FINAL_FULL_TEST_COMMAND:-npm test}"
 
 **Full mode review command:**
 
-Run Codex review from inside `${WORKTREE_PATH}` and write the raw result to `"${CODEX_REVIEW_LOG}"`. This lifecycle should keep the review scope command CLI-compatible; do not append a positional prompt when the installed CLI rejects prompts combined with review-scope flags.
+Run Codex review from inside `${WORKTREE_PATH}` with GPT-5.3-Codex-Spark (`gpt-5.3-codex-spark`) by default and write the raw result to `"${CODEX_REVIEW_LOG}"`. This lifecycle should keep the review scope command CLI-compatible; do not append a positional prompt when the installed CLI rejects prompts combined with review-scope flags.
 
 ```bash
 cd "${WORKTREE_PATH}"
