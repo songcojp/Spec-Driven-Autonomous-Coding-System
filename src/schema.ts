@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -808,6 +808,67 @@ export const MIGRATIONS: Migration[] = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_recovery_dispatches_status_scheduled ON recovery_dispatches(status, scheduled_at)",
       "CREATE INDEX IF NOT EXISTS idx_recovery_dispatches_run ON recovery_dispatches(run_id, created_at)",
+    ],
+  },
+  {
+    version: 15,
+    description: "Keep only scheduler and state maintenance platform data",
+    statements: [
+      "DROP INDEX IF EXISTS idx_subagent_events_run_status",
+      "DROP TABLE IF EXISTS subagent_events",
+      "DROP TABLE IF EXISTS planning_pipeline_runs",
+      "ALTER TABLE recovery_dispatches RENAME COLUMN skill_input_json TO dispatch_input_json",
+      "DROP INDEX IF EXISTS idx_task_graph_tasks_feature_status",
+      `CREATE TABLE IF NOT EXISTS task_graph_tasks_v15 (
+        id TEXT PRIMARY KEY,
+        graph_id TEXT NOT NULL,
+        feature_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        source_requirements_json TEXT NOT NULL,
+        acceptance_criteria_json TEXT NOT NULL,
+        allowed_files_json TEXT NOT NULL,
+        dependencies_json TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        estimated_effort INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `INSERT INTO task_graph_tasks_v15 (
+        id, graph_id, feature_id, title, status, source_requirements_json,
+        acceptance_criteria_json, allowed_files_json, dependencies_json, risk,
+        estimated_effort, created_at, updated_at
+      )
+      SELECT id, graph_id, feature_id, title, status, source_requirements_json,
+        acceptance_criteria_json, allowed_files_json, dependencies_json, risk,
+        estimated_effort, created_at, updated_at
+      FROM task_graph_tasks`,
+      "DROP TABLE IF EXISTS task_graph_tasks",
+      "ALTER TABLE task_graph_tasks_v15 RENAME TO task_graph_tasks",
+      "CREATE INDEX IF NOT EXISTS idx_task_graph_tasks_feature_status ON task_graph_tasks(feature_id, status)",
+      "DROP INDEX IF EXISTS idx_tasks_recovery_state",
+      `CREATE TABLE IF NOT EXISTS tasks_v15 (
+        id TEXT PRIMARY KEY,
+        feature_id TEXT,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        allowed_files_json TEXT,
+        description TEXT,
+        depends_on_json TEXT NOT NULL DEFAULT '[]',
+        recovery_state TEXT NOT NULL DEFAULT 'pending',
+        created_at TEXT,
+        updated_at TEXT
+      )`,
+      `INSERT INTO tasks_v15 (
+        id, feature_id, title, status, allowed_files_json, description,
+        depends_on_json, recovery_state, created_at, updated_at
+      )
+      SELECT id, feature_id, title, status, allowed_files_json, description,
+        depends_on_json, recovery_state, created_at, updated_at
+      FROM tasks`,
+      "DROP TABLE IF EXISTS tasks",
+      "ALTER TABLE tasks_v15 RENAME TO tasks",
+      "CREATE INDEX IF NOT EXISTS idx_tasks_recovery_state ON tasks(recovery_state, status)",
     ],
   },
 ];

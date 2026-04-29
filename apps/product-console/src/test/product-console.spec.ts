@@ -21,7 +21,7 @@ test("renders the console first screen and navigates across all pages", async ({
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
   await expect(page.getByRole("row", { name: /Northwind Supply Planner/ })).toBeVisible();
 
-  for (const label of ["项目主页", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "全局概况"]) {
+  for (const label of ["项目主页", "Spec 工作台", "Runner", "审查", "全局概况"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     const heading = label === "审查" ? /审查 \d+/ : label === "Spec 工作台" ? "Feature Spec" : label;
     await expect(page.getByRole("heading", { name: heading, exact: typeof heading === "string" })).toBeVisible();
@@ -59,7 +59,7 @@ test("supports collapsible navigation and keeps the content header fixed", async
 test("omits the project metric summary strip from workbench pages", async ({ page }) => {
   await page.goto("/");
 
-  for (const label of ["Spec 工作台", "Skill 中心", "Runner", "审查"]) {
+  for (const label of ["Spec 工作台", "Runner", "审查"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect(page.getByText("项目健康")).toHaveCount(0);
     await expect(page.getByText("本月成本")).toHaveCount(0);
@@ -106,7 +106,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("heading", { name: "Spec 操作流程" })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /阶段 3 规划执行/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /阶段 3 调度状态/ })).toBeVisible();
   await expect(page.getByText(/当前 Spec 来源:/)).toBeVisible();
   await expect(page.getByText(/阻塞项:/)).toBeVisible();
   await expect(page.getByText("创建/导入项目")).toHaveCount(0);
@@ -114,10 +114,14 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await page.getByRole("button", { name: /阶段 1 项目初始化/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("创建/导入项目")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建项目" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "连接 Git 仓库" })).toBeVisible();
+  await page.getByRole("button", { name: "连接 Git 仓库" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("connect_git_repository recorded")).toBeVisible();
   await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("button", { name: /阶段 3 规划执行/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /阶段 3 调度状态/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("创建/导入项目")).toHaveCount(0);
   await expect(page.getByText("推入 Feature Spec Pool")).toBeVisible();
   await expect(page.getByRole("button", { name: "扫描 Spec" })).toBeVisible();
@@ -127,11 +131,14 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("button", { name: "拆分 Feature Spec" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "进入规划流水线" })).toHaveCount(0);
   await expect(page.getByText("workspace/acme-returns-portal/docs/zh-CN/PRD.md").first()).toBeVisible();
-  await page.getByRole("button", { name: /阶段 3 规划执行/ }).click();
+  await page.getByRole("button", { name: /阶段 3 调度状态/ }).click();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByText("生成 HLD")).toBeVisible();
-  await expect(page.getByText("拆分 Feature Spec")).toBeVisible();
-  await expect(page.getByText("规划流水线").first()).toBeVisible();
+  await expect(page.getByText("生成 HLD").first()).toBeVisible();
+  await expect(page.getByText("拆分 Feature Spec").first()).toBeVisible();
+  await expect(page.getByText("调度运行").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成 HLD" })).toBeVisible();
+  await page.getByRole("button", { name: "生成 HLD" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("generate_hld recorded")).toBeVisible();
   await expect(page.getByText("Feature Spec", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("FEAT-204 Mobile Returns Portal")).toBeVisible();
   await expect(page.getByText("需求列表")).toBeVisible();
@@ -139,7 +146,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("需求 - 任务可追溯性")).toBeVisible();
   await expect(page.getByText("受控操作")).toBeVisible();
   await expect(page.getByText("需要产品审批")).toBeVisible();
-  await expect(page.getByRole("link", { name: /EV-708/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /EV-318/ })).toBeVisible();
 
   await page.getByRole("button", { name: "质量检查清单" }).click();
   await expect(page.getByText("Copy Review Pending").first()).toBeVisible();
@@ -151,7 +158,9 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("FEAT-203 Refund Rules Engine")).toBeVisible();
   await expect(page.getByText("当前分区暂无可用 Spec 数据。").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "规划流水线", exact: true }).click();
+  await page.getByText("受控操作").click();
+  await page.getByRole("button", { name: /阶段 3 调度状态/ }).click();
+  await page.locator("aside").filter({ hasText: "受控操作" }).getByRole("button", { name: "调度运行", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
 
@@ -261,15 +270,11 @@ async function installConsoleRoutes(page: Page) {
   await page.route("**/console/project-overview", async (route) => route.fulfill({ json: demoData.overview }));
   await page.route("**/console/dashboard-board?projectId=project-1", async (route) => route.fulfill({ json: demoData.board }));
   await page.route("**/console/spec-workspace?projectId=project-1&featureId=FEAT-013", async (route) => route.fulfill({ json: demoData.spec }));
-  await page.route("**/console/skills?projectId=project-1", async (route) => route.fulfill({ json: demoData.skills }));
-  await page.route("**/console/subagents?projectId=project-1", async (route) => route.fulfill({ json: demoData.subagents }));
   await page.route("**/console/runner?projectId=project-1", async (route) => route.fulfill({ json: demoData.runner }));
   await page.route("**/console/reviews?projectId=project-1", async (route) => route.fulfill({ json: demoData.reviews }));
   await page.route("**/console/dashboard?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.dashboard }));
   await page.route("**/console/dashboard-board?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.board }));
   await page.route("**/console/spec-workspace?projectId=project-2&featureId=FEAT-013", async (route) => route.fulfill({ json: projectTwoData.spec }));
-  await page.route("**/console/skills?projectId=project-2", async (route) => route.fulfill({ json: demoData.skills }));
-  await page.route("**/console/subagents?projectId=project-2", async (route) => route.fulfill({ json: demoData.subagents }));
   await page.route("**/console/runner?projectId=project-2", async (route) => route.fulfill({ json: demoData.runner }));
   await page.route("**/console/reviews?projectId=project-2", async (route) => route.fulfill({ json: demoData.reviews }));
   await page.route("**/projects/scan", async (route) => {
@@ -304,7 +309,17 @@ async function installConsoleRoutes(page: Page) {
   });
   await page.route("**/console/commands", async (route) => {
     const body = route.request().postDataJSON() as { action: string; entityId: string; projectId?: string };
-    const workflowActions = new Set(["scan_prd_source", "upload_prd_source", "generate_ears"]);
+    const workflowActions = new Set([
+      "connect_git_repository",
+      "initialize_spec_protocol",
+      "import_or_create_constitution",
+      "initialize_project_memory",
+      "scan_prd_source",
+      "upload_prd_source",
+      "generate_ears",
+      "generate_hld",
+      "split_feature_specs",
+    ]);
     const accepted = body.action === "create_project" || workflowActions.has(body.action);
     await route.fulfill({
       json: {

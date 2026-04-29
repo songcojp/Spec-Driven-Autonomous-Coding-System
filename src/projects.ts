@@ -347,7 +347,6 @@ function projectDeletionStatements(projectId: string) {
     { sql: `DELETE FROM runner_heartbeats WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM codex_session_records WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM raw_execution_logs WHERE run_id IN (${runScope})`, params: p(2) },
-    { sql: `DELETE FROM subagent_events WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM recovery_attempts WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
     { sql: `DELETE FROM forbidden_retry_records WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
     { sql: `DELETE FROM task_schedules WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
@@ -355,7 +354,6 @@ function projectDeletionStatements(projectId: string) {
     { sql: `DELETE FROM delivery_reports WHERE feature_id IN (${featureScope})`, params: p(1) },
     { sql: `DELETE FROM pull_request_records WHERE feature_id IN (${featureScope})`, params: p(1) },
     { sql: `DELETE FROM spec_evolution_suggestions WHERE feature_id IN (${featureScope})`, params: p(1) },
-    { sql: `DELETE FROM planning_pipeline_runs WHERE feature_id IN (${featureScope})`, params: p(1) },
     { sql: `DELETE FROM schedule_triggers WHERE project_id = ? OR feature_id IN (${featureScope})`, params: p(2) },
     { sql: `DELETE FROM feature_selection_decisions WHERE project_id = ? OR selected_feature_id IN (${featureScope})`, params: p(2) },
     { sql: `DELETE FROM merge_readiness_results WHERE worktree_id IN (${worktreeScope})`, params: p(2) },
@@ -465,7 +463,7 @@ export function saveProjectConstitution(
     entityType: "project",
     entityId: projectId,
     eventType: version === 1 ? "project_constitution_created" : "project_constitution_versioned",
-    source: "project-constitution-skill",
+    source: "project-constitution",
     reason: `${source} project constitution version ${version}`,
     payload: { constitutionId: id, version, source, title },
   });
@@ -534,7 +532,7 @@ export function markConstitutionRevalidation(
     entityType: input.entityType,
     entityId: input.entityId,
     eventType: "constitution_revalidation_marked",
-    source: "project-constitution-skill",
+    source: "project-constitution",
     reason: input.reason,
     payload: {
       projectId: input.projectId,

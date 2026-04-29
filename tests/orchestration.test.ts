@@ -12,11 +12,9 @@ import {
   createScheduleTrigger,
   persistScheduleTrigger,
   persistSelectionDecision,
-  persistPlanningPipelineResult,
   persistTaskSchedules,
   persistStateTransition,
   persistTaskGraph,
-  runPlanningPipeline,
   scheduleFeatureTasks,
   selectNextFeature,
   transitionFeature,
@@ -27,7 +25,7 @@ import {
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
-test("orchestration schema owns task graphs, decisions, schedules, pipeline runs, and transitions", () => {
+test("scheduler schema owns task graphs, decisions, schedules, triggers, and transitions", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
 
@@ -39,7 +37,6 @@ test("orchestration schema owns task graphs, decisions, schedules, pipeline runs
     "state_transitions",
     "task_schedules",
     "schedule_triggers",
-    "planning_pipeline_runs",
   ]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
@@ -63,8 +60,6 @@ test("task graph builder creates traceable tasks with requirements and acceptanc
     assert.equal(task.sourceRequirementIds.length, 1);
     assert.equal(task.acceptanceCriteriaIds.length, 1);
     assert.deepEqual(task.allowedFiles, ["src/orchestration.ts", "tests/orchestration.test.ts"]);
-    assert.equal(task.requiredSkill, "codex-coding-skill");
-    assert.equal(task.subagent, "implementer-subagent");
   }
 });
 
@@ -127,8 +122,8 @@ test("board and feature state machines allow required outcomes and reject illega
     () =>
       transitionFeature("FEAT-004", "planning", "review_needed", {
         reason: "Planning failed",
-        evidence: "skill failed",
-        triggeredBy: "planning-pipeline",
+        evidence: "scheduling failed",
+        triggeredBy: "scheduler",
       }),
     /reviewNeededReason/,
   );
@@ -136,7 +131,7 @@ test("board and feature state machines allow required outcomes and reject illega
   const reviewNeeded = transitionFeature("FEAT-004", "planning", "review_needed", {
     reason: "Architecture decision needs approval",
     evidence: "ADR missing",
-    triggeredBy: "planning-pipeline",
+    triggeredBy: "scheduler",
     reviewNeededReason: "approval_needed",
   });
   assert.equal(reviewNeeded.reviewNeededReason, "approval_needed");
@@ -157,21 +152,6 @@ test("project scheduler selects from live feature candidates and only records me
   assert.equal(decision.selectedFeatureId, "FEAT-004");
   assert.equal(decision.memorySummary.includes("FEAT-005"), true);
   assert.equal(decision.candidates.find((entry) => entry.id === "FEAT-005")?.dependenciesSatisfied, false);
-});
-
-test("planning pipeline preserves required skill order and enters review_needed on failure evidence", async () => {
-  const visited: string[] = [];
-  const failed = await runPlanningPipeline("FEAT-004", async (slug) => {
-    visited.push(slug);
-    if (slug === "architecture-plan-skill") {
-      throw new Error("Architecture plan missing boundary decision");
-    }
-    return { output: { slug }, evidence: `${slug} completed` };
-  });
-
-  assert.deepEqual(visited, ["technical-context-skill", "research-decision-skill", "architecture-plan-skill"]);
-  assert.equal(failed.status, "review_needed");
-  assert.equal(failed.failureEvidence, "Architecture plan missing boundary decision");
 });
 
 test("feature scheduler gates tasks on dependencies, boundaries, runner, worktree, budget, window, and approval", () => {
@@ -330,7 +310,7 @@ test("feature aggregation requires tasks, acceptance, spec alignment, and requir
   );
 });
 
-test("orchestration artifacts persist task graph, decisions, schedules, pipeline runs, and audit transitions", async () => {
+test("scheduler artifacts persist task graph, decisions, schedules, triggers, and audit transitions", async () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
   const spec = createOrchestrationSpec();
@@ -390,11 +370,6 @@ test("orchestration artifacts persist task graph, decisions, schedules, pipeline
       now: stableDate,
     }),
   );
-  const pipeline = persistPlanningPipelineResult(
-    dbPath,
-    await runPlanningPipeline("FEAT-004", async (slug) => ({ output: { slug }, evidence: `${slug} completed` })),
-    stableDate,
-  );
   const transition = persistStateTransition(
     dbPath,
     transitionFeature("FEAT-004", "ready", "planning", {
@@ -412,7 +387,6 @@ test("orchestration artifacts persist task graph, decisions, schedules, pipeline
     { name: "schedules", sql: "SELECT COUNT(*) AS count FROM task_schedules" },
     { name: "triggers", sql: "SELECT mode, result FROM schedule_triggers WHERE id = ?", params: [trigger.id] },
     { name: "featureAudit", sql: "SELECT entity_id FROM audit_timeline_events WHERE event_type = 'schedule_triggered' AND entity_id = ?", params: [featureScopedTrigger.featureId] },
-    { name: "pipelines", sql: "SELECT status FROM planning_pipeline_runs WHERE feature_id = ?", params: [pipeline.featureId] },
     { name: "transitions", sql: "SELECT to_status FROM state_transitions WHERE id = ?", params: [transition.id] },
     { name: "audit", sql: "SELECT event_type FROM audit_timeline_events WHERE entity_id = 'FEAT-004'" },
   ]);
@@ -423,7 +397,6 @@ test("orchestration artifacts persist task graph, decisions, schedules, pipeline
   assert.equal(result.queries.schedules[0].count, schedules.length);
   assert.deepEqual(result.queries.triggers[0], { mode: "manual", result: "accepted" });
   assert.equal(result.queries.featureAudit[0].entity_id, "FEAT-004");
-  assert.equal(result.queries.pipelines[0].status, "completed");
   assert.equal(result.queries.transitions[0].to_status, "planning");
   assert.deepEqual(result.queries.audit.map((row) => row.event_type).sort(), ["schedule_triggered", "schedule_triggered", "state_changed"]);
 });
@@ -488,8 +461,6 @@ function task(
     dependencies,
     parallelism: "parallel-safe",
     risk,
-    requiredSkill: "codex-coding-skill",
-    subagent: "implementer-subagent",
     estimatedEffort,
     status,
   };

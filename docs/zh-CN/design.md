@@ -2,7 +2,9 @@
 
 ## 1. Overview
 
-本设计覆盖 SpecDrive AutoBuild MVP 的产品级系统边界，对应 `docs/zh-CN/PRD.md` 和 `docs/zh-CN/requirements.md`。系统目标是把自然语言、PRD、EARS 或混合需求输入转化为可执行 Feature Spec，并通过 Skill、Subagent、Project Memory、Codex Runner、内部状态机、Evidence Pack、Review Center 和 Dashboard 形成可控、可恢复、可审计的长时间自主编程闭环。
+本设计覆盖 SpecDrive AutoBuild MVP 的产品级系统边界，对应 `docs/zh-CN/PRD.md` 和 `docs/zh-CN/requirements.md`。系统目标是把自然语言、PRD、EARS 或混合需求输入转化为可执行 Feature Spec，并通过 Scheduler、Project Memory、Codex Runner 外部运行观测、内部状态机、Evidence Pack、Review Center 和 Dashboard 形成可控、可恢复、可审计的长时间自主编程闭环。
+
+2026-04-29 边界更新：平台不再提供 Skill System、Subagent Runtime、Agent Run Contract、Context Broker、Planning Pipeline、Skill Center 或 Subagent Console。控制面只维护调度、任务图、状态机、状态聚合、审计、证据和 Console 状态展示；Runner 仅展示外部执行队列、心跳、日志、证据和状态检测。
 
 MVP 采用本地优先的控制面架构：
 

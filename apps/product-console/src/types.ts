@@ -1,14 +1,16 @@
 export type CommandAction =
   | "create_project"
   | "delete_project"
+  | "connect_git_repository"
   | "create_feature"
+  | "initialize_spec_protocol"
+  | "import_or_create_constitution"
+  | "initialize_project_memory"
   | "scan_prd_source"
   | "upload_prd_source"
   | "generate_ears"
   | "generate_hld"
   | "split_feature_specs"
-  | "terminate_subagent"
-  | "retry_subagent"
   | "pause_runner"
   | "resume_runner"
   | "approve_review"
@@ -70,7 +72,7 @@ export type DashboardModel = {
   projectHealth: { totalProjects: number; ready: number; blocked: number; failed: number };
   activeFeatures: Array<{ id: string; title: string; status: string; priority: number }>;
   boardCounts: Record<string, number>;
-  runningSubagents: number;
+  activeRuns: number;
   todayAutomaticExecutions: number;
   failedTasks: Array<{ id: string; title: string; status: string; featureId?: string }>;
   pendingApprovals: number;
@@ -103,7 +105,7 @@ export type ProjectOverviewModel = {
     taskCounts: Record<string, number>;
     failedTasks: number;
     pendingReviews: number;
-    runningSubagents: number;
+    activeRuns: number;
     runnerSuccessRate: number;
     costUsd: number;
     latestRisk?: { level: string; message: string; source: string };
@@ -184,33 +186,6 @@ export type SpecWorkspaceModel = {
   };
 };
 
-export type SkillCenterModel = {
-  skills: Array<{
-    slug: string;
-    name: string;
-    version: string;
-    enabled: boolean;
-    phase: string;
-    riskLevel: string;
-    schema: { input: unknown; output: unknown };
-    recentRuns: Array<{ id: string; status: string; createdAt: string }>;
-    successRate: number;
-  }>;
-};
-
-export type SubagentModel = {
-  runs: Array<{
-    id: string;
-    featureId?: string;
-    taskId?: string;
-    status: string;
-    runContract?: unknown;
-    contextSlice?: unknown;
-    evidence: Array<{ id: string; summary: string; path?: string }>;
-    tokenUsage?: unknown;
-  }>;
-};
-
 export type RunnerModel = {
   summary?: {
     onlineRunners: number;
@@ -289,8 +264,6 @@ export type ConsoleData = {
   dashboard: DashboardModel;
   board: BoardModel;
   spec: SpecWorkspaceModel;
-  skills: SkillCenterModel;
-  subagents: SubagentModel;
   runner: RunnerModel;
   reviews: ReviewModel;
 };

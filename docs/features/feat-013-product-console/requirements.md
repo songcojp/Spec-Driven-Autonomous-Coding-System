@@ -15,21 +15,22 @@ Spec Evolution:
 - CHG-010：用户确认原一级“看板 / Board”页面正式命名为“项目主页 / Project Home”。该页面是单个当前项目的概览入口；任务看板保留为页面内的 Task Board 分区和底层状态机能力。
 - CHG-011：用户确认项目创建或导入后应自动完成阶段 1 初始化操作。Product Console 只展示阶段 1 自动初始化状态、事实来源和阻塞原因，不把这些子步骤设计成用户逐步手动操作。
 - CHG-012：用户确认阶段 2 需要自动扫描 PRD、EARS、HLD、Feature Spec 等。Product Console 必须展示 Spec Sources 自动扫描状态和结果；阶段 2 只扫描已有 HLD / Feature Spec 事实源，不展示 HLD 生成、Feature Spec 拆分或规划流水线入口。
+- CHG-013：2026-04-29 平台边界收缩为调度和状态维护，移除 Skill Center、Subagent Console 和规划流水线入口；Runner 页面仅展示外部执行状态、心跳、日志、证据和状态检测。
 
 ## Scope
 
-- Dashboard 展示项目健康度、当前活跃 Feature、看板任务数量、运行中 Subagent、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
+- Dashboard 展示项目健康度、当前活跃 Feature、看板任务数量、活跃外部运行、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
 - Product Console App Shell 提供导入现有项目入口、新建项目表单、项目列表和当前项目切换控件；当前项目上下文驱动所有页面查询和受控命令。
 - Project Home 是当前单个项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并在页面内提供 Task Board 分区。
 - Task Board 分区支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
-- Spec Workspace 的 Spec 操作流程必须拆为“阶段 1 项目初始化”、“阶段 2 需求录入”和“阶段 3 规划执行”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 展示 Spec Sources 自动扫描、PRD 上传、PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS / Feature Spec 生成、澄清、质量检查和 Feature Spec Pool 状态；阶段 3 展示 HLD 生成、Feature Spec 拆分、规划流水线和状态检查状态。
+- Spec Workspace 的 Spec 操作流程必须拆为“阶段 1 项目初始化”、“阶段 2 需求录入”和“阶段 3 调度状态”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 展示 Spec Sources 自动扫描、PRD 上传、PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS / Feature Spec 生成、澄清、质量检查和 Feature Spec Pool 状态；阶段 3 展示任务图、调度、状态检查和状态聚合。
 - Spec Workspace 头部的阶段流程必须默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；点击阶段标签后展开阶段事实、阻塞原因和阶段内步骤。
 - Spec Workflow 的来源、版本、扫描模式、最后扫描时间、运行耗时和阻塞数量必须以标签形式显示在流程说明栏；流程后方不得保留独立提示信息栏。
-- 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；这些阶段 3 操作只能作为选中 Feature 的独立受控操作出现。
-- Skill Center 展示项目本地 `.agents/skills/*/SKILL.md` 发现到的 Skill 列表、详情和文件路径。
-- Subagent Console 展示 CLI delegation 相关 run、Subagent event、Evidence Pack、Status Check、token 使用和运行状态。
-- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳状态，并支持暂停或恢复 Runner。
+- 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；阶段 3 只保留调度、任务图、状态检查和状态聚合入口。
+- Skill Center 已移除，Console 不展示平台 Skill 页面。
+- Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
+- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。
 - Product Console 必须默认使用中文界面，并提供可见语言切换入口；切换范围覆盖导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息。
@@ -43,7 +44,7 @@ Spec Evolution:
 
 ## User Value
 
-用户可以从一个控制台理解项目健康、自动化进度、任务风险、Subagent 状态、Runner 状态和待审批事项，并通过受控命令操作系统。
+用户可以从一个控制台理解项目健康、自动化进度、任务风险、外部运行状态、Runner 状态和待审批事项，并通过受控命令操作系统。
 
 ## Requirements
 
@@ -54,11 +55,9 @@ Spec Evolution:
 - 用户可以从 Spec Workspace 追踪需求到任务图。
 - 用户可以从 Spec Workspace 看到阶段 1 自动项目初始化是否阻塞阶段 2 需求录入，也可以看到阶段 3 规划执行状态；没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 / 阶段 3 Spec 流程。
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。
-- 用户可以查看 Skill 是否启用以及最近执行情况。
-- 用户可以定位每个 Subagent 的输入、输出和当前状态。
 - 用户可以判断 Runner 是否可执行新任务。
 - 高风险、阻塞或需澄清任务能从 Review Center 被处理。
-- 用户可以在浏览器中打开 Product Console，并在 Dashboard、Project Home、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 之间切换。
+- 用户可以在浏览器中打开 Product Console，并在 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center 之间切换。
 - 用户可以导入现有项目或通过表单创建新项目，在项目列表中切换当前项目，并看到各页面随当前项目刷新。
 - 每个页面必须有加载态、空态、错误态和真实数据态；页面文案不能替代状态数据、Evidence、diff、日志或命令结果。
 - 用户动作必须通过可见控件发起，且控件调用 Control Plane 受控命令后展示成功、阻塞或失败反馈。
@@ -72,7 +71,7 @@ Spec Evolution:
 - [ ] 看板加载和状态刷新耗时被记录为性能基线。
 - [ ] Runner 心跳、成本、成功率和失败率可展示。
 - [ ] Dashboard 不覆盖 Persistent Store、Project Memory 或 Git 事实。
-- [ ] 仓库包含可运行的前端应用入口、路由和页面组件，至少覆盖 Dashboard、Project Home、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center。
+- [ ] 仓库包含可运行的前端应用入口、路由和页面组件，至少覆盖 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center。
 - [ ] Product Console 接入 HLD 指定的 React + Next.js 或 Vite React，以及 shadcn/ui + Tailwind CSS + Radix UI primitives，若因宿主框架调整必须在设计中记录替代方案。
 - [ ] 浏览器级验证覆盖 Console 首屏、页面切换、真实数据渲染、空态/错误态和一个受控命令动作；API 层测试不能单独满足 UI 验收。
 - [ ] FEAT-013 不得标记为 `done`，除非用户可访问 UI 与现有 API/ViewModel 同时完成并通过验证。
@@ -83,7 +82,7 @@ Spec Evolution:
 - [ ] Product Console 提供导入现有项目、新建项目表单、项目列表和当前项目切换控件。
 - [ ] 导入现有项目和新建项目必须使用不同表单：导入表单只要求设置现有项目目录，并自动扫描项目名称、默认分支、仓库来源和技术栈；新建表单聚焦项目目标、类型、技术偏好和 workspace 目录名。
 - [ ] 新建项目表单提交的新项目目录必须为 `workspace/<project-slug>`；导入现有项目提交用户填写的现有项目目录。
-- [ ] 切换项目后 Dashboard、Project Home、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 只展示当前项目数据。
+- [ ] 切换项目后 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center 只展示当前项目数据。
 - [ ] 浏览器级验证覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及 `project_id` 缺失/不匹配时的阻塞反馈。
 - [ ] Spec Workspace 浏览器级验证覆盖阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 自动扫描、PRD 上传命令回执、项目切换后的数据隔离，以及阶段 2 不出现 HLD 生成、Feature Spec 拆分或规划流水线入口。
 - [ ] 阶段 2 扫描结果展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等来源类型，并标记缺失项、冲突项和需要澄清的问题。

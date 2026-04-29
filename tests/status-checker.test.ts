@@ -20,7 +20,7 @@ test("current schema includes status checker, recovery history, and attachment t
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 14);
+  assert.equal(SCHEMA_VERSION, 15);
   assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   for (const table of ["status_check_results", "spec_alignment_results", "evidence_attachment_refs", "recovery_attempts", "forbidden_retry_records"]) {
@@ -246,10 +246,10 @@ test("repeated failures mark active task and feature failed", () => {
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+          allowed_files_json, dependencies_json, risk, estimated_effort
         ) VALUES (
           'GRAPH-TASK-009', 'TG-FEAT-009', 'FEAT-009', 'Run checks', 'running',
-          '[]', '[]', '[]', '[]', 'medium', 'codex-coding-skill', 'coding', 1
+          '[]', '[]', '[]', '[]', 'medium', 1
         )`,
     },
   ]);

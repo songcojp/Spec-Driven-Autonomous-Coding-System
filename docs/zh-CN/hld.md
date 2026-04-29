@@ -8,7 +8,9 @@
 
 ## 1. Overview
 
-SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。系统以 Spec Protocol 管理目标、需求、验收和交付证据，以 Skill System 固化可复用工程方法，以 Subagent Runtime 隔离上下文并行处理任务，以 Project Memory 为 Codex CLI 提供跨会话恢复能力，以 Codex Runner 执行代码修改、测试、修复和 PR 生成，以内部任务状态机维护任务、审批、恢复和交付流转，并通过 Product Console / Dashboard 呈现状态。
+SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。系统以 Spec Protocol 管理目标、需求、验收和交付证据，以 Scheduler 选择 Feature、排期任务和记录触发，以 Project Memory 为 Codex CLI 提供跨会话恢复能力，以 Codex Runner 观测外部执行队列、心跳、日志、证据和状态检测，以内部任务状态机维护任务、审批、恢复和交付流转，并通过 Product Console / Dashboard 呈现状态。
+
+2026-04-29 边界更新：平台不再提供 Skill System、Subagent Runtime、Agent Run Contract、Context Broker、Planning Pipeline、Skill Center 或 Subagent Console。本文后续旧名称若仍出现在历史映射中，均由 Scheduler and State Maintenance、Runner observation、Evidence、Status Check、Review、Recovery 和 Audit 替代。
 
 本 HLD 定义项目级架构边界、技术栈、核心子系统、数据域、集成方式、运行拓扑、安全治理、可观测性和 Feature Spec 拆分方向。本文不定义具体接口字段、数据库迁移、函数签名、任务实现步骤或单个 Feature 的低层设计。
 
@@ -628,6 +630,88 @@ Decomposition rules:
 - 涉及写代码、测试执行或 Git 修改的 Feature Spec 必须明确 Workspace Manager 与 Runner Policy。
 - UI Feature Spec 只消费控制面状态，不重新定义调度真实来源。
 - Project Memory 相关 Feature Spec 必须处理压缩、版本、冲突修复和投影与真实状态的边界。
+
+## 16. Skill-vs-Code Implementation Boundaries
+
+本节记录对 PRD 第 5 节用户流程每一步骤的 Skill-vs-Code 归因，作为实现决策的参考基准。
+
+**判断准则（来自 AGENTS.md）：**
+- **用 Skill**：CLI 已有机制（文件发现、subagent 委托、session 上下文）、提示驱动工作流（推理、规划、评审、分解）。
+- **用 Code**：需要跨 session 持久化状态、强制结构不变式（状态机迁移、去重、退避）、机器可查询输出（审计日志、Evidence、状态检查）。
+- **默认原则**：CLI 能做的写 Skill；只有持久化、结构强制、机器查询才写代码。
+
+### 阶段 1：项目初始化
+
+| 用户流程步骤 | 实现方式 | 理由 |
+|---|---|---|
+| 创建项目 | **Code** | 配置需跨 session 持久化，被 Scheduler / Dashboard / Memory 机器查询 |
+| 连接 Git 仓库 | **Code** | `git` 命令输出需结构化存储，健康检查结果需机器可查 |
+| 初始化 Spec Protocol | **Code** | 一次性目录与 schema 建立，是结构不变式 |
+| 导入或创建项目宪章 | **Skill** | `project-constitution-skill`；提示驱动生成，文件落地即持久化 |
+| 初始化 Project Memory | **Code**（创建文件）+ **Skill**（初始内容摘要） | 文件创建是结构副作用；初始摘要内容是 LLM 推理 |
+
+### 阶段 2：需求录入
+
+| 用户流程步骤 | 实现方式 | 理由 |
+|---|---|---|
+| 扫描或上传 PRD | **Skill** | `repo-probe-skill`；CLI 已提供文件读取机制 |
+| 识别需求格式 | **Skill** | LLM 分类推理，是 `pr-ears-requirement-decomposition-skill` 前置步骤 |
+| 生成 EARS / Feature Spec | **Skill**（内容）+ **Code**（Feature 记录写入） | `pr-ears-requirement-decomposition-skill` + `requirement-intake-skill` 生成内容；SQLite 记录 Feature 存在是 Code |
+| 完成关键澄清 | **Skill** | `ambiguity-clarification-skill` |
+| 需求质量检查 | **Skill** | `requirements-checklist-skill` |
+| Feature 状态 → `ready` | **Code** | 状态迁移必须强制、持久化、可审计；CLI 无法保证 |
+
+### 阶段 3：自主执行循环
+
+| 用户流程步骤 | 实现方式 | 理由 |
+|---|---|---|
+| Project Scheduler 选择 ready Feature | **Code** | 优先级算法 + 去重 + 崩溃恢复，不能靠 LLM 推理替代 |
+| Feature 状态 → `planning` | **Code** | 状态机迁移 |
+| 生成技术计划、研究结论、数据模型、接口契约 | **Skill** | 规划流水线：`technical-context-skill` → `research-decision-skill` → `architecture-plan-skill` → `data-model-skill` → `contract-design-skill` → `quickstart-validation-skill` → `spec-consistency-analysis-skill` |
+| 生成任务图 | **Skill**（任务分解）+ **Code**（任务图写入） | `task-slicing-skill` 生成内容；任务图读取后写入 SQLite 是 Code |
+| Feature 状态 → `tasked`，任务进入看板 | **Code** | 状态机迁移 + 看板持久化 |
+| Feature Scheduler 调度任务 | **Code** | 依赖图解析、串行锁、重试限制，是结构不变式 |
+| Project Memory 注入 CLI 上下文 | **Code** | 会话启动前注入文件，是触发侧副作用 |
+| Subagent + Codex Runner 执行编码、测试、修复 | **CLI 原生**（执行）+ **Code**（run 记录 / 心跳 / 日志） | CLI 负责委托和上下文；Code 只记录周边 run event |
+| Project Memory 更新 | **Code** | Evidence Pack 驱动的结构化文件更新，含 token 预算压缩逻辑 |
+| Status Checker 判断任务状态 | **Code**（diff / build / test / lint / security 命令执行）+ **Skill**（Spec Alignment 语义比对） | 确定性检查是 Code；语义对齐是 LLM 推理 |
+| Done → 更新任务图 | **Code** | 状态机迁移 |
+| Review Needed → 审批流 | **Code**（状态记录 + 通知）+ **Skill**（`review-report-skill` 生成 review 内容） | 状态和入口是 Code；review 分析内容是 Skill |
+| Blocked → 记录阻塞 | **Code** | 阻塞持久化；无法解除时任务回退是状态机 |
+| Failed → 生成恢复任务 | **Code**（指纹 / 去重 / 退避）+ **Skill**（`failure-recovery-skill` 恢复策略推理） | 重试不变式是 Code；恢复推理是 Skill |
+| Feature done → PR / Delivery Report | **Code**（`gh` CLI 调用 + 交付记录）+ **Skill**（`pr-generation-skill` 生成 PR 内容） | — |
+| Spec Evolution | **Skill** | `spec-evolution-skill` |
+| 回到 Feature Selector | **Code** | 调度器循环闭合 |
+
+### 汇总：Code 与 Skill 的职责边界
+
+**Code 负责（7 类）：**
+
+1. 项目 / 仓库 / Spec Protocol 初始化存储
+2. 所有状态机迁移（`ready` / `planning` / `tasked` / `done` / `review_needed` / `blocked` / `failed`）
+3. Project Scheduler / Feature Scheduler（优先级、依赖、去重、退避）
+4. Run 记录、心跳、Evidence 捕获
+5. Project Memory 文件读写（注入 + 更新）
+6. Status Checker 命令执行（diff / build / test / lint / security）
+7. 失败指纹、重试限制、交付记录
+
+**Skill 负责（9 类）：**
+
+1. 项目宪章生成 → `project-constitution-skill`
+2. PRD 扫描 / 格式识别 → `repo-probe-skill`
+3. EARS / Feature Spec 生成 → `pr-ears-requirement-decomposition-skill` + `requirement-intake-skill`
+4. 澄清 → `ambiguity-clarification-skill`
+5. 需求质量检查 → `requirements-checklist-skill`
+6. 全规划流水线 → `technical-context-skill` / `research-decision-skill` / `architecture-plan-skill` / `data-model-skill` / `contract-design-skill` / `quickstart-validation-skill` / `spec-consistency-analysis-skill`
+7. 任务分解 → `task-slicing-skill`
+8. Spec Alignment 语义比对（Status Checker 子步骤）
+9. Review 内容 / 恢复策略 / PR 内容 / Spec 演进 → `review-report-skill` / `failure-recovery-skill` / `pr-generation-skill` / `spec-evolution-skill`
+
+**现有代码中可削减的部分：**
+
+- Skill 注册表硬编码 → 改为读取 `.agents/skills/` 目录文件元数据
+- Agent Run Contract 生成逻辑 → CLI 已处理，只保留 run event 记录
+- Spec Protocol 中任何 LLM 推理部分 → 委托给对应 Skill
 
 ## 16. Risks, Tradeoffs, and Open Questions
 

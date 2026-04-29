@@ -41,7 +41,7 @@ import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, Project
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
 
 type Locale = "zh-CN" | "en";
-type ViewKey = "overview" | "board" | "spec" | "skills" | "subagents" | "runner" | "reviews";
+type ViewKey = "overview" | "board" | "spec" | "runner" | "reviews";
 
 const localeStorageKey = "specdrive-console-locale";
 const projectStorageKey = "specdrive-current-project";
@@ -51,8 +51,6 @@ const navItems: Array<{ key: ViewKey; icon: typeof Home }> = [
   { key: "overview", icon: LayoutDashboard },
   { key: "board", icon: SquareKanban },
   { key: "spec", icon: FileText },
-  { key: "skills", icon: Boxes },
-  { key: "subagents", icon: Bot },
   { key: "runner", icon: Play },
   { key: "reviews", icon: ClipboardList },
 ];
@@ -75,8 +73,6 @@ const copy = {
       overview: "全局概况",
       board: "项目主页",
       spec: "Spec 工作台",
-      skills: "Skill 中心",
-      subagents: "Subagent",
       runner: "Runner",
       reviews: "审查",
     },
@@ -94,7 +90,7 @@ const copy = {
     totalCost: "总成本",
     projectOverview: "项目概况",
     taskSummary: "任务",
-    subagentsShort: "Subagents",
+    activeRunsShort: "活跃 Run",
     runnerSuccessShort: "Runner 成功率",
     costUsd: "成本 (USD)",
     latestRisk: "最新风险",
@@ -229,14 +225,10 @@ const copy = {
     noRunnerTasks: "当前没有可调度任务。",
     factSourcesRunner: "事实源：task_graph_tasks、runs、runner_heartbeats、review_items、audit_timeline_events",
     noRunner: "尚未记录 Runner 心跳。",
-    subagents: "Subagent",
     allHealthy: "全部健康",
-    subagent: "Subagent",
-    runContract: "Run Contract",
     evidence: "Evidence",
     action: "操作",
     noEvidence: "无 Evidence",
-    noSubagents: "没有活跃的 Subagent Run。",
     retry: "重试",
     reviewsTitle: (count: number) => `审查 ${count}`,
     id: "ID",
@@ -258,7 +250,7 @@ const copy = {
     prdWorkflowSubtitle: "先确认项目初始化，再录入 Spec 来源，生成可进入 Feature Spec Pool 的需求事实。",
     projectInitialization: "阶段 1 项目初始化",
     requirementIntake: "阶段 2 需求录入",
-    featurePlanning: "阶段 3 规划执行",
+    featurePlanning: "阶段 3 调度状态",
     phaseFacts: "阶段事实",
     createOrImportProject: "创建/导入项目",
     connectGitRepository: "连接 Git 仓库",
@@ -276,8 +268,7 @@ const copy = {
     generateEars: "生成 EARS",
     generateHld: "生成 HLD",
     splitFeatureSpecs: "拆分 Feature Spec",
-    enterPlanningPipeline: "进入规划流水线",
-    planningPipeline: "规划流水线",
+    scheduleRun: "调度运行",
     runStatusChecks: "状态检查",
     currentPrdFile: "当前 Spec 来源",
     prdVersion: "Spec 版本",
@@ -312,7 +303,7 @@ const copy = {
     clarification: "澄清",
     traceability: "需求 - 任务可追溯性",
     controlledActions: "受控操作",
-    planPipeline: "规划流水线",
+    scheduleRunAction: "调度运行",
     scheduleTasks: "排期任务",
     runChecks: "运行检查",
     writeSpecEvolution: "写入 Spec Evolution",
@@ -332,12 +323,10 @@ const copy = {
     receiver: "接收人",
     version: "版本",
     noFeatureSpecs: "当前项目没有可用的 Feature Spec。",
-    skillCenter: "Skill 中心",
     enabled: "已启用",
     disabled: "已禁用",
     phase: "阶段",
     success: "成功率",
-    noSkills: "没有注册 Skill。",
     createFeatureDescription: "向 Control Plane 提交受控 create_feature 命令。",
     submitCommand: "提交命令",
     commandBlocked: "命令被阻塞",
@@ -352,8 +341,6 @@ const copy = {
       overview: "Dashboard",
       board: "Project Home",
       spec: "Spec Workspace",
-      skills: "Skill Center",
-      subagents: "Subagents",
       runner: "Runner",
       reviews: "Reviews",
     },
@@ -371,7 +358,7 @@ const copy = {
     totalCost: "Total Cost",
     projectOverview: "Project Overview",
     taskSummary: "Tasks",
-    subagentsShort: "Subagents",
+    activeRunsShort: "Active Runs",
     runnerSuccessShort: "Runner Success",
     costUsd: "Cost (USD)",
     latestRisk: "Latest Risk",
@@ -506,14 +493,10 @@ const copy = {
     noRunnerTasks: "No schedulable tasks are available.",
     factSourcesRunner: "Fact sources: task_graph_tasks, runs, runner_heartbeats, review_items, audit_timeline_events",
     noRunner: "No runner heartbeats have been recorded.",
-    subagents: "Subagents",
     allHealthy: "All Healthy",
-    subagent: "Subagent",
-    runContract: "Run Contract",
     evidence: "Evidence",
     action: "Action",
     noEvidence: "No evidence",
-    noSubagents: "No subagent runs are active.",
     retry: "Retry",
     reviewsTitle: (count: number) => `Reviews ${count}`,
     id: "ID",
@@ -553,8 +536,7 @@ const copy = {
     generateEars: "Generate EARS",
     generateHld: "Generate HLD",
     splitFeatureSpecs: "Split Feature Spec",
-    enterPlanningPipeline: "Enter Planning Pipeline",
-    planningPipeline: "Planning Pipeline",
+    scheduleRun: "Schedule Run",
     runStatusChecks: "Status Checks",
     currentPrdFile: "Current Spec Source",
     prdVersion: "Spec Version",
@@ -589,7 +571,7 @@ const copy = {
     clarification: "Clarification",
     traceability: "Requirement - Task Traceability",
     controlledActions: "Controlled Actions",
-    planPipeline: "Plan Pipeline",
+    scheduleRunAction: "Schedule Run",
     scheduleTasks: "Schedule Tasks",
     runChecks: "Run Checks",
     writeSpecEvolution: "Write Spec Evolution",
@@ -609,12 +591,10 @@ const copy = {
     receiver: "Receiver",
     version: "Version",
     noFeatureSpecs: "No feature specs are available for this project.",
-    skillCenter: "Skill Center",
     enabled: "enabled",
     disabled: "disabled",
     phase: "Phase",
     success: "Success",
-    noSkills: "No skills are registered.",
     createFeatureDescription: "Submit a controlled create_feature command to the Control Plane.",
     submitCommand: "Submit Command",
     commandBlocked: "Command blocked",
@@ -992,13 +972,7 @@ export function App() {
                 <ProjectHomeView data={currentData} text={text} project={currentProject} selectedTask={selectedTask} onSelectTask={setSelectedTaskId} onCommand={runCommand} busy={isPending} />
               </Tabs.Content>
               <Tabs.Content value="spec">
-                <SpecWorkspace data={currentData} text={text} currentProject={currentProject} onCommand={runCommand} />
-              </Tabs.Content>
-              <Tabs.Content value="skills">
-                <SkillCenter data={currentData} text={text} />
-              </Tabs.Content>
-              <Tabs.Content value="subagents">
-                <Subagents data={currentData} text={text} onCommand={runCommand} busy={isPending} />
+                <SpecWorkspace data={currentData} text={text} currentProject={currentProject} onCreateProject={createProject} onCommand={runCommand} />
               </Tabs.Content>
               <Tabs.Content value="runner">
                 <Runner data={currentData} text={text} onCommand={runCommand} busy={isPending} />
@@ -1099,7 +1073,7 @@ function GlobalOverviewView({
                     <th className="px-4 py-3">{text.activeFeature}</th>
                     <th className="px-4 py-3">{text.taskSummary}</th>
                     <th className="px-4 py-3">{text.pendingReviews}</th>
-                    <th className="px-4 py-3">{text.subagentsShort}</th>
+                    <th className="px-4 py-3">{text.activeRunsShort}</th>
                     <th className="px-4 py-3">{text.runnerSuccessShort}</th>
                     <th className="px-4 py-3">{text.costUsd}</th>
                     <th className="px-4 py-3">{text.latestRisk}</th>
@@ -1138,7 +1112,7 @@ function GlobalOverviewView({
                           </div>
                         </td>
                         <td className="px-4 py-4 align-top text-amber-600">{project.pendingReviews}</td>
-                        <td className="px-4 py-4 align-top">{project.runningSubagents}</td>
+                        <td className="px-4 py-4 align-top">{project.activeRuns}</td>
                         <td className="px-4 py-4 align-top text-emerald-600">{formatPrecisePercent(project.runnerSuccessRate)}</td>
                         <td className="px-4 py-4 align-top">${project.costUsd.toFixed(2)}</td>
                         <td className="max-w-[220px] px-4 py-4 align-top text-[12px] text-slate-700">{project.latestRisk?.message ?? text.none}</td>
@@ -1199,7 +1173,7 @@ function mergeOverviewProjects(data: ConsoleData): ConsoleData["overview"]["proj
     taskCounts: {},
     failedTasks: 0,
     pendingReviews: 0,
-    runningSubagents: 0,
+    activeRuns: 0,
     runnerSuccessRate: 0,
     costUsd: 0,
     lastActivityAt: project.lastActivityAt,
@@ -1331,8 +1305,8 @@ function ProjectHomeMetrics({ data, text }: { data: ConsoleData; text: ConsoleCo
     },
     {
       icon: Bot,
-      label: text.subagents,
-      value: String(data.dashboard.runningSubagents),
+      label: text.activeRunsShort,
+      value: String(data.dashboard.activeRuns),
       sub: text.active,
       tone: "neutral",
     },
@@ -1388,7 +1362,6 @@ function ProjectHomeMetrics({ data, text }: { data: ConsoleData; text: ConsoleCo
 
 function ProjectHomeActivity({ data, text }: { data: ConsoleData; text: ConsoleCopy }) {
   const evidenceRows = [
-    ...data.subagents.runs.flatMap((run) => run.evidence.map((entry) => ({ id: entry.id, summary: entry.summary, meta: run.id, path: entry.path }))),
     ...data.reviews.items.flatMap((item) => item.evidence.map((entry) => ({ id: entry.id, summary: entry.summary, meta: item.id, path: entry.path }))),
   ].slice(0, 3);
   return (
@@ -1793,31 +1766,6 @@ function formatPrecisePercent(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
 
-function SubagentPanel({ data, text, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
-  return (
-    <Panel>
-      <SectionTitle title={text.subagents} action={<Chip tone="green">{text.allHealthy}</Chip>} />
-      {data.subagents.runs.length > 0 ? (
-        <div className="p-4">
-          <table className="w-full text-left text-[13px]">
-            <thead className="text-[12px] text-muted"><tr><th className="pb-2">{text.subagent}</th><th className="pb-2">{text.runContract}</th><th className="pb-2">{text.evidence}</th><th className="pb-2">{text.action}</th></tr></thead>
-            <tbody>
-              {data.subagents.runs.map((run) => (
-                <tr key={run.id} className="border-t border-line">
-                  <td className="py-2">{run.id}</td>
-                  <td className="py-2 text-muted">{String((run.runContract as { command?: string } | undefined)?.command ?? "pending")}</td>
-                  <td className="py-2"><a className="text-action" href={run.evidence[0]?.path ?? "#"}>{run.evidence[0]?.summary ?? text.noEvidence}</a></td>
-                  <td className="py-2"><Button disabled={busy} onClick={() => onCommand("retry_subagent", "run", run.id)}>{text.retry}</Button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : <EmptyState title={text.noSubagents} />}
-    </Panel>
-  );
-}
-
 function ReviewsPanel({ data, text, onCommand, busy, compact = false }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean; compact?: boolean }) {
   return (
     <Panel>
@@ -1866,7 +1814,7 @@ function TaskInspector({ task, text, onCommand, busy }: { task?: BoardTask; text
         </div>
       </div>
       <div className="grid grid-cols-4 border-b border-line text-center text-[12px] text-muted">
-        {["Details", "Logs", "Artifacts", "Subagents"].map((tab, index) => (
+        {["Details", "Logs", "Artifacts", "State"].map((tab, index) => (
           <button key={tab} className={`h-10 border-b-2 ${index === 0 ? "border-action font-medium text-action" : "border-transparent"}`}>{tab}</button>
         ))}
       </div>
@@ -1941,7 +1889,19 @@ function InspectorBlock({ title, children }: { title: string; children: ReactNod
   );
 }
 
-function SpecWorkspace({ data, text, currentProject, onCommand }: { data: ConsoleData; text: ConsoleCopy; currentProject: ProjectSummary; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void }) {
+function SpecWorkspace({
+  data,
+  text,
+  currentProject,
+  onCreateProject,
+  onCommand,
+}: {
+  data: ConsoleData;
+  text: ConsoleCopy;
+  currentProject: ProjectSummary;
+  onCreateProject: (form: ProjectCreateForm) => void;
+  onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void;
+}) {
   const currentProjectId = currentProject.id;
   const initialFeatureId = data.spec.selectedFeature?.id ?? data.spec.features[0]?.id ?? "";
   const [selectedFeatureId, setSelectedFeatureId] = useState(initialFeatureId);
@@ -1985,9 +1945,6 @@ function SpecWorkspace({ data, text, currentProject, onCommand }: { data: Consol
   const featureTasks = data.board.tasks.filter((task) => task.featureId === selected?.id);
   const reviewForFeature = data.reviews.items.find((item) => item.featureId === selected?.id || featureTasks.some((task) => task.id === item.taskId));
   const recentEvidence = [
-    ...data.subagents.runs
-      .filter((run) => run.featureId === selected?.id || featureTasks.some((task) => task.id === run.taskId))
-      .flatMap((run) => run.evidence.map((entry) => ({ ...entry, source: run.id }))),
     ...data.reviews.items
       .filter((item) => item.featureId === selected?.id || featureTasks.some((task) => task.id === item.taskId))
       .flatMap((item) => item.evidence.map((entry) => ({ ...entry, source: item.id }))),
@@ -2012,7 +1969,7 @@ function SpecWorkspace({ data, text, currentProject, onCommand }: { data: Consol
   if (!selected) {
     return (
       <div className="space-y-4">
-        <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={undefined} onCommand={onCommand} />
+        <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={undefined} onCreateProject={onCreateProject} onCommand={onCommand} />
         <Panel><SectionTitle title={text.featureSpec} /><EmptyState title={text.noFeatureSpecs} /></Panel>
       </div>
     );
@@ -2020,7 +1977,7 @@ function SpecWorkspace({ data, text, currentProject, onCommand }: { data: Consol
 
   return (
     <div className="space-y-4">
-      <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={selected.id} onCommand={onCommand} />
+      <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProject={currentProject} selectedFeatureId={selected.id} onCreateProject={onCreateProject} onCommand={onCommand} />
       <Panel>
         <SectionTitle title={text.featureSpec} />
       <div className="grid grid-cols-[280px_minmax(0,1fr)_320px] gap-4 p-4 max-xl:grid-cols-1">
@@ -2124,7 +2081,7 @@ function SpecWorkspace({ data, text, currentProject, onCommand }: { data: Consol
             <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">{text.controlledActions}</div>
             <div className="space-y-2 p-3">
               <Button className="w-full justify-start" onClick={() => onCommand("create_feature", "project", currentProjectId)}><Plus size={15} />{text.createFeature}</Button>
-              <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "planning_pipeline", mode: "manual", requestedFor: new Date().toISOString(), featureId: selected.id })}><Workflow size={15} />{text.planPipeline}</Button>
+              <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "status_scheduling", mode: "manual", requestedFor: new Date().toISOString(), featureId: selected.id })}><Workflow size={15} />{text.scheduleRunAction}</Button>
               <Button className="w-full justify-start" onClick={() => onCommand("schedule_board_tasks", "feature", selected.id, { taskIds: featureTasks.map((task) => task.id) })}><CalendarCheck size={15} />{text.scheduleTasks}</Button>
               <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "status_check" })}><ShieldCheck size={15} />{text.runChecks}</Button>
               <Button className="w-full justify-start" onClick={() => onCommand("write_spec_evolution", "spec", selected.id, { featureId: selected.id })}><FileText size={15} />{text.writeSpecEvolution}</Button>
@@ -2197,7 +2154,7 @@ const workflowStageIcons: Record<string, typeof Home> = {
   feature_spec_pool: GitBranch,
   generate_hld: FileText,
   split_feature_specs: Workflow,
-  planning_pipeline: Workflow,
+  status_scheduling: Workflow,
   status_check: ShieldCheck,
 };
 
@@ -2217,7 +2174,7 @@ function workflowStageLabel(key: string, text: ConsoleCopy): string {
     feature_spec_pool: text.featureSpecPool,
     generate_hld: text.generateHld,
     split_feature_specs: text.splitFeatureSpecs,
-    planning_pipeline: text.planningPipeline,
+    status_scheduling: text.scheduleRun,
     status_check: text.runStatusChecks,
   };
   return labels[key] ?? humanizeSpecKey(key);
@@ -2244,17 +2201,46 @@ function workflowPhaseTitle(key: WorkflowPhaseKey, text: ConsoleCopy): string {
       : text.featurePlanning;
 }
 
+function workflowStageAction(phaseKey: WorkflowPhaseKey, stageKey: string, action?: CommandReceipt["action"]): CommandReceipt["action"] | undefined {
+  if (action) {
+    return action;
+  }
+  if (phaseKey === "project_initialization") {
+    return stageKey === "connect_git_repository"
+      ? "connect_git_repository"
+      : stageKey === "initialize_spec_protocol"
+        ? "initialize_spec_protocol"
+        : stageKey === "import_or_create_constitution"
+          ? "import_or_create_constitution"
+          : stageKey === "initialize_project_memory"
+            ? "initialize_project_memory"
+            : undefined;
+  }
+  if (phaseKey === "feature_planning") {
+    return stageKey === "generate_hld"
+      ? "generate_hld"
+      : stageKey === "split_feature_specs"
+        ? "split_feature_specs"
+        : stageKey === "status_scheduling" || stageKey === "status_check"
+          ? "schedule_run"
+          : undefined;
+  }
+  return undefined;
+}
+
 function SpecPrdWorkflowPanel({
   workflow,
   text,
   currentProject,
   selectedFeatureId,
+  onCreateProject,
   onCommand,
 }: {
   workflow?: ConsoleData["spec"]["prdWorkflow"];
   text: ConsoleCopy;
   currentProject: ProjectSummary;
   selectedFeatureId?: string;
+  onCreateProject: (form: ProjectCreateForm) => void;
   onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -2286,10 +2272,10 @@ function SpecPrdWorkflowPanel({
           ],
           stages: [
             { key: "create_or_import_project", status: "completed" as const },
-            { key: "connect_git_repository", status: currentProject.repository ? "completed" as const : "blocked" as const },
-            { key: "initialize_spec_protocol", status: hasProjectDirectory ? "completed" as const : "blocked" as const },
-            { key: "import_or_create_constitution", status: "pending" as const },
-            { key: "initialize_project_memory", status: "pending" as const },
+            { key: "connect_git_repository", action: "connect_git_repository" as const, status: currentProject.repository ? "completed" as const : "blocked" as const },
+            { key: "initialize_spec_protocol", action: "initialize_spec_protocol" as const, status: hasProjectDirectory ? "completed" as const : "blocked" as const },
+            { key: "import_or_create_constitution", action: "import_or_create_constitution" as const, status: "pending" as const },
+            { key: "initialize_project_memory", action: "initialize_project_memory" as const, status: "pending" as const },
           ],
         },
         {
@@ -2314,18 +2300,17 @@ function SpecPrdWorkflowPanel({
     stages: [
       {
         key: "generate_hld",
+        action: "generate_hld",
         status: selectedFeatureId ? "pending" : "pending",
       },
       {
         key: "split_feature_specs",
+        action: "split_feature_specs",
         status: selectedFeatureId ? "pending" : "pending",
       },
       {
-        key: "planning_pipeline",
-        status: selectedFeatureId ? "accepted" : "pending",
-      },
-      {
         key: "status_check",
+        action: "schedule_run",
         status: selectedFeatureId ? "pending" : "pending",
       },
     ],
@@ -2345,14 +2330,24 @@ function SpecPrdWorkflowPanel({
     },
   ];
 
-  function runWorkflowAction(action: CommandReceipt["action"], key: string) {
-    onCommand(action, "project", currentProject.id, {
+  function runWorkflowAction(action: CommandReceipt["action"], key: string, phaseKey: WorkflowPhaseKey) {
+    const entityType = phaseKey === "feature_planning" && selectedFeatureId ? "feature" : "project";
+    const entityId = entityType === "feature" && selectedFeatureId ? selectedFeatureId : currentProject.id;
+    const schedulePayload = action === "schedule_run"
+      ? {
+          mode: "manual",
+          requestedFor: new Date().toISOString(),
+          featureId: selectedFeatureId,
+        }
+      : {};
+    onCommand(action, entityType, entityId, {
       stage: key,
       targetRepoPath,
       sourcePath: relativeSourcePath,
       resolvedSourcePath,
       sourceVersion: workflow?.sourceVersion ?? "v1.3.0",
       scanMode: workflow?.scanMode ?? "smart",
+      ...schedulePayload,
     });
   }
 
@@ -2441,7 +2436,10 @@ function SpecPrdWorkflowPanel({
               {phase.stages.map((stage, index) => {
                 const Icon = workflowStageIcons[stage.key] ?? FileText;
                 const isBlocked = stage.status === "blocked";
-                const canRun = phase.key === "requirement_intake" && stage.action;
+                const stageAction = workflowStageAction(phase.key, stage.key, stage.action);
+                const canRun = Boolean(stageAction)
+                  && (phase.key !== "feature_planning" || Boolean(selectedFeatureId));
+                const isCreateOrImport = phase.key === "project_initialization" && stage.key === "create_or_import_project";
                 return (
                   <div key={`${phase.key}-${stage.key}`} className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-white p-3">
                     <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">{index + 1}</div>
@@ -2453,10 +2451,12 @@ function SpecPrdWorkflowPanel({
                         <span className="text-[12px] text-muted">{stage.updatedAt ?? stage.blockedReason ?? "--"}</span>
                       </div>
                     </div>
-                    {canRun ? (
+                    {isCreateOrImport ? (
+                      <CreateProjectDialog text={text} onCreate={onCreateProject} />
+                    ) : canRun ? (
                       <Button
                         className="h-8 shrink-0"
-                        onClick={() => stage.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(stage.action!, stage.key)}
+                        onClick={() => stage.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(stageAction!, stage.key, phase.key)}
                       >
                         {workflowStageLabel(stage.key, text)}
                       </Button>
@@ -2630,31 +2630,6 @@ function formatSpecValue(value: unknown): string {
 
 function humanizeSpecKey(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function SkillCenter({ data, text }: { data: ConsoleData; text: ConsoleCopy }) {
-  return (
-    <Panel>
-      <SectionTitle title={text.skillCenter} />
-      {data.skills.skills.length > 0 ? (
-        <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
-          {data.skills.skills.map((skill) => (
-            <div key={skill.slug} className="rounded-lg border border-line bg-slate-50 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div><div className="font-semibold">{skill.name}</div><div className="text-[12px] text-muted">{skill.slug} · v{skill.version}</div></div>
-                <Chip tone={skill.enabled ? "green" : "neutral"}>{skill.enabled ? text.enabled : text.disabled}</Chip>
-              </div>
-              <FactList rows={[[text.phase, skill.phase], [text.risk, skill.riskLevel], [text.success, `${Math.round(skill.successRate * 100)}%`]]} />
-            </div>
-          ))}
-        </div>
-      ) : <EmptyState title={text.noSkills} />}
-    </Panel>
-  );
-}
-
-function Subagents(props: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
-  return <SubagentPanel {...props} />;
 }
 
 function Runner(props: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {

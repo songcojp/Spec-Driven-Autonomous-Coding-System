@@ -1,10 +1,10 @@
 # Tasks: FEAT-013 Product Console
 
 - [x] TASK-001: 定义 Dashboard Query Model 和各 Console View Model。
-- [x] TASK-002: 实现 Dashboard 聚合查询，展示健康、活跃 Feature、看板数量、Subagent、自动执行次数、失败、审批、成本、PR 和风险。
+- [x] TASK-002: 实现 Dashboard 聚合查询，展示健康、活跃 Feature、看板数量、活跃外部运行、自动执行次数、失败、审批、成本、PR 和风险。
 - [x] TASK-003: 实现 Spec Workspace 查询和创建 Feature 命令入口。
-- [x] TASK-004: 实现 Skill Center 查询，展示 Skill 详情、版本、schema、启用状态、日志、成功率、阶段和风险。
-- [x] TASK-005: 实现 Subagent Console 查询和终止/重试受控命令入口。
+- [x] TASK-004: 移除 Skill Center 查询、页面、类型、fixtures 和 API。
+- [x] TASK-005: 移除 Subagent Console 查询、页面、类型、fixtures 和终止/重试动作。
 - [x] TASK-006: 实现 Runner Console 查询和暂停/恢复受控命令入口。
 - [x] TASK-007: 实现 Review Center 页面查询和审批动作入口。
 - [x] TASK-008: 记录看板加载和状态刷新耗时，作为性能基线。
@@ -13,14 +13,14 @@
 - [x] TASK-011: 实现 Board 拖拽意图、批量排期和批量运行的受控命令入口，校验状态机、依赖、高风险和审批约束并记录审计。
 - [x] TASK-012: 初始化或接入真实前端应用入口，采用 HLD 指定的 React + Next.js 或 Vite React，并接入 shadcn/ui、Tailwind CSS 和 Radix UI primitives；若复用宿主框架，更新 design.md 记录替代方案。
 - [x] TASK-013: 实现 Product Console App Shell、导航、路由、布局、加载态、空态、错误态和真实数据态。
-- [x] TASK-014: 实现 Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 的用户可见页面组件，消费现有 Control Plane API/ViewModel。
-- [x] TASK-015: 将创建 Feature、终止/重试 Subagent、暂停/恢复 Runner、审批动作、Board 拖拽意图、批量排期和批量运行暴露为可见控件，并展示成功、阻塞或失败反馈。
+- [x] TASK-014: 实现 Dashboard、Dashboard Board、Spec Workspace、Runner Console 和 Review Center 的用户可见页面组件，消费现有 Control Plane API/ViewModel。
+- [x] TASK-015: 将创建 Feature、暂停/恢复 Runner、审批动作、Board 拖拽意图、批量排期和批量运行暴露为可见控件，并展示成功、阻塞或失败反馈。
 - [x] TASK-016: 添加浏览器级 UI 验证，覆盖首屏非空、页面切换、真实数据渲染、空态/错误态和至少一个受控命令动作；API 层测试不能单独完成此任务。
 - [x] TASK-017: 为 Product Console App Shell 增加语言切换入口和 locale preference 持久化，首次打开默认中文。
 - [x] TASK-018: 将导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息接入 UI 文案资源，同时保持 Evidence、diff、日志、文件路径、命令输出和用户输入原文。
 - [x] TASK-019: 添加浏览器级 UI 验证，覆盖默认中文、至少一次语言切换、刷新后语言偏好保留，以及事实数据不被翻译。
 - [x] TASK-020: 在 Product Console App Shell 增加导入现有项目、新建项目表单、项目列表和当前项目切换控件，展示项目名称、项目目录、仓库摘要、健康状态和最近活动时间。
-- [x] TASK-021: 将 Dashboard、Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 的查询与受控命令绑定到当前 `project_id`，并展示缺失/不匹配时的阻塞反馈。
+- [x] TASK-021: 将 Dashboard、Board、Spec Workspace、Runner Console 和 Review Center 的查询与受控命令绑定到当前 `project_id`，并展示缺失/不匹配时的阻塞反馈。
 - [x] TASK-022: 添加浏览器级 UI 验证，覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及不同项目数据不串读。
 - [x] TASK-023: 将 Spec Workspace Spec 操作流程拆为“阶段 1 项目初始化”和“阶段 2 需求录入”，以可点击状态标签默认折叠展示阶段状态、阻塞原因、事实来源和阶段内步骤，并在没有 Feature Spec 时仍显示流程入口。
 - [x] TASK-024: 从阶段 2 Spec 需求录入流程中移除 HLD 生成、Feature Spec 拆分和规划流水线入口；保留选中 Feature 的阶段 3 受控操作，并修复 `schedule_run` 命令 payload。

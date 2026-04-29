@@ -6,12 +6,12 @@ import { dirname, join } from "node:path";
 import { ORDINARY_LOG_SECRET_PATTERNS } from "./persistence.ts";
 import {
   buildFailureFingerprint,
-  buildFailureRecoverySkillInput,
+  buildRecoveryDispatchInput,
   buildRecoveryTask,
   listRecoveryHistory,
   persistRecoveryAttempt,
   persistRecoveryResultHandling,
-  type FailureRecoverySkillInput,
+  type RecoveryDispatchInput,
   type ForbiddenRetryRecord,
   type RecoveryAttempt,
   type RecoveryResultHandling,
@@ -179,7 +179,7 @@ export type RunnerQueueItem = {
 export type RecoveryDispatch = {
   scheduledAt: string;
   policy: RunnerPolicy;
-  skillInput: FailureRecoverySkillInput;
+  dispatchInput: RecoveryDispatchInput;
 };
 
 export type PersistedRecoveryDispatch = RecoveryDispatch & {
@@ -196,7 +196,7 @@ export type RunnerQueueWorkerResult = {
   adapterResult?: CodexAdapterResult;
   statusCheckResult?: StatusCheckResult;
   recoveryTask?: RecoveryTask;
-  failureRecoverySkillInput?: FailureRecoverySkillInput;
+  recoveryDispatchInput?: RecoveryDispatchInput;
   recoverySafety?: SafetyGateResult;
   recoveryDispatch?: RecoveryDispatch;
   evidence: string;
@@ -522,7 +522,7 @@ export async function processRunnerQueueItem(
         forbiddenRetryItems: recoveryHistory.forbiddenRetryItems,
       })
     : undefined;
-  const failureRecoverySkillInput = recoveryTask ? buildFailureRecoverySkillInput(recoveryTask) : undefined;
+  const recoveryDispatchInput = recoveryTask ? buildRecoveryDispatchInput(recoveryTask) : undefined;
   const recoveryPolicy = recoveryTask
     ? {
         ...input.policy,
@@ -532,7 +532,7 @@ export async function processRunnerQueueItem(
         createdAt: new Date().toISOString(),
       }
     : undefined;
-  const recoverySafety = recoveryTask && recoveryPolicy && failureRecoverySkillInput
+  const recoverySafety = recoveryTask && recoveryPolicy && recoveryDispatchInput
     ? evaluateRunnerSafety({
         policy: recoveryPolicy,
         files: recoveryTask.proposedFileScope ?? recoveryTask.relatedFiles,
@@ -560,7 +560,7 @@ export async function processRunnerQueueItem(
   const shouldDispatchRecovery = !recoveryPersistenceBlocked &&
     recoveryTask &&
     recoveryPolicy &&
-    failureRecoverySkillInput &&
+    recoveryDispatchInput &&
     recoverySafety?.allowed &&
     input.statusCheck.dbPath &&
     shouldEnqueueRecoveryTask(recoveryTask);
@@ -570,7 +570,7 @@ export async function processRunnerQueueItem(
       recoveryDispatch = {
         scheduledAt: recoveryTask.retrySchedule!.scheduledAt!,
         policy: recoveryPolicy,
-        skillInput: failureRecoverySkillInput,
+        dispatchInput: recoveryDispatchInput,
       };
       if (recoveryTask.retrySchedule?.status === "scheduled" && input.statusCheck.dbPath) {
         persistRecoveryAttempt(input.statusCheck.dbPath, buildScheduledRecoveryAttempt(recoveryTask));
@@ -614,7 +614,7 @@ export async function processRunnerQueueItem(
     adapterResult,
     statusCheckResult,
     recoveryTask,
-    failureRecoverySkillInput,
+    recoveryDispatchInput,
     recoverySafety,
     recoveryDispatch,
     evidence: `Codex CLI exited with ${adapterResult.session.exitCode ?? "unknown"}.`,
@@ -642,7 +642,7 @@ export function listDueRecoveryDispatches(dbPath: string, now: Date = new Date()
   const rows = runSqlite(dbPath, [], [
     {
       name: "runs",
-      sql: `SELECT id, status, scheduled_at, policy_json, skill_input_json FROM recovery_dispatches
+      sql: `SELECT id, status, scheduled_at, policy_json, dispatch_input_json FROM recovery_dispatches
         WHERE status IN (?, ?)
         ORDER BY created_at, id`,
       params: ["queued", "scheduled"],
@@ -660,7 +660,7 @@ export function listDueRecoveryDispatches(dbPath: string, now: Date = new Date()
       status: "running",
       scheduledAt: dispatch.scheduledAt,
       policy: dispatch.policy,
-      skillInput: dispatch.skillInput,
+      dispatchInput: dispatch.dispatchInput,
     });
     dueIds.push(String(row.id));
   }
@@ -696,22 +696,22 @@ function createDefaultRecoveryDispatcher(dbPath: string): (dispatch: RecoveryDis
     const runStatus = new Date(dispatch.scheduledAt).getTime() > Date.now() ? "scheduled" : "queued";
     runSqlite(dbPath, [
       {
-        sql: `INSERT INTO recovery_dispatches (id, run_id, status, scheduled_at, policy_json, skill_input_json)
+        sql: `INSERT INTO recovery_dispatches (id, run_id, status, scheduled_at, policy_json, dispatch_input_json)
           VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
             run_id = excluded.run_id,
             status = excluded.status,
             scheduled_at = excluded.scheduled_at,
             policy_json = excluded.policy_json,
-            skill_input_json = excluded.skill_input_json,
+            dispatch_input_json = excluded.dispatch_input_json,
             updated_at = CURRENT_TIMESTAMP`,
         params: [
-          dispatch.skillInput.recovery_task_id,
+          dispatch.dispatchInput.recovery_task_id,
           dispatch.policy.runId,
           runStatus,
           dispatch.scheduledAt,
           JSON.stringify(dispatch.policy),
-          JSON.stringify(dispatch.skillInput),
+          JSON.stringify(dispatch.dispatchInput),
         ],
       },
     ]);
@@ -725,7 +725,7 @@ function parseRecoveryDispatchRow(row: Record<string, unknown>): RecoveryDispatc
     return {
       scheduledAt,
       policy: JSON.parse(String(row.policy_json ?? "{}")) as RunnerPolicy,
-      skillInput: JSON.parse(String(row.skill_input_json ?? "{}")) as FailureRecoverySkillInput,
+      dispatchInput: JSON.parse(String(row.dispatch_input_json ?? "{}")) as RecoveryDispatchInput,
     };
   } catch {
     return undefined;

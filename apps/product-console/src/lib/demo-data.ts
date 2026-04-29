@@ -48,7 +48,7 @@ const overview = {
       taskCounts: { ready: 4, running: 2, blocked: 2, failed: 0, done: 11 },
       failedTasks: 0,
       pendingReviews: 2,
-      runningSubagents: 3,
+      activeRuns: 3,
       runnerSuccessRate: 0.957,
       costUsd: 84.32,
       latestRisk: { level: "medium", message: "Refund approval copy needs sign-off", source: "REV-318" },
@@ -65,7 +65,7 @@ const overview = {
       taskCounts: { ready: 2, running: 1, blocked: 1, failed: 0, done: 7 },
       failedTasks: 0,
       pendingReviews: 1,
-      runningSubagents: 2,
+      activeRuns: 2,
       runnerSuccessRate: 0.924,
       costUsd: 51.64,
       latestRisk: { level: "medium", message: "Forecast override policy needs approval", source: "REV-402" },
@@ -89,7 +89,7 @@ const returnsPortalData: ConsoleProjectData = {
       { id: "FEAT-203", title: "Refund Rules Engine", status: "ready", priority: 7 },
     ],
     boardCounts: { ready: 4, scheduled: 3, running: 2, review_needed: 2, done: 11 },
-    runningSubagents: 3,
+    activeRuns: 3,
     todayAutomaticExecutions: 12,
     failedTasks: [],
     pendingApprovals: 2,
@@ -206,7 +206,7 @@ const returnsPortalData: ConsoleProjectData = {
       scanMode: "smart",
       lastScanAt: "05-19 09:12",
       runtime: "10m 24s",
-      blockedReasons: ["存在阻塞项，无法进入规划流水线"],
+      blockedReasons: ["存在阻塞项，无法进入调度状态"],
       phases: [
         {
           key: "project_initialization",
@@ -230,7 +230,7 @@ const returnsPortalData: ConsoleProjectData = {
           key: "requirement_intake",
           status: "blocked",
           updatedAt: "05-19 09:16",
-          blockedReasons: ["存在阻塞项，无法进入规划流水线"],
+          blockedReasons: ["存在阻塞项，无法进入调度状态"],
           facts: [
             { label: "PRD", value: "workspace/acme-returns-portal/docs/zh-CN/PRD.md" },
             { label: "Features", value: "3" },
@@ -288,20 +288,6 @@ const returnsPortalData: ConsoleProjectData = {
       ],
     },
   },
-  skills: {
-    skills: [
-      { slug: "requirement-intake-skill", name: "Requirement Intake", version: "1.2.0", enabled: true, phase: "intake", riskLevel: "medium", schema: { input: { type: "object" }, output: { type: "object" } }, recentRuns: [{ id: "RUN-701", status: "completed", createdAt: "2026-04-29T01:10:00.000Z" }], successRate: 0.94 },
-      { slug: "feature-spec-design", name: "Feature Spec Design", version: "1.1.0", enabled: true, phase: "design", riskLevel: "medium", schema: { input: { type: "object" }, output: { type: "object" } }, recentRuns: [{ id: "RUN-704", status: "completed", createdAt: "2026-04-29T01:55:00.000Z" }], successRate: 0.91 },
-      { slug: "codex-coding-skill", name: "Codex Coding", version: "1.0.0", enabled: true, phase: "execution", riskLevel: "high", schema: { input: { type: "object" }, output: { type: "object" } }, recentRuns: [{ id: "RUN-709", status: "running", createdAt: "2026-04-29T03:12:00.000Z" }], successRate: 0.88 },
-    ],
-  },
-  subagents: {
-    runs: [
-      { id: "RUN-708", featureId: "FEAT-204", taskId: "T-228", status: "running", runContract: { command: "npm test -- evidence-upload", files: ["apps/web/src/returns/EvidenceUpload.tsx"] }, contextSlice: { refs: ["docs/features/feat-204-mobile-returns/design.md"], tokenEstimate: 5100 }, evidence: [{ id: "EV-708", summary: "Upload preview smoke passed on mobile viewport.", path: ".autobuild/evidence/RUN-708.json" }], tokenUsage: { input: 14200, output: 3100 } },
-      { id: "RUN-709", featureId: "FEAT-204", taskId: "T-229", status: "queued", runContract: { command: "node --test tests/carrier-labels.test.ts", files: ["src/carrier-labels.ts"] }, contextSlice: { refs: ["docs/features/feat-204-mobile-returns/contracts.md"], tokenEstimate: 3600 }, evidence: [], tokenUsage: { input: 0, output: 0 } },
-      { id: "RUN-710", featureId: "FEAT-204", taskId: "T-231", status: "queued", runContract: { command: "npm run console:test -- returns-mobile", files: ["apps/web/src/test/returns-mobile.spec.ts"] }, contextSlice: { refs: ["docs/features/feat-204-mobile-returns/tasks.md"], tokenEstimate: 2900 }, evidence: [], tokenUsage: { input: 0, output: 0 } },
-    ],
-  },
   runner: {
     summary: { onlineRunners: 1, runningTasks: 1, readyTasks: 1, blockedTasks: 2, successRate: 0.957, failureRate: 0.043 },
     lanes: {
@@ -344,7 +330,7 @@ const supplyPlannerData: ConsoleProjectData = {
     ...returnsPortalData.dashboard,
     activeFeatures: [{ id: "FEAT-311", title: "Demand Forecast Review", status: "in-progress", priority: 8 }],
     pendingApprovals: 1,
-    runningSubagents: 2,
+    activeRuns: 2,
     cost: { totalUsd: 51.64, tokensUsed: 418900 },
     risks: [{ level: "medium", message: "Forecast override policy needs operations approval.", source: "REV-402" }],
   },
@@ -394,11 +380,9 @@ const supplyPlannerData: ConsoleProjectData = {
 
 const emptyProjectData: ConsoleProjectData = {
   overview,
-  dashboard: { ...returnsPortalData.dashboard, activeFeatures: [], failedTasks: [], pendingApprovals: 0, runningSubagents: 0, risks: [], recentPullRequests: [], boardCounts: {} },
+  dashboard: { ...returnsPortalData.dashboard, activeFeatures: [], failedTasks: [], pendingApprovals: 0, activeRuns: 0, risks: [], recentPullRequests: [], boardCounts: {} },
   board: { tasks: [], commands: returnsPortalData.board.commands, factSources: returnsPortalData.board.factSources },
   spec: { features: [], selectedFeature: undefined },
-  skills: { skills: [] },
-  subagents: { runs: [] },
   runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], runners: [] },
   reviews: { items: [], riskFilters: [] },
 };

@@ -54,8 +54,6 @@ export type TaskGraphTask = {
   dependencies: string[];
   parallelism: Parallelism;
   risk: RiskLevel;
-  requiredSkill: string;
-  subagent: string;
   estimatedEffort: number;
   status: BoardColumn;
 };
@@ -72,8 +70,6 @@ export type BuildTaskGraphInput = {
   requirements: Requirement[];
   acceptanceCriteria: AcceptanceCriteria[];
   relatedFiles?: string[];
-  defaultSkill?: string;
-  defaultSubagent?: string;
   now?: Date;
 };
 
@@ -102,26 +98,6 @@ export type FeatureSelectionDecision = {
   reason: string;
   memorySummary: string;
   createdAt: string;
-};
-
-export type PlanningStageSlug =
-  | "technical-context-skill"
-  | "research-decision-skill"
-  | "architecture-plan-skill"
-  | "data-model-skill"
-  | "contract-design-skill"
-  | "task-slicing-skill";
-
-export type PlanningPipelineResult = {
-  featureId: string;
-  status: "completed" | "review_needed";
-  stages: Array<{
-    slug: PlanningStageSlug;
-    status: "completed" | "failed";
-    output?: unknown;
-    evidence: string;
-  }>;
-  failureEvidence?: string;
 };
 
 export type TaskSchedule = {
@@ -235,15 +211,6 @@ export const REVIEW_NEEDED_REASONS: ReviewNeededReason[] = [
   "risk_review_needed",
 ];
 
-export const PLANNING_PIPELINE_ORDER: PlanningStageSlug[] = [
-  "technical-context-skill",
-  "research-decision-skill",
-  "architecture-plan-skill",
-  "data-model-skill",
-  "contract-design-skill",
-  "task-slicing-skill",
-];
-
 const BOARD_TRANSITIONS: Record<BoardColumn, BoardColumn[]> = {
   backlog: ["ready", "blocked"],
   ready: ["scheduled", "blocked"],
@@ -314,8 +281,6 @@ export function buildTaskGraph(input: BuildTaskGraphInput): TaskGraph {
       dependencies: index === 0 ? [] : [`${input.featureId}-TASK-${String(index).padStart(3, "0")}`],
       parallelism: index === 0 ? "sequential" : "parallel-safe",
       risk: requirement.observable && requirement.atomic ? "low" : "medium",
-      requiredSkill: input.defaultSkill ?? "codex-coding-skill",
-      subagent: input.defaultSubagent ?? "implementer-subagent",
       estimatedEffort: Math.max(1, acceptance.length),
       status: "backlog" as const,
     };
@@ -360,31 +325,6 @@ export function selectNextFeature(
     memorySummary,
     createdAt: now.toISOString(),
   };
-}
-
-export async function runPlanningPipeline(
-  featureId: string,
-  runStage: (slug: PlanningStageSlug) => Promise<{ output?: unknown; evidence: string }>,
-): Promise<PlanningPipelineResult> {
-  const stages: PlanningPipelineResult["stages"] = [];
-
-  for (const slug of PLANNING_PIPELINE_ORDER) {
-    try {
-      const result = await runStage(slug);
-      stages.push({ slug, status: "completed", output: result.output, evidence: result.evidence });
-    } catch (error) {
-      const evidence = error instanceof Error ? error.message : String(error);
-      stages.push({ slug, status: "failed", evidence });
-      return {
-        featureId,
-        status: "review_needed",
-        stages,
-        failureEvidence: evidence,
-      };
-    }
-  }
-
-  return { featureId, status: "completed", stages };
 }
 
 export function scheduleFeatureTasks(graph: TaskGraph, availability: SchedulerAvailability): TaskSchedule[] {
@@ -509,8 +449,8 @@ export function persistTaskGraph(dbPath: string, graph: TaskGraph): TaskGraph {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json,
           acceptance_criteria_json, allowed_files_json, dependencies_json,
-          risk, required_skill_slug, subagent, estimated_effort
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          risk, estimated_effort
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           title = excluded.title,
           status = excluded.status,
@@ -519,8 +459,6 @@ export function persistTaskGraph(dbPath: string, graph: TaskGraph): TaskGraph {
           allowed_files_json = excluded.allowed_files_json,
           dependencies_json = excluded.dependencies_json,
           risk = excluded.risk,
-          required_skill_slug = excluded.required_skill_slug,
-          subagent = excluded.subagent,
           estimated_effort = excluded.estimated_effort`,
       params: [
         task.taskId,
@@ -533,8 +471,6 @@ export function persistTaskGraph(dbPath: string, graph: TaskGraph): TaskGraph {
         JSON.stringify(task.allowedFiles),
         JSON.stringify(task.dependencies),
         task.risk,
-        task.requiredSkill,
-        task.subagent,
         task.estimatedEffort,
       ],
     })),
@@ -611,28 +547,6 @@ export function persistScheduleTrigger(dbPath: string, trigger: ScheduleTrigger)
     },
   });
   return trigger;
-}
-
-export function persistPlanningPipelineResult(
-  dbPath: string,
-  result: PlanningPipelineResult,
-  now: Date = new Date(),
-): PlanningPipelineResult {
-  runSqlite(dbPath, [
-    {
-      sql: `INSERT INTO planning_pipeline_runs (id, feature_id, status, stages_json, failure_evidence, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)`,
-      params: [
-        randomUUID(),
-        result.featureId,
-        result.status,
-        JSON.stringify(result.stages),
-        result.failureEvidence ?? null,
-        now.toISOString(),
-      ],
-    },
-  ]);
-  return result;
 }
 
 export function persistStateTransition(dbPath: string, transition: StateTransition): StateTransition {

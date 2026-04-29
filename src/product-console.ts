@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
-import { getProject } from "./projects.ts";
 import { runSqlite } from "./sqlite.ts";
-import { listProjectSkills } from "./skills.ts";
 import {
   createScheduleTrigger,
   persistSelectionDecision,
@@ -21,13 +18,15 @@ import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordAp
 
 export type ConsoleCommandAction =
   | "create_feature"
+  | "connect_git_repository"
+  | "initialize_spec_protocol"
+  | "import_or_create_constitution"
+  | "initialize_project_memory"
   | "scan_prd_source"
   | "upload_prd_source"
   | "generate_ears"
   | "generate_hld"
   | "split_feature_specs"
-  | "terminate_subagent"
-  | "retry_subagent"
   | "pause_runner"
   | "resume_runner"
   | "approve_review"
@@ -46,13 +45,15 @@ export type ConsoleCommandAction =
 
 const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "create_feature",
+  "connect_git_repository",
+  "initialize_spec_protocol",
+  "import_or_create_constitution",
+  "initialize_project_memory",
   "scan_prd_source",
   "upload_prd_source",
   "generate_ears",
   "generate_hld",
   "split_feature_specs",
-  "terminate_subagent",
-  "retry_subagent",
   "pause_runner",
   "resume_runner",
   "approve_review",
@@ -111,7 +112,7 @@ export type DashboardQueryModel = {
   };
   activeFeatures: Array<{ id: string; title: string; status: string; priority: number }>;
   boardCounts: Record<BoardColumn | "unknown", number>;
-  runningSubagents: number;
+  activeRuns: number;
   todayAutomaticExecutions: number;
   failedTasks: Array<{ id: string; title: string; status: string; featureId?: string }>;
   pendingApprovals: number;
@@ -155,7 +156,7 @@ export type ProjectOverviewModel = {
     taskCounts: Record<BoardColumn | "unknown", number>;
     failedTasks: number;
     pendingReviews: number;
-    runningSubagents: number;
+    activeRuns: number;
     runnerSuccessRate: number;
     costUsd: number;
     latestRisk?: { level: RiskLevel | "unknown"; message: string; source: string };
@@ -240,28 +241,6 @@ export type SpecWorkspaceViewModel = {
     contracts: unknown[];
     versionDiffs: unknown[];
   };
-  commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
-};
-
-export type SkillCenterViewModel = {
-  skills: Array<{
-    slug: string;
-    name: string;
-    description: string;
-    path: string;
-  }>;
-};
-
-export type SubagentConsoleViewModel = {
-  runs: Array<{
-    id: string;
-    featureId?: string;
-    taskId?: string;
-    status: string;
-    evidence: Array<{ id: string; summary: string; path?: string }>;
-    statusChecks: Array<{ id: string; status: string; summary: string; createdAt: string }>;
-    tokenUsage?: unknown;
-  }>;
   commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
 };
 
@@ -453,7 +432,7 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
       taskCounts: buildBoardCounts(taskRows),
       failedTasks: countBy(taskRows, "status", "failed"),
       pendingReviews: reviewRows.filter((row) => pendingReviewStatuses.has(String(row.status))).length,
-      runningSubagents: countBy(runRows, "status", "running"),
+      activeRuns: countBy(runRows, "status", "running"),
       runnerSuccessRate: latestMetric(metricRows, "success_rate"),
       costUsd: sumMetrics(metricRows, "cost_usd"),
       latestRisk: riskRows[0],
@@ -602,7 +581,7 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       .slice(0, 10)
       .map((row) => ({ id: String(row.id), title: String(row.title), status: String(row.status), priority: Number(row.priority) })),
     boardCounts: buildBoardCounts(tasks),
-    runningSubagents: countBy(runs, "status", "running"),
+    activeRuns: countBy(runs, "status", "running"),
     todayAutomaticExecutions: runs.filter((row) => String(row.started_at ?? "").startsWith(todayPrefix) && parseJsonObject(row.metadata_json).automatic === true).length,
     failedTasks: tasks
       .filter((row) => String(row.status) === "failed")
@@ -765,11 +744,6 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       params: [featureId ?? ""],
     },
     {
-      name: "planning",
-      sql: "SELECT stages_json FROM planning_pipeline_runs WHERE feature_id = ? ORDER BY created_at DESC LIMIT 1",
-      params: [featureId ?? ""],
-    },
-    {
       name: "featureEvidence",
       sql: "SELECT id, kind, summary, path, metadata_json FROM evidence_packs WHERE feature_id = ? ORDER BY created_at DESC",
       params: [featureId ?? ""],
@@ -809,7 +783,6 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
     primaryRequirements: parseJsonArray(row.primary_requirements_json),
   }));
   const feature = featureId ? features.find((entry) => entry.id === featureId) : undefined;
-  const planningStages = parseJsonArray(result.queries.planning[0]?.stages_json).filter(isRecord);
   const evidence = result.queries.featureEvidence.map((row) => ({
     id: String(row.id),
     kind: String(row.kind),
@@ -846,17 +819,10 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
           qualityChecklist: [
             { item: "requirements_present", passed: result.queries.requirements.length > 0 },
             { item: "task_graph_present", passed: result.queries.taskGraphs.length > 0 },
-            { item: "technical_plan_present", passed: result.queries.planning.length > 0 },
+            { item: "status_ready_for_scheduling", passed: Boolean(feature.status) && result.queries.taskGraphs.length > 0 },
           ],
-          technicalPlan: planningStages,
-          dataModels: [
-            ...planningStages.filter((stage) => stage.slug === "data-model-skill").map((stage) => stage.output),
-            ...evidence.filter((entry) => entry.kind === "data_model"),
-          ].filter(Boolean),
-          contracts: [
-            ...planningStages.filter((stage) => stage.slug === "contract-design-skill").map((stage) => stage.output),
-            ...evidence.filter((entry) => entry.kind === "contract"),
-          ].filter(Boolean),
+          dataModels: evidence.filter((entry) => entry.kind === "data_model"),
+          contracts: evidence.filter((entry) => entry.kind === "contract"),
           versionDiffs: [
             ...evidence.filter((entry) => entry.kind === "spec_evolution"),
             ...result.queries.deliveryReports.map((row) => ({
@@ -876,14 +842,6 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       { action: "schedule_run", entityType: "project" },
       { action: "schedule_run", entityType: "feature" },
     ],
-  };
-}
-
-export function buildSkillCenterView(dbPath: string, projectId?: string, projectRoot = dirname(dirname(dbPath))): SkillCenterViewModel {
-  const project = projectId ? getProject(dbPath, projectId) : undefined;
-  const skillRoot = project?.targetRepoPath ?? projectRoot;
-  return {
-    skills: listProjectSkills({ root: skillRoot }),
   };
 }
 
@@ -969,23 +927,27 @@ function buildPrdWorkflow(input: {
     },
     {
       key: "connect_git_repository",
+      action: "connect_git_repository",
       status: projectStageStatus(Boolean(repositoryConnection), project ? "Connect a Git repository before Spec intake." : undefined),
       updatedAt: optionalString(repositoryConnection?.connected_at),
       blockedReason: project && !repositoryConnection ? "Connect a Git repository before Spec intake." : undefined,
     },
     {
       key: "initialize_spec_protocol",
+      action: "initialize_spec_protocol",
       status: projectStageStatus(Boolean(projectPath) && !isSpecProtocolMissing, project ? "Initialize .autobuild / Spec Protocol before Spec intake." : undefined),
       updatedAt: optionalString(healthCheck?.checked_at),
       blockedReason: project && (!projectPath || isSpecProtocolMissing) ? "Initialize .autobuild / Spec Protocol before Spec intake." : undefined,
     },
     {
       key: "import_or_create_constitution",
+      action: "import_or_create_constitution",
       status: projectStageStatus(Boolean(constitution), undefined),
       updatedAt: optionalString(constitution?.created_at),
     },
     {
       key: "initialize_project_memory",
+      action: "initialize_project_memory",
       status: projectStageStatus(Boolean(memoryVersion), undefined),
       updatedAt: optionalString(memoryVersion?.created_at),
     },
@@ -1025,18 +987,20 @@ function buildPrdWorkflow(input: {
   const planningActionStages = [
     {
       key: "generate_hld",
+      action: "generate_hld",
       status: latestByAction.has("generate_hld") ? "accepted" as const : "pending" as const,
       updatedAt: optionalString(latestByAction.get("generate_hld")?.created_at),
     },
     {
       key: "split_feature_specs",
+      action: "split_feature_specs",
       status: latestByAction.has("split_feature_specs") ? "accepted" as const : "pending" as const,
       updatedAt: optionalString(latestByAction.get("split_feature_specs")?.created_at),
     },
     {
-      key: "planning_pipeline",
-      status: latestByAction.has("schedule_run") ? "accepted" as const : input.selectedFeatureId ? "pending" as const : "pending" as const,
-      updatedAt: optionalString(latestByAction.get("schedule_run")?.created_at),
+      key: "status_check",
+      action: "schedule_run",
+      status: "pending" as const,
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
   const planningBlockedReasons = intakePhaseStatus === "blocked"
@@ -1097,38 +1061,6 @@ function buildPrdWorkflow(input: {
       },
     ],
     stages: decoratedStages,
-  };
-}
-
-export function buildSubagentConsoleView(dbPath: string, projectId?: string): SubagentConsoleViewModel {
-  const runFilter = projectId ? "WHERE project_id = ?" : "";
-  const runParams = projectId ? [projectId] : [];
-  const result = runSqlite(dbPath, [], [
-    { name: "runs", sql: `SELECT * FROM runs ${runFilter} ORDER BY COALESCE(started_at, '') DESC, rowid DESC LIMIT 25`, params: runParams },
-    { name: "events", sql: "SELECT run_id, token_usage_json FROM subagent_events ORDER BY created_at DESC" },
-    { name: "evidence", sql: "SELECT id, run_id, summary, path FROM evidence_packs ORDER BY created_at DESC" },
-    { name: "statusChecks", sql: "SELECT id, run_id, status, summary, created_at FROM status_check_results ORDER BY created_at DESC" },
-  ]);
-
-  return {
-    runs: result.queries.runs.map((row) => {
-      const runId = String(row.id);
-      const event = result.queries.events.find((entry) => entry.run_id === row.id);
-      return {
-        id: runId,
-        featureId: optionalString(row.feature_id),
-        taskId: optionalString(row.task_id),
-        status: String(row.status),
-        evidence: result.queries.evidence
-          .filter((entry) => entry.run_id === row.id)
-          .map((entry) => ({ id: String(entry.id), summary: String(entry.summary ?? ""), path: optionalString(entry.path) })),
-        statusChecks: result.queries.statusChecks
-          .filter((entry) => entry.run_id === row.id)
-          .map((entry) => ({ id: String(entry.id), status: String(entry.status), summary: String(entry.summary), createdAt: String(entry.created_at) })),
-        tokenUsage: parseJson(event?.token_usage_json),
-      };
-    }),
-    commands: [],
   };
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
@@ -11,9 +11,7 @@ import {
   buildProjectOverview,
   buildReviewCenterView,
   buildRunnerConsoleView,
-  buildSkillCenterView,
   buildSpecWorkspaceView,
-  buildSubagentConsoleView,
   submitConsoleCommand,
 } from "../src/product-console.ts";
 
@@ -53,7 +51,7 @@ test("dashboard aggregates control-plane facts and records performance baselines
   assert.equal(dashboard.activeFeatures[0].id, "FEAT-013");
   assert.equal(dashboard.boardCounts.running, 1);
   assert.equal(dashboard.boardCounts.failed, 1);
-  assert.equal(dashboard.runningSubagents, 1);
+  assert.equal(dashboard.activeRuns, 1);
   assert.equal(dashboard.todayAutomaticExecutions, 2);
   assert.equal(dashboard.failedTasks[0].id, "TASK-FAILED");
   assert.equal(dashboard.pendingApprovals, 1);
@@ -173,8 +171,8 @@ test("board commands validate state, dependency, risk, and approval gates before
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
-        ) VALUES ('TASK-HIGH-APPROVED', 'TG-FEAT-013', 'FEAT-013', 'High risk approved board task', 'scheduled', '[]', '[]', '[]', '[]', 'high', 'console-skill', 'coding', 1)`,
+          allowed_files_json, dependencies_json, risk, estimated_effort
+        ) VALUES ('TASK-HIGH-APPROVED', 'TG-FEAT-013', 'FEAT-013', 'High risk approved board task', 'scheduled', '[]', '[]', '[]', '[]', 'high', 1)`,
     },
     {
       sql: `INSERT INTO review_items (id, feature_id, status, severity, body, created_at)
@@ -207,8 +205,8 @@ test("board commands validate state, dependency, risk, and approval gates before
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
-        ) VALUES ('TASK-DONE-BLOCKED', 'TG-FEAT-013', 'FEAT-013', 'Done blocked by dependency', 'running', '[]', '[]', '[]', '["TASK-READY"]', 'low', 'console-skill', 'coding', 1)`,
+          allowed_files_json, dependencies_json, risk, estimated_effort
+        ) VALUES ('TASK-DONE-BLOCKED', 'TG-FEAT-013', 'FEAT-013', 'Done blocked by dependency', 'running', '[]', '[]', '[]', '["TASK-READY"]', 'low', 1)`,
     },
   ]);
   const dependencyBlockedReceipt = submitConsoleCommand(dbPath, {
@@ -224,8 +222,8 @@ test("board commands validate state, dependency, risk, and approval gates before
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
-        ) VALUES ('TASK-FEATURE-GATED', 'TG-FEAT-013', 'FEAT-013', 'Feature gated task', 'running', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1)`,
+          allowed_files_json, dependencies_json, risk, estimated_effort
+        ) VALUES ('TASK-FEATURE-GATED', 'TG-FEAT-013', 'FEAT-013', 'Feature gated task', 'running', '[]', '[]', '[]', '[]', 'low', 1)`,
     },
     {
       sql: `INSERT INTO review_items (id, feature_id, status, severity, body, created_at)
@@ -245,8 +243,8 @@ test("board commands validate state, dependency, risk, and approval gates before
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
-        ) VALUES ('TASK-OTHER-READY', 'TG-FEAT-OTHER', 'FEAT-OTHER', 'Other feature task', 'ready', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1)`,
+          allowed_files_json, dependencies_json, risk, estimated_effort
+        ) VALUES ('TASK-OTHER-READY', 'TG-FEAT-OTHER', 'FEAT-OTHER', 'Other feature task', 'ready', '[]', '[]', '[]', '[]', 'low', 1)`,
     },
   ]);
   const crossFeatureReceipt = submitConsoleCommand(dbPath, {
@@ -295,7 +293,7 @@ test("board commands validate state, dependency, risk, and approval gates before
   ]);
 });
 
-test("console view models expose specs, skills, subagents, runner, and reviews", () => {
+test("console view models expose specs, scheduler state, runner, and reviews", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
 
@@ -305,8 +303,8 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.equal(scopedSpecWorkspace.features.some((feature) => feature.id === "FEAT-OTHER"), false);
   assert.equal(specWorkspace.selectedFeature?.qualityChecklist.every((item) => item.passed), true);
   assert.equal(specWorkspace.selectedFeature?.clarificationRecords.length, 1);
-  assert.deepEqual(specWorkspace.selectedFeature?.dataModels, [{ entities: ["ConsoleDashboard"] }]);
-  assert.deepEqual(specWorkspace.selectedFeature?.contracts, [{ endpoints: ["/console/dashboard"] }]);
+  assert.deepEqual(specWorkspace.selectedFeature?.dataModels, []);
+  assert.deepEqual(specWorkspace.selectedFeature?.contracts, []);
   assert.equal(specWorkspace.selectedFeature?.versionDiffs.length, 2);
   assert.equal(specWorkspace.commands[0].action, "create_feature");
   assert.equal(specWorkspace.commands.some((command) => command.action === "scan_prd_source"), true);
@@ -316,7 +314,7 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.equal(specWorkspace.prdWorkflow.phases[0].stages.some((stage) => stage.key === "initialize_project_memory"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "generate_ears"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "feature_spec_pool"), true);
-  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "planning_pipeline"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "status_check"), true);
   assert.equal(specWorkspace.prdWorkflow.stages.some((stage) => stage.key === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "schedule_run"), true);
@@ -374,16 +372,6 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
     missingSpecWorkspace.prdWorkflow.phases[0].stages.find((stage) => stage.key === "initialize_spec_protocol")?.status,
     "blocked",
   );
-
-  const skillCenter = buildSkillCenterView(dbPath, "project-1");
-  assert.equal(skillCenter.skills[0].slug, "console-skill");
-  assert.equal(skillCenter.skills[0].description, "Displays console data.");
-
-  const subagents = buildSubagentConsoleView(dbPath);
-  const scopedSubagents = buildSubagentConsoleView(dbPath, "project-1");
-  assert.equal(subagents.runs.some((run) => run.evidence.length > 0 && run.statusChecks.length > 0 && run.tokenUsage), true);
-  assert.equal(scopedSubagents.runs.some((run) => run.id === "RUN-OTHER"), false);
-  assert.equal(subagents.commands.length, 0);
 
   const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"));
   const scopedRunner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-1");
@@ -447,25 +435,6 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   const otherProject = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-2");
   assert.equal(otherProject.lanes.ready.some((task) => task.featureId === "FEAT-013"), false);
   assert.equal(otherProject.runners.some((entry) => entry.runnerId === "runner-main"), false);
-});
-
-test("skill center reads skills from the selected project directory", () => {
-  const dbPath = makeDbPath();
-  seedConsoleData(dbPath);
-  const targetRoot = mkdtempSync(join(tmpdir(), "feat-013-target-project-"));
-  writeSkill(targetRoot, "target-project-skill", "---\nname: Target Project Skill\ndescription: Reads from selected project.\n---\n");
-
-  runSqlite(dbPath, [
-    {
-      sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'",
-      params: [targetRoot],
-    },
-  ]);
-
-  const skillCenter = buildSkillCenterView(dbPath, "project-1");
-
-  assert.deepEqual(skillCenter.skills.map((skill) => skill.slug), ["target-project-skill"]);
-  assert.equal(skillCenter.skills[0].path, join(targetRoot, ".agents", "skills", "target-project-skill", "SKILL.md"));
 });
 
 test("console command gateway audits controlled writes without mutating worktrees", () => {
@@ -647,20 +616,9 @@ test("console schedule command records scheduler triggers without bypassing boun
 
 function makeDbPath(): string {
   const root = mkdtempSync(join(tmpdir(), "feat-013-console-"));
-  writeConsoleSkill(root);
   const dbPath = join(root, ".autobuild", "autobuild.db");
   initializeSchema(dbPath);
   return dbPath;
-}
-
-function writeConsoleSkill(root: string): void {
-  writeSkill(root, "console-skill", "---\nname: Console Skill\ndescription: Displays console data.\n---\n");
-}
-
-function writeSkill(root: string, slug: string, content: string): void {
-  const skillDir = join(root, ".agents", "skills", slug);
-  mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, "SKILL.md"), content, "utf8");
 }
 
 function seedBoardPatchData(dbPath: string): void {
@@ -668,13 +626,13 @@ function seedBoardPatchData(dbPath: string): void {
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+          allowed_files_json, dependencies_json, risk, estimated_effort
         ) VALUES
-          ('TASK-DONE', 'TG-FEAT-013', 'FEAT-013', 'Done prerequisite', 'done', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1),
-          ('TASK-READY', 'TG-FEAT-013', 'FEAT-013', 'Ready board task', 'ready', '[]', '[]', '[]', '["TASK-DONE"]', 'low', 'console-skill', 'coding', 1),
-          ('TASK-SCHEDULED', 'TG-FEAT-013', 'FEAT-013', 'Scheduled board task', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'medium', 'console-skill', 'coding', 1),
-          ('TASK-HIGH', 'TG-FEAT-013', 'FEAT-013', 'High risk board task', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'high', 'console-skill', 'coding', 1),
-          ('TASK-HIGH-NO-REVIEW', 'TG-FEAT-013', 'FEAT-013', 'High risk task without review', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'high', 'console-skill', 'coding', 1)`,
+          ('TASK-DONE', 'TG-FEAT-013', 'FEAT-013', 'Done prerequisite', 'done', '[]', '[]', '[]', '[]', 'low', 1),
+          ('TASK-READY', 'TG-FEAT-013', 'FEAT-013', 'Ready board task', 'ready', '[]', '[]', '[]', '["TASK-DONE"]', 'low', 1),
+          ('TASK-SCHEDULED', 'TG-FEAT-013', 'FEAT-013', 'Scheduled board task', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'medium', 1),
+          ('TASK-HIGH', 'TG-FEAT-013', 'FEAT-013', 'High risk board task', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'high', 1),
+          ('TASK-HIGH-NO-REVIEW', 'TG-FEAT-013', 'FEAT-013', 'High risk task without review', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'high', 1)`,
     },
     {
       sql: `INSERT INTO state_transitions (
@@ -787,18 +745,10 @@ function seedConsoleData(dbPath: string): void {
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+          allowed_files_json, dependencies_json, risk, estimated_effort
         ) VALUES
-          ('TASK-RUNNING', 'TG-FEAT-013', 'FEAT-013', 'Implement dashboard', 'running', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1),
-          ('TASK-FAILED', 'TG-FEAT-013', 'FEAT-013', 'Implement review list', 'failed', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1)`,
-    },
-    {
-      sql: `INSERT INTO planning_pipeline_runs (id, feature_id, status, stages_json)
-        VALUES ('PLAN-FEAT-013', 'FEAT-013', 'completed', '[
-          {"slug":"technical-context-skill","status":"completed"},
-          {"slug":"data-model-skill","status":"completed","output":{"entities":["ConsoleDashboard"]}},
-          {"slug":"contract-design-skill","status":"completed","output":{"endpoints":["/console/dashboard"]}}
-        ]')`,
+          ('TASK-RUNNING', 'TG-FEAT-013', 'FEAT-013', 'Implement dashboard', 'running', '[]', '[]', '[]', '[]', 'low', 1),
+          ('TASK-FAILED', 'TG-FEAT-013', 'FEAT-013', 'Implement review list', 'failed', '[]', '[]', '[]', '[]', 'low', 1)`,
     },
     {
       sql: `INSERT INTO runner_policies (
@@ -823,10 +773,6 @@ function seedConsoleData(dbPath: string): void {
     {
       sql: `INSERT INTO raw_execution_logs (id, run_id, stdout, stderr, events_json, created_at)
         VALUES ('LOG-1', 'RUN-013', 'ok', '', '[]', '2026-04-28T12:00:00.000Z')`,
-    },
-    {
-      sql: `INSERT INTO subagent_events (id, run_id, status, message, token_usage_json)
-        VALUES ('EVT-1', 'RUN-013', 'running', 'Running dashboard work.', '{"inputTokens":10,"outputTokens":5,"totalTokens":15}')`,
     },
     {
       sql: `INSERT INTO status_check_results (

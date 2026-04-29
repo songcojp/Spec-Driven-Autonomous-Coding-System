@@ -22,9 +22,7 @@ import {
   buildDashboardQuery,
   buildReviewCenterView,
   buildRunnerConsoleView,
-  buildSkillCenterView,
   buildSpecWorkspaceView,
-  buildSubagentConsoleView,
   submitConsoleCommand,
   type ConsoleCommandInput,
 } from "./product-console.ts";
@@ -179,16 +177,6 @@ async function routeRequest(
         url.searchParams.get("featureId") ?? undefined,
         url.searchParams.get("projectId") ?? undefined,
       ));
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === "/console/skills") {
-      writeJson(response, 200, buildSkillCenterView(config.dbPath, url.searchParams.get("projectId") ?? undefined, config.projectRoot));
-      return;
-    }
-
-    if (request.method === "GET" && url.pathname === "/console/subagents") {
-      writeJson(response, 200, buildSubagentConsoleView(config.dbPath, url.searchParams.get("projectId") ?? undefined));
       return;
     }
 

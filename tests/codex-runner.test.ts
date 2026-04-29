@@ -434,11 +434,9 @@ test("runner queue worker preserves failed status when status check records diag
   assert.equal(result.statusCheckResult?.status, "blocked");
   assert.equal(result.recoveryTask?.taskId, "TASK-009");
   assert.equal(result.recoveryTask?.route, "automatic");
-  assert.equal(result.failureRecoverySkillInput?.skill, "failure-recovery-skill");
-  assert.equal(result.failureRecoverySkillInput?.requested_action, "auto_fix");
-  assert.equal(result.failureRecoverySkillInput?.failure.failed_command, "npm test");
+  assert.equal(result.recoveryDispatchInput?.requested_action, "auto_fix");
+  assert.equal(result.recoveryDispatchInput?.failure.failed_command, "npm test");
   assert.equal(result.recoverySafety?.allowed, true);
-  assert.equal(result.recoveryDispatch?.skillInput.skill, "failure-recovery-skill");
   assert.notEqual(result.recoveryDispatch?.policy.runId, result.runId);
   assert.equal(result.recoveryDispatch?.policy.resumeSessionId, "SESSION-006F");
   assert.equal(result.recoveryDispatch?.scheduledAt, result.recoveryTask?.retrySchedule?.scheduledAt);
@@ -481,7 +479,7 @@ test("runner recovery preserves failed runner command context without command ch
   assert.equal(result.statusCheckResult?.status, "blocked");
   assert.equal(result.recoveryTask?.failedCommand, "codex runner exit=1");
   assert.equal(result.recoveryTask?.fingerprint.failedCommandOrCheck, "codex runner exit=1");
-  assert.equal(result.failureRecoverySkillInput?.failure.failed_command, "codex runner exit=1");
+  assert.equal(result.recoveryDispatchInput?.failure.failed_command, "codex runner exit=1");
 });
 
 test("runner recovery creates review task for spec-alignment failures without command failures", async () => {
@@ -662,7 +660,7 @@ test("runner recovery does not dispatch duplicate scheduled retries", async () =
   );
 
   assert.equal(first.recoveryTask?.retrySchedule?.status, "scheduled");
-  assert.equal(first.recoveryDispatch?.skillInput.requested_action, "auto_fix");
+  assert.equal(first.recoveryDispatch?.dispatchInput.requested_action, "auto_fix");
   assert.equal(duplicate.recoveryTask?.retrySchedule?.status, "already_scheduled");
   assert.equal(duplicate.recoveryDispatch, undefined);
 });
@@ -700,14 +698,14 @@ test("runner recovery without custom dispatcher queues default recovery dispatch
     .queries.runs;
 
   assert.equal(result.recoveryTask?.retrySchedule?.status, "scheduled");
-  assert.equal(result.recoveryDispatch?.skillInput.requested_action, "auto_fix");
+  assert.equal(result.recoveryDispatch?.dispatchInput.requested_action, "auto_fix");
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, "scheduled");
   assert.equal(dispatches.length, 1);
   assert.equal(dispatches[0].status, "scheduled");
   assert.equal(dispatches[0].scheduled_at, result.recoveryDispatch?.scheduledAt);
   assert.equal(JSON.parse(String(dispatches[0].policy_json)).runId, result.recoveryDispatch?.policy.runId);
-  assert.equal(JSON.parse(String(dispatches[0].skill_input_json)).recovery_task_id, result.recoveryTask?.id);
+  assert.equal(JSON.parse(String(dispatches[0].dispatch_input_json)).recovery_task_id, result.recoveryTask?.id);
   assert.deepEqual(listDueRecoveryDispatches(dbPath, stableDate), []);
 });
 
@@ -748,13 +746,12 @@ test("runner recovery keeps non-persistent status checks actionable", async () =
   assert.equal(result.statusCheckResult?.status, "blocked");
   assert.match(result.statusCheckResult?.summary ?? "", /failed command checks/);
   assert.equal(result.recoveryTask?.route, "automatic");
-  assert.equal(result.failureRecoverySkillInput?.skill, "failure-recovery-skill");
   assert.equal(result.recoveryDispatch, undefined);
   assert.equal(dispatched.length, 0);
 });
 
 test("runner recovery default dispatcher updates stale scheduled recovery dispatch", async () => {
-  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-stale-skill-run-"));
+  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-stale-dispatch-"));
   const dbPath = join(root, ".autobuild", "autobuild.db");
   initializeSchema(dbPath);
   const policy = resolveRunnerPolicy({
@@ -799,7 +796,7 @@ test("runner recovery default dispatcher updates stale scheduled recovery dispat
   assert.equal(due.length, 1);
   assert.equal(due[0].dispatchId, first.recoveryTask?.id);
   assert.equal(due[0].status, "running");
-  assert.equal(due[0].skillInput.recovery_task_id, first.recoveryTask?.id);
+  assert.equal(due[0].dispatchInput.recovery_task_id, first.recoveryTask?.id);
   assert.equal(duplicateDue.length, 0);
   const ran: unknown[] = [];
   runSqlite(dbPath, [{ sql: "UPDATE recovery_dispatches SET status = ? WHERE id = ?", params: ["queued", first.recoveryTask?.id] }]);
@@ -946,7 +943,6 @@ test("runner recovery dispatcher failures do not leave phantom scheduled attempt
     () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
   );
   assert.equal(recovered.recoveryTask?.retrySchedule?.status, "scheduled");
-  assert.equal(recovered.recoveryDispatch?.skillInput.skill, "failure-recovery-skill");
 });
 
 test("runner recovery does not auto-recover terminal status-check failures", async () => {
@@ -1303,8 +1299,8 @@ test("runner recovery safety reviews high-risk failed commands before dispatch",
 
   assert.equal(result.recoveryTask?.route, "review_needed");
   assert.equal(result.recoveryTask?.retrySchedule, undefined);
-  assert.equal(result.failureRecoverySkillInput?.failure.failed_command, "npm run migrate");
-  assert.equal(result.failureRecoverySkillInput?.recovery_plan.command, undefined);
+  assert.equal(result.recoveryDispatchInput?.failure.failed_command, "npm run migrate");
+  assert.equal(result.recoveryDispatchInput?.recovery_plan.command, undefined);
   assert.equal(result.recoveryDispatch, undefined);
 });
 

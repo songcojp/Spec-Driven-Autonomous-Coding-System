@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildFailureFingerprint,
-  buildFailureRecoverySkillInput,
+  buildRecoveryDispatchInput,
   buildRecoveryTask,
   checkForbiddenRetry,
   handleRecoveryResult,
@@ -157,7 +157,7 @@ test("failure fingerprints ignore volatile runner logs when no command check exi
   assert.equal(first.normalizedErrorSummary.includes("abc"), false);
 });
 
-test("recovery task builds failure-recovery-skill input for recoverable failures", () => {
+test("recovery task builds dispatch input for recoverable failures", () => {
   const task = buildRecoveryTask({
     taskId: "TASK-010",
     featureId: "FEAT-010",
@@ -170,18 +170,17 @@ test("recovery task builds failure-recovery-skill input for recoverable failures
     recoverable: true,
     now: stableDate,
   });
-  const skillInput = buildFailureRecoverySkillInput(task);
+  const dispatchInput = buildRecoveryDispatchInput(task);
 
   assert.equal(task.route, "automatic");
   assert.equal(task.requestedAction, "auto_fix");
   assert.equal(task.retrySchedule?.backoffMinutes, 2);
-  assert.equal(skillInput.skill, "failure-recovery-skill");
-  assert.equal(skillInput.requested_action, "auto_fix");
-  assert.equal(skillInput.failure.fingerprint_id, task.fingerprint.id);
-  assert.equal(skillInput.failure.failed_command, "npm test");
-  assert.equal(skillInput.recovery_plan.command, undefined);
-  assert.equal(skillInput.retry_policy.max_retries, 3);
-  assert.equal(skillInput.recommendations.some((item) => item.includes("failure-recovery-skill")), true);
+  assert.equal(dispatchInput.requested_action, "auto_fix");
+  assert.equal(dispatchInput.failure.fingerprint_id, task.fingerprint.id);
+  assert.equal(dispatchInput.failure.failed_command, "npm test");
+  assert.equal(dispatchInput.recovery_plan.command, undefined);
+  assert.equal(dispatchInput.retry_policy.max_retries, 3);
+  assert.equal(dispatchInput.recommendations.some((item) => item.includes("Dispatch recovery action")), true);
 });
 
 test("retry scheduler records 2, 4, and 8 minute backoff and stops the fourth attempt", () => {
@@ -449,9 +448,9 @@ test("recovery task blocks existing forbidden records until a distinct proposal 
   assert.equal(distinctProposal.proposedStrategy, "different-auto-fix");
   assert.equal(distinctProposal.proposedCommand, "node safer-fix.js");
   assert.deepEqual(distinctProposal.proposedFileScope, ["src/codex-runner.ts"]);
-  const skillInput = buildFailureRecoverySkillInput(distinctProposal);
-  assert.deepEqual(skillInput.failure.related_files, ["src/codex-runner.ts"]);
-  assert.deepEqual(skillInput.recovery_plan, {
+  const dispatchInput = buildRecoveryDispatchInput(distinctProposal);
+  assert.deepEqual(dispatchInput.failure.related_files, ["src/codex-runner.ts"]);
+  assert.deepEqual(dispatchInput.recovery_plan, {
     strategy: "different-auto-fix",
     command: "node safer-fix.js",
     file_scope: ["src/codex-runner.ts"],
@@ -469,7 +468,7 @@ test("recovery task blocks existing forbidden records until a distinct proposal 
   assert.equal(completedWithoutOverrides.forbiddenRetryRecord?.failedCommand, "node safer-fix.js");
 });
 
-test("failure recovery skill input redacts sensitive command and plan text", () => {
+test("recovery dispatch input redacts sensitive command and plan text", () => {
   const task = buildRecoveryTask({
     taskId: "TASK-010",
     failureStage: "test",
@@ -483,16 +482,16 @@ test("failure recovery skill input redacts sensitive command and plan text", () 
     now: stableDate,
   });
 
-  const skillInput = buildFailureRecoverySkillInput(task);
-  const serialized = JSON.stringify(skillInput);
+  const dispatchInput = buildRecoveryDispatchInput(task);
+  const serialized = JSON.stringify(dispatchInput);
 
   assert.equal(serialized.includes("abc123"), false);
   assert.equal(serialized.includes("hunter2"), false);
   assert.equal(serialized.includes("topsecret"), false);
-  assert.equal(skillInput.recovery_plan.command, "node safer-fix.js password=[REDACTED]");
+  assert.equal(dispatchInput.recovery_plan.command, "node safer-fix.js password=[REDACTED]");
 });
 
-test("failure recovery skill input redacts history and source evidence", () => {
+test("recovery dispatch input redacts history and source evidence", () => {
   const fingerprint = buildFailureFingerprint({
     taskId: "TASK-010",
     stage: "test",
@@ -532,7 +531,7 @@ test("failure recovery skill input redacts history and source evidence", () => {
     now: stableDate,
   });
 
-  const serialized = JSON.stringify(buildFailureRecoverySkillInput(task));
+  const serialized = JSON.stringify(buildRecoveryDispatchInput(task));
 
   assert.equal(serialized.includes("abc123"), false);
   assert.equal(serialized.includes("hunter2"), false);

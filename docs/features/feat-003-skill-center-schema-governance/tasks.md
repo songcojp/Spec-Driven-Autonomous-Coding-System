@@ -1,8 +1,6 @@
-# Tasks: FEAT-003 CLI Skill Directory Discovery
+# Tasks: FEAT-003 Retired - Platform Skill Center Removed
 
-- [x] TASK-001: 移除 SQL Skill Registry、SkillVersion、SchemaValidationResult 和项目覆盖运行时接口。
-- [x] TASK-002: 实现 `.agents/skills/*/SKILL.md` 文件系统发现。
-- [x] TASK-003: Bootstrap 改为校验项目本地 Skill 文件存在。
-- [x] TASK-004: Console Skill Center 改为展示文件系统 Skill metadata。
-- [x] TASK-005: schema v14 删除旧 Skill 表并保留恢复调度专用表。
-- [x] TASK-006: 用文件系统 fixture 替换 Skill Registry/schema/版本测试。
+- [x] TASK-001: 删除平台 Skill discovery/runtime 代码和测试。
+- [x] TASK-002: Bootstrap readiness 移除项目 Skill 数量检查。
+- [x] TASK-003: Product Console 移除 Skill Center 页面、类型、fixtures 和 API。
+- [x] TASK-004: schema 迁移删除最终 Skill runtime 表和任务 Skill 字段。

@@ -160,9 +160,8 @@ export type ForbiddenRetryCheck = {
   }>;
 };
 
-export type FailureRecoverySkillInput = {
+export type RecoveryDispatchInput = {
   schema_version: "1.0.0";
-  skill: "failure-recovery-skill";
   recovery_task_id: string;
   task_id: string;
   feature_id?: string;
@@ -549,12 +548,11 @@ export function buildRecoveryTask(input: RecoveryFailureInput): RecoveryTask {
   };
 }
 
-export function buildFailureRecoverySkillInput(recoveryTask: RecoveryTask): FailureRecoverySkillInput {
+export function buildRecoveryDispatchInput(recoveryTask: RecoveryTask): RecoveryDispatchInput {
   const historicalAttempts = recoveryTask.historicalAttempts.filter((attempt) => attempt.fingerprintId === recoveryTask.fingerprint.id);
   const forbiddenRetryItems = recoveryTask.forbiddenRetryItems.filter((item) => item.fingerprintId === recoveryTask.fingerprint.id);
   return {
     schema_version: "1.0.0",
-    skill: "failure-recovery-skill",
     recovery_task_id: recoveryTask.id,
     task_id: recoveryTask.taskId,
     feature_id: recoveryTask.featureId,
@@ -880,7 +878,7 @@ function shouldReuseScheduledRecoveryTaskId(retrySchedule: RetrySchedule): boole
 function recoveryRecommendations(recoveryTask: RecoveryTask): string[] {
   if (recoveryTask.route === "automatic" && recoveryTask.retrySchedule?.status === "scheduled") {
     return [
-      `Run failure-recovery-skill with ${recoveryTask.requestedAction}.`,
+      `Dispatch recovery action ${recoveryTask.requestedAction}.`,
       `Use retry backoff of ${recoveryTask.retrySchedule.backoffMinutes} minute(s).`,
       "Write a Recovery Evidence Pack before advancing task state.",
     ];

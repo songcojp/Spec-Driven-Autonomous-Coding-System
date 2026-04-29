@@ -20,7 +20,7 @@ test("current schema includes review center approval context", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 14);
+  assert.equal(SCHEMA_VERSION, 15);
   assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   assert.equal(tables.includes("review_items"), true);
@@ -886,10 +886,10 @@ test("task completion derives parent feature status from graph task state", () =
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+          allowed_files_json, dependencies_json, risk, estimated_effort
         ) VALUES (
           'TASK-011-GRAPH-FAILED', 'TG-FEAT-011', 'FEAT-011', 'Failed graph task', 'failed',
-          '[]', '[]', '[]', '[]', 'medium', 'codex-coding-skill', 'coding', 1
+          '[]', '[]', '[]', '[]', 'medium', 1
         )`,
     },
   ]);
@@ -1863,10 +1863,10 @@ function seedReviewData(): string {
     {
       sql: `INSERT INTO task_graph_tasks (
           id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
-          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+          allowed_files_json, dependencies_json, risk, estimated_effort
         ) VALUES (
           'TASK-011', 'TG-FEAT-011', 'FEAT-011', 'Implement approval gate', 'review_needed',
-          '[]', '[]', '[]', '[]', 'medium', 'codex-coding-skill', 'coding', 1
+          '[]', '[]', '[]', '[]', 'medium', 1
         )`,
     },
     {

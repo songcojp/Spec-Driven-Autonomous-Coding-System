@@ -1,7 +1,6 @@
-# Tasks: FEAT-005 CLI Subagent Audit Integration
+# Tasks: FEAT-005 Retired - Platform Subagent Runtime Removed
 
-- [x] TASK-001: 移除 AgentRunContract、ContextSliceRef、Context Broker 和 Result Merger 运行时接口。
-- [x] TASK-002: 保留 `subagent_events` 作为 CLI delegation 观测记录。
-- [x] TASK-003: Subagent Console 改为读取 runs、evidence、status checks 和 token usage。
-- [x] TASK-004: schema v14 删除 context broker/result merge 持久表。
-- [x] TASK-005: 用 CLI event observation 测试替换 context slicing/result merge 测试。
+- [x] TASK-001: 删除平台 Subagent runtime 代码和测试。
+- [x] TASK-002: Product Console 移除 Subagent Console 页面、类型、fixtures 和 API。
+- [x] TASK-003: schema 迁移删除最终 Subagent event 表和任务 subagent 字段。
+- [x] TASK-004: Dashboard 将 running subagents 指标改为 active external runs。

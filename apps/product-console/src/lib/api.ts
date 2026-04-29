@@ -7,8 +7,6 @@ function endpoints(projectId: string) {
     dashboard: `/console/dashboard?projectId=${encodedProjectId}`,
     board: `/console/dashboard-board?projectId=${encodedProjectId}`,
     spec: `/console/spec-workspace?projectId=${encodedProjectId}&featureId=FEAT-013`,
-    skills: `/console/skills?projectId=${encodedProjectId}`,
-    subagents: `/console/subagents?projectId=${encodedProjectId}`,
     runner: `/console/runner?projectId=${encodedProjectId}`,
     reviews: `/console/reviews?projectId=${encodedProjectId}`,
   } as const;

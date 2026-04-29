@@ -1,37 +1,15 @@
-# Design: FEAT-003 CLI Skill Directory Discovery
+# Design: FEAT-003 Retired - Platform Skill Center Removed
 
 ## Design Summary
 
-Skill 调用、触发和上下文交付由 Codex CLI 原生处理。SpecDrive 只发现项目本地 `.agents/skills/*/SKILL.md`，用于 bootstrap readiness、Console 展示和编排说明，不再维护 SQL Skill Registry、schema 校验、版本回滚或项目覆盖。
+本 Feature 已废弃。SpecDrive 平台边界收缩为调度和状态维护，不再扫描、注册、展示或调用 Skill。
 
-## Components
+## Data and API Impact
 
-| Component | Responsibility |
-|---|---|
-| Skill Directory Discovery | 扫描 `.agents/skills/<slug>/SKILL.md`，以目录名作为稳定 slug。 |
-| Skill Metadata Reader | 从 `SKILL.md` frontmatter 读取 name、description 和文件路径。 |
-| Bootstrap Skill Check | 确认项目至少存在一个本地 Skill 文件。 |
-| Console Skill View | 展示文件系统发现到的 Skill 清单，不展示 SQL schema、版本或成功率。 |
+- 删除平台 Skill runtime API 和 Console 查询。
+- 最终 schema 删除 Skill 相关表；历史迁移只作为升级路径保留。
+- `ReadyState` 不再包含 `projectSkills`。
 
-## Data Ownership
+## Integration Rule
 
-- Owns: 无 SQL Skill 数据；Skill 源文件归 `.agents/skills/*/SKILL.md` 所有。
-- Reads: 项目本地 Skill 文件。
-- Emits: bootstrap readiness 和 Console 查询模型。
-
-## State and Flow
-
-1. Bootstrap 初始化 artifact 和 schema。
-2. Skill Directory Discovery 扫描项目本地 `.agents/skills`。
-3. 若没有可用 `SKILL.md`，bootstrap 返回可观测错误。
-4. Console 按文件系统事实展示 Skill，不参与执行调度。
-
-## Dependencies
-
-- FEAT-000 提供 bootstrap 入口。
-- Codex CLI 原生 Skill 机制负责发现、调用、上下文和执行。
-
-## Review and Evidence
-
-- 不允许重新引入 SQL Skill Registry、schema_validation_results、skill_versions 或 skill_project_overrides。
-- Skill 行为治理应写入 `SKILL.md` 和项目文档，而不是数据库注册表。
+Codex CLI 或外部工具若使用 Skill 文件，应在平台之外自行处理。平台只接收外部运行产生的状态、证据、审计和恢复建议输入。
