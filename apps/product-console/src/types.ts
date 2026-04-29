@@ -8,7 +8,9 @@ export type CommandAction =
   | "approve_review"
   | "move_board_task"
   | "schedule_board_tasks"
-  | "run_board_tasks";
+  | "run_board_tasks"
+  | "schedule_run"
+  | "write_spec_evolution";
 
 export type CommandReceipt = {
   id: string;

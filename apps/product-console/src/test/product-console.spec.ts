@@ -45,6 +45,35 @@ test("defaults to Chinese and persists language switching", async ({ page }) => 
   await expect(page.getByRole("button", { name: "Dashboard", exact: true })).toBeVisible();
 });
 
+test("renders the Spec workspace workbench and submits controlled spec commands", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Spec 工作台" })).toBeVisible();
+  await expect(page.getByText("Feature Spec", { exact: true })).toBeVisible();
+  await expect(page.getByText("FEAT-204 Mobile Returns Portal")).toBeVisible();
+  await expect(page.getByText("需求列表")).toBeVisible();
+  await expect(page.getByRole("cell", { name: "REQ-204-001" }).first()).toBeVisible();
+  await expect(page.getByText("需求 - 任务可追溯性")).toBeVisible();
+  await expect(page.getByText("受控操作")).toBeVisible();
+  await expect(page.getByText("需要产品审批")).toBeVisible();
+  await expect(page.getByRole("link", { name: /EV-708/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "质量检查清单" }).click();
+  await expect(page.getByText("Copy Review Pending").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "契约" }).click();
+  await expect(page.getByText("/returns/orders/lookup")).toBeVisible();
+
+  await page.getByRole("button", { name: /FEAT-203/ }).click();
+  await expect(page.getByText("FEAT-203 Refund Rules Engine")).toBeVisible();
+  await expect(page.getByText("当前分区暂无可用 Spec 数据。").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "规划流水线" }).click();
+  await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
+});
+
 test("creates projects and switches project-scoped console data", async ({ page }) => {
   await page.goto("/");
 

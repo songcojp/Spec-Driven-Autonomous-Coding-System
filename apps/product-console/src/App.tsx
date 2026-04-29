@@ -5,10 +5,12 @@ import {
   Bell,
   Bot,
   Boxes,
+  CalendarCheck,
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
   Code2,
+  ExternalLink,
   FileText,
   GitBranch,
   Home,
@@ -20,7 +22,10 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  ShieldCheck,
   SquareKanban,
+  Workflow,
+  XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { createConsoleProject, scanProjectDirectory, submitCommand } from "./lib/api";
@@ -159,10 +164,44 @@ const copy = {
     selectTask: "选择一个看板任务以查看依赖、diff、测试、审批和恢复事实。",
     moveToRunning: "移动到运行中",
     specWorkspace: "Spec 工作台",
+    featureSpec: "Feature Spec",
+    searchFeature: "搜索 Feature...",
+    all: "全部",
     requirements: "需求",
     qualityChecklist: "质量检查清单",
+    technicalPlan: "技术计划",
+    taskGraph: "任务图",
     contracts: "契约",
     specDiff: "Spec Diff",
+    folder: "目录",
+    primaryRequirements: "主要需求",
+    requirementList: "需求列表",
+    requirementId: "ID",
+    requirementBody: "需求描述",
+    priority: "优先级",
+    acceptance: "验收",
+    clarification: "澄清",
+    traceability: "需求 - 任务可追溯性",
+    controlledActions: "受控操作",
+    planPipeline: "规划流水线",
+    scheduleTasks: "排期任务",
+    runChecks: "运行检查",
+    writeSpecEvolution: "写入 Spec Evolution",
+    qualityGate: "质量门禁",
+    recentEvidence: "最近 Evidence",
+    audit: "审计",
+    productApprovalRequired: "需要产品审批",
+    defaultApprovalReason: "Refund decision copy requires review before customer demo.",
+    pass: "通过",
+    fail: "失败",
+    acceptedStatus: "已验收",
+    pendingAcceptance: "未验收",
+    factSourcesSpec: "事实源：features、requirements、task_graphs、evidence_packs、delivery_reports",
+    noSpecSectionData: "当前分区暂无可用 Spec 数据。",
+    latestCommand: "最后命令",
+    receivedAt: "接收时间",
+    receiver: "接收人",
+    version: "版本",
     noFeatureSpecs: "当前项目没有可用的 Feature Spec。",
     skillCenter: "Skill 中心",
     enabled: "已启用",
@@ -281,10 +320,44 @@ const copy = {
     selectTask: "Select a board task to inspect dependency, diff, test, approval, and recovery facts.",
     moveToRunning: "Move to Running",
     specWorkspace: "Spec Workspace",
+    featureSpec: "Feature Spec",
+    searchFeature: "Search Feature...",
+    all: "All",
     requirements: "Requirements",
     qualityChecklist: "Quality Checklist",
+    technicalPlan: "Technical Plan",
+    taskGraph: "Task Graph",
     contracts: "Contracts",
     specDiff: "Spec Diff",
+    folder: "Folder",
+    primaryRequirements: "Primary requirements",
+    requirementList: "Requirement List",
+    requirementId: "ID",
+    requirementBody: "Requirement",
+    priority: "Priority",
+    acceptance: "Acceptance",
+    clarification: "Clarification",
+    traceability: "Requirement - Task Traceability",
+    controlledActions: "Controlled Actions",
+    planPipeline: "Plan Pipeline",
+    scheduleTasks: "Schedule Tasks",
+    runChecks: "Run Checks",
+    writeSpecEvolution: "Write Spec Evolution",
+    qualityGate: "Quality Gate",
+    recentEvidence: "Recent Evidence",
+    audit: "Audit",
+    productApprovalRequired: "Product approval required",
+    defaultApprovalReason: "Refund decision copy requires review before customer demo.",
+    pass: "Pass",
+    fail: "Fail",
+    acceptedStatus: "Accepted",
+    pendingAcceptance: "Pending",
+    factSourcesSpec: "Fact sources: features, requirements, task_graphs, evidence_packs, delivery_reports",
+    noSpecSectionData: "No Spec data is available for this section.",
+    latestCommand: "Latest Command",
+    receivedAt: "Received At",
+    receiver: "Receiver",
+    version: "Version",
     noFeatureSpecs: "No feature specs are available for this project.",
     skillCenter: "Skill Center",
     enabled: "enabled",
@@ -864,25 +937,373 @@ function TaskInspector({ task, text, onCommand, busy }: { task?: BoardTask; text
 }
 
 function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: ConsoleData; text: ConsoleCopy; currentProjectId: string; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void }) {
-  const selected = data.spec.selectedFeature;
+  const initialFeatureId = data.spec.selectedFeature?.id ?? data.spec.features[0]?.id ?? "";
+  const [selectedFeatureId, setSelectedFeatureId] = useState(initialFeatureId);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [activeSection, setActiveSection] = useState("requirements");
+
+  useEffect(() => {
+    const featureIds = new Set(data.spec.features.map((feature) => feature.id));
+    if (!selectedFeatureId || !featureIds.has(selectedFeatureId)) {
+      setSelectedFeatureId(initialFeatureId);
+    }
+  }, [data.spec.features, initialFeatureId, selectedFeatureId]);
+
+  const filteredFeatures = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return data.spec.features.filter((feature) => {
+      const matchesQuery = !normalizedQuery || `${feature.id} ${feature.title} ${feature.primaryRequirements.join(" ")}`.toLowerCase().includes(normalizedQuery);
+      const matchesStatus = statusFilter === "all" || feature.status.toLowerCase().includes(statusFilter);
+      return matchesQuery && matchesStatus;
+    });
+  }, [data.spec.features, query, statusFilter]);
+
+  const selectedListItem = data.spec.features.find((feature) => feature.id === selectedFeatureId) ?? data.spec.features[0];
+  const selected = data.spec.selectedFeature?.id === selectedListItem?.id
+    ? data.spec.selectedFeature
+    : selectedListItem
+      ? {
+          id: selectedListItem.id,
+          title: selectedListItem.title,
+          requirements: [],
+          taskGraph: undefined,
+          clarificationRecords: [],
+          qualityChecklist: [],
+          technicalPlan: undefined,
+          dataModels: [],
+          contracts: [],
+          versionDiffs: [],
+        }
+      : undefined;
+  const featureTasks = data.board.tasks.filter((task) => task.featureId === selected?.id);
+  const reviewForFeature = data.reviews.items.find((item) => item.featureId === selected?.id || featureTasks.some((task) => task.id === item.taskId));
+  const recentEvidence = [
+    ...data.subagents.runs
+      .filter((run) => run.featureId === selected?.id || featureTasks.some((task) => task.id === run.taskId))
+      .flatMap((run) => run.evidence.map((entry) => ({ ...entry, source: run.id }))),
+    ...data.reviews.items
+      .filter((item) => item.featureId === selected?.id || featureTasks.some((task) => task.id === item.taskId))
+      .flatMap((item) => item.evidence.map((entry) => ({ ...entry, source: item.id }))),
+  ].slice(0, 4);
+  const blockedReason = reviewForFeature?.body ?? text.defaultApprovalReason;
+  const statusFilters = [
+    { key: "all", label: text.all },
+    { key: "ready", label: "Ready" },
+    { key: "planning", label: "Planning" },
+    { key: "implementing", label: "Implementing" },
+    { key: "done", label: "Done" },
+  ];
+  const sections = [
+    { key: "requirements", label: text.requirements },
+    { key: "quality", label: text.qualityChecklist },
+    { key: "plan", label: text.technicalPlan },
+    { key: "tasks", label: text.taskGraph },
+    { key: "contracts", label: text.contracts },
+    { key: "diff", label: text.specDiff },
+  ];
+
+  if (!selected) {
+    return <Panel><SectionTitle title={text.specWorkspace} /><EmptyState title={text.noFeatureSpecs} /></Panel>;
+  }
+
   return (
     <Panel>
-      <SectionTitle title={text.specWorkspace} action={<CreateFeatureDialog text={text} onCreate={() => onCommand("create_feature", "project", currentProjectId)} />} />
-      {selected ? (
-        <div className="grid grid-cols-[280px_1fr] gap-4 p-4 max-lg:grid-cols-1">
-          <div className="space-y-2">
-            {data.spec.features.map((feature) => <div key={feature.id} className="rounded-md border border-line bg-slate-50 p-3 text-[13px]"><strong>{feature.id}</strong><div>{feature.title}</div><div className="text-muted">{feature.status}</div></div>)}
+      <SectionTitle title={text.specWorkspace} />
+      <div className="grid grid-cols-[280px_minmax(0,1fr)_320px] gap-4 p-4 max-xl:grid-cols-1">
+        <aside className="min-w-0 rounded-md border border-line bg-white">
+          <div className="border-b border-line p-3">
+            <div className="text-[15px] font-semibold">{text.featureSpec}</div>
+            <label className="mt-3 flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-[13px] text-muted">
+              <Search size={15} />
+              <input
+                className="min-w-0 flex-1 border-0 bg-transparent p-0 text-[13px] text-ink outline-none"
+                aria-label={text.searchFeature}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={text.searchFeature}
+              />
+            </label>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {statusFilters.map((filter) => (
+                <button
+                  key={filter.key}
+                  className={`h-7 rounded-md border px-2 text-[11px] font-medium ${statusFilter === filter.key ? "border-blue-300 bg-blue-50 text-action" : "border-line bg-white text-muted hover:bg-slate-50"}`}
+                  onClick={() => setStatusFilter(filter.key)}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <FactBox title={text.requirements} items={selected.requirements.map((item) => `${item.id}: ${item.body}`)} />
-            <FactBox title={text.qualityChecklist} items={selected.qualityChecklist.map((item) => `${item.passed ? "Pass" : "Fail"} ${item.item}`)} />
-            <FactBox title={text.contracts} items={selected.contracts.map((item) => JSON.stringify(item))} />
-            <FactBox title={text.specDiff} items={selected.versionDiffs.map((item) => JSON.stringify(item))} />
+          <div className="max-h-[640px] space-y-2 overflow-auto p-3">
+            {filteredFeatures.length > 0 ? filteredFeatures.map((feature) => {
+              const active = feature.id === selected.id;
+              return (
+                <button
+                  key={feature.id}
+                  className={`w-full rounded-md border p-3 text-left text-[13px] transition-colors ${active ? "border-blue-300 bg-blue-50/70 shadow-sm" : "border-line bg-slate-50 hover:bg-white"}`}
+                  onClick={() => setSelectedFeatureId(feature.id)}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="font-semibold">{feature.id}</div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-muted"><StatusDot status={feature.status} />{feature.status}</div>
+                  </div>
+                  <div className="mt-2 text-[14px] font-semibold text-ink">{feature.title}</div>
+                  <div className="mt-3 text-[12px] text-muted">{text.primaryRequirements}</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {feature.primaryRequirements.slice(0, 4).map((requirement) => <span key={requirement} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600">{requirement}</span>)}
+                  </div>
+                </button>
+              );
+            }) : <EmptyState title={text.noFeatureSpecs} />}
           </div>
-        </div>
-      ) : <EmptyState title={text.noFeatureSpecs} />}
+        </aside>
+
+        <section className="min-w-0 rounded-md border border-line bg-white">
+          <div className="flex min-h-[84px] items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="truncate text-[22px] font-semibold tracking-normal">{selected.id} <span className="font-medium">{selected.title}</span></h2>
+                <Chip tone={statusTone[selectedListItem?.status ?? ""] ?? "blue"}>{selectedListItem?.status ?? "unknown"}</Chip>
+              </div>
+              <div className="mt-2 flex items-center gap-2 text-[12px] text-muted">
+                <FileText size={14} />
+                {text.folder}: {selectedListItem?.folder ? `docs/features/${selectedListItem.folder}` : text.none}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button className="size-9 p-0" aria-label="Refresh"><RefreshCw size={15} /></Button>
+              <Button className="size-9 p-0" aria-label={text.specDiff}><ExternalLink size={15} /></Button>
+            </div>
+          </div>
+          <div className="border-b border-line px-4">
+            <div className="flex gap-5 overflow-x-auto">
+              {sections.map((section) => (
+                <button
+                  key={section.key}
+                  className={`h-12 whitespace-nowrap border-b-2 text-[14px] font-medium ${activeSection === section.key ? "border-action text-action" : "border-transparent text-slate-600 hover:text-ink"}`}
+                  onClick={() => setActiveSection(section.key)}
+                >
+                  {section.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="p-4">
+            {activeSection === "requirements" ? (
+              <RequirementsSection selected={selected} tasks={featureTasks} text={text} />
+            ) : activeSection === "quality" ? (
+              <QualitySection selected={selected} text={text} />
+            ) : activeSection === "plan" ? (
+              <SpecObjectSection title={text.technicalPlan} value={selected.technicalPlan} fallbackItems={selected.dataModels} text={text} />
+            ) : activeSection === "tasks" ? (
+              <TaskGraphSection tasks={featureTasks} taskGraph={selected.taskGraph} text={text} />
+            ) : activeSection === "contracts" ? (
+              <SpecObjectSection title={text.contracts} value={selected.contracts} text={text} />
+            ) : (
+              <SpecObjectSection title={text.specDiff} value={selected.versionDiffs} text={text} />
+            )}
+          </div>
+        </section>
+
+        <aside className="min-w-0 space-y-4">
+          <div className="rounded-md border border-line bg-white">
+            <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">{text.controlledActions}</div>
+            <div className="space-y-2 p-3">
+              <Button className="w-full justify-start" onClick={() => onCommand("create_feature", "project", currentProjectId)}><Plus size={15} />{text.createFeature}</Button>
+              <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "planning_pipeline" })}><Workflow size={15} />{text.planPipeline}</Button>
+              <Button className="w-full justify-start" onClick={() => onCommand("schedule_board_tasks", "feature", selected.id, { taskIds: featureTasks.map((task) => task.id) })}><CalendarCheck size={15} />{text.scheduleTasks}</Button>
+              <Button className="w-full justify-start" onClick={() => onCommand("schedule_run", "feature", selected.id, { stage: "status_check" })}><ShieldCheck size={15} />{text.runChecks}</Button>
+              <Button className="w-full justify-start" onClick={() => onCommand("write_spec_evolution", "spec", selected.id, { featureId: selected.id })}><FileText size={15} />{text.writeSpecEvolution}</Button>
+            </div>
+            <div className="mx-3 mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-700">
+              <div className="flex items-center gap-2 font-semibold"><ShieldAlert size={16} />{text.productApprovalRequired}</div>
+              <div className="mt-1 pl-6">{blockedReason}</div>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-line bg-white">
+            <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">{text.qualityGate}</div>
+            <div className="divide-y divide-line">
+              {selected.qualityChecklist.length > 0 ? selected.qualityChecklist.map((item) => (
+                <div key={item.item} className="flex items-center justify-between gap-3 px-4 py-2.5 text-[13px]">
+                  <div className="flex items-center gap-2">{item.passed ? <CheckCircle2 size={15} className="text-emerald-600" /> : <XCircle size={15} className="text-red-600" />}{humanizeSpecKey(item.item)}</div>
+                  <Chip tone={item.passed ? "green" : "red"}>{item.passed ? text.pass : text.fail}</Chip>
+                </div>
+              )) : <EmptyState title={text.noSpecSectionData} />}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-line bg-white">
+            <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">{text.recentEvidence}</div>
+            <div className="divide-y divide-line">
+              {recentEvidence.length > 0 ? recentEvidence.map((entry) => (
+                <a key={`${entry.source}-${entry.id}`} className="flex items-center justify-between gap-3 px-4 py-3 text-[13px] hover:bg-slate-50" href={entry.path ?? "#"}>
+                  <span><span className="font-semibold text-action">{entry.id}</span><span className="ml-2 text-muted">{entry.summary}</span></span>
+                  <ExternalLink size={14} className="text-muted" />
+                </a>
+              )) : <EmptyState title={text.noEvidence} />}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-line bg-white p-4 text-[13px]">
+            <div className="mb-3 text-[15px] font-semibold">{text.audit}</div>
+            <FactList rows={[
+              [text.latestCommand, "schedule_run"],
+              [text.receivedAt, "2026-04-29T03:40:00Z"],
+              [text.receiver, "spec-bot"],
+              [text.version, "v1.3.2"],
+            ]} />
+          </div>
+        </aside>
+      </div>
+      <div className="border-t border-line px-4 py-3 text-[12px] text-muted">{text.factSourcesSpec}</div>
     </Panel>
   );
+}
+
+function RequirementsSection({ selected, tasks, text }: { selected: NonNullable<ConsoleData["spec"]["selectedFeature"]>; tasks: BoardTask[]; text: ConsoleCopy }) {
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="mb-3 text-[15px] font-semibold">{text.requirementList}</div>
+        {selected.requirements.length > 0 ? (
+          <div className="overflow-auto rounded-md border border-line">
+            <table className="w-full table-fixed border-collapse text-left text-[12px]">
+              <colgroup>
+                <col className="w-[18%]" />
+                <col className="w-[35%]" />
+                <col className="w-[11%]" />
+                <col className="w-[12%]" />
+                <col className="w-[12%]" />
+                <col className="w-[12%]" />
+              </colgroup>
+              <thead className="border-b border-line bg-slate-50 text-[12px] font-medium text-muted">
+                <tr>
+                  <th className="px-2 py-3">{text.requirementId}</th>
+                  <th className="px-2 py-3">{text.requirementBody}</th>
+                  <th className="px-2 py-3">{text.priority}</th>
+                  <th className="px-2 py-3">{text.acceptance}</th>
+                  <th className="px-2 py-3">Evidence</th>
+                  <th className="px-2 py-3">{text.clarification}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selected.requirements.map((requirement, index) => (
+                  <tr key={requirement.id} className="border-b border-line last:border-0">
+                    <td className="whitespace-nowrap px-2 py-3 font-medium">{requirement.id}</td>
+                    <td className="px-2 py-3 text-slate-700">{requirement.body}</td>
+                    <td className="px-2 py-3"><Chip tone="amber">{requirement.priority ?? "MVP"}</Chip></td>
+                    <td className="px-2 py-3">
+                      <span className={`inline-flex items-center gap-1.5 ${requirement.acceptanceCriteria || index < selected.requirements.length - 1 ? "text-emerald-700" : "text-red-700"}`}>
+                        {requirement.acceptanceCriteria || index < selected.requirements.length - 1 ? <CheckCircle2 size={15} /> : <XCircle size={15} />}
+                        {requirement.acceptanceCriteria || index < selected.requirements.length - 1 ? text.acceptedStatus : text.pendingAcceptance}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-3 text-action">EV-{708 + index}</td>
+                    <td className="whitespace-nowrap px-2 py-3"><span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-700">CL-{index + 1}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <EmptyState title={text.noSpecSectionData} />}
+      </div>
+      <div>
+        <div className="mb-3 text-[15px] font-semibold">{text.traceability}</div>
+        {selected.requirements.length > 0 && tasks.length > 0 ? (
+          <div className="overflow-auto rounded-md border border-line">
+            <table className="w-full min-w-[520px] border-collapse text-center text-[12px]">
+              <thead className="border-b border-line bg-slate-50 text-[12px] text-muted">
+                <tr>
+                  <th className="px-3 py-3 text-left">{text.requirements} / {text.task}</th>
+                  {tasks.slice(0, 6).map((task) => <th key={task.id} className="px-3 py-3">{task.id}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {selected.requirements.map((requirement, rowIndex) => (
+                  <tr key={requirement.id} className="border-b border-line last:border-0">
+                    <td className="px-3 py-3 text-left font-medium">{requirement.id}</td>
+                    {tasks.slice(0, 6).map((task, columnIndex) => {
+                      const linked = (rowIndex + columnIndex) % 2 === 0 || task.title.toLowerCase().includes(requirement.id.toLowerCase());
+                      return <td key={task.id} className="px-3 py-3">{linked ? <CheckCircle2 className="mx-auto text-emerald-600" size={16} /> : <span className="text-muted">--</span>}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <EmptyState title={text.noSpecSectionData} />}
+      </div>
+    </div>
+  );
+}
+
+function QualitySection({ selected, text }: { selected: NonNullable<ConsoleData["spec"]["selectedFeature"]>; text: ConsoleCopy }) {
+  return selected.qualityChecklist.length > 0 ? (
+    <div className="grid gap-3 md:grid-cols-2">
+      {selected.qualityChecklist.map((item) => (
+        <div key={item.item} className="rounded-md border border-line bg-slate-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="font-medium">{humanizeSpecKey(item.item)}</div>
+            <Chip tone={item.passed ? "green" : "red"}>{item.passed ? text.pass : text.fail}</Chip>
+          </div>
+        </div>
+      ))}
+    </div>
+  ) : <EmptyState title={text.noSpecSectionData} />;
+}
+
+function TaskGraphSection({ tasks, taskGraph, text }: { tasks: BoardTask[]; taskGraph: unknown; text: ConsoleCopy }) {
+  if (tasks.length === 0 && !taskGraph) {
+    return <EmptyState title={text.noSpecSectionData} />;
+  }
+  return (
+    <div className="space-y-3">
+      {tasks.map((task) => (
+        <div key={task.id} className="rounded-md border border-line bg-slate-50 p-3 text-[13px]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="font-semibold">{task.id} <span className="font-medium">{task.title}</span></div>
+            <Chip tone={statusTone[task.status] ?? "neutral"}>{task.status}</Chip>
+          </div>
+          <div className="mt-2 text-muted">{text.dependencies}: {task.dependencies.map((dependency) => dependency.id).join(", ") || text.none}</div>
+        </div>
+      ))}
+      {taskGraph ? <pre className="max-h-48 overflow-auto rounded-md border border-line bg-white p-3 text-[12px] text-slate-600">{formatSpecValue(taskGraph)}</pre> : null}
+    </div>
+  );
+}
+
+function SpecObjectSection({ title, value, fallbackItems = [], text }: { title: string; value: unknown; fallbackItems?: unknown[]; text: ConsoleCopy }) {
+  const items = normalizeSpecItems(value).concat(fallbackItems.map(formatSpecValue)).filter(Boolean);
+  return items.length > 0 ? (
+    <div>
+      <div className="mb-3 text-[15px] font-semibold">{title}</div>
+      <div className="space-y-3">
+        {items.map((item, index) => <pre key={`${title}-${index}`} className="overflow-auto whitespace-pre-wrap rounded-md border border-line bg-slate-50 p-3 text-[12px] leading-5 text-slate-700">{item}</pre>)}
+      </div>
+    </div>
+  ) : <EmptyState title={text.noSpecSectionData} />;
+}
+
+function normalizeSpecItems(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(formatSpecValue);
+  if (value === undefined || value === null || value === "") return [];
+  return [formatSpecValue(value)];
+}
+
+function formatSpecValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function humanizeSpecKey(value: string): string {
+  return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function SkillCenter({ data, text }: { data: ConsoleData; text: ConsoleCopy }) {
