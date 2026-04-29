@@ -15,6 +15,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+!apps/product-console/src/lib/
+!apps/product-console/src/lib/**
 lib64/
 parts/
 sdist/
@@ -43,6 +45,9 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+node_modules/
+test-results/
+playwright-report/
 nosetests.xml
 coverage.xml
 

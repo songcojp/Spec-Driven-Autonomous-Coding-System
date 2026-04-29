@@ -6,10 +6,29 @@
   "scripts": {
     "start": "node src/index.ts",
     "bootstrap": "node src/index.ts --bootstrap-only",
+    "console:dev": "vite --host 0.0.0.0 --config apps/product-console/vite.config.ts",
+    "console:build": "vite build --config apps/product-console/vite.config.ts",
+    "console:test": "playwright test --config apps/product-console/playwright.config.ts",
     "update:codex": "bash scripts/update-codex.sh",
     "test": "node --test tests/*.test.ts"
   },
   "engines": {
     "node": ">=24"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-toast": "^1.2.15",
+    "@vitejs/plugin-react": "^5.1.0",
+    "autoprefixer": "^10.4.22",
+    "lucide-react": "^0.554.0",
+    "@playwright/test": "^1.57.0",
+    "playwright": "^1.57.0",
+    "postcss": "^8.5.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^3.4.18",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
   }
 }
