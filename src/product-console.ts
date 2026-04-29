@@ -6,6 +6,7 @@ import {
   persistSelectionDecision,
   persistScheduleTrigger,
   selectNextFeature,
+  transitionTask,
   type BoardColumn,
   type FeatureCandidate,
   type FeatureLifecycleStatus,
@@ -13,7 +14,7 @@ import {
   type ScheduleTriggerMode,
 } from "./orchestration.ts";
 import type { RunnerApprovalPolicy, RunnerQueueStatus, RunnerSandboxMode } from "./codex-runner.ts";
-import { listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
+import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
 
 export type ConsoleCommandAction =
   | "create_feature"
@@ -30,9 +31,12 @@ export type ConsoleCommandAction =
   | "mark_review_complete"
   | "schedule_run"
   | "write_project_rule"
-  | "write_spec_evolution";
+  | "write_spec_evolution"
+  | "move_board_task"
+  | "schedule_board_tasks"
+  | "run_board_tasks";
 
-export type ConsoleCommandStatus = "accepted";
+export type ConsoleCommandStatus = "accepted" | "blocked";
 
 export type ConsoleCommandInput = {
   action: ConsoleCommandAction;
@@ -55,6 +59,7 @@ export type ConsoleCommandReceipt = {
   approvalRecordId?: string;
   scheduleTriggerId?: string;
   selectionDecisionId?: string;
+  blockedReasons?: string[];
 };
 
 export type DashboardQueryOptions = {
@@ -92,6 +97,24 @@ export type DashboardQueryModel = {
     loadMs: number;
     refreshMs?: number;
   };
+  factSources: string[];
+};
+
+export type DashboardBoardViewModel = {
+  tasks: Array<{
+    id: string;
+    featureId?: string;
+    title: string;
+    status: BoardColumn | "unknown";
+    risk: RiskLevel | "unknown";
+    dependencies: Array<{ id: string; status: BoardColumn | "unknown"; satisfied: boolean }>;
+    diff?: unknown;
+    testResults?: unknown;
+    approvalStatus: "approved" | "pending" | "not_required";
+    recoveryHistory: Array<{ from?: string; to?: string; reason: string; evidence?: string; occurredAt: string }>;
+    blockedReasons: string[];
+  }>;
+  commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
   factSources: string[];
 };
 
@@ -329,6 +352,96 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       "metric_samples",
       "review_items",
       "evidence_packs",
+    ],
+  };
+}
+
+export function buildDashboardBoardView(dbPath: string, projectId?: string): DashboardBoardViewModel {
+  const graphProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
+  const taskProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
+  const params = projectId ? [projectId] : [];
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "graphTasks",
+      sql: `SELECT id, feature_id, title, status, dependencies_json, risk FROM task_graph_tasks ${graphProjectFilter} ORDER BY feature_id, created_at, id`,
+      params,
+    },
+    {
+      name: "tasks",
+      sql: `SELECT id, feature_id, title, status, depends_on_json AS dependencies_json, 'unknown' AS risk FROM tasks ${taskProjectFilter} ORDER BY feature_id, created_at, id`,
+      params,
+    },
+    {
+      name: "evidence",
+      sql: `SELECT id, task_id, feature_id, kind, summary, path, metadata_json, created_at FROM evidence_packs ORDER BY created_at DESC`,
+    },
+    {
+      name: "reviews",
+      sql: `SELECT id, task_id, feature_id, status, severity, body, created_at FROM review_items ORDER BY created_at DESC`,
+    },
+    {
+      name: "approvals",
+      sql: `SELECT ar.*, ri.task_id, ri.feature_id FROM approval_records ar JOIN review_items ri ON ri.id = ar.review_item_id ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC`,
+    },
+    {
+      name: "transitions",
+      sql: `SELECT entity_id, from_status, to_status, reason, evidence, occurred_at FROM state_transitions WHERE entity_type = 'task' ORDER BY occurred_at DESC`,
+    },
+    {
+      name: "recoveryAttempts",
+      sql: `SELECT task_id, action, strategy, command, status, summary, evidence_pack_json, attempted_at FROM recovery_attempts ORDER BY attempted_at DESC`,
+    },
+    {
+      name: "forbiddenRetries",
+      sql: `SELECT task_id, failed_strategy, failed_command, reason, evidence_pack_id, created_at FROM forbidden_retry_records ORDER BY created_at DESC`,
+    },
+  ]);
+  const rows = result.queries.graphTasks.length > 0 ? result.queries.graphTasks : result.queries.tasks;
+  const taskById = new Map(rows.map((row) => [String(row.id), row]));
+
+  return {
+    tasks: rows.map((row) => {
+      const taskId = String(row.id);
+      const dependencies = parseJsonArray(row.dependencies_json).map((dependency) => {
+        const id = String(dependency);
+        const dependencyStatus = normalizeBoardStatus(taskById.get(id)?.status);
+        return {
+          id,
+          status: dependencyStatus,
+          satisfied: dependencyStatus === "done" || dependencyStatus === "delivered",
+        };
+      });
+      const evidence = result.queries.evidence.filter((entry) => entry.task_id === row.id || (!entry.task_id && entry.feature_id === row.feature_id));
+      const reviews = result.queries.reviews.filter((entry) => entry.task_id === row.id || (!entry.task_id && entry.feature_id === row.feature_id));
+      const approvals = result.queries.approvals.filter((entry) => entry.task_id === row.id || (!entry.task_id && entry.feature_id === row.feature_id));
+      const latestReviewBody = parseJsonObject(reviews[0]?.body);
+      const latestEvidenceMetadata = evidence.map((entry) => parseJsonObject(entry.metadata_json)).find((entry) => Object.keys(entry).length > 0) ?? {};
+      return {
+        id: taskId,
+        featureId: optionalString(row.feature_id),
+        title: String(row.title),
+        status: normalizeBoardStatus(row.status),
+        risk: normalizeRisk(row.risk),
+        dependencies,
+        diff: latestReviewBody.diff ?? latestEvidenceMetadata.diff,
+        testResults: latestReviewBody.testResults ?? latestEvidenceMetadata.testResults,
+        approvalStatus: approvalStatusForTask(row, reviews, approvals),
+        recoveryHistory: recoveryHistoryForTask(taskId, result.queries.transitions, result.queries.recoveryAttempts, result.queries.forbiddenRetries),
+        blockedReasons: boardBlockedReasons(row, taskById, reviews, approvals),
+      };
+    }),
+    commands: [
+      { action: "move_board_task", entityType: "task" },
+      { action: "schedule_board_tasks", entityType: "feature" },
+      { action: "run_board_tasks", entityType: "feature" },
+    ],
+    factSources: [
+      "task_graph_tasks",
+      "tasks",
+      "review_items",
+      "approval_records",
+      "evidence_packs",
+      "state_transitions",
     ],
   };
 }
@@ -589,6 +702,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
 
   const acceptedAt = normalizeCommandTime(input.now).toISOString();
   const id = randomUUID();
+  const boardValidation = validateBoardCommand(dbPath, input);
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
@@ -605,6 +719,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
       writeArtifactId,
       scheduleTriggerId: scheduleResult?.triggerId,
       selectionDecisionId: scheduleResult?.selectionDecisionId,
+      boardValidation,
       payload: input.payload ?? {},
     },
   });
@@ -612,7 +727,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
   return {
     id,
     action,
-    status: "accepted",
+    status: boardValidation.blockedReasons.length > 0 ? "blocked" : "accepted",
     entityType,
     entityId,
     auditEventId,
@@ -620,6 +735,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
     approvalRecordId: approvalRecord?.id,
     scheduleTriggerId: scheduleResult?.triggerId,
     selectionDecisionId: scheduleResult?.selectionDecisionId,
+    blockedReasons: boardValidation.blockedReasons.length > 0 ? boardValidation.blockedReasons : undefined,
   };
 }
 
@@ -705,6 +821,109 @@ function loadScheduleCandidates(
       .filter((row) => String(row.status) === "done" || String(row.status) === "delivered")
       .map((row) => String(row.id)),
   };
+}
+
+function validateBoardCommand(dbPath: string, input: ConsoleCommandInput): { blockedReasons: string[] } {
+  if (!["move_board_task", "schedule_board_tasks", "run_board_tasks"].includes(input.action)) {
+    return { blockedReasons: [] };
+  }
+  const taskIds = boardCommandTaskIds(input);
+  if (taskIds.length === 0) {
+    return { blockedReasons: ["No board tasks selected."] };
+  }
+  if (taskScopedTaskIdsMismatch(input)) {
+    return { blockedReasons: [`Task-scoped board command payload must match entity ${input.entityId}.`] };
+  }
+  const targetStatus = boardCommandTargetStatus(input);
+  if (!targetStatus) {
+    return { blockedReasons: ["Board command requires a valid targetStatus."] };
+  }
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "graphTasks",
+      sql: `SELECT id, feature_id, title, status, dependencies_json, risk FROM task_graph_tasks
+        WHERE feature_id IN (SELECT feature_id FROM task_graph_tasks WHERE id IN (${placeholders(taskIds.length)}))
+          OR id IN (${placeholders(taskIds.length)})`,
+      params: [...taskIds, ...taskIds],
+    },
+    {
+      name: "tasks",
+      sql: `SELECT id, feature_id, title, status, depends_on_json AS dependencies_json, 'unknown' AS risk FROM tasks
+        WHERE feature_id IN (SELECT feature_id FROM tasks WHERE id IN (${placeholders(taskIds.length)}))
+          OR id IN (${placeholders(taskIds.length)})`,
+      params: [...taskIds, ...taskIds],
+    },
+    { name: "reviews", sql: `SELECT id, task_id, feature_id, status, severity FROM review_items WHERE task_id IN (${placeholders(taskIds.length)})`, params: taskIds },
+    {
+      name: "approvals",
+      sql: `SELECT ar.*, ri.task_id, ri.feature_id FROM approval_records ar JOIN review_items ri ON ri.id = ar.review_item_id
+        WHERE ri.task_id IN (${placeholders(taskIds.length)})
+          OR (
+            ri.task_id IS NULL
+            AND ri.feature_id IN (
+              SELECT feature_id FROM task_graph_tasks WHERE id IN (${placeholders(taskIds.length)})
+              UNION
+              SELECT feature_id FROM tasks WHERE id IN (${placeholders(taskIds.length)})
+            )
+          )`,
+      params: [...taskIds, ...taskIds, ...taskIds],
+    },
+    {
+      name: "featureReviews",
+      sql: `SELECT id, feature_id, status, severity FROM review_items
+        WHERE task_id IS NULL
+          AND feature_id IN (
+            SELECT feature_id FROM task_graph_tasks WHERE id IN (${placeholders(taskIds.length)})
+            UNION
+            SELECT feature_id FROM tasks WHERE id IN (${placeholders(taskIds.length)})
+          )`,
+      params: [...taskIds, ...taskIds],
+    },
+  ]);
+  const rows = result.queries.graphTasks.length > 0 ? result.queries.graphTasks : result.queries.tasks;
+  const taskById = new Map(rows.map((row) => [String(row.id), row]));
+  const blockedReasons: string[] = [];
+
+  for (const taskId of taskIds) {
+    const task = taskById.get(taskId);
+    if (!task) {
+      blockedReasons.push(`Task ${taskId} was not found.`);
+      continue;
+    }
+    if (input.entityType === "feature" && task.feature_id !== input.entityId) {
+      blockedReasons.push(`Task ${taskId} does not belong to feature ${input.entityId}.`);
+      continue;
+    }
+    const from = normalizeBoardStatus(task.status);
+    if (from === "unknown") {
+      blockedReasons.push(`Task ${taskId} has unknown board status.`);
+      continue;
+    }
+    try {
+      transitionTask(taskId, from, targetStatus, {
+        reason: input.reason,
+        evidence: "product_console_board_command",
+        triggeredBy: "product_console",
+        occurredAt: normalizeCommandTime(input.now).toISOString(),
+      });
+    } catch (error) {
+      blockedReasons.push(error instanceof Error ? error.message : String(error));
+    }
+    try {
+      assertApprovalPresentForTerminalStatus(dbPath, { taskId, targetStatus });
+    } catch (error) {
+      blockedReasons.push(error instanceof Error ? error.message : String(error));
+    }
+    blockedReasons.push(...boardBlockedReasons(
+      task,
+      taskById,
+      [...result.queries.reviews, ...result.queries.featureReviews],
+      result.queries.approvals,
+      targetStatus,
+    ));
+  }
+
+  return { blockedReasons: [...new Set(blockedReasons)] };
 }
 
 function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): string | undefined {
@@ -852,6 +1071,141 @@ function buildBoardCounts(rows: Record<string, unknown>[]): DashboardQueryModel[
   return counts;
 }
 
+function boardBlockedReasons(
+  task: Record<string, unknown>,
+  taskById: Map<string, Record<string, unknown>>,
+  reviewRows: Record<string, unknown>[],
+  approvalRows: Record<string, unknown>[],
+  targetStatus?: BoardColumn,
+): string[] {
+  const taskId = String(task.id);
+  const reasons: string[] = [];
+  const dependencyStatuses = parseJsonArray(task.dependencies_json).map((dependency) => {
+    const dependencyId = String(dependency);
+    const dependencyStatus = normalizeBoardStatus(taskById.get(dependencyId)?.status);
+    return { dependencyId, dependencyStatus };
+  });
+  const unsatisfied = dependencyStatuses.filter((entry) => entry.dependencyStatus !== "done" && entry.dependencyStatus !== "delivered");
+  if (targetStatus && dependencyGateApplies(targetStatus) && unsatisfied.length > 0) {
+    reasons.push(`Dependencies are not done: ${unsatisfied.map((entry) => entry.dependencyId).join(", ")}.`);
+  }
+  const scopedReviews = reviewRows.filter((entry) => entry.task_id === task.id || (!entry.task_id && entry.feature_id === task.feature_id));
+  const scopedApprovals = approvalRows.filter((entry) => entry.task_id === task.id || (!entry.task_id && entry.feature_id === task.feature_id));
+  if (scopedReviews.some((entry) => pendingReviewStatuses.has(String(entry.status)))) {
+    reasons.push(`Task ${taskId} has unresolved review approvals.`);
+  }
+  if (normalizeRisk(task.risk) === "high" && !hasPositiveApproval(scopedApprovals)) {
+    reasons.push(`Task ${taskId} is high risk and requires approval.`);
+  }
+  return [...new Set(reasons)];
+}
+
+function recoveryHistoryForTask(
+  taskId: string,
+  transitionRows: Record<string, unknown>[],
+  attemptRows: Record<string, unknown>[],
+  forbiddenRows: Record<string, unknown>[],
+): DashboardBoardViewModel["tasks"][number]["recoveryHistory"] {
+  const transitions = transitionRows
+    .filter((entry) => entry.entity_id === taskId)
+    .map((entry) => ({
+      from: optionalString(entry.from_status),
+      to: optionalString(entry.to_status),
+      reason: String(entry.reason ?? ""),
+      evidence: optionalString(entry.evidence),
+      occurredAt: String(entry.occurred_at),
+    }));
+  const attempts = attemptRows
+    .filter((entry) => entry.task_id === taskId)
+    .map((entry) => {
+      const evidencePack = parseJsonObject(entry.evidence_pack_json);
+      return {
+        from: optionalString(entry.action),
+        to: optionalString(entry.status),
+        reason: `${String(entry.strategy)}: ${String(entry.summary)}`,
+        evidence: optionalString(evidencePack.id) ?? optionalString(entry.command),
+        occurredAt: String(entry.attempted_at),
+      };
+    });
+  const forbidden = forbiddenRows
+    .filter((entry) => entry.task_id === taskId)
+    .map((entry) => ({
+      from: optionalString(entry.failed_strategy),
+      to: "forbidden_retry",
+      reason: String(entry.reason),
+      evidence: optionalString(entry.evidence_pack_id) ?? optionalString(entry.failed_command),
+      occurredAt: String(entry.created_at),
+    }));
+  return [...attempts, ...forbidden, ...transitions].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+}
+
+function approvalStatusForTask(
+  task: Record<string, unknown>,
+  reviewRows: Record<string, unknown>[],
+  approvalRows: Record<string, unknown>[],
+): DashboardBoardViewModel["tasks"][number]["approvalStatus"] {
+  if (reviewRows.some((entry) => pendingReviewStatuses.has(String(entry.status)))) {
+    return "pending";
+  }
+  if (normalizeRisk(task.risk) === "high" && !hasPositiveApproval(approvalRows)) {
+    return "pending";
+  }
+  return hasPositiveApproval(approvalRows) ? "approved" : "not_required";
+}
+
+function hasPositiveApproval(approvalRows: Record<string, unknown>[]): boolean {
+  return approvalRows.some((entry) => ["approve_continue", "mark_complete"].includes(String(entry.decision)) && String(entry.status) === "recorded");
+}
+
+function boardCommandTaskIds(input: ConsoleCommandInput): string[] {
+  const payload = isRecord(input.payload) ? input.payload : {};
+  if (input.entityType === "task") {
+    return [input.entityId];
+  }
+  const fromPayload = arrayValue(payload.taskIds).map(String);
+  if (fromPayload.length > 0) {
+    return fromPayload;
+  }
+  return input.entityType === "task" ? [input.entityId] : [];
+}
+
+function taskScopedTaskIdsMismatch(input: ConsoleCommandInput): boolean {
+  if (input.entityType !== "task") {
+    return false;
+  }
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const taskIds = arrayValue(payload.taskIds).map(String);
+  return taskIds.length > 0 && taskIds.some((taskId) => taskId !== input.entityId);
+}
+
+function boardCommandTargetStatus(input: ConsoleCommandInput): BoardColumn | undefined {
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const requested = input.action === "schedule_board_tasks"
+    ? "scheduled"
+    : input.action === "run_board_tasks"
+      ? "running"
+      : optionalString(payload.targetStatus);
+  return normalizeBoardStatus(requested) === "unknown" ? undefined : normalizeBoardStatus(requested) as BoardColumn;
+}
+
+function normalizeBoardStatus(value: unknown): BoardColumn | "unknown" {
+  const status = String(value ?? "");
+  return BOARD_COLUMNS.has(status) ? status as BoardColumn : "unknown";
+}
+
+function normalizeRisk(value: unknown): RiskLevel | "unknown" {
+  const risk = String(value ?? "");
+  return risk === "low" || risk === "medium" || risk === "high" ? risk : "unknown";
+}
+
+function dependencyGateApplies(targetStatus: BoardColumn): boolean {
+  return !["backlog", "blocked", "failed"].includes(targetStatus);
+}
+
+function placeholders(length: number): string {
+  return Array.from({ length }, () => "?").join(", ");
+}
+
 function countBy(rows: Record<string, unknown>[], column: string, value: string): number {
   return rows.filter((row) => String(row[column]) === value).length;
 }
@@ -942,8 +1296,15 @@ function parseJson(value: unknown): unknown {
 }
 
 function parseJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
   const parsed = parseJson(value);
   return Array.isArray(parsed) ? parsed : [];
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : parseJsonArray(value);
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {
