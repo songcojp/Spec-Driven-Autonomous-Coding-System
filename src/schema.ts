@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -869,6 +869,33 @@ export const MIGRATIONS: Migration[] = [
       "DROP TABLE IF EXISTS tasks",
       "ALTER TABLE tasks_v15 RENAME TO tasks",
       "CREATE INDEX IF NOT EXISTS idx_tasks_recovery_state ON tasks(recovery_state, status)",
+    ],
+  },
+  {
+    version: 16,
+    description: "Add CLI adapter configuration schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS cli_adapter_configs (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        executable TEXT NOT NULL,
+        argument_template_json TEXT NOT NULL,
+        resume_argument_template_json TEXT,
+        config_schema_json TEXT NOT NULL,
+        form_schema_json TEXT NOT NULL,
+        defaults_json TEXT NOT NULL,
+        environment_allowlist_json TEXT NOT NULL,
+        output_mapping_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        last_dry_run_status TEXT,
+        last_dry_run_errors_json TEXT NOT NULL DEFAULT '[]',
+        last_dry_run_command_json TEXT,
+        last_dry_run_at TEXT,
+        activated_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_cli_adapter_configs_status ON cli_adapter_configs(status, updated_at)",
     ],
   },
 ];

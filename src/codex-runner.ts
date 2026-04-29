@@ -92,6 +92,40 @@ export type CodexJsonEvent = {
   [key: string]: unknown;
 };
 
+export type CliAdapterStatus = "draft" | "active" | "disabled" | "invalid";
+
+export type CliAdapterConfig = {
+  id: string;
+  displayName: string;
+  schemaVersion: number;
+  executable: string;
+  argumentTemplate: string[];
+  resumeArgumentTemplate?: string[];
+  configSchema: Record<string, unknown>;
+  formSchema: Record<string, unknown>;
+  defaults: {
+    model?: string;
+    profile?: string;
+    sandbox?: RunnerSandboxMode;
+    approval?: RunnerApprovalPolicy;
+  };
+  environmentAllowlist: string[];
+  outputMapping: {
+    eventStream: "json";
+    evidenceSchema: string;
+    sessionIdPath: string;
+  };
+  status: CliAdapterStatus;
+  updatedAt: string;
+};
+
+export type CliAdapterValidationResult = {
+  valid: boolean;
+  errors: string[];
+  command?: string;
+  args?: string[];
+};
+
 export type EvidenceInput = {
   runId: string;
   taskId?: string;
@@ -151,6 +185,7 @@ export type CodexAdapterInput = {
   taskId?: string;
   featureId?: string;
   outputSchemaPath?: string;
+  adapterConfig?: CliAdapterConfig;
   runner?: CodexCommandRunner;
   asyncRunner?: AsyncCodexCommandRunner;
   onHeartbeat?: () => void;
@@ -173,6 +208,7 @@ export type RunnerQueueItem = {
   commands?: string[];
   taskText?: string;
   statusCheck?: RunnerStatusCheckInput;
+  adapterConfig?: CliAdapterConfig;
   recoveryDispatcher?: (dispatch: RecoveryDispatch) => void | Promise<void>;
 };
 
@@ -234,6 +270,67 @@ export type RunnerConsoleSnapshot = {
 };
 
 const DEFAULT_MODEL = "gpt-5-codex";
+export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
+  id: "codex-cli",
+  displayName: "Codex CLI",
+  schemaVersion: 1,
+  executable: "codex",
+  argumentTemplate: [
+    "-a",
+    "{{approval}}",
+    "exec",
+    "--json",
+    "--sandbox",
+    "{{sandbox}}",
+    "--model",
+    "{{model}}",
+    "--output-schema",
+    "{{output_schema}}",
+    "{{prompt}}",
+  ],
+  resumeArgumentTemplate: [
+    "-a",
+    "{{approval}}",
+    "--sandbox",
+    "{{sandbox}}",
+    "{{profile_flag}}",
+    "{{profile}}",
+    "exec",
+    "resume",
+    "--json",
+    "-m",
+    "{{model}}",
+    "{{resume_session_id}}",
+    "{{resume_prompt}}",
+  ],
+  configSchema: {
+    type: "object",
+    required: ["id", "executable", "argumentTemplate", "outputMapping"],
+  },
+  formSchema: {
+    fields: [
+      { path: "executable", label: "Executable", type: "text" },
+      { path: "argumentTemplate", label: "Arguments", type: "list" },
+      { path: "defaults.model", label: "Default model", type: "text" },
+      { path: "defaults.sandbox", label: "Sandbox", type: "select" },
+      { path: "defaults.approval", label: "Approval", type: "select" },
+      { path: "outputMapping.sessionIdPath", label: "Session id path", type: "text" },
+    ],
+  },
+  defaults: {
+    model: DEFAULT_MODEL,
+    sandbox: "workspace-write",
+    approval: "on-request",
+  },
+  environmentAllowlist: [],
+  outputMapping: {
+    eventStream: "json",
+    evidenceSchema: "evidence.schema.json",
+    sessionIdPath: "session_id",
+  },
+  status: "active",
+  updatedAt: new Date(0).toISOString(),
+};
 const DEFAULT_OUTPUT_SCHEMA = {
   type: "object",
   required: ["summary", "status", "evidence"],
@@ -358,17 +455,132 @@ export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
   };
 }
 
+export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Record<string, unknown>): CliAdapterConfig {
+  const defaults = isRecord(input.defaults) ? input.defaults : {};
+  const outputMapping = isRecord(input.outputMapping) ? input.outputMapping : {};
+  return {
+    ...DEFAULT_CLI_ADAPTER_CONFIG,
+    id: optionalConfigString(input.id) ?? DEFAULT_CLI_ADAPTER_CONFIG.id,
+    displayName: optionalConfigString(input.displayName) ?? optionalConfigString(input.display_name) ?? DEFAULT_CLI_ADAPTER_CONFIG.displayName,
+    schemaVersion: Number(input.schemaVersion ?? input.schema_version ?? DEFAULT_CLI_ADAPTER_CONFIG.schemaVersion),
+    executable: optionalConfigString(input.executable) ?? DEFAULT_CLI_ADAPTER_CONFIG.executable,
+    argumentTemplate: stringArray(input.argumentTemplate ?? input.argument_template, DEFAULT_CLI_ADAPTER_CONFIG.argumentTemplate),
+    resumeArgumentTemplate: stringArray(input.resumeArgumentTemplate ?? input.resume_argument_template, DEFAULT_CLI_ADAPTER_CONFIG.resumeArgumentTemplate ?? []),
+    configSchema: isRecord(input.configSchema) ? input.configSchema : isRecord(input.config_schema) ? input.config_schema : DEFAULT_CLI_ADAPTER_CONFIG.configSchema,
+    formSchema: isRecord(input.formSchema) ? input.formSchema : isRecord(input.form_schema) ? input.form_schema : DEFAULT_CLI_ADAPTER_CONFIG.formSchema,
+    defaults: {
+      model: optionalConfigString(defaults.model) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.model,
+      profile: optionalConfigString(defaults.profile),
+      sandbox: normalizeSandbox(defaults.sandbox) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.sandbox,
+      approval: normalizeApproval(defaults.approval) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.approval,
+    },
+    environmentAllowlist: stringArray(input.environmentAllowlist ?? input.environment_allowlist, []),
+    outputMapping: {
+      eventStream: outputMapping.eventStream === "json" || outputMapping.event_stream === "json" ? "json" : DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.eventStream,
+      evidenceSchema: optionalConfigString(outputMapping.evidenceSchema) ?? optionalConfigString(outputMapping.evidence_schema) ?? DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.evidenceSchema,
+      sessionIdPath: optionalConfigString(outputMapping.sessionIdPath) ?? optionalConfigString(outputMapping.session_id_path) ?? DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.sessionIdPath,
+    },
+    status: normalizeAdapterStatus(input.status) ?? DEFAULT_CLI_ADAPTER_CONFIG.status,
+    updatedAt: optionalConfigString(input.updatedAt) ?? optionalConfigString(input.updated_at) ?? new Date().toISOString(),
+  };
+}
+
+export function validateCliAdapterConfig(config: CliAdapterConfig): CliAdapterValidationResult {
+  const errors: string[] = [];
+  if (!config.id.trim()) errors.push("id is required");
+  if (!config.executable.trim()) errors.push("executable is required");
+  if (config.status === "disabled") errors.push("adapter is disabled");
+  if (config.status === "invalid") errors.push("adapter status is invalid");
+  if (!Number.isInteger(config.schemaVersion) || config.schemaVersion < 1) errors.push("schemaVersion must be a positive integer");
+  if (config.argumentTemplate.length === 0) errors.push("argumentTemplate must contain at least one argument");
+  if (!config.argumentTemplate.some((entry) => entry.includes("{{prompt}}"))) errors.push("argumentTemplate must include {{prompt}}");
+  if (!config.argumentTemplate.some((entry) => entry.includes("{{output_schema}}"))) errors.push("argumentTemplate must include {{output_schema}}");
+  if (config.outputMapping.eventStream !== "json") errors.push("outputMapping.eventStream must be json");
+  if (!config.outputMapping.sessionIdPath.trim()) errors.push("outputMapping.sessionIdPath is required");
+  if (config.defaults.sandbox === "danger-full-access") errors.push("default sandbox may not be danger-full-access");
+  if (config.defaults.approval === "bypass") errors.push("default approval may not bypass approvals");
+  return { valid: errors.length === 0, errors };
+}
+
+export function dryRunCliAdapterConfig(input: {
+  config: CliAdapterConfig;
+  policy?: RunnerPolicy;
+  prompt?: string;
+  outputSchemaPath?: string;
+}): CliAdapterValidationResult {
+  const validation = validateCliAdapterConfig(input.config);
+  if (!validation.valid) {
+    return validation;
+  }
+  try {
+    const rendered = renderCliAdapterCommand({
+      config: input.config,
+      policy: input.policy ?? resolveRunnerPolicy({
+        runId: "DRY-RUN",
+        risk: "low",
+        workspaceRoot: "/workspace/project",
+        now: new Date(0),
+      }),
+      prompt: input.prompt ?? "Dry-run prompt",
+      outputSchemaPath: input.outputSchemaPath ?? "/tmp/evidence.schema.json",
+    });
+    return { valid: true, errors: [], command: rendered.command, args: rendered.args };
+  } catch (error) {
+    return { valid: false, errors: [error instanceof Error ? error.message : String(error)] };
+  }
+}
+
+export function renderCliAdapterCommand(input: {
+  config?: CliAdapterConfig;
+  policy: RunnerPolicy;
+  prompt: string;
+  outputSchemaPath: string;
+}): { command: string; args: string[] } {
+  const config = input.config ?? DEFAULT_CLI_ADAPTER_CONFIG;
+  const validation = validateCliAdapterConfig(config);
+  if (!validation.valid) {
+    throw new Error(`CLI Adapter ${config.id} is invalid: ${validation.errors.join("; ")}`);
+  }
+  const template = input.policy.resumeSessionId && config.resumeArgumentTemplate?.length
+    ? config.resumeArgumentTemplate
+    : config.argumentTemplate;
+  const values = {
+    approval: input.policy.approvalPolicy,
+    sandbox: input.policy.sandboxMode,
+    model: input.policy.model,
+    profile: input.policy.profile ?? "",
+    profile_flag: input.policy.profile ? "-p" : "",
+    output_schema: input.outputSchemaPath,
+    workspace: input.policy.workspaceRoot,
+    prompt: input.prompt,
+    resume_session_id: input.policy.resumeSessionId ?? "",
+    resume_prompt: buildResumePrompt(input.policy, input.prompt, input.outputSchemaPath),
+  };
+  const args = template
+    .map((entry) => renderTemplateEntry(entry, values))
+    .filter((entry) => entry.length > 0);
+  if (args.some((arg) => /{{[^}]+}}/.test(arg))) {
+    throw new Error("CLI Adapter command contains unresolved template variables");
+  }
+  return { command: config.executable, args };
+}
+
 export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapterResult> {
   const now = input.now ?? new Date();
   const shouldCleanupOutputSchema = !input.outputSchemaPath;
   const outputSchemaPath = input.outputSchemaPath ?? writeOutputSchema(input.policy);
-  const args = buildCodexArgs(input.policy, input.prompt, outputSchemaPath);
+  const rendered = renderCliAdapterCommand({
+    config: input.adapterConfig,
+    policy: input.policy,
+    prompt: input.prompt,
+    outputSchemaPath,
+  });
   try {
     const result = input.asyncRunner
-      ? await input.asyncRunner("codex", args, input.policy.workspaceRoot)
+      ? await input.asyncRunner(rendered.command, rendered.args, input.policy.workspaceRoot)
       : input.runner
-        ? input.runner("codex", args, input.policy.workspaceRoot)
-        : await runCommand("codex", args, input.policy.workspaceRoot, input.policy.heartbeatIntervalSeconds, input.onHeartbeat);
+        ? input.runner(rendered.command, rendered.args, input.policy.workspaceRoot)
+        : await runCommand(rendered.command, rendered.args, input.policy.workspaceRoot, input.policy.heartbeatIntervalSeconds, input.onHeartbeat);
     const stdout = result.stdout ?? "";
     const stderr = [result.stderr, result.error?.message].filter(Boolean).join("\n");
     const events = parseJsonEvents(stdout);
@@ -380,8 +592,8 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       runId: input.policy.runId,
       sessionId,
       workspaceRoot: input.policy.workspaceRoot,
-      command: "codex",
-      args: args.map(redactLog),
+      command: rendered.command,
+      args: rendered.args.map(redactLog),
       exitCode: result.status,
       startedAt: now.toISOString(),
       completedAt,
@@ -434,6 +646,7 @@ export async function processRunnerQueueItem(
     prompt: input.prompt,
     taskId: input.taskId,
     featureId: input.featureId,
+    adapterConfig: input.adapterConfig,
     runner,
     onHeartbeat,
   });
@@ -1181,48 +1394,6 @@ export function redactLog(value: string): string {
   return redacted;
 }
 
-function buildCodexArgs(policy: RunnerPolicy, prompt: string, outputSchemaPath: string): string[] {
-  if (policy.resumeSessionId) {
-    const resumePrompt = [
-      prompt,
-      "",
-      "Continue from the resumed session, but return the final response as JSON matching this schema:",
-      JSON.stringify(policy.outputSchema),
-      `Schema path for audit: ${outputSchemaPath}`,
-    ].join("\n");
-    const resumeArgs = [
-      "-a",
-      policy.approvalPolicy,
-      "--sandbox",
-      policy.sandboxMode,
-    ];
-    if (policy.profile) {
-      resumeArgs.push("-p", policy.profile);
-    }
-    resumeArgs.push("exec", "resume", "--json", "-m", policy.model);
-    resumeArgs.push(policy.resumeSessionId, resumePrompt);
-    return resumeArgs;
-  }
-
-  const args = [
-    "-a",
-    policy.approvalPolicy,
-    "exec",
-    "--json",
-    "--sandbox",
-    policy.sandboxMode,
-    "--model",
-    policy.model,
-    "--output-schema",
-    outputSchemaPath,
-  ];
-  if (policy.profile) {
-    args.push("--profile", policy.profile);
-  }
-  args.push(prompt);
-  return args;
-}
-
 function classifyQueueStatus(result: CodexAdapterResult): RunnerQueueStatus {
   if (result.session.exitCode !== 0) {
     return "failed";
@@ -1261,6 +1432,50 @@ function writeOutputSchema(policy: RunnerPolicy): string {
   const path = join(directory, `${policy.runId}.schema.json`);
   writeFileSync(path, JSON.stringify(policy.outputSchema, null, 2));
   return path;
+}
+
+function buildResumePrompt(policy: RunnerPolicy, prompt: string, outputSchemaPath: string): string {
+  return [
+    prompt,
+    "",
+    "Continue from the resumed session, but return the final response as JSON matching this schema:",
+    JSON.stringify(policy.outputSchema),
+    `Schema path for audit: ${outputSchemaPath}`,
+  ].join("\n");
+}
+
+function renderTemplateEntry(entry: string, values: Record<string, string>): string {
+  return entry.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_match, key: string) => values[key] ?? `{{${key}}}`);
+}
+
+function optionalConfigString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function stringArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  const strings = value.filter((entry): entry is string => typeof entry === "string");
+  return strings.length > 0 ? strings : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeSandbox(value: unknown): RunnerSandboxMode | undefined {
+  return value === "read-only" || value === "workspace-write" || value === "danger-full-access" ? value : undefined;
+}
+
+function normalizeApproval(value: unknown): RunnerApprovalPolicy | undefined {
+  return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never" || value === "bypass"
+    ? value
+    : undefined;
+}
+
+function normalizeAdapterStatus(value: unknown): CliAdapterStatus | undefined {
+  return value === "draft" || value === "active" || value === "disabled" || value === "invalid" ? value : undefined;
 }
 
 function redactEvent(event: CodexJsonEvent): CodexJsonEvent {

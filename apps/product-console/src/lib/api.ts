@@ -8,6 +8,7 @@ function endpoints(projectId: string) {
     board: `/console/dashboard-board?projectId=${encodedProjectId}`,
     spec: `/console/spec-workspace?projectId=${encodedProjectId}&featureId=FEAT-013`,
     runner: `/console/runner?projectId=${encodedProjectId}`,
+    settings: "/console/system-settings",
     reviews: `/console/reviews?projectId=${encodedProjectId}`,
   } as const;
 }

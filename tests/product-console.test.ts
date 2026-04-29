@@ -12,6 +12,7 @@ import {
   buildReviewCenterView,
   buildRunnerConsoleView,
   buildSpecWorkspaceView,
+  buildSystemSettingsView,
   submitConsoleCommand,
 } from "../src/product-console.ts";
 
@@ -435,6 +436,43 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   const otherProject = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-2");
   assert.equal(otherProject.lanes.ready.some((task) => task.featureId === "FEAT-013"), false);
   assert.equal(otherProject.runners.some((entry) => entry.runnerId === "runner-main"), false);
+});
+
+test("system settings exposes CLI adapter config and governed activation", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+
+  const initial = buildSystemSettingsView(dbPath);
+  assert.equal(initial.cliAdapter.active.id, "codex-cli");
+  assert.equal(initial.cliAdapter.validation.valid, true);
+  assert.equal(initial.commands.some((command) => command.action === "activate_cli_adapter_config"), true);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "activate_cli_adapter_config",
+    entityType: "cli_adapter",
+    entityId: "gemini-cli",
+    requestedBy: "operator",
+    reason: "Switch CLI adapter from system settings.",
+    payload: {
+      config: {
+        id: "gemini-cli",
+        displayName: "Gemini CLI",
+        executable: "gemini",
+        argumentTemplate: ["--model", "{{model}}", "--schema", "{{output_schema}}", "{{prompt}}"],
+        defaults: { model: "gemini-2.5-pro", sandbox: "workspace-write", approval: "on-request" },
+        status: "draft",
+      },
+    },
+  });
+
+  assert.equal(receipt.status, "accepted");
+  const settings = buildSystemSettingsView(dbPath);
+  assert.equal(settings.cliAdapter.active.id, "gemini-cli");
+  assert.equal(settings.cliAdapter.lastDryRun?.status, "passed");
+  assert.equal(settings.cliAdapter.lastDryRun?.command, "gemini");
+  const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"));
+  assert.equal(runner.adapterSummary.id, "gemini-cli");
+  assert.equal(runner.commands.some((command) => command.action === "activate_cli_adapter_config"), false);
 });
 
 test("console command gateway audits controlled writes without mutating worktrees", () => {

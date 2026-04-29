@@ -23,6 +23,7 @@ import {
   buildReviewCenterView,
   buildRunnerConsoleView,
   buildSpecWorkspaceView,
+  buildSystemSettingsView,
   submitConsoleCommand,
   type ConsoleCommandInput,
 } from "./product-console.ts";
@@ -182,6 +183,11 @@ async function routeRequest(
 
     if (request.method === "GET" && url.pathname === "/console/runner") {
       writeJson(response, 200, buildRunnerConsoleView(config.dbPath, new Date(), url.searchParams.get("projectId") ?? undefined));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/console/system-settings") {
+      writeJson(response, 200, buildSystemSettingsView(config.dbPath));
       return;
     }
 

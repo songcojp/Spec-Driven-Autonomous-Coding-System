@@ -26,6 +26,37 @@ const projects = {
   ],
 } satisfies ConsoleData["projects"];
 
+const cliAdapterConfig = {
+  id: "codex-cli",
+  displayName: "Codex CLI",
+  schemaVersion: 1,
+  executable: "codex",
+  argumentTemplate: ["-a", "{{approval}}", "exec", "--json", "--sandbox", "{{sandbox}}", "--model", "{{model}}", "--output-schema", "{{output_schema}}", "{{prompt}}"],
+  resumeArgumentTemplate: ["-a", "{{approval}}", "--sandbox", "{{sandbox}}", "{{profile_flag}}", "{{profile}}", "exec", "resume", "--json", "-m", "{{model}}", "{{resume_session_id}}", "{{resume_prompt}}"],
+  configSchema: { type: "object" },
+  formSchema: { fields: ["executable", "defaults.model", "defaults.sandbox", "defaults.approval"] },
+  defaults: { model: "gpt-5.3-codex", sandbox: "workspace-write", approval: "never" },
+  environmentAllowlist: [],
+  outputMapping: { sessionIdJsonPath: "session_id" },
+  status: "active",
+  updatedAt: "2026-04-29T03:45:00.000Z",
+} satisfies ConsoleData["settings"]["cliAdapter"]["active"];
+
+const settings = {
+  cliAdapter: {
+    active: cliAdapterConfig,
+    validation: { valid: true, errors: [], warnings: [], command: "codex", args: cliAdapterConfig.argumentTemplate },
+    lastDryRun: { status: "passed", errors: [], command: "codex", args: cliAdapterConfig.argumentTemplate, at: "2026-04-29T03:45:00.000Z" },
+  },
+  commands: [
+    { action: "validate_cli_adapter_config", entityType: "cli_adapter" },
+    { action: "save_cli_adapter_config", entityType: "cli_adapter" },
+    { action: "activate_cli_adapter_config", entityType: "cli_adapter" },
+    { action: "disable_cli_adapter_config", entityType: "cli_adapter" },
+  ],
+  factSources: ["cli_adapter_configs", "audit_timeline_events"],
+} satisfies ConsoleData["settings"];
+
 const overview = {
   summary: {
     totalProjects: 2,
@@ -311,10 +342,22 @@ const returnsPortalData: ConsoleProjectData = {
       { id: "AUD-204-010", action: "run_board_tasks", target: "feature:FEAT-204", result: "accepted", createdAt: "2026-04-29T03:12:00.000Z" },
     ],
     factSources: ["task_graph_tasks", "runs", "runner_heartbeats", "runner_policies", "raw_execution_logs", "review_items", "audit_timeline_events"],
+    adapterSummary: {
+      id: cliAdapterConfig.id,
+      displayName: cliAdapterConfig.displayName,
+      status: cliAdapterConfig.status,
+      schemaVersion: cliAdapterConfig.schemaVersion,
+      executable: cliAdapterConfig.executable,
+      lastDryRunStatus: "passed",
+      lastDryRunAt: "2026-04-29T03:45:00.000Z",
+      lastDryRunErrors: [],
+      settingsPath: "/settings/cli",
+    },
     runners: [
       { runnerId: "runner-web-01", online: true, codexVersion: "gpt-5.4", sandboxMode: "workspace-write", approvalPolicy: "never", queue: [{ runId: "RUN-708", status: "running" }, { runId: "RUN-709", status: "queued" }, { runId: "RUN-710", status: "queued" }], recentLogs: [{ runId: "RUN-708", stdout: "Mobile upload preview rendered and evidence fixture stored.", stderr: "", createdAt: "2026-04-29T03:40:00.000Z" }], lastHeartbeatAt: "2026-04-29T03:45:00.000Z", heartbeatStale: false },
     ],
   },
+  settings,
   reviews: {
     riskFilters: ["high", "medium"],
     items: [
@@ -383,7 +426,8 @@ const emptyProjectData: ConsoleProjectData = {
   dashboard: { ...returnsPortalData.dashboard, activeFeatures: [], failedTasks: [], pendingApprovals: 0, activeRuns: 0, risks: [], recentPullRequests: [], boardCounts: {} },
   board: { tasks: [], commands: returnsPortalData.board.commands, factSources: returnsPortalData.board.factSources },
   spec: { features: [], selectedFeature: undefined },
-  runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], runners: [] },
+  runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], adapterSummary: returnsPortalData.runner.adapterSummary, runners: [] },
+  settings,
   reviews: { items: [], riskFilters: [] },
 };
 

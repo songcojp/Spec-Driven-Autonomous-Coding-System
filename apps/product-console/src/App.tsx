@@ -26,6 +26,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Settings,
   ShieldAlert,
   ShieldCheck,
   SquareKanban,
@@ -41,7 +42,7 @@ import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, Project
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
 
 type Locale = "zh-CN" | "en";
-type ViewKey = "overview" | "board" | "spec" | "runner" | "reviews";
+type ViewKey = "overview" | "board" | "spec" | "runner" | "reviews" | "settings";
 
 const localeStorageKey = "specdrive-console-locale";
 const projectStorageKey = "specdrive-current-project";
@@ -53,6 +54,7 @@ const navItems: Array<{ key: ViewKey; icon: typeof Home }> = [
   { key: "spec", icon: FileText },
   { key: "runner", icon: Play },
   { key: "reviews", icon: ClipboardList },
+  { key: "settings", icon: Settings },
 ];
 
 const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | "blue"> = {
@@ -75,6 +77,7 @@ const copy = {
       spec: "Spec 工作台",
       runner: "Runner",
       reviews: "审查",
+      settings: "系统设置",
     },
     consoleNavigation: "控制台导航",
     collapseNavigation: "收起导航",
@@ -225,6 +228,35 @@ const copy = {
     noRunnerTasks: "当前没有可调度任务。",
     factSourcesRunner: "事实源：task_graph_tasks、runs、runner_heartbeats、review_items、audit_timeline_events",
     noRunner: "尚未记录 Runner 心跳。",
+    systemSettings: "系统设置",
+    systemSettingsSubtitle: "管理影响所有项目的运行时配置。",
+    cliConfig: "CLI Adapter 配置",
+    cliConfigSubtitle: "通过 JSON 或表单编辑 Runner 调用适配器，保存前会执行 dry-run 校验。",
+    activeAdapter: "当前生效 Adapter",
+    draftAdapter: "草稿 Adapter",
+    openSettings: "打开系统设置",
+    adapterJson: "Adapter JSON",
+    adapterForm: "表单编辑",
+    validateConfig: "校验配置",
+    saveDraft: "保存草稿",
+    activateConfig: "激活配置",
+    disableConfig: "禁用配置",
+    displayName: "显示名称",
+    executable: "可执行文件",
+    defaultModel: "默认模型",
+    defaultSandbox: "默认 Sandbox",
+    defaultApproval: "默认审批",
+    argumentTemplate: "参数模板",
+    resumeTemplate: "恢复模板",
+    dryRun: "Dry-run",
+    dryRunPassed: "Dry-run 通过",
+    dryRunFailed: "Dry-run 失败",
+    validationErrors: "校验错误",
+    validationWarnings: "校验警告",
+    jsonParseError: "JSON 格式错误",
+    schemaVersion: "Schema 版本",
+    lastDryRun: "最近 Dry-run",
+    noDraftAdapter: "暂无草稿，当前显示生效配置。",
     allHealthy: "全部健康",
     evidence: "Evidence",
     action: "操作",
@@ -343,6 +375,7 @@ const copy = {
       spec: "Spec Workspace",
       runner: "Runner",
       reviews: "Reviews",
+      settings: "Settings",
     },
     consoleNavigation: "Console navigation",
     collapseNavigation: "Collapse navigation",
@@ -493,6 +526,35 @@ const copy = {
     noRunnerTasks: "No schedulable tasks are available.",
     factSourcesRunner: "Fact sources: task_graph_tasks, runs, runner_heartbeats, review_items, audit_timeline_events",
     noRunner: "No runner heartbeats have been recorded.",
+    systemSettings: "System Settings",
+    systemSettingsSubtitle: "Manage runtime configuration that applies across projects.",
+    cliConfig: "CLI Adapter Config",
+    cliConfigSubtitle: "Edit the Runner invocation adapter through JSON or a form, with dry-run validation before activation.",
+    activeAdapter: "Active Adapter",
+    draftAdapter: "Draft Adapter",
+    openSettings: "Open Settings",
+    adapterJson: "Adapter JSON",
+    adapterForm: "Form",
+    validateConfig: "Validate Config",
+    saveDraft: "Save Draft",
+    activateConfig: "Activate Config",
+    disableConfig: "Disable Config",
+    displayName: "Display Name",
+    executable: "Executable",
+    defaultModel: "Default Model",
+    defaultSandbox: "Default Sandbox",
+    defaultApproval: "Default Approval",
+    argumentTemplate: "Argument Template",
+    resumeTemplate: "Resume Template",
+    dryRun: "Dry-run",
+    dryRunPassed: "Dry-run Passed",
+    dryRunFailed: "Dry-run Failed",
+    validationErrors: "Validation Errors",
+    validationWarnings: "Validation Warnings",
+    jsonParseError: "Invalid JSON",
+    schemaVersion: "Schema Version",
+    lastDryRun: "Last Dry-run",
+    noDraftAdapter: "No draft yet. Showing the active config.",
     allHealthy: "All Healthy",
     evidence: "Evidence",
     action: "Action",
@@ -975,10 +1037,13 @@ export function App() {
                 <SpecWorkspace data={currentData} text={text} currentProject={currentProject} onCreateProject={createProject} onCommand={runCommand} />
               </Tabs.Content>
               <Tabs.Content value="runner">
-                <Runner data={currentData} text={text} onCommand={runCommand} busy={isPending} />
+                <Runner data={currentData} text={text} onCommand={runCommand} busy={isPending} onOpenSettings={() => setView("settings")} />
               </Tabs.Content>
               <Tabs.Content value="reviews">
                 <Reviews data={currentData} text={text} onCommand={runCommand} busy={isPending} />
+              </Tabs.Content>
+              <Tabs.Content value="settings">
+                <SystemSettingsPanel data={currentData} text={text} onCommand={runCommand} busy={isPending} />
               </Tabs.Content>
             </Tabs.Root>
           </div>
@@ -997,7 +1062,7 @@ export function App() {
         </main>
       </div>
       {receipt ? (
-        <Toast.Root className="fixed bottom-5 right-5 z-50 w-96 rounded-lg border border-line bg-white p-4 shadow-panel">
+        <Toast.Root key={`${receipt.id}-${receipt.status}-${receipt.action}`} className="fixed bottom-5 right-5 z-50 w-96 rounded-lg border border-line bg-white p-4 shadow-panel">
           <Toast.Title className="text-[14px] font-semibold">{receipt.status === "accepted" ? text.commandAccepted : text.commandBlocked}</Toast.Title>
           <Toast.Description className="mt-2 text-[13px] text-muted">
             {receipt.blockedReasons?.[0] ?? `${receipt.action} recorded for ${receipt.entityId}.`}
@@ -1534,7 +1599,7 @@ function CommandFeedback({ task, text, receipt }: { task?: BoardTask; text: Cons
   );
 }
 
-function RunnerPanel({ data, text, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
+function RunnerPanel({ data, text, onCommand, busy, onOpenSettings }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean; onOpenSettings: () => void }) {
   const runner = data.runner.runners[0];
   const lanes = data.runner.lanes ?? { ready: [], scheduled: [], running: [], blocked: [] };
   const summary = data.runner.summary ?? {
@@ -1557,6 +1622,7 @@ function RunnerPanel({ data, text, onCommand, busy }: { data: ConsoleData; text:
           </div>
           <div className="flex flex-wrap gap-2">
             <Button><RefreshCw size={15} />{text.autoRefresh}</Button>
+            <Button onClick={onOpenSettings}><Settings size={15} />{text.openSettings}</Button>
             {runner ? (
               <>
                 <Button disabled={busy} onClick={() => onCommand("resume_runner", "runner", runner.runnerId)}><Play size={14} />{text.resumeRunner}</Button>
@@ -1634,6 +1700,23 @@ function RunnerPanel({ data, text, onCommand, busy }: { data: ConsoleData; text:
             </div>
 
             <div className="rounded-lg border border-line bg-white">
+              <SectionTitle title={text.cliConfig} action={<Chip tone={data.runner.adapterSummary?.status === "active" ? "green" : "amber"}>{data.runner.adapterSummary?.status ?? text.active}</Chip>} />
+              <div className="space-y-3 p-4 text-[13px]">
+                <FactList rows={[
+                  [text.activeAdapter, data.runner.adapterSummary?.displayName ?? text.none],
+                  [text.executable, data.runner.adapterSummary?.executable ?? text.none],
+                  [text.dryRun, data.runner.adapterSummary?.lastDryRunStatus ?? text.none],
+                ]} />
+                {(data.runner.adapterSummary?.lastDryRunErrors ?? []).length > 0 ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+                    {data.runner.adapterSummary?.lastDryRunErrors[0]}
+                  </div>
+                ) : null}
+                <Button onClick={onOpenSettings}><Settings size={14} />{text.openSettings}</Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-white">
               <SectionTitle title={text.recentLogs} />
               <div className="space-y-2 p-4">
                 {(runner?.recentLogs ?? []).slice(0, 3).map((log) => (
@@ -1691,6 +1774,147 @@ function RunnerMetric({ icon: Icon, label, value, tone, subValue }: { icon: type
         </div>
       </div>
     </div>
+  );
+}
+
+function SystemSettingsPanel({ data, text, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
+  const source = data.settings.cliAdapter.draft ?? data.settings.cliAdapter.active;
+  const [jsonText, setJsonText] = useState(() => JSON.stringify(source, null, 2));
+  const parsed = useMemo(() => {
+    try {
+      return { config: JSON.parse(jsonText) as Record<string, unknown>, error: undefined as string | undefined };
+    } catch (error) {
+      return { config: undefined, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [jsonText]);
+
+  useEffect(() => {
+    setJsonText(JSON.stringify(source, null, 2));
+  }, [source.id, source.updatedAt]);
+
+  function updateConfig(mutator: (config: Record<string, unknown>) => Record<string, unknown>) {
+    const base = parsed.config ?? source as unknown as Record<string, unknown>;
+    setJsonText(JSON.stringify(mutator({ ...base }), null, 2));
+  }
+
+  function updateDefaults(key: string, value: string) {
+    updateConfig((config) => ({
+      ...config,
+      defaults: {
+        ...((typeof config.defaults === "object" && config.defaults !== null) ? config.defaults as Record<string, unknown> : {}),
+        [key]: value,
+      },
+    }));
+  }
+
+  function submit(action: CommandReceipt["action"]) {
+    if (!parsed.config) {
+      return;
+    }
+    const adapterId = String(parsed.config.id ?? source.id);
+    onCommand(action, "cli_adapter", adapterId, { adapterId, config: parsed.config });
+  }
+
+  const validation = data.settings.cliAdapter.validation;
+  const lastDryRun = data.settings.cliAdapter.lastDryRun;
+  const defaults = parsed.config?.defaults as Record<string, unknown> | undefined;
+
+  return (
+    <div className="space-y-4">
+      <Panel className="overflow-hidden">
+        <div className="border-b border-line bg-white px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-[18px] font-semibold text-ink">{text.systemSettings}</h2>
+              <p className="mt-1 text-[13px] text-muted">{text.systemSettingsSubtitle}</p>
+            </div>
+            <Chip tone={validation.valid && !parsed.error ? "green" : "red"}>{validation.valid && !parsed.error ? text.dryRunPassed : text.dryRunFailed}</Chip>
+          </div>
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-0 max-xl:grid-cols-1">
+          <div className="min-w-0 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-[15px] font-semibold">{text.cliConfig}</h3>
+                <p className="mt-1 text-[13px] text-muted">{text.cliConfigSubtitle}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={busy || Boolean(parsed.error)} onClick={() => submit("validate_cli_adapter_config")}><CheckCircle2 size={14} />{text.validateConfig}</Button>
+                <Button disabled={busy || Boolean(parsed.error)} onClick={() => submit("save_cli_adapter_config")}><FileText size={14} />{text.saveDraft}</Button>
+                <Button tone="primary" disabled={busy || Boolean(parsed.error)} onClick={() => submit("activate_cli_adapter_config")}><Play size={14} />{text.activateConfig}</Button>
+              </div>
+            </div>
+            <label className="text-[12px] font-medium text-muted">{text.adapterJson}</label>
+            <textarea
+              className="mt-2 min-h-[520px] w-full resize-y rounded-md border border-line bg-slate-950 p-4 font-mono text-[12px] leading-5 text-slate-100 outline-none focus:border-action"
+              value={jsonText}
+              spellCheck={false}
+              onChange={(event) => setJsonText(event.target.value)}
+            />
+            {parsed.error ? (
+              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{text.jsonParseError}: {parsed.error}</div>
+            ) : null}
+          </div>
+          <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
+            <div className="space-y-4">
+              <div className="rounded-lg border border-line bg-white">
+                <SectionTitle title={text.activeAdapter} action={<Chip tone="green">{data.settings.cliAdapter.active.status}</Chip>} />
+                <div className="space-y-3 p-4">
+                  <FactList rows={[
+                    [text.displayName, data.settings.cliAdapter.active.displayName],
+                    [text.executable, data.settings.cliAdapter.active.executable],
+                    [text.schemaVersion, String(data.settings.cliAdapter.active.schemaVersion)],
+                  ]} />
+                  {!data.settings.cliAdapter.draft ? <div className="text-[12px] text-muted">{text.noDraftAdapter}</div> : null}
+                </div>
+              </div>
+              <div className="rounded-lg border border-line bg-white">
+                <SectionTitle title={text.adapterForm} />
+                <div className="space-y-3 p-4">
+                  <SettingsInput label={text.displayName} value={String(parsed.config?.displayName ?? "")} onChange={(value) => updateConfig((config) => ({ ...config, displayName: value }))} />
+                  <SettingsInput label={text.executable} value={String(parsed.config?.executable ?? "")} onChange={(value) => updateConfig((config) => ({ ...config, executable: value }))} />
+                  <SettingsInput label={text.defaultModel} value={String(defaults?.model ?? "")} onChange={(value) => updateDefaults("model", value)} />
+                  <SettingsInput label={text.defaultSandbox} value={String(defaults?.sandbox ?? "")} onChange={(value) => updateDefaults("sandbox", value)} />
+                  <SettingsInput label={text.defaultApproval} value={String(defaults?.approval ?? "")} onChange={(value) => updateDefaults("approval", value)} />
+                </div>
+              </div>
+              <div className="rounded-lg border border-line bg-white">
+                <SectionTitle title={text.lastDryRun} action={<Chip tone={lastDryRun?.status === "passed" ? "green" : lastDryRun?.status ? "red" : "neutral"}>{lastDryRun?.status ?? text.none}</Chip>} />
+                <div className="space-y-3 p-4 text-[12px]">
+                  <FactList rows={[
+                    [text.command, lastDryRun?.command ?? text.none],
+                    [text.receivedAt, lastDryRun?.at ?? text.none],
+                  ]} />
+                  {(lastDryRun?.args ?? []).length > 0 ? (
+                    <div className="rounded-md bg-slate-950 p-3 font-mono text-[11px] leading-5 text-slate-100">{lastDryRun?.args?.join(" ")}</div>
+                  ) : null}
+                  {[...validation.errors, ...(lastDryRun?.errors ?? [])].map((error) => (
+                    <div key={error} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>
+                  ))}
+                  {(validation.warnings ?? []).map((warning) => (
+                    <div key={warning} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">{warning}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div className="border-t border-line bg-white px-4 py-3 text-[12px] text-muted">{data.settings.factSources.join("、")}</div>
+      </Panel>
+    </div>
+  );
+}
+
+function SettingsInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="block text-[12px] text-muted">
+      <span className="font-medium">{label}</span>
+      <input
+        className="mt-1 h-9 w-full rounded-md border border-line bg-white px-3 text-[13px] text-ink outline-none focus:border-action"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
   );
 }
 
@@ -2632,7 +2856,7 @@ function humanizeSpecKey(value: string): string {
   return value.replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function Runner(props: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
+function Runner(props: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean; onOpenSettings: () => void }) {
   return <RunnerPanel {...props} />;
 }
 

@@ -13,7 +13,17 @@ import {
   type RiskLevel,
   type ScheduleTriggerMode,
 } from "./orchestration.ts";
-import type { RunnerApprovalPolicy, RunnerQueueStatus, RunnerSandboxMode } from "./codex-runner.ts";
+import {
+  DEFAULT_CLI_ADAPTER_CONFIG,
+  dryRunCliAdapterConfig,
+  normalizeCliAdapterConfig,
+  validateCliAdapterConfig,
+  type CliAdapterConfig,
+  type CliAdapterValidationResult,
+  type RunnerApprovalPolicy,
+  type RunnerQueueStatus,
+  type RunnerSandboxMode,
+} from "./codex-runner.ts";
 import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
 
 export type ConsoleCommandAction =
@@ -37,6 +47,10 @@ export type ConsoleCommandAction =
   | "update_spec"
   | "mark_review_complete"
   | "schedule_run"
+  | "validate_cli_adapter_config"
+  | "save_cli_adapter_config"
+  | "activate_cli_adapter_config"
+  | "disable_cli_adapter_config"
   | "write_project_rule"
   | "write_spec_evolution"
   | "move_board_task"
@@ -64,6 +78,10 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "update_spec",
   "mark_review_complete",
   "schedule_run",
+  "validate_cli_adapter_config",
+  "save_cli_adapter_config",
+  "activate_cli_adapter_config",
+  "disable_cli_adapter_config",
   "write_project_rule",
   "write_spec_evolution",
   "move_board_task",
@@ -75,7 +93,7 @@ export type ConsoleCommandStatus = "accepted" | "blocked";
 
 export type ConsoleCommandInput = {
   action: ConsoleCommandAction;
-  entityType: "project" | "feature" | "task" | "run" | "runner" | "review_item" | "rule" | "spec";
+  entityType: "project" | "feature" | "task" | "run" | "runner" | "review_item" | "rule" | "spec" | "cli_adapter" | "settings";
   entityId: string;
   requestedBy: string;
   reason: string;
@@ -278,7 +296,37 @@ export type RunnerConsoleViewModel = {
     lastHeartbeatAt?: string;
     heartbeatStale: boolean;
   }>;
+  adapterSummary: CliAdapterSummary;
   commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
+};
+
+export type CliAdapterSummary = {
+  id: string;
+  displayName: string;
+  status: string;
+  schemaVersion: number;
+  executable: string;
+  lastDryRunStatus?: string;
+  lastDryRunAt?: string;
+  lastDryRunErrors: string[];
+  settingsPath: string;
+};
+
+export type SystemSettingsViewModel = {
+  cliAdapter: {
+    active: CliAdapterConfig;
+    draft?: CliAdapterConfig;
+    validation: CliAdapterValidationResult;
+    lastDryRun?: {
+      status: string;
+      errors: string[];
+      command?: string;
+      args?: string[];
+      at?: string;
+    };
+  };
+  commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
+  factSources: string[];
 };
 
 export type RunnerScheduleTaskViewModel = {
@@ -1126,6 +1174,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       name: "audit",
       sql: "SELECT id, entity_type, entity_id, event_type, payload_json, created_at FROM audit_timeline_events ORDER BY created_at DESC, rowid DESC LIMIT 20",
     },
+    { name: "adapters", sql: "SELECT * FROM cli_adapter_configs ORDER BY updated_at DESC" },
   ]);
   const latestHeartbeats = latestRunnerStatuses(result.queries.heartbeats);
   const taskRows = result.queries.graphTasks.length > 0 ? result.queries.graphTasks : result.queries.tasks;
@@ -1162,6 +1211,8 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       heartbeatStale,
     };
   });
+  const activeAdapter = adapterFromRows(result.queries.adapters, "active");
+  const adapterSummary = buildCliAdapterSummary(activeAdapter, result.queries.adapters);
 
   return {
     summary: {
@@ -1202,6 +1253,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       "metric_samples",
     ],
     runners,
+    adapterSummary,
     commands: [
       { action: "pause_runner", entityType: "runner" },
       { action: "resume_runner", entityType: "runner" },
@@ -1209,6 +1261,30 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       { action: "schedule_board_tasks", entityType: "feature" },
       { action: "run_board_tasks", entityType: "feature" },
     ],
+  };
+}
+
+export function buildSystemSettingsView(dbPath: string): SystemSettingsViewModel {
+  const result = runSqlite(dbPath, [], [
+    { name: "adapters", sql: "SELECT * FROM cli_adapter_configs ORDER BY updated_at DESC" },
+  ]);
+  const active = adapterFromRows(result.queries.adapters, "active") ?? DEFAULT_CLI_ADAPTER_CONFIG;
+  const draft = adapterFromRows(result.queries.adapters, "draft", false);
+  const dryRun = latestAdapterDryRun(result.queries.adapters, draft?.id ?? active.id);
+  return {
+    cliAdapter: {
+      active,
+      draft,
+      validation: validateCliAdapterConfig(draft ?? active),
+      lastDryRun: dryRun,
+    },
+    commands: [
+      { action: "validate_cli_adapter_config", entityType: "cli_adapter" },
+      { action: "save_cli_adapter_config", entityType: "cli_adapter" },
+      { action: "activate_cli_adapter_config", entityType: "cli_adapter" },
+      { action: "disable_cli_adapter_config", entityType: "cli_adapter" },
+    ],
+    factSources: ["cli_adapter_configs", "audit_timeline_events"],
   };
 }
 
@@ -1270,9 +1346,11 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
   const acceptedAt = normalizeCommandTime(input.now).toISOString();
   const id = randomUUID();
   const boardValidation = validateBoardCommand(dbPath, input);
+  const settingsValidation = executeCliAdapterCommand(dbPath, input, acceptedAt);
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
+  const blockedReasons = [...boardValidation.blockedReasons, ...(settingsValidation?.blockedReasons ?? [])];
   const auditEventId = recordAuditEvent(dbPath, {
     entityType,
     entityId,
@@ -1287,6 +1365,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
       scheduleTriggerId: scheduleResult?.triggerId,
       selectionDecisionId: scheduleResult?.selectionDecisionId,
       boardValidation,
+      settingsValidation,
       payload: input.payload ?? {},
     },
   });
@@ -1294,7 +1373,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
   return {
     id,
     action,
-    status: boardValidation.blockedReasons.length > 0 ? "blocked" : "accepted",
+    status: blockedReasons.length > 0 ? "blocked" : "accepted",
     entityType,
     entityId,
     auditEventId,
@@ -1302,7 +1381,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
     approvalRecordId: approvalRecord?.id,
     scheduleTriggerId: scheduleResult?.triggerId,
     selectionDecisionId: scheduleResult?.selectionDecisionId,
-    blockedReasons: boardValidation.blockedReasons.length > 0 ? boardValidation.blockedReasons : undefined,
+    blockedReasons: blockedReasons.length > 0 ? blockedReasons : undefined,
   };
 }
 
@@ -1491,6 +1570,56 @@ function validateBoardCommand(dbPath: string, input: ConsoleCommandInput): { blo
   }
 
   return { blockedReasons: [...new Set(blockedReasons)] };
+}
+
+function executeCliAdapterCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+): { blockedReasons: string[]; dryRun?: CliAdapterValidationResult } | undefined {
+  if (!["validate_cli_adapter_config", "save_cli_adapter_config", "activate_cli_adapter_config", "disable_cli_adapter_config"].includes(input.action)) {
+    return undefined;
+  }
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const adapterPayload = isRecord(payload.config) ? payload.config : {};
+  const adapterId = optionalString(payload.adapterId) ?? optionalString(adapterPayload.id) ?? input.entityId;
+  const current = adapterId ? adapterFromRows(readCliAdapterRows(dbPath), undefined, false, adapterId) : undefined;
+  const config = normalizeCliAdapterConfig({ ...(current ?? DEFAULT_CLI_ADAPTER_CONFIG), ...adapterPayload, id: adapterId || DEFAULT_CLI_ADAPTER_CONFIG.id });
+  const dryRun = dryRunCliAdapterConfig({ config });
+  const blockedReasons = dryRun.valid ? [] : dryRun.errors;
+
+  if (input.action === "validate_cli_adapter_config") {
+    persistCliAdapterConfig(dbPath, { ...config, status: dryRun.valid ? config.status : "invalid", updatedAt: acceptedAt }, dryRun, false);
+    return { blockedReasons, dryRun };
+  }
+
+  if (input.action === "save_cli_adapter_config") {
+    persistCliAdapterConfig(dbPath, { ...config, status: dryRun.valid ? "draft" : "invalid", updatedAt: acceptedAt }, dryRun, false);
+    return { blockedReasons, dryRun };
+  }
+
+  if (input.action === "activate_cli_adapter_config") {
+    if (blockedReasons.length > 0) {
+      persistCliAdapterConfig(dbPath, { ...config, status: "invalid", updatedAt: acceptedAt }, dryRun, false);
+      return { blockedReasons, dryRun };
+    }
+    runSqlite(dbPath, [
+      { sql: "UPDATE cli_adapter_configs SET status = 'disabled', updated_at = ? WHERE status = 'active' AND id <> ?", params: [acceptedAt, config.id] },
+    ]);
+    persistCliAdapterConfig(dbPath, { ...config, status: "active", updatedAt: acceptedAt }, dryRun, true);
+    return { blockedReasons: [], dryRun };
+  }
+
+  if (input.action === "disable_cli_adapter_config") {
+    const target = current ?? config;
+    if (target.status === "active") {
+      return { blockedReasons: ["Active CLI Adapter cannot be disabled until another adapter is active."] };
+    }
+    persistCliAdapterConfig(dbPath, { ...target, status: "disabled", updatedAt: acceptedAt }, undefined, false);
+    return { blockedReasons: [] };
+  }
+
+  return undefined;
 }
 
 function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): string | undefined {
@@ -2037,6 +2166,134 @@ function extractRisks(reviewRows: Record<string, unknown>[], runRows: Record<str
     .filter((row) => String(row.status) === "failed")
     .map((row) => ({ level: "medium" as const, message: `Run ${String(row.id)} failed.`, source: String(row.id) }));
   return [...reviewRisks, ...failedRuns].slice(0, 10);
+}
+
+function readCliAdapterRows(dbPath: string): Record<string, unknown>[] {
+  return runSqlite(dbPath, [], [
+    { name: "adapters", sql: "SELECT * FROM cli_adapter_configs ORDER BY updated_at DESC" },
+  ]).queries.adapters;
+}
+
+function adapterFromRows(
+  rows: Record<string, unknown>[],
+  status: string | undefined = "active",
+  fallbackToDefault = true,
+  id?: string,
+): CliAdapterConfig | undefined {
+  const row = rows.find((entry) => {
+    const statusMatches = status ? String(entry.status) === status : true;
+    const idMatches = id ? String(entry.id) === id : true;
+    return statusMatches && idMatches;
+  });
+  if (!row) {
+    if (fallbackToDefault) return DEFAULT_CLI_ADAPTER_CONFIG;
+    return undefined;
+  }
+  return cliAdapterFromRow(row);
+}
+
+function cliAdapterFromRow(row: Record<string, unknown>): CliAdapterConfig {
+  return normalizeCliAdapterConfig({
+    id: row.id,
+    displayName: row.display_name,
+    schemaVersion: row.schema_version,
+    executable: row.executable,
+    argumentTemplate: parseJsonArray(row.argument_template_json),
+    resumeArgumentTemplate: parseJsonArray(row.resume_argument_template_json),
+    configSchema: parseJsonObject(row.config_schema_json),
+    formSchema: parseJsonObject(row.form_schema_json),
+    defaults: parseJsonObject(row.defaults_json),
+    environmentAllowlist: parseJsonArray(row.environment_allowlist_json),
+    outputMapping: parseJsonObject(row.output_mapping_json),
+    status: row.status,
+    updatedAt: row.updated_at,
+  });
+}
+
+function persistCliAdapterConfig(
+  dbPath: string,
+  config: CliAdapterConfig,
+  dryRun?: CliAdapterValidationResult,
+  active = false,
+): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO cli_adapter_configs (
+          id, display_name, schema_version, executable, argument_template_json, resume_argument_template_json,
+          config_schema_json, form_schema_json, defaults_json, environment_allowlist_json, output_mapping_json,
+          status, last_dry_run_status, last_dry_run_errors_json, last_dry_run_command_json, last_dry_run_at, activated_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          display_name = excluded.display_name,
+          schema_version = excluded.schema_version,
+          executable = excluded.executable,
+          argument_template_json = excluded.argument_template_json,
+          resume_argument_template_json = excluded.resume_argument_template_json,
+          config_schema_json = excluded.config_schema_json,
+          form_schema_json = excluded.form_schema_json,
+          defaults_json = excluded.defaults_json,
+          environment_allowlist_json = excluded.environment_allowlist_json,
+          output_mapping_json = excluded.output_mapping_json,
+          status = excluded.status,
+          last_dry_run_status = COALESCE(excluded.last_dry_run_status, cli_adapter_configs.last_dry_run_status),
+          last_dry_run_errors_json = excluded.last_dry_run_errors_json,
+          last_dry_run_command_json = COALESCE(excluded.last_dry_run_command_json, cli_adapter_configs.last_dry_run_command_json),
+          last_dry_run_at = COALESCE(excluded.last_dry_run_at, cli_adapter_configs.last_dry_run_at),
+          activated_at = COALESCE(excluded.activated_at, cli_adapter_configs.activated_at),
+          updated_at = excluded.updated_at`,
+      params: [
+        config.id,
+        config.displayName,
+        config.schemaVersion,
+        config.executable,
+        JSON.stringify(config.argumentTemplate),
+        JSON.stringify(config.resumeArgumentTemplate ?? []),
+        JSON.stringify(config.configSchema),
+        JSON.stringify(config.formSchema),
+        JSON.stringify(config.defaults),
+        JSON.stringify(config.environmentAllowlist),
+        JSON.stringify(config.outputMapping),
+        config.status,
+        dryRun ? (dryRun.valid ? "passed" : "failed") : null,
+        JSON.stringify(dryRun?.errors ?? []),
+        dryRun?.command ? JSON.stringify({ command: dryRun.command, args: dryRun.args ?? [] }) : null,
+        dryRun ? config.updatedAt : null,
+        active ? config.updatedAt : null,
+        config.updatedAt,
+      ],
+    },
+  ]);
+}
+
+function buildCliAdapterSummary(active: CliAdapterConfig | undefined, rows: Record<string, unknown>[]): CliAdapterSummary {
+  const adapter = active ?? DEFAULT_CLI_ADAPTER_CONFIG;
+  const row = rows.find((entry) => String(entry.id) === adapter.id) ?? {};
+  return {
+    id: adapter.id,
+    displayName: adapter.displayName,
+    status: adapter.status,
+    schemaVersion: adapter.schemaVersion,
+    executable: adapter.executable,
+    lastDryRunStatus: optionalString(row.last_dry_run_status),
+    lastDryRunAt: optionalString(row.last_dry_run_at),
+    lastDryRunErrors: parseJsonArray(row.last_dry_run_errors_json).map(String),
+    settingsPath: "/settings/cli",
+  };
+}
+
+function latestAdapterDryRun(rows: Record<string, unknown>[], adapterId: string): SystemSettingsViewModel["cliAdapter"]["lastDryRun"] {
+  const row = rows.find((entry) => String(entry.id) === adapterId);
+  if (!row) return undefined;
+  const command = parseJsonObject(row.last_dry_run_command_json);
+  const status = optionalString(row.last_dry_run_status);
+  if (!status) return undefined;
+  return {
+    status,
+    errors: parseJsonArray(row.last_dry_run_errors_json).map(String),
+    command: optionalString(command.command),
+    args: parseJsonArray(command.args).map(String),
+    at: optionalString(row.last_dry_run_at),
+  };
 }
 
 function ratio(numerator: number, denominator: number): number {

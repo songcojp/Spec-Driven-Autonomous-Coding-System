@@ -18,6 +18,10 @@ export type CommandAction =
   | "schedule_board_tasks"
   | "run_board_tasks"
   | "schedule_run"
+  | "validate_cli_adapter_config"
+  | "save_cli_adapter_config"
+  | "activate_cli_adapter_config"
+  | "disable_cli_adapter_config"
   | "write_spec_evolution";
 
 export type CommandReceipt = {
@@ -209,6 +213,7 @@ export type RunnerModel = {
     createdAt: string;
   }>;
   factSources?: string[];
+  adapterSummary?: CliAdapterSummary;
   runners: Array<{
     runnerId: string;
     online: boolean;
@@ -220,6 +225,45 @@ export type RunnerModel = {
     lastHeartbeatAt?: string;
     heartbeatStale: boolean;
   }>;
+};
+
+export type CliAdapterConfigModel = {
+  id: string;
+  displayName: string;
+  schemaVersion: number;
+  executable: string;
+  argumentTemplate: string[];
+  resumeArgumentTemplate?: string[];
+  configSchema: Record<string, unknown>;
+  formSchema: Record<string, unknown>;
+  defaults: Record<string, unknown>;
+  environmentAllowlist: string[];
+  outputMapping: Record<string, unknown>;
+  status: "active" | "draft" | "invalid" | "disabled";
+  updatedAt: string;
+};
+
+export type CliAdapterSummary = {
+  id: string;
+  displayName: string;
+  status: string;
+  schemaVersion: number;
+  executable: string;
+  lastDryRunStatus?: string;
+  lastDryRunAt?: string;
+  lastDryRunErrors: string[];
+  settingsPath: string;
+};
+
+export type SystemSettingsModel = {
+  cliAdapter: {
+    active: CliAdapterConfigModel;
+    draft?: CliAdapterConfigModel;
+    validation: { valid: boolean; errors: string[]; warnings?: string[]; command?: string; args?: string[] };
+    lastDryRun?: { status: string; errors: string[]; command?: string; args?: string[]; at?: string };
+  };
+  commands: Array<{ action: CommandAction; entityType: string }>;
+  factSources: string[];
 };
 
 export type RunnerScheduleTask = {
@@ -265,5 +309,6 @@ export type ConsoleData = {
   board: BoardModel;
   spec: SpecWorkspaceModel;
   runner: RunnerModel;
+  settings: SystemSettingsModel;
   reviews: ReviewModel;
 };

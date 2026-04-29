@@ -9,6 +9,8 @@ import { runSqlite } from "../src/sqlite.ts";
 import {
   buildEvidencePackInput,
   buildRunnerConsoleSnapshot,
+  DEFAULT_CLI_ADAPTER_CONFIG,
+  dryRunCliAdapterConfig,
   evaluateRunnerSafety,
   listDueRecoveryDispatches,
   persistCodexRunnerArtifacts,
@@ -29,9 +31,22 @@ test("schema includes Codex runner policies, heartbeats, sessions, and logs", ()
   initializeSchema(dbPath);
 
   const tables = listTables(dbPath);
-  for (const table of ["runner_policies", "runner_heartbeats", "codex_session_records", "raw_execution_logs"]) {
+  for (const table of ["runner_policies", "runner_heartbeats", "codex_session_records", "raw_execution_logs", "cli_adapter_configs"]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
+});
+
+test("CLI adapter dry-run validates JSON-managed command templates", () => {
+  const result = dryRunCliAdapterConfig({
+    config: DEFAULT_CLI_ADAPTER_CONFIG,
+    outputSchemaPath: "/tmp/runner-output.schema.json",
+    prompt: "Implement bounded task",
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.command, "codex");
+  assert.equal(result.args?.includes("--output-schema"), true);
+  assert.equal(result.args?.includes("/tmp/runner-output.schema.json"), true);
 });
 
 test("runner policy resolves safe defaults and clamps heartbeat cadence", () => {
