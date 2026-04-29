@@ -14,6 +14,7 @@ import {
   type ProjectConstitutionInput,
 } from "./projects.ts";
 import {
+  buildDashboardBoardView,
   buildDashboardQuery,
   buildReviewCenterView,
   buildRunnerConsoleView,
@@ -143,6 +144,11 @@ async function routeRequest(
         projectId: url.searchParams.get("projectId") ?? undefined,
         refresh: url.searchParams.get("refresh") === "true",
       }));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/console/dashboard-board") {
+      writeJson(response, 200, buildDashboardBoardView(config.dbPath, url.searchParams.get("projectId") ?? undefined));
       return;
     }
 

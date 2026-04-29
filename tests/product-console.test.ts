@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
+  buildDashboardBoardView,
   buildDashboardQuery,
   buildReviewCenterView,
   buildRunnerConsoleView,
@@ -72,6 +73,203 @@ test("dashboard counts unresolved review decisions as pending approvals", () => 
 
   assert.equal(dashboard.pendingApprovals, 2);
   assert.equal(dashboard.risks.some((risk) => risk.source === "REV-PROJECT"), true);
+});
+
+test("dashboard board exposes task facts, dependencies, diffs, tests, approvals, and recovery history", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  seedBoardPatchData(dbPath);
+
+  const board = buildDashboardBoardView(dbPath, "project-1");
+  const readyTask = board.tasks.find((task) => task.id === "TASK-READY");
+  const highRiskTask = board.tasks.find((task) => task.id === "TASK-HIGH");
+  const highRiskWithoutReview = board.tasks.find((task) => task.id === "TASK-HIGH-NO-REVIEW");
+
+  assert.equal(readyTask?.dependencies[0].satisfied, true);
+  assert.deepEqual(readyTask?.diff, { files: ["src/product-console.ts"] });
+  assert.deepEqual(readyTask?.testResults, { command: "node --test tests/product-console.test.ts", passed: true });
+  assert.equal(readyTask?.approvalStatus, "not_required");
+  assert.equal(readyTask?.recoveryHistory.some((entry) => entry.to === "ready"), true);
+  assert.equal(readyTask?.recoveryHistory.some((entry) => entry.to === "failed"), true);
+  assert.equal(readyTask?.recoveryHistory.some((entry) => entry.to === "forbidden_retry"), true);
+  assert.equal(highRiskTask?.approvalStatus, "pending");
+  assert.equal(highRiskTask?.blockedReasons.some((reason) => reason.includes("high risk")), true);
+  assert.equal(highRiskWithoutReview?.approvalStatus, "pending");
+  assert.equal(highRiskWithoutReview?.blockedReasons.some((reason) => reason.includes("high risk")), true);
+  assert.equal(board.commands.some((command) => command.action === "schedule_board_tasks"), true);
+  assert.equal(board.factSources.includes("state_transitions"), true);
+
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO review_items (id, feature_id, status, severity, body, created_at)
+        VALUES ('REV-FEATURE-VIEW', 'FEAT-013', 'review_needed', 'medium', '{"message":"Feature-level gate for board view."}', '2026-04-28T12:04:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO approval_records (id, review_item_id, status, decision, actor, reason, decided_at, created_at, metadata_json)
+        VALUES ('APP-OLD-FEATURE-VIEW', 'REV-FEATURE-VIEW', 'recorded', 'approve_continue', 'operator', 'Old approval should not hide pending review.', '2026-04-28T12:03:00.000Z', '2026-04-28T12:03:00.000Z', '{}')`,
+    },
+  ]);
+
+  const gatedBoard = buildDashboardBoardView(dbPath, "project-1");
+  assert.equal(gatedBoard.tasks.find((task) => task.id === "TASK-READY")?.approvalStatus, "pending");
+});
+
+test("board commands validate state, dependency, risk, and approval gates before audit", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  seedBoardPatchData(dbPath);
+
+  const scheduleReceipt = submitConsoleCommand(dbPath, {
+    action: "schedule_board_tasks",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Schedule ready board work.",
+    payload: { taskIds: ["TASK-READY"] },
+    now: stableDate,
+  });
+  const blockedReceipt = submitConsoleCommand(dbPath, {
+    action: "run_board_tasks",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Try to run high risk work without approval.",
+    payload: { taskIds: ["TASK-HIGH"] },
+    now: stableDate,
+  });
+  const movedReceipt = submitConsoleCommand(dbPath, {
+    action: "move_board_task",
+    entityType: "task",
+    entityId: "TASK-SCHEDULED",
+    requestedBy: "operator",
+    reason: "Start scheduled work.",
+    payload: { targetStatus: "running" },
+    now: stableDate,
+  });
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO task_graph_tasks (
+          id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
+          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+        ) VALUES ('TASK-HIGH-APPROVED', 'TG-FEAT-013', 'FEAT-013', 'High risk approved board task', 'scheduled', '[]', '[]', '[]', '[]', 'high', 'console-skill', 'coding', 1)`,
+    },
+    {
+      sql: `INSERT INTO review_items (id, feature_id, status, severity, body, created_at)
+        VALUES ('REV-FEATURE-APPROVED', 'FEAT-013', 'approved', 'high', '{"message":"Feature-level approval covers high risk board run."}', '2026-04-28T12:02:30.000Z')`,
+    },
+    {
+      sql: `INSERT INTO approval_records (id, review_item_id, status, decision, actor, reason, decided_at, created_at, metadata_json)
+        VALUES ('APP-FEATURE-APPROVED', 'REV-FEATURE-APPROVED', 'recorded', 'approve_continue', 'operator', 'Approve high risk board run.', '2026-04-28T12:02:31.000Z', '2026-04-28T12:02:31.000Z', '{}')`,
+    },
+  ]);
+  const highRiskApprovedReceipt = submitConsoleCommand(dbPath, {
+    action: "run_board_tasks",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Run high risk work with feature approval.",
+    payload: { taskIds: ["TASK-HIGH-APPROVED"] },
+    now: stableDate,
+  });
+  const mismatchedTaskReceipt = submitConsoleCommand(dbPath, {
+    action: "move_board_task",
+    entityType: "task",
+    entityId: "TASK-SCHEDULED",
+    requestedBy: "operator",
+    reason: "Try to move a different task than the audited entity.",
+    payload: { targetStatus: "running", taskIds: ["TASK-READY"] },
+    now: stableDate,
+  });
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO task_graph_tasks (
+          id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
+          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+        ) VALUES ('TASK-DONE-BLOCKED', 'TG-FEAT-013', 'FEAT-013', 'Done blocked by dependency', 'running', '[]', '[]', '[]', '["TASK-READY"]', 'low', 'console-skill', 'coding', 1)`,
+    },
+  ]);
+  const dependencyBlockedReceipt = submitConsoleCommand(dbPath, {
+    action: "move_board_task",
+    entityType: "task",
+    entityId: "TASK-DONE-BLOCKED",
+    requestedBy: "operator",
+    reason: "Try to complete before dependency is done.",
+    payload: { targetStatus: "done" },
+    now: stableDate,
+  });
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO task_graph_tasks (
+          id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
+          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+        ) VALUES ('TASK-FEATURE-GATED', 'TG-FEAT-013', 'FEAT-013', 'Feature gated task', 'running', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1)`,
+    },
+    {
+      sql: `INSERT INTO review_items (id, feature_id, status, severity, body, created_at)
+        VALUES ('REV-FEATURE-GATE', 'FEAT-013', 'review_needed', 'medium', '{"message":"Feature-level gate."}', '2026-04-28T12:03:00.000Z')`,
+    },
+  ]);
+  const terminalBlockedReceipt = submitConsoleCommand(dbPath, {
+    action: "move_board_task",
+    entityType: "task",
+    entityId: "TASK-FEATURE-GATED",
+    requestedBy: "operator",
+    reason: "Try to complete without feature approval.",
+    payload: { targetStatus: "done" },
+    now: stableDate,
+  });
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO task_graph_tasks (
+          id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
+          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+        ) VALUES ('TASK-OTHER-READY', 'TG-FEAT-OTHER', 'FEAT-OTHER', 'Other feature task', 'ready', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1)`,
+    },
+  ]);
+  const crossFeatureReceipt = submitConsoleCommand(dbPath, {
+    action: "schedule_board_tasks",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Try to schedule another feature through FEAT-013.",
+    payload: { taskIds: ["TASK-OTHER-READY"] },
+    now: stableDate,
+  });
+
+  assert.equal(scheduleReceipt.status, "accepted");
+  assert.equal(blockedReceipt.status, "blocked");
+  assert.equal(blockedReceipt.blockedReasons?.some((reason) => reason.includes("high risk")), true);
+  assert.equal(movedReceipt.status, "accepted");
+  assert.equal(highRiskApprovedReceipt.status, "accepted");
+  assert.equal(mismatchedTaskReceipt.status, "blocked");
+  assert.equal(mismatchedTaskReceipt.blockedReasons?.some((reason) => reason.includes("payload must match")), true);
+  assert.equal(dependencyBlockedReceipt.status, "blocked");
+  assert.equal(dependencyBlockedReceipt.blockedReasons?.some((reason) => reason.includes("Dependencies are not done")), true);
+  assert.equal(terminalBlockedReceipt.status, "blocked");
+  assert.equal(terminalBlockedReceipt.blockedReasons?.some((reason) => reason.includes("Positive approval")), true);
+  assert.equal(crossFeatureReceipt.status, "blocked");
+  assert.equal(crossFeatureReceipt.blockedReasons?.some((reason) => reason.includes("does not belong")), true);
+
+  const audit = runSqlite(dbPath, [], [
+    { name: "events", sql: "SELECT event_type, payload_json FROM audit_timeline_events WHERE event_type LIKE 'console_command_%board%' ORDER BY created_at, rowid" },
+    { name: "tasks", sql: "SELECT id, status FROM task_graph_tasks WHERE id IN ('TASK-READY', 'TASK-HIGH', 'TASK-SCHEDULED') ORDER BY id" },
+  ]);
+  assert.deepEqual(audit.queries.events.map((row) => row.event_type), [
+    "console_command_schedule_board_tasks",
+    "console_command_run_board_tasks",
+    "console_command_move_board_task",
+    "console_command_run_board_tasks",
+    "console_command_move_board_task",
+    "console_command_move_board_task",
+    "console_command_move_board_task",
+    "console_command_schedule_board_tasks",
+  ]);
+  assert.match(String(audit.queries.events[1].payload_json), /blockedReasons/);
+  assert.deepEqual(audit.queries.tasks.map((row) => [row.id, row.status]), [
+    ["TASK-HIGH", "scheduled"],
+    ["TASK-READY", "ready"],
+    ["TASK-SCHEDULED", "scheduled"],
+  ]);
 });
 
 test("console view models expose specs, skills, subagents, runner, and reviews", () => {
@@ -279,6 +477,58 @@ function makeDbPath(): string {
   const dbPath = join(mkdtempSync(join(tmpdir(), "feat-013-console-")), ".autobuild", "autobuild.db");
   initializeSchema(dbPath);
   return dbPath;
+}
+
+function seedBoardPatchData(dbPath: string): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO task_graph_tasks (
+          id, graph_id, feature_id, title, status, source_requirements_json, acceptance_criteria_json,
+          allowed_files_json, dependencies_json, risk, required_skill_slug, subagent, estimated_effort
+        ) VALUES
+          ('TASK-DONE', 'TG-FEAT-013', 'FEAT-013', 'Done prerequisite', 'done', '[]', '[]', '[]', '[]', 'low', 'console-skill', 'coding', 1),
+          ('TASK-READY', 'TG-FEAT-013', 'FEAT-013', 'Ready board task', 'ready', '[]', '[]', '[]', '["TASK-DONE"]', 'low', 'console-skill', 'coding', 1),
+          ('TASK-SCHEDULED', 'TG-FEAT-013', 'FEAT-013', 'Scheduled board task', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'medium', 'console-skill', 'coding', 1),
+          ('TASK-HIGH', 'TG-FEAT-013', 'FEAT-013', 'High risk board task', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'high', 'console-skill', 'coding', 1),
+          ('TASK-HIGH-NO-REVIEW', 'TG-FEAT-013', 'FEAT-013', 'High risk task without review', 'scheduled', '[]', '[]', '[]', '["TASK-DONE"]', 'high', 'console-skill', 'coding', 1)`,
+    },
+    {
+      sql: `INSERT INTO state_transitions (
+          id, entity_type, entity_id, from_status, to_status, reason, evidence, triggered_by, occurred_at
+        ) VALUES ('STATE-TASK-READY', 'task', 'TASK-READY', 'backlog', 'ready', 'Prepared for board scheduling.', 'TASK-READY evidence', 'test', '2026-04-28T11:00:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+        VALUES (
+          'EVID-TASK-READY', 'RUN-013', 'TASK-READY', 'FEAT-013', '.autobuild/evidence/TASK-READY.json', 'test',
+          'Ready task test evidence.', '{"diff":{"files":["src/product-console.ts"]},"testResults":{"command":"node --test tests/product-console.test.ts","passed":true}}'
+        )`,
+    },
+    {
+      sql: `INSERT INTO recovery_attempts (
+          id, fingerprint_id, task_id, action, strategy, command, file_scope_json, status, summary, evidence_pack_json, attempted_at
+        ) VALUES (
+          'REC-TASK-READY', 'FP-READY', 'TASK-READY', 'retry', 'rerun-targeted-test', 'node --test tests/product-console.test.ts',
+          '["src/product-console.ts"]', 'failed', 'Targeted recovery attempt failed.', '{"id":"EVID-TASK-READY"}', '2026-04-28T11:30:00.000Z'
+        )`,
+    },
+    {
+      sql: `INSERT INTO forbidden_retry_records (
+          id, fingerprint_id, task_id, failed_strategy, failed_command, failed_file_scope_json, reason, evidence_pack_id, created_at
+        ) VALUES (
+          'FORBID-TASK-READY', 'FP-READY', 'TASK-READY', 'rerun-targeted-test', 'node --test tests/product-console.test.ts',
+          '["src/product-console.ts"]', 'Do not repeat the failed recovery attempt automatically.', 'EVID-TASK-READY', '2026-04-28T11:31:00.000Z'
+        )`,
+    },
+    {
+      sql: `INSERT INTO review_items (id, feature_id, task_id, status, severity, body, created_at)
+        VALUES (
+          'REV-HIGH', 'FEAT-013', 'TASK-HIGH', 'review_needed', 'high',
+          '{"message":"High risk board task requires approval."}',
+          '2026-04-28T12:02:00.000Z'
+        )`,
+    },
+  ]);
 }
 
 function seedConsoleData(dbPath: string): void {

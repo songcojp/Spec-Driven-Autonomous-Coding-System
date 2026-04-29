@@ -41,11 +41,11 @@
 
 ## Acceptance Criteria
 
-- [ ] Console 所有写操作都通过 Control Plane 命令发起。
-- [ ] 批量排期和批量运行保留审计记录，并对高风险、依赖未满足或审批缺失任务给出阻塞原因。
-- [ ] 看板加载和状态刷新耗时被记录为性能基线。
-- [ ] Runner 心跳、成本、成功率和失败率可展示。
-- [ ] Dashboard 不覆盖 Persistent Store、Project Memory 或 Git 事实。
+- [x] Console 所有写操作都通过 Control Plane 命令发起。
+- [x] 批量排期和批量运行保留审计记录，并对高风险、依赖未满足或审批缺失任务给出阻塞原因。
+- [x] 看板加载和状态刷新耗时被记录为性能基线。
+- [x] Runner 心跳、成本、成功率和失败率可展示。
+- [x] Dashboard 不覆盖 Persistent Store、Project Memory 或 Git 事实。
 
 ## Risks and Open Questions
 
