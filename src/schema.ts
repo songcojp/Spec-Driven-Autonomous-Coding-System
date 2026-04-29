@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -633,6 +633,55 @@ export const MIGRATIONS: Migration[] = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_recovery_attempts_task_fingerprint ON recovery_attempts(task_id, fingerprint_id, attempted_at)",
       "CREATE INDEX IF NOT EXISTS idx_forbidden_retry_records_task_fingerprint ON forbidden_retry_records(task_id, fingerprint_id, created_at)",
+    ],
+  },
+  {
+    version: 10,
+    description: "Add delivery manager PR and spec evolution schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS pull_request_records (
+        id TEXT PRIMARY KEY,
+        feature_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        base_branch TEXT NOT NULL,
+        head_branch TEXT NOT NULL,
+        url TEXT,
+        status TEXT NOT NULL,
+        requirements_json TEXT NOT NULL,
+        tasks_json TEXT NOT NULL,
+        evidence_refs_json TEXT NOT NULL,
+        approval_refs_json TEXT NOT NULL,
+        rollback_plan_json TEXT NOT NULL,
+        risk_items_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS spec_evolution_suggestions (
+        id TEXT PRIMARY KEY,
+        feature_id TEXT NOT NULL,
+        source_evidence_refs_json TEXT NOT NULL,
+        impact_scope_json TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        suggestion TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'proposed',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "ALTER TABLE delivery_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'created'",
+      "ALTER TABLE delivery_reports ADD COLUMN pull_request_record_id TEXT",
+      "ALTER TABLE delivery_reports ADD COLUMN body TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE delivery_reports ADD COLUMN changed_files_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE delivery_reports ADD COLUMN acceptance_results_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE delivery_reports ADD COLUMN test_summary_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE delivery_reports ADD COLUMN recovery_records_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE delivery_reports ADD COLUMN risk_items_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE delivery_reports ADD COLUMN next_steps_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE delivery_reports ADD COLUMN spec_evolution_suggestion_ids_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE delivery_reports ADD COLUMN updated_at TEXT",
+      "UPDATE delivery_reports SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)",
+      "CREATE INDEX IF NOT EXISTS idx_pull_request_records_feature ON pull_request_records(feature_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_spec_evolution_feature_status ON spec_evolution_suggestions(feature_id, status, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_delivery_reports_feature_status ON delivery_reports(feature_id, status, created_at)",
     ],
   },
 ];
