@@ -168,10 +168,12 @@ This stage is mandatory. Do not implement until it passes or the user has answer
    - Design-to-requirement traceability: every required behavior has a design path and every implementation task maps to a requirement or explicit design decision.
    - Task readiness: `tasks.md` is actionable, ordered, and includes verification expectations.
    - Implementation boundary: expected files/modules are identifiable enough to avoid broad, speculative edits.
+   - UI-bearing feature readiness: if the feature mentions UI, page, Dashboard, Console, Workspace, Center, browser, frontend, interaction, navigation, or user-visible controls, confirm that `design.md` and `tasks.md` require a real user-accessible UI surface. API endpoints, Query/ViewModel objects, CLI output, static text, or unit tests alone are not sufficient UI evidence.
 3. Produce a compact `PRE-IMPLEMENTATION REVIEW:` note containing:
    - `Pass`: `yes` or `no`.
    - `Restrictive requirements`: concise list of constraints that must govern implementation.
    - `Design constraints`: concise list of architectural/interface/data/UI constraints that must be preserved.
+   - `UI delivery classification`: `ui-bearing` or `non-ui`, with the required user-visible surfaces or `none`.
    - `Clarifications required`: questions that block safe implementation, or `none`.
    - `Spec fixes required`: concrete doc edits needed before implementation, or `none`.
 4. If any clarification is required, stop the lifecycle, ask the user the blocking questions, and wait for the user's reply before implementation. Do not guess through unclear requirements.
@@ -197,6 +199,7 @@ Use a review subagent when available if the feature is complex or touches shared
 3. Dispatch `implementer-subagent` with the prompt, then wait for the handoff summary.
 4. If subagents are unavailable, run the same plan-then-execute contract in the owner thread inside `${WORKTREE_PATH}`.
 5. Validate the handoff or owner-thread result: check that all tasks in `tasks.md` are ticked, the verification command passed, and no unexpected files were modified.
+   - For UI-bearing features, additionally verify that a user-accessible entrypoint, pages/routes, visible components, data-bound states, and user action controls exist. Do not accept API-only, ViewModel-only, CLI-only, or static-document-only results as implementation completion.
 6. If blockers appear, update `tasks.md` with notes and decide whether to retry, adjust scope, or abort.
 
 **Implementer-subagent responsibilities** (see Subagent Plan-Then-Execute Contract):
@@ -384,6 +387,8 @@ Use a code-review subagent for simplified-mode review, and optionally use a revi
 ## Stage 9 — Update Feature Status → `done`
 
 Do not update status to `done` until Stage 8 has recorded a clean review loop and the mode-specific final gate has passed: final regression plus one full-suite test in `full` mode, or targeted final regression only in `simplified` mode.
+
+For UI-bearing features, `done` also requires browser-level evidence that the user-visible surface exists and works: a reachable app or page entrypoint, expected routes/views, nonblank rendered content, loading/empty/error states where relevant, real or fixture-backed data rendering, and at least one user action flow when the feature includes commands. API tests, ViewModel tests, schema tests, or HTTP JSON responses cannot by themselves satisfy this gate.
 
 1. Work inside the feature worktree:
 

@@ -30,13 +30,14 @@
 | CHG-006 | PRD 明确 MVP 不接入 Issue Tracker | PRD 非目标 | 已写入 PRD | 人工确认 requirements/HLD 是否需要补充为显式非目标或约束；当前未新增 REQ。 |
 | CHG-007 | PRD 明确失败自动重试上限与退避策略 | PRD 第 6.11 节 FR-092 | 已写入 PRD | 人工确认现有 failure recovery 实现是否已匹配 3 次、2/4/8 分钟退避和失败指纹规则。 |
 | CHG-008 | PRD 明确性能阈值在 MVP 中只作基线记录 | PRD 第 9.4 节 | 已写入 PRD | 人工确认 requirements 中 NFR-007 至 NFR-009 是否已足够表达；当前看起来已覆盖。 |
+| CHG-009 | Product Console 完成标准修正：API/ViewModel 不能替代用户 UI | 用户审查；实现证据 `src/product-console.ts`、`src/server.ts`、`tests/product-console.test.ts` | 已同步 FEAT-013 和技能契约 | 重新打开 FEAT-013；补真实前端应用、页面组件、浏览器级验收，并修复拆分/执行技能避免再次漏 UI。 |
 
 ## 人工处置顺序建议
 
 1. 先处理 `CHG-007`，因为它可能影响已交付的 Failure Recovery 实现行为。
 2. 再处理 `CHG-001` 和 `ADD-001`，因为它们影响项目基础数据和项目初始化流程。
 3. 再处理 `ADD-002`、`CHG-002`、`CHG-003`、`CHG-004`，因为它们影响调度和执行安全边界。
-4. 最后处理 `ADD-003` 和 `CHG-005`，因为它们主要影响 Product Console 交互层。
+4. 最后处理 `ADD-003`、`CHG-005` 和 `CHG-009`，因为它们主要影响 Product Console 交互层。
 5. `CHG-006` 和 `CHG-008` 可作为文档一致性检查项，不一定需要立刻形成实现任务。
 
 ## 关闭条件
@@ -62,6 +63,7 @@
 | CHG-006 | 仅保留文档一致性；PRD、requirements、HLD 和 design 已明确 MVP 不接入 Issue Tracker，仅保留外部链接/追踪字段。 | 无需新增 REQ 或 Feature Spec；后续实现不得新增 Issue Tracker 深度集成。 | 无需执行 |
 | CHG-007 | 已由 FEAT-010 实现覆盖；代码和测试已包含同一失败模式最多 3 次、2/4/8 分钟退避、失败指纹和禁止重复策略。 | FEAT-010 requirements/design/tasks 与 `tests/recovery.test.ts` 已覆盖；无需重新执行 feature spec。 | 无需执行 |
 | CHG-008 | 仅保留文档一致性；PRD、requirements 和 HLD 已明确性能阈值在 MVP 中作为基线记录，不作为阻塞验收门槛。 | 无需新增 Feature Spec；FEAT-013 继续记录看板加载/状态刷新基线。 | 无需执行 |
+| CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `split-feature-spec` / `feature-spec-execution` 技能契约。 | 需同步实现 |
 
 ## Feature Spec Execute 评估
 
@@ -70,6 +72,6 @@
 | P0 | FEAT-001 Project and Repository Foundation | ADD-001、CHG-001 | 执行 `feature-spec-execution` patch | 已完成 Feature 出现数据模型和项目宪章 follow-up；需补 schema/API/tests。 |
 | P1 | FEAT-004 Orchestration and State Machine | CHG-003 | 执行后续 `feature-spec-execution` patch | ADD-002 已完成；计划流水线强制阶段仍需后续处理。 |
 | P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `feature-spec-execution` patch | 并行写入和测试资源隔离属于执行安全边界。 |
-| P2 | FEAT-013 Product Console | ADD-003、CHG-005 | 执行 `feature-spec-execution` patch | UI/命令入口依赖 FEAT-004 状态机和调度命令，建议在 FEAT-004 patch 后执行。 |
+| P2 | FEAT-013 Product Console | ADD-003、CHG-005、CHG-009 | 执行 `feature-spec-execution` patch | 必须交付真实浏览器 UI、页面路由、组件系统和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |
 | - | FEAT-010 Failure Recovery | CHG-007 | 不执行 | 已实现且测试覆盖。 |
 | - | 主线文档一致性 | CHG-006、CHG-008 | 不执行 | 非目标和性能基线约束已在文档中表达。 |
