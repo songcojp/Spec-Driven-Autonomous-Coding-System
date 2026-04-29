@@ -36,7 +36,7 @@ IMPLEMENT        (implementer-subagent: plan → implement)
     ↓
 TEST             (test-subagent: plan → test)
     ↓
-CODE REVIEW LOOP (max 3 passes: Codex review log → owner analysis → fix approved issues)
+CODE REVIEW LOOP (3-pass checkpoint: Codex review log → owner analysis → fix approved issues)
     ↓
 FINAL TEST GATE  (final regression + one full-suite test before commit)
     ↓
@@ -241,7 +241,7 @@ CODEX_REVIEW_LOG="${REVIEW_ARTIFACT_DIR}/codex-review-${FEATURE_ID}-pass-${CODE_
 REVIEW_ANALYSIS_OUTPUT="${REVIEW_ARTIFACT_DIR}/review-analysis-${FEATURE_ID}-pass-${CODE_REVIEW_PASS}.md"
 FIX_LOG="${REVIEW_ARTIFACT_DIR}/fix-pass-${FEATURE_ID}-${CODE_REVIEW_PASS}.md"
 REVIEW_LOOP_ANALYSIS="${REVIEW_ARTIFACT_DIR}/review-loop-analysis-${FEATURE_ID}.md"
-MAX_REVIEW_FIX_PASSES="${MAX_REVIEW_FIX_PASSES:-3}"
+REVIEW_FIX_CHECKPOINT_INTERVAL="${REVIEW_FIX_CHECKPOINT_INTERVAL:-3}"
 CODEX_REVIEW_MODEL="${CODEX_REVIEW_MODEL:-gpt-5.4}"
 FINAL_REGRESSION_COMMAND="${FINAL_REGRESSION_COMMAND:-<targeted Stage 7 command>}"
 FINAL_FULL_TEST_COMMAND="${FINAL_FULL_TEST_COMMAND:-npm test}"
@@ -283,7 +283,7 @@ timeout 1800s codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_B
    A feature that has not reached a formal completed, merged, or externally consumed version must not create "legacy" compatibility branches for its own intermediate implementation states. In that case, fix toward the current requirements/design source of truth instead of preserving the transient behavior.
 8. Do not run regression tests between review-analysis passes. After each fix batch, increment `CODE_REVIEW_PASS`, run Codex review again to a new temporary log, analyze the new log, and classify findings again.
 9. Continue the review-log -> owner-analysis -> fix loop until `"${REVIEW_ANALYSIS_OUTPUT}"` says `Decision: no-fix-required`, or until the lifecycle stops for clarification/blocker.
-10. If `CODE_REVIEW_PASS` reaches `"${MAX_REVIEW_FIX_PASSES}"` and the loop is still not clean, stop automatic repair and create `"${REVIEW_LOOP_ANALYSIS}"`. The default maximum is 3 passes. The loop analysis must answer:
+10. If `CODE_REVIEW_PASS` reaches `"${REVIEW_FIX_CHECKPOINT_INTERVAL}"` and the loop is still not clean, pause for a mandatory owner checkpoint and create `"${REVIEW_LOOP_ANALYSIS}"`. Repeat this checkpoint after each additional `"${REVIEW_FIX_CHECKPOINT_INTERVAL}"` review passes if the loop is still not clean. The default interval is 3 passes; it is a diagnostic checkpoint, not a hard repair ceiling. The loop analysis must answer:
    - How many review passes and fix batches ran.
    - Which findings repeated across passes.
    - Which findings disappeared after fixes.
@@ -294,7 +294,11 @@ timeout 1800s codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_B
    - Whether remaining findings are real high/medium issues, low-value review noise, spec ambiguity, test gaps, or design mismatch.
    - Whether the implementation should continue with a narrower fix, roll back a fix batch, revise requirements/design/tasks, ask the user for clarification, or stop as blocked.
    - A pass-by-pass table referencing every Codex review log, owner analysis file, and fix log.
-   After writing this analysis, report the blocker and do not continue to another review/fix pass without explicit user approval.
+   After writing this analysis, the owner must make and record a `Checkpoint decision` before any more repair:
+   - `continue-controlled`: allowed only when every remaining finding is real, high/medium risk, in scope, has a concrete spec-boundary citation, has no product/architecture ambiguity, and the next fix batch is narrower than the prior batch.
+   - `needs-user-clarification`: use when remaining work changes product intent, architecture, feature scope, compatibility expectations, or rollback strategy; ask the user and wait.
+   - `rollback-or-stop`: use when fixes are introducing new defects, repeatedly failing to address the same finding, or expanding scope.
+   A `continue-controlled` decision may start the next review/fix pass without treating the checkpoint as a user-blocking failure. Before continuing, write the decision, selected findings, file scope, and risk controls into `"${REVIEW_LOOP_ANALYSIS}"` or the next `"${FIX_LOG}"`.
 11. Stop the loop when:
    - Owner analysis confirms no unresolved high/medium actionable issue remains.
    - `needs-clarification` appears; ask the user and wait before continuing.
@@ -310,7 +314,7 @@ timeout 1800s codex exec review --model "${CODEX_REVIEW_MODEL}" --base "${BASE_B
    - Codex review pass count and compact summary of each pass. Do not commit raw Codex review logs.
    - Owner analysis decision for each pass. Do not commit raw owner-analysis logs.
    - Fix batch summary for each fix. Do not commit raw fix logs.
-   - Review loop analysis summary if the loop reached `"${MAX_REVIEW_FIX_PASSES}"` or was stopped as blocked.
+   - Review loop analysis summary if the loop reached `"${REVIEW_FIX_CHECKPOINT_INTERVAL}"` or a later checkpoint, or was stopped as blocked.
    - Review quality judgment for each pass.
    - Confirmation that no regression tests were run between review/fix passes.
    - Final regression command and result.
