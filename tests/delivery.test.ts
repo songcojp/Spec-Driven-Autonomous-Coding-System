@@ -10,12 +10,12 @@ import { runSqlite } from "../src/sqlite.ts";
 
 const stableDate = new Date("2026-04-28T16:00:00.000Z");
 
-test("schema version 14 includes delivery manager records", () => {
+test("current schema includes delivery manager records", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
   assert.equal(SCHEMA_VERSION, 14);
-  assert.equal(state.schemaVersion, 14);
+  assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   assert.equal(tables.includes("pull_request_records"), true);
   assert.equal(tables.includes("delivery_reports"), true);

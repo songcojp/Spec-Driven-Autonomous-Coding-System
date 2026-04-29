@@ -16,12 +16,12 @@ import {
 } from "../src/status-checker.ts";
 import { listReviewCenterItems } from "../src/review-center.ts";
 
-test("schema version 14 includes status checker, recovery history, and attachment tables", () => {
+test("current schema includes status checker, recovery history, and attachment tables", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
   assert.equal(SCHEMA_VERSION, 14);
-  assert.equal(state.schemaVersion, 14);
+  assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   for (const table of ["status_check_results", "spec_alignment_results", "evidence_attachment_refs", "recovery_attempts", "forbidden_retry_records"]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);

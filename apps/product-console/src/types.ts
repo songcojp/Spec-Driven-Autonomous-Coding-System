@@ -1,0 +1,140 @@
+export type CommandAction =
+  | "create_feature"
+  | "terminate_subagent"
+  | "retry_subagent"
+  | "pause_runner"
+  | "resume_runner"
+  | "approve_review"
+  | "move_board_task"
+  | "schedule_board_tasks"
+  | "run_board_tasks";
+
+export type CommandReceipt = {
+  id: string;
+  action: CommandAction;
+  status: "accepted" | "blocked";
+  entityType: string;
+  entityId: string;
+  acceptedAt: string;
+  blockedReasons?: string[];
+};
+
+export type DashboardModel = {
+  projectHealth: { totalProjects: number; ready: number; blocked: number; failed: number };
+  activeFeatures: Array<{ id: string; title: string; status: string; priority: number }>;
+  boardCounts: Record<string, number>;
+  runningSubagents: number;
+  todayAutomaticExecutions: number;
+  failedTasks: Array<{ id: string; title: string; status: string; featureId?: string }>;
+  pendingApprovals: number;
+  cost: { totalUsd: number; tokensUsed: number };
+  runner: { heartbeats: number; online: number; successRate: number; failureRate: number };
+  recentPullRequests: Array<{ id: string; title: string; url?: string; createdAt?: string }>;
+  risks: Array<{ level: string; message: string; source: string }>;
+  performance: { loadMs: number; refreshMs?: number };
+  factSources: string[];
+};
+
+export type BoardTask = {
+  id: string;
+  featureId?: string;
+  title: string;
+  status: string;
+  risk: string;
+  dependencies: Array<{ id: string; status: string; satisfied: boolean }>;
+  diff?: { files?: string[]; additions?: number; deletions?: number } | unknown;
+  testResults?: { command?: string; passed?: boolean; total?: number } | unknown;
+  approvalStatus: "approved" | "pending" | "not_required";
+  recoveryHistory: Array<{ from?: string; to?: string; reason: string; evidence?: string; occurredAt: string }>;
+  blockedReasons: string[];
+};
+
+export type BoardModel = {
+  tasks: BoardTask[];
+  commands: Array<{ action: CommandAction; entityType: string }>;
+  factSources: string[];
+};
+
+export type SpecWorkspaceModel = {
+  features: Array<{ id: string; title: string; folder?: string; status: string; primaryRequirements: string[] }>;
+  selectedFeature?: {
+    id: string;
+    title: string;
+    requirements: Array<{ id: string; body: string; acceptanceCriteria?: string; priority?: string }>;
+    taskGraph?: unknown;
+    clarificationRecords: unknown[];
+    qualityChecklist: Array<{ item: string; passed: boolean }>;
+    technicalPlan?: unknown;
+    dataModels: unknown[];
+    contracts: unknown[];
+    versionDiffs: unknown[];
+  };
+};
+
+export type SkillCenterModel = {
+  skills: Array<{
+    slug: string;
+    name: string;
+    version: string;
+    enabled: boolean;
+    phase: string;
+    riskLevel: string;
+    schema: { input: unknown; output: unknown };
+    recentRuns: Array<{ id: string; status: string; createdAt: string }>;
+    successRate: number;
+  }>;
+};
+
+export type SubagentModel = {
+  runs: Array<{
+    id: string;
+    featureId?: string;
+    taskId?: string;
+    status: string;
+    runContract?: unknown;
+    contextSlice?: unknown;
+    evidence: Array<{ id: string; summary: string; path?: string }>;
+    tokenUsage?: unknown;
+  }>;
+};
+
+export type RunnerModel = {
+  runners: Array<{
+    runnerId: string;
+    online: boolean;
+    codexVersion?: string;
+    sandboxMode: string;
+    approvalPolicy: string;
+    queue: Array<{ runId: string; status: string }>;
+    recentLogs: Array<{ runId: string; stdout: string; stderr: string; createdAt: string }>;
+    lastHeartbeatAt?: string;
+    heartbeatStale: boolean;
+  }>;
+};
+
+export type ReviewModel = {
+  items: Array<{
+    id: string;
+    featureId?: string;
+    taskId?: string;
+    status: string;
+    severity: string;
+    body: string;
+    evidence: Array<{ id: string; summary: string; path?: string }>;
+    approvals: Array<{ id: string; decision: string; actor: string; reason: string; decidedAt: string }>;
+    diff?: unknown;
+    testResults?: unknown;
+    createdAt: string;
+  }>;
+  riskFilters: string[];
+};
+
+export type ConsoleData = {
+  dashboard: DashboardModel;
+  board: BoardModel;
+  spec: SpecWorkspaceModel;
+  skills: SkillCenterModel;
+  subagents: SubagentModel;
+  runner: RunnerModel;
+  reviews: ReviewModel;
+};
