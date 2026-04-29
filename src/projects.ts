@@ -148,14 +148,18 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
       defaultBranch,
     });
     if (existsSync(targetRepoPath)) {
-      initializeProjectMemory({
-        dbPath,
-        artifactRoot: join(targetRepoPath, ".autobuild"),
-        projectId: id,
-        projectName: input.name,
-        goal: input.goal,
-        defaultBranch,
-      });
+      try {
+        initializeProjectMemory({
+          dbPath,
+          artifactRoot: join(targetRepoPath, ".autobuild"),
+          projectId: id,
+          projectName: input.name,
+          goal: input.goal,
+          defaultBranch,
+        });
+      } catch {
+        // Memory init is best-effort; project record is already persisted.
+      }
     }
   }
 
@@ -195,7 +199,22 @@ export function scanProjectDirectory(input: { targetRepoPath?: string }): Projec
     };
   }
 
-  const summary = readRepositorySummary(targetRepoPath);
+  let summary: RepositorySummary;
+  try {
+    summary = readRepositorySummary(targetRepoPath);
+  } catch {
+    return {
+      targetRepoPath,
+      name: basename(targetRepoPath) || "Imported Project",
+      repository: targetRepoPath,
+      defaultBranch: "main",
+      projectType: "imported-project",
+      techPreferences: [],
+      isGitRepository: false,
+      hasSpecProtocolDirectory: false,
+      errors: ["scan_failed"],
+    };
+  }
   const repository = summary.remoteUrl ?? targetRepoPath;
   const name = inferProjectName(targetRepoPath, summary);
   const packageManager = summary.packageManager;

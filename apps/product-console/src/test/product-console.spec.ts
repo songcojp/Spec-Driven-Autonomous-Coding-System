@@ -21,9 +21,9 @@ test("renders the console first screen and navigates across all pages", async ({
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
   await expect(page.getByRole("row", { name: /Northwind Supply Planner/ })).toBeVisible();
 
-  for (const label of ["项目主页", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "仪表盘"]) {
+  for (const label of ["项目主页", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "全局概况"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
-    const heading = label === "仪表盘" ? "全局概况" : label === "审查" ? /审查 \d+/ : label;
+    const heading = label === "审查" ? /审查 \d+/ : label;
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();
     if (label === "Runner") {
       await expect(page.getByText("任务调度中心")).toBeVisible();
@@ -70,7 +70,7 @@ test("defaults to Chinese and persists language switching", async ({ page }) => 
   await page.goto("/");
 
   await expect(page.getByLabel("语言")).toHaveValue("zh-CN");
-  await expect(page.getByRole("button", { name: "仪表盘", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "全局概况", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "项目主页", exact: true })).toBeVisible();
   await expect(page.getByText("项目总数")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();

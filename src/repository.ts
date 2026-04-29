@@ -69,21 +69,25 @@ export function readRepositorySummary(localPath: string, runner: CommandRunner =
   }
 
   summary.isGitRepository = true;
-  summary.remoteUrl = firstSuccessfulLine(git(["config", "--get", "remote.origin.url"], localPath, runner));
-  summary.defaultBranch = readDefaultBranch(localPath, runner);
-  summary.currentBranch = firstSuccessfulLine(git(["branch", "--show-current"], localPath, runner));
-  summary.latestCommit = firstSuccessfulLine(git(["rev-parse", "HEAD"], localPath, runner));
+  try {
+    summary.remoteUrl = firstSuccessfulLine(git(["config", "--get", "remote.origin.url"], localPath, runner));
+    summary.defaultBranch = readDefaultBranch(localPath, runner);
+    summary.currentBranch = firstSuccessfulLine(git(["branch", "--show-current"], localPath, runner));
+    summary.latestCommit = firstSuccessfulLine(git(["rev-parse", "HEAD"], localPath, runner));
 
-  const status = git(["status", "--short"], localPath, runner);
-  summary.uncommittedChanges = lines(status.stdout).filter((line) => !isControlPlaneArtifactStatus(line));
-  summary.hasUncommittedChanges = summary.uncommittedChanges.length > 0;
+    const status = git(["status", "--short"], localPath, runner);
+    summary.uncommittedChanges = lines(status.stdout).filter((line) => !isControlPlaneArtifactStatus(line));
+    summary.hasUncommittedChanges = summary.uncommittedChanges.length > 0;
 
-  summary.taskBranches = lines(git(["branch", "--format=%(refname:short)"], localPath, runner).stdout).filter(
-    (branch) => TASK_BRANCH_PREFIXES.some((prefix) => branch.startsWith(prefix)),
-  );
-  summary.worktrees = parseWorktrees(git(["worktree", "list", "--porcelain"], localPath, runner).stdout);
-  summary.pullRequests = readGhLines(["pr", "list", "--limit", "20", "--json", "number,title,state"], localPath, runner);
-  summary.ciRuns = readGhLines(["run", "list", "--limit", "10", "--json", "name,status,conclusion"], localPath, runner);
+    summary.taskBranches = lines(git(["branch", "--format=%(refname:short)"], localPath, runner).stdout).filter(
+      (branch) => TASK_BRANCH_PREFIXES.some((prefix) => branch.startsWith(prefix)),
+    );
+    summary.worktrees = parseWorktrees(git(["worktree", "list", "--porcelain"], localPath, runner).stdout);
+    summary.pullRequests = readGhLines(["pr", "list", "--limit", "20", "--json", "number,title,state"], localPath, runner);
+    summary.ciRuns = readGhLines(["run", "list", "--limit", "10", "--json", "name,status,conclusion"], localPath, runner);
+  } catch {
+    summary.errors.push("repository_scan_failed");
+  }
 
   return enrichFilesystemSummary(summary);
 }

@@ -66,7 +66,7 @@ const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | "blue">
 const copy = {
   "zh-CN": {
     nav: {
-      overview: "仪表盘",
+      overview: "全局概况",
       board: "项目主页",
       spec: "Spec 工作台",
       skills: "Skill 中心",
