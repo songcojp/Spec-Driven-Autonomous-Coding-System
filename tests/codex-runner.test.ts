@@ -79,6 +79,21 @@ test("runner policy resolves safe defaults and clamps heartbeat cadence", () => 
   });
   assert.equal(mediumRisk.sandboxMode, "workspace-write");
   assert.equal(mediumRisk.approvalPolicy, "on-request");
+
+  const isolated = resolveRunnerPolicy({
+    runId: "RUN-002D",
+    risk: "medium",
+    workspaceRoot: "/workspace/project",
+    testEnvironmentIsolation: {
+      environmentId: "it-run-002d",
+      environmentType: "integration",
+      resourceRefs: ["database:hash"],
+      workspacePath: "/workspace/project",
+      cleanupStrategy: "drop temp database",
+    },
+    now: stableDate,
+  });
+  assert.equal(isolated.testEnvironmentIsolation?.environmentId, "it-run-002d");
 });
 
 test("safety gate blocks dangerous files, commands, high-risk text, and permission escalation", () => {
@@ -349,6 +364,13 @@ test("runner queue worker records status check evidence after completed runs", a
           testCoverage: true,
           changedFiles: ["src/status-checker.ts"],
         },
+        testEnvironmentIsolation: {
+          environmentId: "it-run-006s",
+          environmentType: "integration",
+          resourceRefs: ["database:006s"],
+          workspacePath: root,
+          cleanupStrategy: "remove temp sqlite database",
+        },
       },
     },
     () => ({ status: 0, stdout: '{"type":"result","status":"completed"}\ntoken=abc123', stderr: "" }),
@@ -359,6 +381,10 @@ test("runner queue worker records status check evidence after completed runs", a
   assert.equal(executed.recoveryTask, undefined);
   assert.equal(executed.recoveryDispatch, undefined);
   assert.equal(JSON.stringify(executed.statusCheckResult?.evidencePack).includes("abc123"), false);
+  assert.equal(
+    JSON.stringify(executed.statusCheckResult?.evidencePack.runner.evidence).includes("it-run-006s"),
+    true,
+  );
   const persisted = listStatusCheckResults(dbPath, "RUN-006S");
   assert.equal(persisted.length, 1);
   assert.equal(persisted[0].status, "review_needed");

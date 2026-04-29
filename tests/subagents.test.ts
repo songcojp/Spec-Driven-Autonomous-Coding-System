@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema, listTables } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
-import { buildWorktreeRecord } from "../src/workspace.ts";
+import { buildTestEnvironmentIsolationRecord, buildWorktreeRecord } from "../src/workspace.ts";
 import {
   buildContextSlice,
   createSubagentRun,
@@ -78,6 +78,43 @@ test("run contract freezes execution boundary and requires workspace for write r
   assert.deepEqual(run.contract.allowedFiles, ["src/subagents.ts", "tests/subagents.test.ts"]);
   assert.equal(run.contract.prohibitedActions.includes("read_full_main_context"), true);
   assert.equal(run.contract.prohibitedActions.includes("write_outside_allowed_files"), true);
+});
+
+test("run contract carries test environment isolation for integration and e2e runs", () => {
+  const workspace = sampleWorktree();
+  const isolation = buildTestEnvironmentIsolationRecord({
+    runId: "RUN-ISO",
+    featureId: "FEAT-005",
+    taskId: "TASK-TEST",
+    worktree: workspace,
+    environmentId: "e2e-run-iso",
+    environmentType: "e2e",
+    cleanupStrategy: "remove temp database and cache namespace",
+    resources: [
+      {
+        kind: "cache",
+        name: "redis",
+        namespace: "e2e-run-iso",
+        connectionRef: "TEST_REDIS_URL",
+        cleanupStrategy: "flush namespace",
+      },
+    ],
+    now: stableDate,
+  });
+  const run = createSubagentRun({
+    featureId: "FEAT-005",
+    taskId: "TASK-TEST",
+    title: "Run e2e tests",
+    goal: "Validate isolated resources",
+    mode: "write",
+    workspace,
+    testEnvironmentIsolation: isolation,
+    now: stableDate,
+  });
+
+  assert.equal(run.contract.testEnvironmentIsolation?.environmentId, "e2e-run-iso");
+  assert.equal(run.contract.testEnvironmentIsolation?.runnerInput.resourceRefs.length, 1);
+  assert.equal(JSON.stringify(run.contract.testEnvironmentIsolation).includes("TEST_REDIS_URL"), true);
 });
 
 test("context broker returns only traceable spec, memory, allowed files, and evidence slices", () => {

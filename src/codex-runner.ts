@@ -19,7 +19,7 @@ import {
 } from "./recovery.ts";
 import { runSqlite, type SqlStatement } from "./sqlite.ts";
 import type { RiskLevel } from "./orchestration.ts";
-import type { WorktreeRecord } from "./workspace.ts";
+import type { TestRunnerIsolationInput, WorktreeRecord } from "./workspace.ts";
 import {
   runStatusCheck,
   type CommandCheckKind,
@@ -47,6 +47,7 @@ export type RunnerPolicy = {
   profile?: string;
   outputSchema: Record<string, unknown>;
   workspaceRoot: string;
+  testEnvironmentIsolation?: TestRunnerIsolationInput;
   resumeSessionId?: string;
   heartbeatIntervalSeconds: number;
   createdAt: string;
@@ -100,6 +101,7 @@ export type EvidenceInput = {
   events: CodexJsonEvent[];
   stdout: string;
   stderr: string;
+  testEnvironmentIsolation?: TestRunnerIsolationInput;
 };
 
 export type RunnerPolicyInput = {
@@ -113,6 +115,7 @@ export type RunnerPolicyInput = {
   resumeSessionId?: string;
   requestedSandboxMode?: RunnerSandboxMode;
   requestedApprovalPolicy?: RunnerApprovalPolicy;
+  testEnvironmentIsolation?: TestRunnerIsolationInput;
   heartbeatIntervalSeconds?: number;
   now?: Date;
 };
@@ -215,6 +218,7 @@ export type RunnerStatusCheckInput = {
   recoveryAttempts?: RecoveryAttempt[];
   forbiddenRetryItems?: ForbiddenRetryRecord[];
   recoveryResult?: RecoveryResultHandling;
+  testEnvironmentIsolation?: TestRunnerIsolationInput;
 };
 
 export type RunnerConsoleSnapshot = {
@@ -283,6 +287,7 @@ export function resolveRunnerPolicy(input: RunnerPolicyInput): RunnerPolicy {
     profile: input.profile,
     outputSchema: input.outputSchema ?? DEFAULT_OUTPUT_SCHEMA,
     workspaceRoot: input.workspaceRoot,
+    testEnvironmentIsolation: input.testEnvironmentIsolation,
     resumeSessionId: input.resumeSessionId,
     heartbeatIntervalSeconds,
     createdAt: now.toISOString(),
@@ -295,6 +300,7 @@ export function buildRunnerPolicyFromContract(input: {
   workspace: Pick<WorktreeRecord, "path">;
   outputSchema?: Record<string, unknown>;
   resumeSessionId?: string;
+  testEnvironmentIsolation?: TestRunnerIsolationInput;
   now?: Date;
 }): RunnerPolicy {
   return resolveRunnerPolicy({
@@ -303,6 +309,7 @@ export function buildRunnerPolicyFromContract(input: {
     workspaceRoot: input.workspace.path,
     outputSchema: input.outputSchema,
     resumeSessionId: input.resumeSessionId,
+    testEnvironmentIsolation: input.testEnvironmentIsolation,
     now: input.now,
   });
 }
@@ -396,6 +403,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       events: redactedEvents,
       stdout: rawLog.stdout,
       stderr: rawLog.stderr,
+      testEnvironmentIsolation: input.policy.testEnvironmentIsolation,
     };
 
     return { session, rawLog, evidence };
@@ -430,6 +438,7 @@ export async function processRunnerQueueItem(
     onHeartbeat,
   });
   const status = classifyQueueStatus(adapterResult);
+  const testEnvironmentIsolation = input.statusCheck?.testEnvironmentIsolation ?? input.policy.testEnvironmentIsolation;
   let statusCheckResult = input.statusCheck
     ? runStatusCheck({
         runId: input.runId,
@@ -445,7 +454,7 @@ export async function processRunnerQueueItem(
           summary: `Codex runner ${status}.`,
           stdout: adapterResult.rawLog.stdout,
           stderr: adapterResult.rawLog.stderr,
-          evidence: adapterResult.evidence,
+          evidence: { ...adapterResult.evidence, testEnvironmentIsolation },
         },
         diff: input.statusCheck.diff,
         commandChecks: input.statusCheck.commandChecks,

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { basename } from "node:path";
 import { runSqlite } from "./sqlite.ts";
@@ -16,11 +16,17 @@ export type CleanupStatus = "active" | "delivered" | "rolled_back" | "cleanup_re
 export type ConflictSeverity = "none" | "medium" | "high";
 export type ConflictReason =
   | "same_file"
+  | "same_branch"
   | "high_conflict_directory"
   | "schema"
   | "lock_file"
   | "shared_config"
-  | "shared_runtime_resource";
+  | "shared_runtime_resource"
+  | "high_risk_task"
+  | "incomplete_dependency";
+export type WorkspaceRunMode = "read" | "write";
+export type TestEnvironmentType = "unit" | "integration" | "e2e";
+export type TestResourceKind = "database" | "cache" | "container" | "external_api" | "filesystem" | "port" | "other";
 
 export type WorktreeRecord = {
   id: string;
@@ -40,6 +46,9 @@ export type WorkspaceScope = {
   featureId: string;
   taskId?: string;
   files: string[];
+  branch?: string;
+  mode?: WorkspaceRunMode;
+  highRisk?: boolean;
   dependencies?: string[];
   sharedResources?: string[];
 };
@@ -105,6 +114,45 @@ export type ParallelFeatureInput = {
   candidate: WorkspaceScope;
   activeScopes: WorkspaceScope[];
   completedFeatureIds: string[];
+};
+
+export type ParallelExecutionDecision = {
+  parallelAllowed: boolean;
+  serialRequired: boolean;
+  reasons: ConflictReason[];
+  evidence: string;
+  conflictCheck: ConflictCheckResult;
+};
+
+export type TestResourceIsolation = {
+  kind: TestResourceKind;
+  name: string;
+  namespace?: string;
+  connectionRef?: string;
+  cleanupStrategy: string;
+};
+
+export type TestRunnerIsolationInput = {
+  environmentId: string;
+  environmentType: TestEnvironmentType;
+  resourceRefs: string[];
+  workspacePath?: string;
+  cleanupStrategy: string;
+};
+
+export type TestEnvironmentIsolationRecord = {
+  id: string;
+  runId: string;
+  featureId: string;
+  taskId?: string;
+  worktreeId?: string;
+  environmentId: string;
+  environmentType: TestEnvironmentType;
+  resources: TestResourceIsolation[];
+  workspacePath?: string;
+  runnerInput: TestRunnerIsolationInput;
+  evidencePackMetadata: Record<string, unknown>;
+  createdAt: string;
 };
 
 const HIGH_CONFLICT_DIRS = ["src/schema", "migrations", "database", "db", "prisma"];
@@ -225,6 +273,134 @@ export function evaluateParallelFeature(input: ParallelFeatureInput): ConflictCh
   };
 }
 
+export function evaluateParallelExecution(input: {
+  candidate: WorkspaceScope;
+  activeScopes: WorkspaceScope[];
+  completedFeatureIds?: string[];
+}): ParallelExecutionDecision {
+  const activeWriteScopes = input.activeScopes.filter((scope) => (scope.mode ?? "write") === "write");
+  const conflictCheck = classifyWorkspaceConflicts(input.candidate, activeWriteScopes);
+  const reasons = new Set<ConflictReason>(conflictCheck.reasons);
+  const incompleteDependencies = input.candidate.dependencies?.filter(
+    (dependency) => !(input.completedFeatureIds ?? []).includes(dependency),
+  ) ?? [];
+
+  if ((input.candidate.mode ?? "write") === "read" && !input.candidate.highRisk) {
+    return {
+      parallelAllowed: true,
+      serialRequired: false,
+      reasons: [],
+      conflictCheck: {
+        ...conflictCheck,
+        severity: "none",
+        parallelAllowed: true,
+        reasons: [],
+        conflictingFiles: [],
+        conflictingResources: [],
+        serialRequired: false,
+        evidence: "Read-only workspace scope can run in parallel because it has no write boundary.",
+      },
+      evidence: "Read-only workspace scope can run in parallel because it has no write boundary.",
+    };
+  }
+
+  if (input.candidate.highRisk) {
+    reasons.add("high_risk_task");
+  }
+  if (input.candidate.branch && activeWriteScopes.some((scope) => scope.branch === input.candidate.branch)) {
+    reasons.add("same_branch");
+  }
+  if (incompleteDependencies.length > 0) {
+    reasons.add("incomplete_dependency");
+  }
+
+  const reasonList = [...reasons];
+  const parallelAllowed = reasonList.length === 0;
+  const scopedConflict = {
+    ...conflictCheck,
+    severity: parallelAllowed
+      ? "none" as const
+      : reasonList.some((reason) => ["same_file", "same_branch", "high_risk_task", "incomplete_dependency"].includes(reason))
+        ? "high" as const
+        : "medium" as const,
+    parallelAllowed,
+    serialRequired: !parallelAllowed,
+    reasons: reasonList,
+    evidence: parallelAllowed
+      ? "Write scope can run in parallel because files, branch, dependencies, and shared resources are isolated."
+      : `Serial execution required: ${reasonList.join(", ")}${incompleteDependencies.length > 0 ? `; incomplete dependencies ${incompleteDependencies.join(", ")}` : ""}.`,
+  };
+
+  return {
+    parallelAllowed,
+    serialRequired: !parallelAllowed,
+    reasons: reasonList,
+    conflictCheck: scopedConflict,
+    evidence: scopedConflict.evidence,
+  };
+}
+
+export function buildTestEnvironmentIsolationRecord(input: {
+  runId: string;
+  featureId: string;
+  taskId?: string;
+  worktree?: Pick<WorktreeRecord, "id" | "path">;
+  environmentId: string;
+  environmentType: TestEnvironmentType;
+  resources: TestResourceIsolation[];
+  cleanupStrategy: string;
+  now?: Date;
+}): TestEnvironmentIsolationRecord {
+  if (!input.environmentId.trim()) {
+    throw new Error("Test environment isolation requires an environment id.");
+  }
+  if (!input.cleanupStrategy.trim()) {
+    throw new Error("Test environment isolation requires a cleanup strategy.");
+  }
+  if (input.resources.length === 0) {
+    throw new Error("Test environment isolation requires at least one resource boundary.");
+  }
+
+  const runnerInput: TestRunnerIsolationInput = {
+    environmentId: input.environmentId,
+    environmentType: input.environmentType,
+    resourceRefs: input.resources.map(resourceRef),
+    workspacePath: input.worktree?.path,
+    cleanupStrategy: input.cleanupStrategy,
+  };
+  const evidencePackMetadata = {
+    testEnvironmentIsolation: {
+      environmentId: input.environmentId,
+      environmentType: input.environmentType,
+      resources: input.resources.map((resource) => ({
+        kind: resource.kind,
+        name: resource.name,
+        namespace: resource.namespace,
+        connectionRef: resource.connectionRef,
+        cleanupStrategy: resource.cleanupStrategy,
+      })),
+      resourceRefs: runnerInput.resourceRefs,
+      cleanupStrategy: input.cleanupStrategy,
+      workspacePath: input.worktree?.path,
+    },
+  };
+
+  return {
+    id: randomUUID(),
+    runId: input.runId,
+    featureId: input.featureId,
+    taskId: input.taskId,
+    worktreeId: input.worktree?.id,
+    environmentId: input.environmentId,
+    environmentType: input.environmentType,
+    resources: input.resources,
+    workspacePath: input.worktree?.path,
+    runnerInput,
+    evidencePackMetadata,
+    createdAt: (input.now ?? new Date()).toISOString(),
+  };
+}
+
 export function checkMergeReadiness(input: {
   worktreeId: string;
   conflictCheck: ConflictCheckResult;
@@ -323,6 +499,7 @@ export function persistWorkspaceEvidence(
     conflict?: ConflictCheckResult;
     mergeReadiness?: MergeReadinessResult;
     rollback?: RollbackBoundary;
+    testEnvironment?: TestEnvironmentIsolationRecord | TestEnvironmentIsolationRecord[];
   },
 ): void {
   const statements: SqlStatement[] = [];
@@ -379,7 +556,35 @@ export function persistWorkspaceEvidence(
       ],
     });
   }
+  for (const record of Array.isArray(input.testEnvironment) ? input.testEnvironment : input.testEnvironment ? [input.testEnvironment] : []) {
+    statements.push({
+      sql: `INSERT INTO test_environment_isolation_records (
+        id, run_id, feature_id, task_id, worktree_id, environment_id,
+        environment_type, resources_json, workspace_path, runner_input_json,
+        evidence_pack_metadata_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        record.id,
+        record.runId,
+        record.featureId,
+        record.taskId ?? null,
+        record.worktreeId ?? null,
+        record.environmentId,
+        record.environmentType,
+        JSON.stringify(record.resources),
+        record.workspacePath ?? null,
+        JSON.stringify(record.runnerInput),
+        JSON.stringify(record.evidencePackMetadata),
+        record.createdAt,
+      ],
+    });
+  }
   runSqlite(dbPath, statements);
+}
+
+function resourceRef(resource: TestResourceIsolation): string {
+  const raw = [resource.kind, resource.name, resource.namespace, resource.connectionRef].filter(Boolean).join(":");
+  return createHash("sha256").update(raw).digest("hex").slice(0, 16);
 }
 
 function buildWorkspaceBranch(featureId: string, taskId?: string): string {
