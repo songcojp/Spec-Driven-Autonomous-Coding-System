@@ -9,6 +9,6 @@
 - [x] TASK-007: 实现 Spec Slice 生成，覆盖 feature、user story、requirement、acceptance criteria 和 related files。
 - [x] TASK-008: 添加测试，验证原子需求、checklist 阻断、版本记录、歧义记录和切片来源追踪。
 - [x] TASK-009: 生成 `.autobuild/specs/` 或等价 artifact 投影，供 CLI 和人工审查使用。
-- [ ] TASK-010: 实现 Spec Source Scanner，自动扫描 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引，输出来源类型、路径、追踪关系、缺失项、冲突项和澄清项。
-- [ ] TASK-011: 将 Spec Source Scanner 结果接入 Requirement Intake、EARS / Feature Spec 生成、Clarification Log 和 Requirement Checklist，确保阶段 2 不触发 HLD 生成、Feature Spec 拆分或规划流水线。
-- [ ] TASK-012: 添加测试覆盖 Spec Sources 自动扫描、缺失/冲突标记、已有 HLD / Feature Spec 只读盘点，以及扫描结果作为需求录入事实输入。
+- [x] TASK-010: 实现 Spec Source Scanner，自动扫描 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引，输出来源类型、路径、追踪关系、缺失项、冲突项和澄清项。
+- [x] TASK-011: 将 Spec Source Scanner 结果接入 Requirement Intake、EARS / Feature Spec 生成、Clarification Log 和 Requirement Checklist，确保阶段 2 不触发 HLD 生成、Feature Spec 拆分或规划流水线。
+- [x] TASK-012: 添加测试覆盖 Spec Sources 自动扫描、缺失/冲突标记、已有 HLD / Feature Spec 只读盘点，以及扫描结果作为需求录入事实输入。

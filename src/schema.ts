@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -896,6 +896,19 @@ export const MIGRATIONS: Migration[] = [
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       "CREATE INDEX IF NOT EXISTS idx_cli_adapter_configs_status ON cli_adapter_configs(status, updated_at)",
+    ],
+  },
+  {
+    version: 17,
+    description: "Add project selection context and project directory listing support",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_selection_context (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        project_id TEXT NOT NULL,
+        switch_source TEXT NOT NULL DEFAULT 'manual',
+        switched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_projects_status_updated ON projects(status, updated_at)",
     ],
   },
 ];

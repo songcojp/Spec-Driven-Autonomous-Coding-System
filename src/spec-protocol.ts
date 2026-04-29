@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
 export type InputSourceType = "natural-language" | "PR" | "RP" | "PRD" | "EARS" | "mixed";
@@ -143,11 +143,68 @@ export type SpecSlice = {
   };
 };
 
+export type SpecSourceFileType =
+  | "PRD"
+  | "EARS"
+  | "HLD"
+  | "design"
+  | "feature-requirements"
+  | "tasks"
+  | "README";
+
+export type SpecMissingItemKind =
+  | "missing_design"
+  | "missing_requirements"
+  | "missing_tasks"
+  | "orphaned_traceability"
+  | "missing_hld";
+
+export type SpecConflictItem = {
+  id: string;
+  sourcePathA: string;
+  sourcePathB: string;
+  description: string;
+};
+
+export type SpecMissingItem = {
+  id: string;
+  kind: SpecMissingItemKind;
+  relatedPath: string;
+  description: string;
+};
+
+export type SpecSourceScanResult = {
+  path: string;
+  relativePath: string;
+  fileType: SpecSourceFileType;
+  traceIds: string[];
+  hasAmbiguousContent: boolean;
+  hasConflictContent: boolean;
+  exists: boolean;
+};
+
+export type SpecSourceClarificationItem = {
+  id: string;
+  sourcePath: string;
+  description: string;
+  type: "ambiguity" | "conflict" | "missing" | "orphaned";
+};
+
+export type SpecSourceScanSummary = {
+  projectPath: string;
+  scannedAt: string;
+  sources: SpecSourceScanResult[];
+  missingItems: SpecMissingItem[];
+  conflicts: SpecConflictItem[];
+  clarificationItems: SpecSourceClarificationItem[];
+};
+
 export type CreateFeatureSpecInput = {
   featureId: string;
   name?: string;
   rawInput: string;
   sourceType?: InputSourceType;
+  scanSummary?: SpecSourceScanSummary;
   now?: Date;
 };
 
@@ -198,6 +255,9 @@ export function createFeatureSpec(input: CreateFeatureSpecInput): FeatureSpec {
   }
 
   const clarificationLog = createClarificationLog(sources, input.now);
+  if (input.scanSummary) {
+    clarificationLog.push(...generateClarificationsFromScan(input.scanSummary, input.now));
+  }
   const partial: Omit<FeatureSpec, "checklist" | "status"> = {
     id: input.featureId,
     name,
@@ -455,6 +515,93 @@ export function createSpecSlice(spec: FeatureSpec, request: SliceRequest = {}): 
       sourceIds: [...sourceIds],
     },
   };
+}
+
+export function scanSpecSources(projectPath: string, now = new Date()): SpecSourceScanSummary {
+  const root = resolve(projectPath);
+  const sources: SpecSourceScanResult[] = [];
+  const missingItems: SpecMissingItem[] = [];
+  const conflicts: SpecConflictItem[] = [];
+  const clarificationItems: SpecSourceClarificationItem[] = [];
+
+  const staticCandidates: Array<[string, SpecSourceFileType]> = [
+    ["README.md", "README"],
+    ["docs/README.md", "README"],
+    ["docs/zh-CN/PRD.md", "PRD"],
+    ["docs/en/PRD.md", "PRD"],
+    ["docs/zh-CN/requirements.md", "EARS"],
+    ["docs/en/requirements.md", "EARS"],
+    ["docs/zh-CN/hld.md", "HLD"],
+    ["docs/zh-CN/design.md", "design"],
+    ["docs/en/requirements.md", "EARS"],
+  ];
+
+  for (const [relPath, fileType] of staticCandidates) {
+    const result = scanSpecFile(join(root, relPath), relPath, fileType);
+    if (result.exists) {
+      sources.push(result);
+    }
+  }
+
+  const featuresDir = join(root, "docs", "features");
+  if (existsSync(featuresDir)) {
+    for (const entry of readdirSync(featuresDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^feat-\d+/.test(entry.name)) continue;
+
+      const featRel = join("docs", "features", entry.name);
+      const featureFiles: Array<[string, SpecSourceFileType]> = [
+        [join(featRel, "requirements.md"), "feature-requirements"],
+        [join(featRel, "design.md"), "design"],
+        [join(featRel, "tasks.md"), "tasks"],
+      ];
+
+      let hasRequirements = false;
+      let hasDesign = false;
+      let hasTasks = false;
+
+      for (const [relPath, fileType] of featureFiles) {
+        const result = scanSpecFile(join(root, relPath), relPath, fileType);
+        if (result.exists) {
+          sources.push(result);
+          if (fileType === "feature-requirements") hasRequirements = true;
+          if (fileType === "design") hasDesign = true;
+          if (fileType === "tasks") hasTasks = true;
+        }
+      }
+
+      if (hasTasks && !hasRequirements) {
+        const id = missingItemId(missingItems.length + 1);
+        missingItems.push({ id, kind: "missing_requirements", relatedPath: featRel, description: `${entry.name} has tasks.md but no requirements.md` });
+        clarificationItems.push({ id: scanClarId(clarificationItems.length + 1), sourcePath: featRel, description: `Missing requirements.md for ${entry.name}`, type: "missing" });
+      }
+      if (hasTasks && !hasDesign) {
+        const id = missingItemId(missingItems.length + 1);
+        missingItems.push({ id, kind: "missing_design", relatedPath: featRel, description: `${entry.name} has tasks.md but no design.md` });
+      }
+      if (hasRequirements && !hasDesign && !hasTasks) {
+        const id = missingItemId(missingItems.length + 1);
+        missingItems.push({ id, kind: "missing_design", relatedPath: featRel, description: `${entry.name} has requirements.md but no design.md — design phase needed before task slicing` });
+      }
+    }
+  }
+
+  detectOrphanedTraceability(sources, missingItems, clarificationItems);
+
+  for (const source of sources) {
+    if (source.hasConflictContent) {
+      conflicts.push({
+        id: conflictId(conflicts.length + 1),
+        sourcePathA: source.relativePath,
+        sourcePathB: source.relativePath,
+        description: `Conflicting modal language detected in ${source.relativePath}`,
+      });
+      clarificationItems.push({ id: scanClarId(clarificationItems.length + 1), sourcePath: source.relativePath, description: `Conflicting modal language in ${source.relativePath}`, type: "conflict" });
+    } else if (source.hasAmbiguousContent) {
+      clarificationItems.push({ id: scanClarId(clarificationItems.length + 1), sourcePath: source.relativePath, description: `Ambiguous terms detected in ${source.relativePath}`, type: "ambiguity" });
+    }
+  }
+
+  return { projectPath: root, scannedAt: now.toISOString(), sources, missingItems, conflicts, clarificationItems };
 }
 
 export function projectSpecArtifact(spec: FeatureSpec, artifactRoot: string): string {
@@ -745,4 +892,98 @@ function testScenarioId(index: number): string {
 
 function clarificationId(index: number): string {
   return `CLAR-${String(index).padStart(3, "0")}`;
+}
+
+function missingItemId(index: number): string {
+  return `MISS-${String(index).padStart(3, "0")}`;
+}
+
+function conflictId(index: number): string {
+  return `CONF-${String(index).padStart(3, "0")}`;
+}
+
+function scanClarId(index: number): string {
+  return `SCAN-CLAR-${String(index).padStart(3, "0")}`;
+}
+
+function scanSpecFile(absPath: string, relativePath: string, fileType: SpecSourceFileType): SpecSourceScanResult {
+  if (!existsSync(absPath)) {
+    return { path: absPath, relativePath, fileType, traceIds: [], hasAmbiguousContent: false, hasConflictContent: false, exists: false };
+  }
+  let content = "";
+  try {
+    content = readFileSync(absPath, "utf8");
+  } catch {
+    return { path: absPath, relativePath, fileType, traceIds: [], hasAmbiguousContent: false, hasConflictContent: false, exists: false };
+  }
+  return {
+    path: absPath,
+    relativePath,
+    fileType,
+    traceIds: extractTraceIds(content),
+    hasAmbiguousContent: AMBIGUOUS_TERMS.test(content),
+    hasConflictContent: CONFLICT_PATTERN.test(content),
+    exists: true,
+  };
+}
+
+function extractTraceIds(content: string): string[] {
+  const matches = content.match(/\b(REQ|NFR|EDGE|FEAT|TASK|AC|TS)-\d+\b/g) ?? [];
+  return [...new Set(matches)].sort();
+}
+
+function detectOrphanedTraceability(
+  sources: SpecSourceScanResult[],
+  missingItems: SpecMissingItem[],
+  clarificationItems: SpecSourceClarificationItem[],
+): void {
+  const earsSources = sources.filter((s) => s.fileType === "EARS");
+  const featureReqSources = sources.filter((s) => s.fileType === "feature-requirements");
+
+  const allEarsReqIds = new Set(earsSources.flatMap((s) => s.traceIds.filter((id) => id.startsWith("REQ-"))));
+  const allFeatureReqIds = new Set(featureReqSources.flatMap((s) => s.traceIds.filter((id) => id.startsWith("REQ-"))));
+
+  for (const reqId of allEarsReqIds) {
+    if (!allFeatureReqIds.has(reqId)) {
+      missingItems.push({
+        id: missingItemId(missingItems.length + 1),
+        kind: "orphaned_traceability",
+        relatedPath: "docs/features/",
+        description: `${reqId} appears in EARS requirements but is not referenced by any Feature Spec`,
+      });
+      clarificationItems.push({
+        id: scanClarId(clarificationItems.length + 1),
+        sourcePath: "docs/features/",
+        description: `${reqId} is not yet assigned to a Feature Spec`,
+        type: "orphaned",
+      });
+    }
+  }
+}
+
+function generateClarificationsFromScan(
+  summary: SpecSourceScanSummary,
+  now = new Date(),
+): ClarificationLogEntry[] {
+  const timestamp = now.toISOString();
+  return summary.clarificationItems.map((item, index) => ({
+    id: clarificationId(100 + index + 1),
+    status: "open" as const,
+    question: item.description,
+    source: {
+      id: `SCAN-SRC-${String(index + 1).padStart(3, "0")}`,
+      type: "mixed" as const,
+      label: item.sourcePath,
+      text: item.description,
+    },
+    impact: [item.type === "conflict" ? "checklist.conflicts" : "checklist.ambiguity", "feature.status"],
+    recommendedAnswer: item.type === "missing"
+      ? "Create the missing artifact before proceeding with task slicing."
+      : item.type === "orphaned"
+      ? "Assign this requirement to an existing or new Feature Spec."
+      : "Resolve the ambiguity or conflict before promoting to ready.",
+    owner: "product",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  }));
 }

@@ -14,7 +14,7 @@
 | FEAT-007 | Workspace Isolation | `feat-007-workspace-isolation` | done | REQ-017、REQ-032、REQ-035 | M3/M4 | FEAT-004 |
 | FEAT-008 | Codex Runner | `feat-008-codex-runner` | in-progress | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066 | M4 | FEAT-007 |
 | FEAT-009 | Status Checker and Evidence | `feat-009-status-checker-evidence` | done | REQ-040 至 REQ-042、REQ-051 | M5 | FEAT-004、FEAT-008 |
-| FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | in-progress | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
+| FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | done | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
 | FEAT-011 | Review Center | `feat-011-review-center` | done | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
 | FEAT-012 | Delivery and Spec Evolution | `feat-012-delivery-spec-evolution` | done | REQ-048 至 REQ-050 | M6 | FEAT-009、FEAT-011 |
 | FEAT-013 | Product Console | `feat-013-product-console` | in-progress | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066、REQ-067 | M2-M7 | FEAT-001、FEAT-004、FEAT-008 |
