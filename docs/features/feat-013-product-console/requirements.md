@@ -5,12 +5,13 @@
 | Source | IDs / Sections |
 |---|---|
 | PRD | 第 8.1 至 8.7 节页面需求 |
-| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, NFR-006, NFR-007, NFR-008, NFR-010 |
+| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, NFR-006, NFR-007, NFR-008, NFR-010 |
 | HLD | 7.11 Product Console and Dashboard, 12 Observability and Operability |
 
 ## Scope
 
 - Dashboard 展示项目健康度、当前活跃 Feature、看板任务数量、运行中 Subagent、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
+- Dashboard Board 支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、适用阶段和风险等级。
 - Subagent Console 展示当前 Subagent、Run Contract、上下文切片、Evidence Pack、token 使用、运行状态，并支持终止和重试。
@@ -30,6 +31,8 @@
 ## Requirements
 
 - Dashboard 可以展示项目级和任务级状态摘要。
+- Dashboard Board 可以展示任务依赖、diff、测试结果、审批状态和失败恢复历史入口。
+- Dashboard Board 的拖拽或批量操作只能产生受状态机允许的状态变更或调度请求。
 - 用户可以从 Spec Workspace 追踪需求到任务图。
 - 用户可以查看 Skill 是否启用以及最近执行情况。
 - 用户可以定位每个 Subagent 的输入、输出和当前状态。
@@ -39,11 +42,11 @@
 ## Acceptance Criteria
 
 - [ ] Console 所有写操作都通过 Control Plane 命令发起。
+- [ ] 批量排期和批量运行保留审计记录，并对高风险、依赖未满足或审批缺失任务给出阻塞原因。
 - [ ] 看板加载和状态刷新耗时被记录为性能基线。
 - [ ] Runner 心跳、成本、成功率和失败率可展示。
 - [ ] Dashboard 不覆盖 Persistent Store、Project Memory 或 Git 事实。
 
 ## Risks and Open Questions
 
-- Dashboard Board 是否允许拖拽改变状态仍待确认；MVP 默认只允许受控命令。
 - Product Console 需要避免把说明性文本做成替代真实状态的静态页面。

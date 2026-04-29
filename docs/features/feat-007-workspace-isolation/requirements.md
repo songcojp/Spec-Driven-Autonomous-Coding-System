@@ -29,15 +29,18 @@
 ## Requirements
 
 - 任意并行写入都必须追踪到独立 worktree、分支、任务标识和合并目标。
+- 只读 Subagent 可以并行；不同文件的 Coding Agent 可以并行；同一文件、同一分支写任务默认串行；高风险任务必须由单 Agent 执行。
 - 互相影响文件或依赖的 Feature 不得并行 implementing。
 - 合并前必须执行冲突检测、Spec Alignment Check 和必要测试。
 - 并行写入冲突时必须禁止并行或要求隔离并进入合并前检测。
 - 共享运行时资源污染风险必须使用 mock、命名空间隔离、临时容器、独立实例或串行执行。
+- 集成测试和端到端测试不得默认共享同一可变本地数据库或缓存实例，测试环境标识、连接串、容器名和清理策略必须写入 Run Contract 和 Evidence Pack。
 
 ## Acceptance Criteria
 
 - [ ] worktree 记录包含路径、分支、base commit、目标分支、Feature/Task、Runner 和清理状态。
 - [ ] 同文件、高冲突目录、schema、锁文件或公共配置默认串行。
+- [ ] 集成测试和端到端测试使用可审计的测试环境隔离记录。
 - [ ] 合并前检查可以阻止冲突或未通过测试的变更。
 - [ ] 高风险或失败修改有可执行回滚路径。
 

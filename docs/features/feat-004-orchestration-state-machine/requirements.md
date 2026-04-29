@@ -5,7 +5,7 @@
 | Source | IDs / Sections |
 |---|---|
 | PRD | 第 6.6 至 6.8 节 FR-050 至 FR-064；第 11 节 M2 |
-| Requirements | REQ-024, REQ-025, REQ-026, REQ-027, REQ-028, REQ-029, REQ-030, REQ-031, REQ-032, REQ-033, REQ-034 |
+| Requirements | REQ-024, REQ-025, REQ-026, REQ-027, REQ-028, REQ-029, REQ-030, REQ-031, REQ-032, REQ-033, REQ-034, REQ-060 |
 | HLD | 7.4 Orchestration and State Machine, 10.3 Autonomous Execution Loop, 14 Testing and Quality Strategy |
 
 ## Scope
@@ -15,7 +15,8 @@
 - 维护 Feature 状态机，覆盖 `draft`、`ready`、`planning`、`tasked`、`implementing`、`done`、`delivered`、`review_needed`、`blocked` 和 `failed`。
 - Project Scheduler 从 Feature Spec Pool 动态选择 ready Feature。
 - Feature Scheduler 根据依赖、风险、文件范围、Runner 可用性、worktree 状态、成本预算、执行窗口和审批要求推进任务。
-- 计划流水线自动调用技术上下文、研究决策、架构计划、数据模型、契约设计和任务切片 Skill。
+- Project Scheduler 支持立即执行、指定时间、每日、每小时、夜间、工作日、依赖完成、CI 失败和审批通过等触发模式。
+- 计划流水线自动调用技术上下文、研究决策、架构计划、数据模型、契约设计、quickstart validation、任务切片和 spec consistency analysis Skill。
 
 ## Non-Scope
 
@@ -31,7 +32,10 @@
 
 - Project Scheduler 不得依赖 Project Memory 中的静态候选队列作为真实来源。
 - Feature 选择必须记录候选摘要、选择原因和 Memory 摘要。
+- 每次调度运行必须记录触发模式、触发时间、触发来源、触发对象和调度结果。
 - 任一计划阶段失败时 Feature 进入 Review Needed 并保留失败证据。
+- quickstart validation 必须在任务切片前验证实现路径可启动、可测试或可明确标记阻塞。
+- spec consistency analysis 必须在计划完成前验证计划、数据模型、契约和任务切片与 Feature Spec 一致。
 - Feature done 判定必须同时满足任务 Done、Feature 验收、Spec Alignment Check 和必要测试通过。
 - 依赖未完成的 Feature 不得进入 implementing。
 
@@ -42,8 +46,9 @@
 - [ ] Running 任务完成检测后可进入 Done、Review Needed、Blocked 或 Failed。
 - [ ] Feature 进入 review_needed 时记录 approval_needed、clarification_needed 或 risk_review_needed。
 - [ ] Feature Scheduler 只调度依赖已满足且边界允许的任务。
+- [ ] CI 失败、审批通过和依赖完成触发不得绕过 Feature/Task 边界、审批规则或安全策略。
 
 ## Risks and Open Questions
 
 - Project Scheduler 的固定规则需要保持可解释，避免引入不可审计的评分黑盒。
-- Dashboard 是否允许拖拽改变状态仍待确认；本 Feature 默认仅支持受控状态命令。
+- Dashboard Board 的拖拽或批量操作只产生状态机允许的状态变更或调度请求。

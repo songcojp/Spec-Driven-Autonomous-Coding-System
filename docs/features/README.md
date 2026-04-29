@@ -5,10 +5,10 @@
 | Feature ID | Feature | Folder | Status | Primary Requirements | Suggested Milestone | Dependencies |
 |---|---|---|---|---|---|---|
 | FEAT-000 | System Bootstrap | `feat-000-system-bootstrap` | done | REQ-011、REQ-058、NFR-004 | M0 | None |
-| FEAT-001 | Project and Repository Foundation | `feat-001-project-repository-foundation` | done | REQ-001 至 REQ-003 | M1 | FEAT-000 |
+| FEAT-001 | Project and Repository Foundation | `feat-001-project-repository-foundation` | done | REQ-001 至 REQ-003、REQ-059 | M1 | FEAT-000 |
 | FEAT-002 | Spec Protocol Foundation | `feat-002-spec-protocol-foundation` | done | REQ-004 至 REQ-009 | M1 | FEAT-000 |
 | FEAT-003 | Skill Center and Schema Governance | `feat-003-skill-center-schema-governance` | done | REQ-010 至 REQ-013 | M1 | FEAT-000 |
-| FEAT-004 | Orchestration and State Machine | `feat-004-orchestration-state-machine` | done | REQ-024 至 REQ-034 | M2 | FEAT-001、FEAT-002、FEAT-003、FEAT-014 |
+| FEAT-004 | Orchestration and State Machine | `feat-004-orchestration-state-machine` | done | REQ-024 至 REQ-034、REQ-060 | M2 | FEAT-001、FEAT-002、FEAT-003、FEAT-014 |
 | FEAT-005 | Subagent Runtime and Context Broker | `feat-005-subagent-runtime-context-broker` | done | REQ-014 至 REQ-018、REQ-055 | M3 | FEAT-004、FEAT-007 |
 | FEAT-006 | Project Memory and Recovery Projection | `feat-006-project-memory-recovery-projection` | done | REQ-019 至 REQ-023、REQ-036 | M3 | FEAT-004 |
 | FEAT-007 | Workspace Isolation | `feat-007-workspace-isolation` | done | REQ-017、REQ-032、REQ-035 | M3/M4 | FEAT-004 |
@@ -17,7 +17,7 @@
 | FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | in-progress | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
 | FEAT-011 | Review Center | `feat-011-review-center` | done | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
 | FEAT-012 | Delivery and Spec Evolution | `feat-012-delivery-spec-evolution` | done | REQ-048 至 REQ-050 | M6 | FEAT-009、FEAT-011 |
-| FEAT-013 | Product Console | `feat-013-product-console` | done | REQ-052 至 REQ-056 | M2-M6 | FEAT-001、FEAT-004、FEAT-005、FEAT-008 |
+| FEAT-013 | Product Console | `feat-013-product-console` | done | REQ-052 至 REQ-056、REQ-061 | M2-M6 | FEAT-001、FEAT-004、FEAT-005、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 
 ## Dependency Tree
