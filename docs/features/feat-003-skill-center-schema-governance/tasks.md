@@ -1,10 +1,8 @@
-# Tasks: FEAT-003 Skill Center and Schema Governance
+# Tasks: FEAT-003 CLI Skill Directory Discovery
 
-- [x] TASK-001: 定义 Skill、SkillVersion、SkillRun 和 SchemaValidationResult 数据模型。
-- [x] TASK-002: 实现 Skill Registry 的创建、查询、匹配和启用状态过滤。
-- [x] TASK-003: 按 PRD 第 6.3 节 FR-021 初始化 MVP 内置 Skill 清单。
-- [x] TASK-004: 实现 input schema 执行前校验和 output schema 执行后校验。
-- [x] TASK-005: 将 schema 校验失败转换为 Evidence Pack 和 review_needed 或 failed 状态输入。
-- [x] TASK-006: 实现 Skill 版本记录、项目级覆盖、启用/禁用和回滚。
-- [x] TASK-007: 添加一致性测试，确保内置 Skill 清单与 PRD 来源保持同步。
-- [x] TASK-008: 添加 schema 校验失败路径测试，确认不会推进后续阶段。
+- [x] TASK-001: 移除 SQL Skill Registry、SkillVersion、SchemaValidationResult 和项目覆盖运行时接口。
+- [x] TASK-002: 实现 `.agents/skills/*/SKILL.md` 文件系统发现。
+- [x] TASK-003: Bootstrap 改为校验项目本地 Skill 文件存在。
+- [x] TASK-004: Console Skill Center 改为展示文件系统 Skill metadata。
+- [x] TASK-005: schema v14 删除旧 Skill 表并保留恢复调度专用表。
+- [x] TASK-006: 用文件系统 fixture 替换 Skill Registry/schema/版本测试。

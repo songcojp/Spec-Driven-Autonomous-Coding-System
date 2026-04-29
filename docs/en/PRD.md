@@ -3,20 +3,20 @@
 Version: V2.0
 Status: Official Draft
 Product Name: SpecDrive AutoBuild
-Product Direction: Spec + Skill + Subagent Driven Long-Running Autonomous Coding System
+Product Direction: Spec + CLI Skill + CLI Subagent Driven Long-Running Autonomous Coding System
 
 ---
 
 ## 1. Product Definition
 
-SpecDrive AutoBuild is a long-running autonomous coding system designed for software teams. The system uses structured Spec to manage product goals and acceptance criteria, Skills to solidify reusable engineering methods, Subagents to isolate context and process tasks in parallel, Project Memory to provide persistent memory for CLI across sessions, Codex Runner to execute code modifications, testing, and fixing, and an internal task state machine to manage task flow, approval, recovery, and delivery while the Dashboard presents that state.
+SpecDrive AutoBuild is a long-running autonomous coding system designed for software teams. The system uses structured Spec to manage product goals and acceptance criteria, project-local CLI Skills to solidify reusable engineering methods, CLI-native Subagents to handle delegation and context transfer, Project Memory to provide persistent memory across sessions, Codex Runner to execute code modifications, testing, and fixing, and an internal task state machine to manage task flow, approval, recovery, and delivery while the Dashboard presents that state.
 
 Core Conclusion:
 
 ```text
 Spec Protocol
-+ Skill System
-+ Subagent Runtime
++ CLI Skill Directory
++ CLI Subagent Delegation
 + Project Memory
 + Codex Runner
 + Internal Task State Machine
@@ -37,8 +37,8 @@ One-line Positioning:
 2. Automatically select the next pending Feature Spec based on priority and readiness.
 3. Automatically drive the Feature Spec pipeline: Tech Plan → Task Graph → Dashboard → Scheduling.
 4. Generate technical plans, task graphs, acceptance criteria, and risk rules based on Spec.
-5. Slice large tasks into context-isolated, boundary-defined Subagent Runs.
-6. Provide each Subagent with only the minimum context needed to complete the current task.
+5. Slice large tasks into schedulable tasks that can be delegated through CLI-native Subagents.
+6. Record durable run, evidence, status, review, and recovery state without re-implementing CLI context slicing.
 7. Codex Runner executes code modifications, testing, fixes, and PR generation.
 8. Status Checker automatically determines if tasks are done, failed, blocked, or need review.
 9. Dashboard displays real-time task status and delivery progress maintained by the internal task state machine.
@@ -82,7 +82,7 @@ Feature Scheduler                    │
         ↓                           │
 Project Memory Store ───────────────┤
         ↓                           │
-Subagent Runtime                     │
+CLI Subagent Delegation              │
    ├── Spec Agent                    │
    ├── Clarification Agent           │
    ├── Repo Probe Agent              │
@@ -118,10 +118,10 @@ Feature Selector ◀───────────────────┘
 Internal protocol for requirements, planning, acceptance, and execution evidence. Single source of truth. Includes Product Brief, Feature Spec, Clarification Log, Checklist, Tech Plan, Task Graph, Acceptance Criteria, Evidence, etc.
 
 ### 4.2 Skill System
-Reusable engineering capabilities. Each Skill must define name, description, trigger, schema (input/output), risk level, etc.
+Reusable engineering capabilities live in project-local `.agents/skills/*/SKILL.md` files. Codex CLI owns Skill discovery and invocation; SpecDrive only discovers Skill metadata for readiness checks and Console display.
 
 ### 4.3 Subagent Runtime
-Context-isolated Agent execution units. Subagents only receive Task Goals, context slices, and read/write scopes as defined in the Agent Run Contract.
+Subagent delegation is CLI-native. SpecDrive does not create Agent Run Contracts or context slices; it records run events, evidence, status checks, review decisions, recovery attempts, and audit history around CLI execution.
 
 ### 4.4 Project Memory
 Persistent project-level memory for CLI long-running sessions, stored in `.autobuild/memory/project.md`. Injects current goals, board status snapshot, and active blockers to prevent repeated repo exploration.
@@ -153,16 +153,16 @@ The system continuously routes through scheduling, planning, implementing, and d
 * **FR-015**: Spec Versioning.
 
 ### 6.3 Skill Center
-* **FR-020**: Skill Registration.
-* **FR-021**: MVP Built-in Skills.
-* **FR-022**: Skill Input/Output Schema validation.
-* **FR-023**: Skill Version Management.
+* **FR-020**: Project-local Skill discovery from `.agents/skills/*/SKILL.md`.
+* **FR-021**: CLI Skill files are the source of truth for reusable workflow behavior.
+* **FR-022**: Skill execution contracts are owned by Codex CLI and the Skill file, not a SQL registry.
+* **FR-023**: Skill changes are governed through file review and git history.
 
 ### 6.4 Subagent Runtime
 * **FR-030**: Subagent Types (Spec, Architecture, Coding, Test, etc).
-* **FR-031**: Agent Run Contract setup.
+* **FR-031**: CLI-native Subagent delegation and event observation.
 * **FR-032**: Subagent Parallelism Strategy (Worktrees required for parallel writing).
-* **FR-033**: Subagent Result Merger.
+* **FR-033**: Status Checker and Evidence determine durable task outcomes.
 
 ### 6.5 Project Memory
 * **FR-044 - FR-048**: Memory initialization, injection, updates, size limits (8000 tokens), and versioning.
@@ -199,12 +199,12 @@ The system continuously routes through scheduling, planning, implementing, and d
 ---
 
 ## 7. Core Data Models
-Includes JSON schemas for Project, Feature, Requirement, Task, Run, ProjectMemory, and EvidencePack.
+Includes schemas for Project, Feature, Requirement, Task, Run, ProjectMemory, EvidencePack, Runner records, StatusCheckResult, Review, Recovery, and Audit records. Skill Registry and custom Context Broker tables are not part of the product data model.
 
 ---
 
 ## 8. Page Requirements
-UI requirements for Dashboard, Spec Workspace, Skill Center, Subagent Console, Board, Runner Console, and Review Center.
+UI requirements for Dashboard, Spec Workspace, Skill Center, Subagent Console, Board, Runner Console, and Review Center. Skill Center reads project-local Skill files; Subagent Console reads durable run, event, evidence, and status-check records.
 
 ---
 
@@ -222,9 +222,9 @@ Targeting >85% for Spec Generation/Decomposition, >60% autonomous low-risk task 
 ---
 
 ## 11. MVP Version Planning
-* **M1**: Spec Protocol + Skill Basics
+* **M1**: Spec Protocol + CLI Skill Discovery
 * **M2**: Plan + Task Graph + Feature Selector
-* **M3**: Subagent Runtime + Project Memory
+* **M3**: CLI Subagent Observation + Project Memory
 * **M4**: Codex Runner
 * **M5**: Status Check & Recovery
 * **M6**: Review & Delivery

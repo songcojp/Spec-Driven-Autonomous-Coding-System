@@ -667,7 +667,7 @@ test("runner recovery does not dispatch duplicate scheduled retries", async () =
   assert.equal(duplicate.recoveryDispatch, undefined);
 });
 
-test("runner recovery without custom dispatcher queues default skill run and marks scheduled history", async () => {
+test("runner recovery without custom dispatcher queues default recovery dispatch and marks scheduled history", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-no-dispatcher-"));
   const dbPath = join(root, ".autobuild", "autobuild.db");
   initializeSchema(dbPath);
@@ -696,19 +696,18 @@ test("runner recovery without custom dispatcher queues default skill run and mar
   );
   const rows = runSqlite(dbPath, [], [{ name: "attempts", sql: "SELECT * FROM recovery_attempts WHERE task_id = ?", params: ["TASK-010"] }])
     .queries.attempts;
-  const skillRuns = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT * FROM skill_runs WHERE skill_slug = ?", params: ["failure-recovery-skill"] }])
+  const dispatches = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT * FROM recovery_dispatches" }])
     .queries.runs;
 
   assert.equal(result.recoveryTask?.retrySchedule?.status, "scheduled");
   assert.equal(result.recoveryDispatch?.skillInput.requested_action, "auto_fix");
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, "scheduled");
-  assert.equal(skillRuns.length, 1);
-  assert.equal(skillRuns[0].status, "scheduled");
-  const input = JSON.parse(String(skillRuns[0].input_json));
-  assert.equal(input.dispatch.scheduledAt, result.recoveryDispatch?.scheduledAt);
-  assert.equal(input.dispatch.policy.runId, result.recoveryDispatch?.policy.runId);
-  assert.equal(input.dispatch.skillInput.recovery_task_id, result.recoveryTask?.id);
+  assert.equal(dispatches.length, 1);
+  assert.equal(dispatches[0].status, "scheduled");
+  assert.equal(dispatches[0].scheduled_at, result.recoveryDispatch?.scheduledAt);
+  assert.equal(JSON.parse(String(dispatches[0].policy_json)).runId, result.recoveryDispatch?.policy.runId);
+  assert.equal(JSON.parse(String(dispatches[0].skill_input_json)).recovery_task_id, result.recoveryTask?.id);
   assert.deepEqual(listDueRecoveryDispatches(dbPath, stableDate), []);
 });
 
@@ -754,7 +753,7 @@ test("runner recovery keeps non-persistent status checks actionable", async () =
   assert.equal(dispatched.length, 0);
 });
 
-test("runner recovery default dispatcher updates stale scheduled skill run", async () => {
+test("runner recovery default dispatcher updates stale scheduled recovery dispatch", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-stale-skill-run-"));
   const dbPath = join(root, ".autobuild", "autobuild.db");
   initializeSchema(dbPath);
@@ -789,25 +788,25 @@ test("runner recovery default dispatcher updates stale scheduled skill run", asy
     { runId: "RUN-010ST", prompt: "Run tests again", policy, statusCheck },
     () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
   );
-  const skillRuns = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT * FROM skill_runs WHERE skill_slug = ?", params: ["failure-recovery-skill"] }])
+  const dispatches = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT * FROM recovery_dispatches" }])
     .queries.runs;
   const due = listDueRecoveryDispatches(dbPath, new Date(Date.now() + 60_000));
   const duplicateDue = listDueRecoveryDispatches(dbPath, new Date(Date.now() + 60_000));
 
-  assert.equal(skillRuns.length, 1);
-  assert.equal(skillRuns[0].id, first.recoveryTask?.id);
-  assert.equal(skillRuns[0].status, "queued");
+  assert.equal(dispatches.length, 1);
+  assert.equal(dispatches[0].id, first.recoveryTask?.id);
+  assert.equal(dispatches[0].status, "queued");
   assert.equal(due.length, 1);
-  assert.equal(due[0].skillRunId, first.recoveryTask?.id);
+  assert.equal(due[0].dispatchId, first.recoveryTask?.id);
   assert.equal(due[0].status, "running");
   assert.equal(due[0].skillInput.recovery_task_id, first.recoveryTask?.id);
   assert.equal(duplicateDue.length, 0);
   const ran: unknown[] = [];
-  runSqlite(dbPath, [{ sql: "UPDATE skill_runs SET status = ? WHERE id = ?", params: ["queued", first.recoveryTask?.id] }]);
+  runSqlite(dbPath, [{ sql: "UPDATE recovery_dispatches SET status = ? WHERE id = ?", params: ["queued", first.recoveryTask?.id] }]);
   const executed = await runDueRecoveryDispatches(dbPath, (dispatch) => {
     ran.push(dispatch);
   }, new Date(Date.now() + 60_000));
-  const completed = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT status FROM skill_runs WHERE id = ?", params: [first.recoveryTask?.id] }])
+  const completed = runSqlite(dbPath, [], [{ name: "runs", sql: "SELECT status FROM recovery_dispatches WHERE id = ?", params: [first.recoveryTask?.id] }])
     .queries.runs;
   assert.equal(executed.length, 1);
   assert.equal(ran.length, 1);

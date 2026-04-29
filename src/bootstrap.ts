@@ -3,7 +3,7 @@ import { ensureArtifactDirectories } from "./artifacts.ts";
 import { type AppConfig, loadConfig } from "./config.ts";
 import { BootstrapError, formatBootstrapError, type StepLog } from "./errors.ts";
 import { getCurrentSchemaVersion, initializeSchema } from "./schema.ts";
-import { countBuiltInSkills, seedBuiltInSkills } from "./skills.ts";
+import { countProjectSkills } from "./skills.ts";
 
 export type ReadyState =
   | {
@@ -17,7 +17,7 @@ export type ReadyState =
       version: string;
       schemaVersion: number;
       artifactRoot: string;
-      builtInSkills: number;
+      projectSkills: number;
     }
   | {
       status: "error";
@@ -40,11 +40,10 @@ export async function runBootstrap(config: AppConfig = loadConfig()): Promise<Bo
   try {
     await step(logs, "artifact-directories", () => ensureArtifactDirectories(config.artifactRoot));
     const schemaState = await step(logs, "schema", () => initializeSchema(config.dbPath));
-    await step(logs, "skill-seed", () => seedBuiltInSkills(config.dbPath));
+    const projectSkills = await step(logs, "skill-discovery", () => countProjectSkills({ root: config.projectRoot }));
 
-    const builtInSkills = countBuiltInSkills(config.dbPath);
-    if (builtInSkills === 0) {
-      throw new BootstrapError("skill-seed", "No built-in skills are available after seeding");
+    if (projectSkills === 0) {
+      throw new BootstrapError("skill-discovery", "No project-local SKILL.md files are available");
     }
 
     return {
@@ -54,7 +53,7 @@ export async function runBootstrap(config: AppConfig = loadConfig()): Promise<Bo
         version: APP_VERSION,
         schemaVersion: schemaState.schemaVersion,
         artifactRoot: config.artifactRoot,
-        builtInSkills,
+        projectSkills,
       },
       logs,
     };

@@ -16,12 +16,12 @@ import {
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
-test("schema version 12 includes review center approval context", () => {
+test("schema version 14 includes review center approval context", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 12);
-  assert.equal(state.schemaVersion, 12);
+  assert.equal(SCHEMA_VERSION, 14);
+  assert.equal(state.schemaVersion, 14);
   const tables = listTables(dbPath);
   assert.equal(tables.includes("review_items"), true);
   assert.equal(tables.includes("approval_records"), true);

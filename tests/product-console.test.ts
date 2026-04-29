@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
@@ -290,15 +290,13 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
 
   const skillCenter = buildSkillCenterView(dbPath, "project-1");
   assert.equal(skillCenter.skills[0].slug, "console-skill");
-  assert.equal(skillCenter.skills[0].enabled, true);
-  assert.equal(skillCenter.skills[0].successRate, 0.5);
-  assert.deepEqual(skillCenter.skills[0].schema.input, { type: "object" });
+  assert.equal(skillCenter.skills[0].description, "Displays console data.");
 
   const subagents = buildSubagentConsoleView(dbPath);
   const scopedSubagents = buildSubagentConsoleView(dbPath, "project-1");
-  assert.equal(subagents.runs.some((run) => run.runContract && run.contextSlice && run.tokenUsage), true);
+  assert.equal(subagents.runs.some((run) => run.evidence.length > 0 && run.statusChecks.length > 0 && run.tokenUsage), true);
   assert.equal(scopedSubagents.runs.some((run) => run.id === "RUN-OTHER"), false);
-  assert.equal(subagents.commands.map((command) => command.action).join(","), "terminate_subagent,retry_subagent");
+  assert.equal(subagents.commands.length, 0);
 
   const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"));
   const scopedRunner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-1");
@@ -474,9 +472,17 @@ test("console schedule command records scheduler triggers without bypassing boun
 });
 
 function makeDbPath(): string {
-  const dbPath = join(mkdtempSync(join(tmpdir(), "feat-013-console-")), ".autobuild", "autobuild.db");
+  const root = mkdtempSync(join(tmpdir(), "feat-013-console-"));
+  writeConsoleSkill(root);
+  const dbPath = join(root, ".autobuild", "autobuild.db");
   initializeSchema(dbPath);
   return dbPath;
+}
+
+function writeConsoleSkill(root: string): void {
+  const skillDir = join(root, ".agents", "skills", "console-skill");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), "---\nname: Console Skill\ndescription: Displays console data.\n---\n", "utf8");
 }
 
 function seedBoardPatchData(dbPath: string): void {
@@ -596,22 +602,6 @@ function seedConsoleData(dbPath: string): void {
         ]')`,
     },
     {
-      sql: `INSERT INTO skills (
-          id, slug, name, description, trigger, risk_level, phase, input_schema_json, output_schema_json, current_version, enabled
-        ) VALUES (
-          'SKILL-1', 'console-skill', 'Console Skill', 'Displays console data.', 'console', 'low', 'review',
-          '{"type":"object"}', '{"type":"object"}', '1.2.0', 1
-        )`,
-    },
-    {
-      sql: `INSERT INTO skill_runs (id, skill_slug, status)
-        VALUES ('SKILL-RUN-1', 'console-skill', 'completed'), ('SKILL-RUN-2', 'console-skill', 'failed')`,
-    },
-    {
-      sql: `INSERT INTO skill_runs (id, skill_slug, run_id, status)
-        VALUES ('SKILL-RUN-OTHER', 'console-skill', 'RUN-OTHER', 'completed')`,
-    },
-    {
       sql: `INSERT INTO runner_policies (
           id, run_id, risk, sandbox_mode, approval_policy, model, output_schema_json, workspace_root, heartbeat_interval_seconds
         ) VALUES ('POLICY-1', 'RUN-013', 'low', 'workspace-write', 'on-request', 'codex 1.2.3', '{}', '/workspace', 20)`,
@@ -636,16 +626,16 @@ function seedConsoleData(dbPath: string): void {
         VALUES ('LOG-1', 'RUN-013', 'ok', '', '[]', '2026-04-28T12:00:00.000Z')`,
     },
     {
-      sql: `INSERT INTO agent_run_contracts (id, run_id, contract_json)
-        VALUES ('CONTRACT-1', 'RUN-013', '{"allowedFiles":["src/product-console.ts"]}')`,
-    },
-    {
-      sql: `INSERT INTO context_slice_refs (id, run_id, refs_json, token_estimate)
-        VALUES ('CTX-1', 'RUN-013', '[{"kind":"spec_slice","sourceId":"REQ-052"}]', 120)`,
-    },
-    {
       sql: `INSERT INTO subagent_events (id, run_id, status, message, token_usage_json)
         VALUES ('EVT-1', 'RUN-013', 'running', 'Running dashboard work.', '{"inputTokens":10,"outputTokens":5,"totalTokens":15}')`,
+    },
+    {
+      sql: `INSERT INTO status_check_results (
+          id, run_id, task_id, feature_id, project_id, status, summary, reasons_json, recommended_actions_json
+        ) VALUES (
+          'STATUS-1', 'RUN-013', 'TASK-RUNNING', 'FEAT-013', 'project-1', 'checking',
+          'Status checker is observing the CLI run.', '[]', '[]'
+        )`,
     },
     {
       sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)

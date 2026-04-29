@@ -11,7 +11,7 @@
 ## Scope
 
 - 接收高风险区域、diff 超阈值、forbidden files、多次失败、测试未通过但建议继续、高影响歧义、权限提升、constitution 变更或架构方案变更触发的 Review Needed。
-- 展示任务目标、关联 Spec、Agent Run Contract、diff 摘要、测试结果、风险说明、推荐动作和可选操作。
+- 展示任务目标、关联 Spec、Runner policy、diff 摘要、测试结果、风险说明、推荐动作和可选操作。
 - 支持批准继续、拒绝、要求修改、回滚、拆分任务、更新 Spec 或标记完成。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 
