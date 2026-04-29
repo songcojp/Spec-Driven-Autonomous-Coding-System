@@ -7,6 +7,21 @@ description: "Intake and add new product requirements into the SpecDrive documen
 
 Before editing, follow the governance checklist in `docs/zh-CN/change-management.md` when it exists. This skill is the design-named requirement intake entry point and owns new requirement propagation.
 
+## When to Use This Skill vs. `spec-evolution-skill`
+
+| Situation | Use This Skill | Use `spec-evolution-skill` |
+|-----------|---------------|----------------------------|
+| Requirement does **not yet exist** anywhere in the spec | ✅ | |
+| Adding a brand-new user story, capability, or constraint | ✅ | |
+| Review finding adds a missing edge case not covered by any `EDGE-*` | ✅ | |
+| Implementation discovered behavior that was never specified | ✅ | |
+| **Existing** `REQ-*`/`NFR-*`/`EDGE-*` is inaccurate, incomplete, or contradicted by evidence | | ✅ |
+| Acceptance criteria of an existing requirement must change | | ✅ |
+| Existing requirement must be deprecated or superseded | | ✅ |
+| Wording clarification on an existing requirement with no scope change | | ✅ |
+
+**Rule of thumb**: If you can assign a brand-new stable ID without displacing an existing one, use this skill. If you are editing, replacing, or annotating an existing ID, use `spec-evolution-skill`.
+
 ## Workflow
 
 1. Locate the active source lane. If the user does not provide paths, prefer `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md` in this repo.

@@ -45,11 +45,11 @@ When a new requirement or capability is proposed, evaluate **before writing any 
 - Use `repo-probe-skill` for read-only repository exploration.
 - Use `pr-ears-requirement-decomposition-skill` when PRD, PR/RP, product prose, or natural-language requirements must become EARS requirements.
 - Use `requirements-checklist-skill` before consuming requirements for planning.
-- Use `technical-context-skill`, `research-decision-skill`, `architecture-plan-skill`, `data-model-skill`, `contract-design-skill`, `quickstart-validation-skill`, `task-slicing-skill`, and `spec-consistency-analysis-skill` for the planning pipeline.
-- Use `codex-coding-skill` for bounded implementation tasks with an approved Feature Spec, design constraints, allowed scope, and verification commands.
+- Use `technical-context-skill`, `research-decision-skill`, `architecture-plan-skill`, `data-model-skill`, `contract-design-skill`, `quickstart-validation-skill`, `task-slicing-skill`, and `spec-consistency-analysis-skill` for the planning pipeline (in that order). `quickstart-validation-skill` checks environment startability and command availability—it is not a spec document producer. `spec-consistency-analysis-skill` is the final planning gate (after `task-slicing-skill`) **and** may be re-run as a pre-implementation gate after `tasks.md` is complete but before `codex-coding-skill` begins, to catch contradictions introduced during task slicing.
+- Use `codex-coding-skill` for bounded implementation tasks with an approved Feature Spec, design constraints, allowed scope, and verification commands. Before starting implementation, verify that the project constitution (`memory/constitution.md` or equivalent) constraints are respected; flag violations in the task notes rather than silently proceeding.
 - Use `test-execution-skill` for targeted, regression, browser, build, or acceptance verification.
-- Use `review-report-skill` for code/spec review findings and delivery-risk reports.
-- Use `spec-evolution-skill` or `requirement-intake-skill` for requirement additions, changes, review-driven corrections, and spec reconciliation.
+- Use `review-report-skill` for code/spec review findings and delivery-risk reports. When reviewing implementation, check for spec drift—behavior that diverges from `REQ-*` requirements—and report it as a finding alongside code quality issues.
+- Use `spec-evolution-skill` when an **existing** requirement ID must be changed, corrected, deprecated, or superseded. Use `requirement-intake-skill` when a brand-new requirement with a new stable ID must be added. When uncertain which applies, check: if a target ID already exists, use `spec-evolution-skill`; if no target ID exists yet, use `requirement-intake-skill`.
 - Use `pr-generation-skill` only after implementation, tests, and review are complete.
 
 ## Development Commands

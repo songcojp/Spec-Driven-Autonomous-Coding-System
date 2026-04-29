@@ -7,6 +7,21 @@ description: "Manage requirement changes and spec evolution caused by user decis
 
 Before editing, follow the governance checklist in `docs/zh-CN/change-management.md` when it exists. This skill is the design-named entry point for evidence-driven requirement and spec changes.
 
+## When to Use This Skill vs. `requirement-intake-skill`
+
+| Situation | Use This Skill | Use `requirement-intake-skill` |
+|-----------|---------------|--------------------------------|
+| An **existing** `REQ-*`/`NFR-*`/`EDGE-*` is wrong, incomplete, or contradicted by evidence | ✅ | |
+| Acceptance criteria of an existing requirement must be corrected | ✅ | |
+| An existing requirement must be deprecated or superseded by another | ✅ | |
+| Wording clarification or traceability correction on an existing ID | ✅ | |
+| Architecture or HLD must be updated because implementation proved the plan wrong | ✅ | |
+| Requirement does **not yet exist**—needs a brand-new stable ID | | ✅ |
+| New user story, capability, or constraint with no prior requirement | | ✅ |
+| Implementation revealed a behavior that was never specified at all | | ✅ |
+
+**Rule of thumb**: If the target ID already exists and you are modifying it, use this skill. If no target ID exists yet, use `requirement-intake-skill`.
+
 ## Workflow
 
 1. Identify the changed requirement and its current source of truth. If no path is given, inspect `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md`.
