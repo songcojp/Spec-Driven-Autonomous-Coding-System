@@ -11,6 +11,7 @@ export type RunnerConfig = {
 };
 
 export type AppConfig = {
+  projectRoot: string;
   port: number;
   artifactRoot: string;
   dbPath: string;
@@ -57,6 +58,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   );
 
   const merged: AppConfig = {
+    projectRoot: cwd,
     port: Number(cliConfig.port ?? envConfig.port ?? fileConfig.port ?? 4731),
     artifactRoot,
     dbPath,

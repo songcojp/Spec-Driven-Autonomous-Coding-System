@@ -10,7 +10,7 @@ import { ARTIFACT_DIRECTORIES } from "../src/artifacts.ts";
 import { runBootstrap, initialReadyState } from "../src/bootstrap.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
 import { listTables, initializeSchema, getCurrentSchemaVersion, SCHEMA_VERSION } from "../src/schema.ts";
-import { BUILT_IN_SKILLS, countBuiltInSkills } from "../src/skills.ts";
+import { countProjectSkills } from "../src/skills.ts";
 import { listAuditEvents } from "../src/persistence.ts";
 import {
   createProject,
@@ -54,8 +54,9 @@ test("config loader rejects invalid required values", () => {
   );
 });
 
-test("bootstrap creates artifact tree, schema, health state, and idempotent skills", async () => {
+test("bootstrap creates artifact tree, schema, health state, and discovers project skills", async () => {
   const root = makeTempDir();
+  createProjectSkill(root);
   const config = loadConfig({ cwd: root, env: {}, argv: [] });
 
   const first = await runBootstrap(config);
@@ -75,12 +76,9 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
     "requirements",
     "tasks",
     "runs",
-    "agent_run_contracts",
     "evidence_packs",
     "project_memories",
-    "skills",
-    "skill_versions",
-    "skill_runs",
+    "recovery_dispatches",
     "worktree_records",
     "review_items",
     "approval_records",
@@ -100,16 +98,22 @@ test("bootstrap creates artifact tree, schema, health state, and idempotent skil
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
 
-  assert.equal(countBuiltInSkills(config.dbPath), BUILT_IN_SKILLS.length);
+  for (const removedTable of ["agent_run_contracts", "skills", "skill_versions", "skill_runs"]) {
+    assert.equal(tables.includes(removedTable), false, `${removedTable} should not exist`);
+  }
+
+  assert.equal(countProjectSkills({ root }), 1);
+  assert.equal(first.readyState.status === "ready" ? first.readyState.projectSkills : 0, 1);
 
   const second = await runBootstrap(config);
   assert.equal(second.readyState.status, "ready");
-  assert.equal(countBuiltInSkills(config.dbPath), BUILT_IN_SKILLS.length);
+  assert.equal(second.readyState.status === "ready" ? second.readyState.projectSkills : 0, 1);
   assert.equal(getCurrentSchemaVersion(config.dbPath), SCHEMA_VERSION);
 });
 
 test("project service creates queryable project and repository connection records", async () => {
   const root = makeTempDir();
+  createProjectSkill(root);
   const repo = createReadyGitRepo(join(root, "repo"));
   const config = loadConfig({ cwd: root, env: {}, argv: [] });
   await runBootstrap(config);
@@ -150,6 +154,7 @@ test("project service creates queryable project and repository connection record
 
 test("project health checker classifies ready, blocked, and failed states with reasons", async () => {
   const root = makeTempDir();
+  createProjectSkill(root);
   const config = loadConfig({ cwd: root, env: {}, argv: [] });
   await runBootstrap(config);
 
@@ -194,6 +199,7 @@ test("project health checker classifies ready, blocked, and failed states with r
 
 test("project constitution versions are auditable and mark downstream revalidation", async () => {
   const root = makeTempDir();
+  createProjectSkill(root);
   const config = loadConfig({ cwd: root, env: {}, argv: [] });
   await runBootstrap(config);
 
@@ -253,6 +259,7 @@ test("project constitution versions are auditable and mark downstream revalidati
 
 test("project API exposes project creation, repository summary, and health checks", async () => {
   const root = makeTempDir();
+  createProjectSkill(root);
   const repo = createReadyGitRepo(join(root, "api-repo"));
   const config = loadConfig({ cwd: root, env: {}, argv: ["--port", "0"] });
   await runBootstrap(config);
@@ -340,6 +347,7 @@ test("schema migration executor applies later versions once", () => {
 
 test("health endpoint reports initializing and ready states", async () => {
   const root = makeTempDir();
+  createProjectSkill(root);
   const config = loadConfig({ cwd: root, env: {}, argv: ["--port", "0"] });
   const controlPlane = createControlPlaneServer(config, initialReadyState(config));
 
@@ -384,6 +392,12 @@ test("bootstrap failure returns observable error state", async () => {
 
 function makeTempDir(): string {
   return mkdtempSync(join(tmpdir(), "autobuild-test-"));
+}
+
+function createProjectSkill(root: string): void {
+  const skillDir = join(root, ".agents", "skills", "bootstrap-skill");
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "SKILL.md"), "---\nname: bootstrap-skill\ndescription: Bootstrap test skill.\n---\n", "utf8");
 }
 
 function createReadyGitRepo(path: string): string {

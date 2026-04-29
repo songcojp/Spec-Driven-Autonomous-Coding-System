@@ -13,8 +13,8 @@ CHG-009 修正：FEAT-013 必须交付真实前端应用入口、页面路由、
 | Dashboard View | 聚合项目健康、Feature、任务、Subagent、失败、审批、成本、PR 和风险。 |
 | Dashboard Board View | 展示任务依赖、diff、测试结果、审批状态和失败恢复历史，并发起受控拖拽、批量排期和批量运行命令。 |
 | Spec Workspace View | 展示 Feature Spec、澄清、Checklist、计划、数据模型、契约、任务图和版本 diff。 |
-| Skill Center View | 展示 Skill 元数据、版本、schema、启用状态、日志、成功率和风险。 |
-| Subagent Console View | 展示 Run Contract、上下文切片、Evidence、token、状态、终止和重试入口。 |
+| Skill Center View | 展示项目本地 `.agents/skills/*/SKILL.md` 元数据和文件路径。 |
+| Subagent Console View | 展示 run、CLI subagent event、Evidence、Status Check、token 和状态。 |
 | Runner Console View | 展示 Runner 在线、Codex 版本、安全配置、queue、日志和心跳。 |
 | Review Center View | 展示 ReviewItem、风险筛选、diff、Evidence 和审批动作。 |
 | Console Command Gateway | 将 UI 动作转换为 Control Plane 命令。 |

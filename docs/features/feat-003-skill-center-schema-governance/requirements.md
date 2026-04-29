@@ -1,4 +1,4 @@
-# Feature Spec: FEAT-003 Skill Center and Schema Governance
+# Feature Spec: FEAT-003 CLI Skill Directory Discovery
 
 ## Source Mapping
 
@@ -10,36 +10,37 @@
 
 ## Scope
 
-- 注册 Skill 元数据，包括名称、描述、触发条件、输入输出 schema、允许上下文、所需工具、风险等级、适用阶段、成功标准和失败处理规则。
-- 初始化 MVP 内置 Skill 清单，并以 PRD 第 6.3 节 FR-021 为唯一事实源。
-- 在 Skill 执行前校验 input schema，在执行后校验 output schema。
-- 支持 Skill 版本号、变更记录、启用/禁用、项目级覆盖、团队级共享和版本回滚。
+- 从项目本地 `.agents/skills/*/SKILL.md` 动态发现 Skill。
+- 使用 Skill 目录名作为稳定 slug。
+- 读取 `SKILL.md` 中的 name、description 和路径用于 Console 展示。
+- Bootstrap 只检查项目本地 Skill 文件是否存在，不再 seed 内置 Skill 到 SQLite。
 
 ## Non-Scope
 
-- 不实现每个 Skill 的完整业务算法。
-- 不调度计划流水线；流水线归属 FEAT-004。
-- 不展示 Skill Center UI；展示归属 FEAT-013。
+- 不实现 SQL Skill Registry。
+- 不实现 Skill input/output schema 校验。
+- 不实现 Skill 版本管理、启用/禁用、项目覆盖或团队共享数据模型。
+- 不决定 Skill 调用；调用由 Codex CLI 原生机制负责。
 
 ## User Value
 
-团队可以把可复用工程方法固化为受治理的 Skill，并用 schema、风险等级和版本记录约束自动化行为。
+团队仍然通过项目本地 Skill 固化工程方法，同时避免维护一套与 CLI 原生 Skill 机制重复的注册和校验平台。
 
 ## Requirements
 
-- 已注册 Skill 必须能被 Orchestrator 查询和匹配。
-- MVP Skill 列表、触发条件和 schema 必须与 PRD 第 6.3 节一致。
-- schema 校验失败时不得进入下一阶段，必须生成 Evidence Pack 并进入 review_needed 或失败恢复流程。
-- 用户可以查看 Skill 版本历史并回滚到可用版本。
+- 系统必须能发现 `.agents/skills/<slug>/SKILL.md`。
+- 系统必须在 bootstrap readiness 中暴露发现到的项目 Skill 数量。
+- Console 必须展示文件系统发现到的 Skill 清单。
+- 数据库不得再作为 Skill 注册、schema 校验或版本治理的事实源。
 
 ## Acceptance Criteria
 
-- [ ] Skill Registry 可以创建、查询和匹配 Skill。
-- [ ] MVP 内置 Skill 清单与 PRD 第 6.3 节 FR-021 一致。
-- [ ] Skill 输入或输出 schema 校验失败时不会推进状态机。
-- [ ] Skill 版本变更可审计，并支持回滚到历史版本。
+- [ ] 项目本地 Skill 文件可以被扫描并按 slug 排序展示。
+- [ ] 缺少项目本地 Skill 文件时 bootstrap 返回明确错误。
+- [ ] schema v14 移除旧 Skill Registry 相关表。
+- [ ] Console Skill Center 不再展示 SQL schema、版本、启用状态或成功率。
 
 ## Risks and Open Questions
 
-- 内置 Skill 清单需要防止实现和 PRD 漂移。
-- 项目级覆盖和团队级共享在 MVP 中可以先实现数据模型，复杂分发策略后置。
+- Skill 质量治理需要依赖 `SKILL.md` 评审和项目文档约束。
+- 如未来需要团队级分发，应优先复用 CLI/plugin/skill 安装机制，而不是恢复 SQL 注册表。

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
+import { listProjectSkills } from "./skills.ts";
 import {
   createScheduleTrigger,
   persistSelectionDecision,
@@ -147,16 +149,8 @@ export type SkillCenterViewModel = {
   skills: Array<{
     slug: string;
     name: string;
-    version: string;
-    enabled: boolean;
-    phase: string;
-    riskLevel: string;
-    schema: {
-      input: unknown;
-      output: unknown;
-    };
-    recentRuns: Array<{ id: string; status: string; createdAt: string }>;
-    successRate: number;
+    description: string;
+    path: string;
   }>;
 };
 
@@ -166,9 +160,8 @@ export type SubagentConsoleViewModel = {
     featureId?: string;
     taskId?: string;
     status: string;
-    runContract?: unknown;
-    contextSlice?: unknown;
     evidence: Array<{ id: string; summary: string; path?: string }>;
+    statusChecks: Array<{ id: string; status: string; summary: string; createdAt: string }>;
     tokenUsage?: unknown;
   }>;
   commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
@@ -540,36 +533,10 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
   };
 }
 
-export function buildSkillCenterView(dbPath: string, projectId?: string): SkillCenterViewModel {
-  const projectFilter = projectId ? "WHERE project_id IS NULL OR project_id = ?" : "";
-  const projectParams = projectId ? [projectId] : [];
-  const runProjectFilter = projectId ? "WHERE sr.run_id IS NULL OR sr.run_id IN (SELECT id FROM runs WHERE project_id = ?)" : "";
-  const result = runSqlite(dbPath, [], [
-    { name: "skills", sql: `SELECT * FROM skills ${projectFilter} ORDER BY phase, slug`, params: projectParams },
-    {
-      name: "runs",
-      sql: `SELECT sr.id, sr.skill_slug, sr.status, sr.created_at FROM skill_runs sr ${runProjectFilter} ORDER BY sr.created_at DESC`,
-      params: projectParams,
-    },
-  ]);
+export function buildSkillCenterView(dbPath: string, projectId?: string, projectRoot = dirname(dirname(dbPath))): SkillCenterViewModel {
+  void projectId;
   return {
-    skills: result.queries.skills.map((row) => {
-      const recentRuns = result.queries.runs.filter((run) => run.skill_slug === row.slug).slice(0, 5);
-      return {
-        slug: String(row.slug),
-        name: String(row.name),
-        version: String(row.current_version),
-        enabled: Number(row.enabled) === 1,
-        phase: String(row.phase),
-        riskLevel: String(row.risk_level),
-        schema: {
-          input: parseJson(row.input_schema_json),
-          output: parseJson(row.output_schema_json),
-        },
-        recentRuns: recentRuns.map((run) => ({ id: String(run.id), status: String(run.status), createdAt: String(run.created_at) })),
-        successRate: ratio(recentRuns.filter((run) => String(run.status) === "completed").length, recentRuns.length),
-      };
-    }),
+    skills: listProjectSkills({ root: projectRoot }),
   };
 }
 
@@ -578,34 +545,30 @@ export function buildSubagentConsoleView(dbPath: string, projectId?: string): Su
   const runParams = projectId ? [projectId] : [];
   const result = runSqlite(dbPath, [], [
     { name: "runs", sql: `SELECT * FROM runs ${runFilter} ORDER BY COALESCE(started_at, '') DESC, rowid DESC LIMIT 25`, params: runParams },
-    { name: "contracts", sql: "SELECT run_id, contract_json FROM agent_run_contracts ORDER BY created_at DESC" },
-    { name: "contexts", sql: "SELECT run_id, refs_json, token_estimate FROM context_slice_refs ORDER BY created_at DESC" },
     { name: "events", sql: "SELECT run_id, token_usage_json FROM subagent_events ORDER BY created_at DESC" },
     { name: "evidence", sql: "SELECT id, run_id, summary, path FROM evidence_packs ORDER BY created_at DESC" },
+    { name: "statusChecks", sql: "SELECT id, run_id, status, summary, created_at FROM status_check_results ORDER BY created_at DESC" },
   ]);
 
   return {
     runs: result.queries.runs.map((row) => {
       const runId = String(row.id);
-      const context = result.queries.contexts.find((entry) => entry.run_id === row.id);
       const event = result.queries.events.find((entry) => entry.run_id === row.id);
       return {
         id: runId,
         featureId: optionalString(row.feature_id),
         taskId: optionalString(row.task_id),
         status: String(row.status),
-        runContract: parseJson(result.queries.contracts.find((entry) => entry.run_id === row.id)?.contract_json),
-        contextSlice: context ? { refs: parseJsonArray(context.refs_json), tokenEstimate: Number(context.token_estimate) } : undefined,
         evidence: result.queries.evidence
           .filter((entry) => entry.run_id === row.id)
           .map((entry) => ({ id: String(entry.id), summary: String(entry.summary ?? ""), path: optionalString(entry.path) })),
+        statusChecks: result.queries.statusChecks
+          .filter((entry) => entry.run_id === row.id)
+          .map((entry) => ({ id: String(entry.id), status: String(entry.status), summary: String(entry.summary), createdAt: String(entry.created_at) })),
         tokenUsage: parseJson(event?.token_usage_json),
       };
     }),
-    commands: [
-      { action: "terminate_subagent", entityType: "run" },
-      { action: "retry_subagent", entityType: "run" },
-    ],
+    commands: [],
   };
 }
 

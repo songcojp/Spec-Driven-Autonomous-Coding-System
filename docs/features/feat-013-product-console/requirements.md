@@ -16,8 +16,8 @@ Spec Evolution:
 - Dashboard 展示项目健康度、当前活跃 Feature、看板任务数量、运行中 Subagent、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
 - Dashboard Board 支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
-- Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、适用阶段和风险等级。
-- Subagent Console 展示当前 Subagent、Run Contract、上下文切片、Evidence Pack、token 使用、运行状态，并支持终止和重试。
+- Skill Center 展示项目本地 `.agents/skills/*/SKILL.md` 发现到的 Skill 列表、详情和文件路径。
+- Subagent Console 展示 CLI delegation 相关 run、Subagent event、Evidence Pack、Status Check、token 使用和运行状态。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳状态，并支持暂停或恢复 Runner。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。

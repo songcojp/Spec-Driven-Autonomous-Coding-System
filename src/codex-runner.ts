@@ -183,7 +183,7 @@ export type RecoveryDispatch = {
 };
 
 export type PersistedRecoveryDispatch = RecoveryDispatch & {
-  skillRunId: string;
+  dispatchId: string;
   status: "running";
 };
 
@@ -642,31 +642,31 @@ export function listDueRecoveryDispatches(dbPath: string, now: Date = new Date()
   const rows = runSqlite(dbPath, [], [
     {
       name: "runs",
-      sql: `SELECT id, status, input_json FROM skill_runs
-        WHERE skill_slug = ? AND status IN (?, ?)
+      sql: `SELECT id, status, scheduled_at, policy_json, skill_input_json FROM recovery_dispatches
+        WHERE status IN (?, ?)
         ORDER BY created_at, id`,
-      params: ["failure-recovery-skill", "queued", "scheduled"],
+      params: ["queued", "scheduled"],
     },
   ]).queries.runs;
   const due: PersistedRecoveryDispatch[] = [];
   const dueIds: string[] = [];
   for (const row of rows) {
-    const envelope = parseRecoveryDispatchEnvelope(String(row.input_json ?? ""));
-    if (!envelope) continue;
+    const dispatch = parseRecoveryDispatchRow(row);
+    if (!dispatch) continue;
     const status = String(row.status);
-    if (status === "scheduled" && new Date(envelope.scheduledAt).getTime() > now.getTime()) continue;
+    if (status === "scheduled" && new Date(dispatch.scheduledAt).getTime() > now.getTime()) continue;
     due.push({
-      skillRunId: String(row.id),
+      dispatchId: String(row.id),
       status: "running",
-      scheduledAt: envelope.scheduledAt,
-      policy: envelope.policy,
-      skillInput: envelope.skillInput,
+      scheduledAt: dispatch.scheduledAt,
+      policy: dispatch.policy,
+      skillInput: dispatch.skillInput,
     });
     dueIds.push(String(row.id));
   }
   if (dueIds.length) {
     runSqlite(dbPath, dueIds.map((id) => ({
-      sql: "UPDATE skill_runs SET status = ? WHERE id = ?",
+      sql: "UPDATE recovery_dispatches SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
       params: ["running", id],
     })));
   }
@@ -682,9 +682,9 @@ export async function runDueRecoveryDispatches(
   for (const dispatch of dispatches) {
     try {
       await runner(dispatch);
-      updateSkillRunStatus(dbPath, dispatch.skillRunId, "completed");
+      updateRecoveryDispatchStatus(dbPath, dispatch.dispatchId, "completed");
     } catch (error) {
-      updateSkillRunStatus(dbPath, dispatch.skillRunId, "failed", error instanceof Error ? error.message : String(error));
+      updateRecoveryDispatchStatus(dbPath, dispatch.dispatchId, "failed", error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
@@ -696,57 +696,46 @@ function createDefaultRecoveryDispatcher(dbPath: string): (dispatch: RecoveryDis
     const runStatus = new Date(dispatch.scheduledAt).getTime() > Date.now() ? "scheduled" : "queued";
     runSqlite(dbPath, [
       {
-        sql: `INSERT INTO skill_runs (id, skill_slug, run_id, status, input_json)
-          VALUES (?, ?, ?, ?, ?)
+        sql: `INSERT INTO recovery_dispatches (id, run_id, status, scheduled_at, policy_json, skill_input_json)
+          VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(id) DO UPDATE SET
-            skill_slug = excluded.skill_slug,
             run_id = excluded.run_id,
             status = excluded.status,
-            input_json = excluded.input_json`,
+            scheduled_at = excluded.scheduled_at,
+            policy_json = excluded.policy_json,
+            skill_input_json = excluded.skill_input_json,
+            updated_at = CURRENT_TIMESTAMP`,
         params: [
           dispatch.skillInput.recovery_task_id,
-          dispatch.skillInput.skill,
           dispatch.policy.runId,
           runStatus,
-          JSON.stringify(recoveryDispatchEnvelope(dispatch)),
+          dispatch.scheduledAt,
+          JSON.stringify(dispatch.policy),
+          JSON.stringify(dispatch.skillInput),
         ],
       },
     ]);
   };
 }
 
-function recoveryDispatchEnvelope(dispatch: RecoveryDispatch): FailureRecoverySkillInput & {
-  dispatch: { scheduledAt: string; policy: RunnerPolicy; skillInput: FailureRecoverySkillInput };
-} {
-  return {
-    ...dispatch.skillInput,
-    dispatch: {
-      scheduledAt: dispatch.scheduledAt,
-      policy: dispatch.policy,
-      skillInput: dispatch.skillInput,
-    },
-  };
-}
-
-function parseRecoveryDispatchEnvelope(value: string): RecoveryDispatch | undefined {
+function parseRecoveryDispatchRow(row: Record<string, unknown>): RecoveryDispatch | undefined {
   try {
-    const parsed = JSON.parse(value) as { dispatch?: Partial<RecoveryDispatch> };
-    const dispatch = parsed.dispatch;
-    if (!dispatch || typeof dispatch.scheduledAt !== "string" || !dispatch.policy || !dispatch.skillInput) return undefined;
+    const scheduledAt = String(row.scheduled_at ?? "");
+    if (!scheduledAt) return undefined;
     return {
-      scheduledAt: dispatch.scheduledAt,
-      policy: dispatch.policy as RunnerPolicy,
-      skillInput: dispatch.skillInput as FailureRecoverySkillInput,
+      scheduledAt,
+      policy: JSON.parse(String(row.policy_json ?? "{}")) as RunnerPolicy,
+      skillInput: JSON.parse(String(row.skill_input_json ?? "{}")) as FailureRecoverySkillInput,
     };
   } catch {
     return undefined;
   }
 }
 
-function updateSkillRunStatus(dbPath: string, id: string, status: string, output?: string): void {
+function updateRecoveryDispatchStatus(dbPath: string, id: string, status: string, output?: string): void {
   runSqlite(dbPath, [
     {
-      sql: "UPDATE skill_runs SET status = ?, output_json = COALESCE(?, output_json) WHERE id = ?",
+      sql: "UPDATE recovery_dispatches SET status = ?, output_json = COALESCE(?, output_json), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
       params: [status, output ? JSON.stringify({ error: output }) : null, id],
     },
   ]);

@@ -162,7 +162,7 @@ async function routeRequest(
     }
 
     if (request.method === "GET" && url.pathname === "/console/skills") {
-      writeJson(response, 200, buildSkillCenterView(config.dbPath, url.searchParams.get("projectId") ?? undefined));
+      writeJson(response, 200, buildSkillCenterView(config.dbPath, url.searchParams.get("projectId") ?? undefined, config.projectRoot));
       return;
     }
 

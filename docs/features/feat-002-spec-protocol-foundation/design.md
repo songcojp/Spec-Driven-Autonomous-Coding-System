@@ -2,7 +2,7 @@
 
 ## Design Summary
 
-Spec Protocol Engine 是需求事实源。它接收原始输入，生成 Feature、Requirement、AcceptanceCriteria、TestScenario、ClarificationLog、RequirementChecklist、SpecVersion 和 SpecSlice，并向调度和 Subagent 提供可验证上下文。
+Spec Protocol Engine 是需求事实源。它接收原始输入，生成 Feature、Requirement、AcceptanceCriteria、TestScenario、ClarificationLog、RequirementChecklist、SpecVersion 和 SpecSlice，并向调度、Runner 和 Status Checker 提供可验证上下文。
 
 ## Components
 
@@ -14,13 +14,13 @@ Spec Protocol Engine 是需求事实源。它接收原始输入，生成 Feature
 | Clarification Log | 记录问题、推荐答案、用户答案、影响范围、时间戳和责任人。 |
 | Requirement Checklist | 判断 Feature 是否达到 `ready` 质量门槛。 |
 | Spec Version Manager | 按 MAJOR、MINOR、PATCH 记录 Spec 演进。 |
-| Spec Slicer | 为任务和 Subagent 生成最小上下文切片。 |
+| Spec Slicer | 为任务和状态检测生成可追踪 Spec 片段。 |
 
 ## Data Ownership
 
 - Owns: Feature、Requirement、AcceptanceCriteria、TestScenario、ClarificationLog、RequirementChecklist、SpecVersion、SpecSlice。
 - Writes: Persistent Store 和 `.autobuild/specs/` 投影。
-- Provides: FEAT-004 的 Feature Spec Pool，FEAT-005 的 Context Slice。
+- Provides: FEAT-004 的 Feature Spec Pool，FEAT-009 的 Spec Alignment 输入。
 
 ## State and Flow
 
@@ -33,7 +33,7 @@ Spec Protocol Engine 是需求事实源。它接收原始输入，生成 Feature
 
 ## Dependencies
 
-- FEAT-003 的 Requirement Intake、EARS 和 Checklist Skill schema。
+- FEAT-003 的 CLI Skill Directory。
 - FEAT-014 的 Spec 实体持久化和审计能力。
 
 ## Review and Evidence

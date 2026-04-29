@@ -9,7 +9,7 @@ Review Center 是高风险、阻塞、澄清和审批动作的统一入口。它
 | Component | Responsibility |
 |---|---|
 | Review Router | 根据风险、权限、diff、失败、歧义和架构变更创建 ReviewItem。 |
-| Review Query Service | 聚合 Spec、Run Contract、diff、测试、Evidence 和推荐动作。 |
+| Review Query Service | 聚合 Spec、Runner policy、diff、测试、Evidence 和推荐动作。 |
 | Approval Action Handler | 处理批准、拒绝、要求修改、回滚、拆分、更新 Spec 和标记完成。 |
 | Review Rule Writer | 记录项目规则写入或 Spec Evolution 入口。 |
 | Approval Audit Recorder | 写入审批主体、时间、原因和结果。 |
@@ -17,7 +17,7 @@ Review Center 是高风险、阻塞、澄清和审批动作的统一入口。它
 ## Data Ownership
 
 - Owns: ReviewItem、ApprovalRecord、ReviewDecision。
-- Reads: Evidence、Task、Feature、AgentRunContract、Spec、Diff 摘要、Risk Rules。
+- Reads: Evidence、Task、Feature、Runner policy、Spec、Diff 摘要、Risk Rules。
 - Writes: StateTransition 输入、Audit Timeline、Spec Evolution 入口。
 
 ## State and Flow

@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -779,6 +779,35 @@ export const MIGRATIONS: Migration[] = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_test_environment_isolation_run ON test_environment_isolation_records(run_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_test_environment_isolation_feature ON test_environment_isolation_records(feature_id, environment_type, created_at)",
+    ],
+  },
+  {
+    version: 14,
+    description: "Remove CLI-native skill and context broker persistence",
+    statements: [
+      "DROP INDEX IF EXISTS idx_context_slice_refs_run",
+      "DROP INDEX IF EXISTS idx_result_merges_action",
+      "DROP TABLE IF EXISTS skills",
+      "DROP TABLE IF EXISTS skill_versions",
+      "DROP TABLE IF EXISTS schema_validation_results",
+      "DROP TABLE IF EXISTS skill_project_overrides",
+      "DROP TABLE IF EXISTS agent_run_contracts",
+      "DROP TABLE IF EXISTS context_slice_refs",
+      "DROP TABLE IF EXISTS result_merges",
+      "DROP TABLE IF EXISTS skill_runs",
+      `CREATE TABLE IF NOT EXISTS recovery_dispatches (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        scheduled_at TEXT NOT NULL,
+        policy_json TEXT NOT NULL,
+        skill_input_json TEXT NOT NULL,
+        output_json TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_recovery_dispatches_status_scheduled ON recovery_dispatches(status, scheduled_at)",
+      "CREATE INDEX IF NOT EXISTS idx_recovery_dispatches_run ON recovery_dispatches(run_id, created_at)",
     ],
   },
 ];

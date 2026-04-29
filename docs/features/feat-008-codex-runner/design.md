@@ -2,7 +2,7 @@
 
 ## Design Summary
 
-Codex Runner 是执行层入口。它读取 Agent Run Contract 和 Runner Policy，在指定 worktree 中调用 Codex CLI，采集事件、日志、心跳和结构化输出，并把结果交给 Evidence Store 和 Status Checker。
+Codex Runner 是执行层入口。它读取 Run、Task、WorktreeRecord 和 Runner Policy，在指定 worktree 中调用 Codex CLI，采集事件、日志、心跳和结构化输出，并把结果交给 Evidence Store 和 Status Checker。
 
 ## Components
 
@@ -18,7 +18,7 @@ Codex Runner 是执行层入口。它读取 Agent Run Contract 和 Runner Policy
 ## Data Ownership
 
 - Owns: RunnerPolicy、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog。
-- Reads: AgentRunContract、WorktreeRecord、Safety Rules、Task 风险。
+- Reads: Run、WorktreeRecord、Runner policy、Safety Rules、Task 风险。
 - Emits: Evidence Pack 输入、Status Check 请求、Review Needed 触发。
 
 ## State and Flow
@@ -33,7 +33,6 @@ Codex Runner 是执行层入口。它读取 Agent Run Contract 和 Runner Policy
 
 ## Dependencies
 
-- FEAT-005 提供 Agent Run Contract。
 - FEAT-007 提供 workspace root。
 - FEAT-009 接收执行结果并生成状态判断。
 - FEAT-011 处理高风险审批。

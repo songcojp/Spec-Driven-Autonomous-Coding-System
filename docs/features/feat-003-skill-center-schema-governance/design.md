@@ -1,41 +1,37 @@
-# Design: FEAT-003 Skill Center and Schema Governance
+# Design: FEAT-003 CLI Skill Directory Discovery
 
 ## Design Summary
 
-Skill System 提供可复用工程能力的注册、匹配、schema 校验和版本治理。Skill Executor 不直接决定业务状态，而是把校验结果、执行结果和失败证据交给 Orchestration、Evidence Store 和 Review Center。
+Skill 调用、触发和上下文交付由 Codex CLI 原生处理。SpecDrive 只发现项目本地 `.agents/skills/*/SKILL.md`，用于 bootstrap readiness、Console 展示和编排说明，不再维护 SQL Skill Registry、schema 校验、版本回滚或项目覆盖。
 
 ## Components
 
 | Component | Responsibility |
 |---|---|
-| Skill Registry | 保存 Skill 元数据并支持按阶段、触发条件、风险等级查询。 |
-| MVP Skill Seed | 从 PRD 第 6.3 节 FR-021 初始化内置 Skill。 |
-| Schema Validator | 校验 Skill input schema 和 output schema。 |
-| Skill Version Manager | 管理版本、启停、项目覆盖、团队共享和回滚。 |
-| Skill Run Recorder | 记录 SkillRun、SchemaValidationResult 和执行摘要。 |
+| Skill Directory Discovery | 扫描 `.agents/skills/<slug>/SKILL.md`，以目录名作为稳定 slug。 |
+| Skill Metadata Reader | 从 `SKILL.md` frontmatter 读取 name、description 和文件路径。 |
+| Bootstrap Skill Check | 确认项目至少存在一个本地 Skill 文件。 |
+| Console Skill View | 展示文件系统发现到的 Skill 清单，不展示 SQL schema、版本或成功率。 |
 
 ## Data Ownership
 
-- Owns: Skill、SkillVersion、SkillRun、SchemaValidationResult。
-- Reads: PRD 内置 Skill 清单、项目级 Skill 覆盖配置。
-- Emits: Evidence Pack 或状态事件。
+- Owns: 无 SQL Skill 数据；Skill 源文件归 `.agents/skills/*/SKILL.md` 所有。
+- Reads: 项目本地 Skill 文件。
+- Emits: bootstrap readiness 和 Console 查询模型。
 
 ## State and Flow
 
-1. 系统初始化 MVP Skill Seed。
-2. Orchestrator 根据阶段和触发条件查询 Skill。
-3. Skill Executor 校验 input schema。
-4. 执行后校验 output schema。
-5. 校验失败进入 Review Needed 或 Recovery 路径。
-6. 版本变更写入审计和 SkillVersion。
+1. Bootstrap 初始化 artifact 和 schema。
+2. Skill Directory Discovery 扫描项目本地 `.agents/skills`。
+3. 若没有可用 `SKILL.md`，bootstrap 返回可观测错误。
+4. Console 按文件系统事实展示 Skill，不参与执行调度。
 
 ## Dependencies
 
-- FEAT-014 提供持久化和审计。
-- FEAT-004 调用计划阶段 Skill。
-- FEAT-009 复用 schema 失败 Evidence。
+- FEAT-000 提供 bootstrap 入口。
+- Codex CLI 原生 Skill 机制负责发现、调用、上下文和执行。
 
 ## Review and Evidence
 
-- 新增、删除、重命名内置 Skill 前必须先更新 PRD 第 6.3 节。
-- 高风险 Skill 的执行或权限提升必须触发 FEAT-011。
+- 不允许重新引入 SQL Skill Registry、schema_validation_results、skill_versions 或 skill_project_overrides。
+- Skill 行为治理应写入 `SKILL.md` 和项目文档，而不是数据库注册表。

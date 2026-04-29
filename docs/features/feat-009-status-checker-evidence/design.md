@@ -18,7 +18,7 @@ Status Checker 将执行结果转换为状态机可消费的判断。Evidence St
 ## Data Ownership
 
 - Owns: EvidencePack、StatusCheckResult、SpecAlignmentResult。
-- Reads: Runner 输出、Git diff、Task、AgentRunContract、SpecSlice、Test 命令。
+- Reads: Runner 输出、Git diff、Task、Runner policy、SpecSlice、Test 命令。
 - Writes: Persistent Store、`.autobuild/evidence/`、Audit Timeline、MetricSample。
 
 ## State and Flow
@@ -32,7 +32,6 @@ Status Checker 将执行结果转换为状态机可消费的判断。Evidence St
 ## Dependencies
 
 - FEAT-001 提供项目测试/构建命令发现。
-- FEAT-005 提供 Run Contract。
 - FEAT-008 提供执行输出。
 - FEAT-014 提供 Evidence 持久化、审计和指标。
 
