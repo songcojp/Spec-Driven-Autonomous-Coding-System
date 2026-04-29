@@ -51,4 +51,4 @@
 
 - Schema 迁移策略：MVP 是否需要完整迁移框架（如 Drizzle migrate / Flyway）还是简单版本号比对？
 - 内置 Skill 种子化与 FEAT-003 的协作边界：种子数据由 Bootstrap 写入还是由 Skill Center 自检触发？建议 Bootstrap 负责首次写入，FEAT-003 负责后续版本升级。
-- `.autobuild/` 根目录默认位置是项目仓库根目录还是 AutoBuild 运行目录？HLD 当前指向目标仓库根目录，需在实现前确认。
+- `.autobuild/` 根目录默认位置已确认：MVP 使用目标仓库根目录下的 `.autobuild/`；若 Control Plane 不在目标仓库根目录启动，必须通过 `AppConfig.artifactRoot` 显式指向目标仓库的 artifact root。
