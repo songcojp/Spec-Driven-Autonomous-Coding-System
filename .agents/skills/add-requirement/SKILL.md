@@ -5,6 +5,8 @@ description: Add new product requirements into the SpecDrive documentation flow.
 
 # Add Requirement
 
+Before editing, follow the governance checklist in `docs/zh-CN/change-management.md` when it exists. Use this skill for the requirement-writing steps, and keep the checklist as the cross-document closeout contract.
+
 ## Workflow
 
 1. Locate the active source lane. If the user does not provide paths, prefer `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md` in this repo.

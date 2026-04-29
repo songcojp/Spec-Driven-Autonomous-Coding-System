@@ -5,6 +5,8 @@ description: Manage requirement changes and Spec Evolution in the SpecDrive docu
 
 # Change Requirement
 
+Before editing, follow the governance checklist in `docs/zh-CN/change-management.md` when it exists. Use this skill for the requirement-change steps, and keep the checklist as the cross-document closeout contract.
+
 ## Workflow
 
 1. Identify the changed requirement and its current source of truth. If no path is given, inspect `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md`.
