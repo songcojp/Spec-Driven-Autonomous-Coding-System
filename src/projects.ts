@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+import { ensureArtifactDirectories } from "./artifacts.ts";
 import { initializeProjectMemory } from "./memory.ts";
 import { recordAuditEvent } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
@@ -173,6 +174,7 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
     });
     if (existsSync(targetRepoPath)) {
       try {
+        ensureArtifactDirectories(join(targetRepoPath, ".autobuild"));
         initializeProjectMemory({
           dbPath,
           artifactRoot: join(targetRepoPath, ".autobuild"),

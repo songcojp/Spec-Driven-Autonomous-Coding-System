@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, existsSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { get, request as httpRequest } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -156,6 +156,9 @@ test("project service creates queryable project and repository connection record
   assert.equal(summary?.isGitRepository, true);
   assert.equal(summary?.currentBranch, "main");
   assert.equal(summary?.hasUncommittedChanges, false);
+  for (const dir of ARTIFACT_DIRECTORIES) {
+    assert.equal(existsSync(join(repo, ".autobuild", dir)), true);
+  }
 });
 
 test("project service rejects duplicate target repository paths", async () => {
@@ -300,6 +303,25 @@ test("project directory scan does not treat an unborn HEAD as a commit", () => {
   assert.equal(scan.defaultBranch, "main");
   assert.equal(scan.errors.length, 0);
   assert.equal(summary.latestCommit, undefined);
+});
+
+test("project directory scan recognizes autobuild artifact root as Spec Protocol", () => {
+  const root = makeTempDir();
+  const repo = createReadyGitRepo(join(root, "autobuild-only"));
+  rmSync(join(repo, "docs"), { recursive: true, force: true });
+  mkdirSync(join(repo, ".autobuild"), { recursive: true });
+  writeFileSync(join(repo, ".autobuild", "project.json"), "{}\n", "utf8");
+  execFileSync("git", ["add", "."], { cwd: repo });
+  execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "use autobuild protocol"], {
+    cwd: repo,
+    stdio: "ignore",
+  });
+
+  const scan = scanProjectDirectory({ targetRepoPath: repo });
+  const summary = readRepositorySummary(repo);
+
+  assert.equal(scan.hasSpecProtocolDirectory, true);
+  assert.equal(summary.hasSpecProtocolDirectory, true);
 });
 
 test("project constitution versions are auditable and mark downstream revalidation", async () => {

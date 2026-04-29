@@ -20,6 +20,24 @@ This repository is a spec-driven autonomous coding system. Treat the spec artifa
 - If implementation intent, acceptance criteria, or file scope is unclear, stop for clarification before making risky changes.
 - For Chinese docs, preserve Chinese structure, numbering, and terminology unless the user asks for a language or tone change.
 
+## Skill-vs-Code Decision
+
+When a new requirement or capability is proposed, evaluate **before writing any code**:
+
+**Implement as a Skill (SKILL.md) when:**
+- The capability can be expressed as a prompt-driven workflow (reasoning, planning, review, decomposition, analysis).
+- The CLI runtime already provides the underlying mechanism (file discovery, subagent delegation, session context).
+- The behavior would otherwise be hardcoded logic that a prompt + structured file conventions can replace.
+- Examples: skill routing, context collection, requirement decomposition, review checklists, task slicing.
+
+**Implement as Code when:**
+- The capability requires durable state that must survive across sessions (SQLite persistence, audit trail, state machine transitions).
+- The behavior enforces structural invariants the CLI cannot guarantee (status transitions, deduplication, retry limits).
+- The output must be machine-readable and queried programmatically (evidence records, status checks, delivery artifacts).
+- Examples: task board state machine, failure recovery history, audit log, status-checker evidence packaging.
+
+**Default rule:** If the CLI already provides the mechanism, write a Skill. Only write code when persistence, structural enforcement, or machine-queryable output is strictly necessary. Prefer removing hardcoded logic in favor of Skill files discovered from `.agents/skills/`.
+
 ## Skill Routing
 
 - For ordinary questions, exploratory reading, simple edits, small docs updates, simple commands, and direct bug fixes, use the normal Codex workflow instead of project-local skills unless the user explicitly specifies a skill.

@@ -99,7 +99,9 @@ function enrichFilesystemSummary(summary: RepositorySummary): RepositorySummary 
   summary.hasCodexConfig = existsSync(join(summary.localPath, ".codex")) || existsSync(join(summary.localPath, ".codex.json"));
   summary.hasAgentsFile = existsSync(join(summary.localPath, "AGENTS.md"));
   summary.hasSpecProtocolDirectory =
-    existsSync(join(summary.localPath, "docs", "features")) || existsSync(join(summary.localPath, ".spec"));
+    existsSync(join(summary.localPath, ".autobuild")) ||
+    existsSync(join(summary.localPath, "docs", "features")) ||
+    existsSync(join(summary.localPath, ".spec"));
   summary.sensitiveFileRisks = readSensitiveFileRisks(summary.localPath);
   return summary;
 }
