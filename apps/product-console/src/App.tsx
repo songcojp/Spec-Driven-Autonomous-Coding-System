@@ -23,9 +23,9 @@ import {
   SquareKanban,
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { createConsoleProject, fetchConsoleData, submitCommand } from "./lib/api";
+import { createConsoleProject, fetchConsoleData, scanProjectDirectory, submitCommand } from "./lib/api";
 import { demoData, emptyData } from "./lib/demo-data";
-import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectSummary } from "./types";
+import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "./types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
 
 type DataMode = "live" | "empty" | "error";
@@ -73,7 +73,7 @@ const copy = {
     currentProject: "当前项目",
     projectList: "项目列表",
     createProject: "创建项目",
-    createProjectDescription: "导入已有项目目录，或填写表单在 workspace 目录中创建新项目。",
+    createProjectDescription: "导入已有项目时只需设置目录，系统会自动扫描仓库信息；新项目统一创建到 workspace 目录。",
     importExistingProject: "导入现有项目",
     createNewProject: "创建新项目",
     projectName: "项目名称",
@@ -84,6 +84,14 @@ const copy = {
     workspaceSlug: "Workspace 目录名",
     defaultBranch: "默认分支",
     automationEnabled: "启用自动化",
+    scanRepository: "扫描仓库信息",
+    scanningRepository: "正在扫描目录...",
+    scanRepositoryFailed: "目录扫描失败",
+    detectedProjectName: "识别项目",
+    detectedDefaultBranch: "识别分支",
+    detectedPackageManager: "包管理器",
+    detectedRepository: "仓库来源",
+    noScanYet: "设置目录后自动扫描项目名称、分支、仓库来源和技术栈。",
     projectDirectory: "项目目录",
     repository: "仓库",
     recentActivity: "最近活动",
@@ -191,7 +199,7 @@ const copy = {
     currentProject: "Current Project",
     projectList: "Project List",
     createProject: "Create Project",
-    createProjectDescription: "Import an existing project directory, or create a new project under workspace.",
+    createProjectDescription: "Set a directory to import an existing project and scan repository details automatically, or create a new project under workspace.",
     importExistingProject: "Import Existing",
     createNewProject: "Create New",
     projectName: "Project name",
@@ -202,6 +210,14 @@ const copy = {
     workspaceSlug: "Workspace directory",
     defaultBranch: "Default branch",
     automationEnabled: "Enable automation",
+    scanRepository: "Repository scan",
+    scanningRepository: "Scanning directory...",
+    scanRepositoryFailed: "Directory scan failed",
+    detectedProjectName: "Detected project",
+    detectedDefaultBranch: "Detected branch",
+    detectedPackageManager: "Package manager",
+    detectedRepository: "Repository source",
+    noScanYet: "Set a directory to scan the project name, branch, repository source, and stack.",
     projectDirectory: "Project directory",
     repository: "Repository",
     recentActivity: "Recent activity",
@@ -312,6 +328,16 @@ function slugifyProjectName(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     || "new-project";
+}
+
+function inferProjectNameFromPath(value: string): string {
+  return value
+    .trim()
+    .replace(/[\\/]+$/, "")
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .at(-1)
+    ?? "";
 }
 
 function readInitialProjectId(): string {
@@ -426,7 +452,10 @@ export function App() {
   }
 
   function createProject(form: ProjectCreateForm) {
-    const projectName = form.name.trim() || (locale === "zh-CN" ? "新 AutoBuild 项目" : "New AutoBuild Project");
+    const inferredImportName = inferProjectNameFromPath(form.existingProjectPath);
+    const projectName = form.name.trim()
+      || (form.mode === "import_existing" && inferredImportName)
+      || (locale === "zh-CN" ? "新 AutoBuild 项目" : "New AutoBuild Project");
     const normalizedForm = {
       ...form,
       name: projectName,
@@ -506,7 +535,6 @@ export function App() {
           <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6">
             <div className="flex items-center gap-6">
               <div>
-                <div className="text-[12px] text-muted">{text.currentProject}</div>
                 <div className="flex items-center gap-2">
                   <select
                     className="h-9 max-w-[260px] rounded-md border border-line bg-white px-3 text-[14px] font-semibold text-ink"
@@ -961,8 +989,65 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
     defaultBranch: "main",
     automationEnabled: false,
   });
+  const [scan, setScan] = useState<ProjectDirectoryScan | undefined>();
+  const [scanError, setScanError] = useState<string | undefined>();
+  const [isScanning, setIsScanning] = useState(false);
   const updateForm = (patch: Partial<ProjectCreateForm>) => setForm((previous) => ({ ...previous, ...patch }));
-  const sharedFields = (
+
+  useEffect(() => {
+    if (form.mode !== "import_existing") {
+      setScan(undefined);
+      setScanError(undefined);
+      setIsScanning(false);
+      return;
+    }
+    const targetRepoPath = form.existingProjectPath.trim();
+    if (!targetRepoPath) {
+      setScan(undefined);
+      setScanError(undefined);
+      setIsScanning(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsScanning(true);
+    setScanError(undefined);
+    const scanTimer = window.setTimeout(() => {
+      scanProjectDirectory(targetRepoPath)
+        .then((nextScan) => {
+          if (cancelled) return;
+          setScan(nextScan);
+          setForm((previous) => ({
+            ...previous,
+            name: nextScan.name,
+            defaultBranch: nextScan.defaultBranch,
+            projectType: nextScan.projectType,
+            techPreferences: nextScan.techPreferences.join(", "),
+          }));
+        })
+        .catch((error: Error) => {
+          if (cancelled) return;
+          setScan(undefined);
+          setScanError(error.message);
+          setForm((previous) => ({
+            ...previous,
+            name: inferProjectNameFromPath(targetRepoPath),
+            defaultBranch: previous.defaultBranch || "main",
+            projectType: previous.projectType || "imported-project",
+          }));
+        })
+        .finally(() => {
+          if (!cancelled) setIsScanning(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(scanTimer);
+    };
+  }, [form.existingProjectPath, form.mode]);
+
+  const createNewFields = (
     <>
       <label className="block text-[13px] font-medium">
         {text.projectName}
@@ -993,6 +1078,12 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
       </div>
     </>
   );
+  const scanSummaryItems = scan ? [
+    [text.detectedProjectName, scan.name],
+    [text.detectedDefaultBranch, scan.defaultBranch],
+    [text.detectedPackageManager, scan.packageManager ?? text.none],
+    [text.detectedRepository, scan.repository],
+  ] : [];
   return (
     <Dialog.Root>
       <Dialog.Trigger asChild>
@@ -1025,7 +1116,6 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
             </div>
             {form.mode === "import_existing" ? (
               <>
-                {sharedFields}
                 <label className="block text-[13px] font-medium">
                   {text.existingProjectPath}
                   <input
@@ -1035,10 +1125,33 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
                     placeholder="/home/john/Projects/existing-app"
                   />
                 </label>
+                <div className="rounded-md border border-line bg-slate-50 p-3 text-[13px]">
+                  <div className="mb-2 flex items-center gap-2 font-medium">
+                    {isScanning ? <Loader2 className="animate-spin" size={14} /> : <Search size={14} />}
+                    {text.scanRepository}
+                  </div>
+                  {isScanning ? (
+                    <div className="text-muted">{text.scanningRepository}</div>
+                  ) : scan ? (
+                    <dl className="grid gap-2">
+                      {scanSummaryItems.map(([label, value]) => (
+                        <div key={label} className="grid gap-1 sm:grid-cols-[120px_1fr]">
+                          <dt className="text-muted">{label}</dt>
+                          <dd className="break-all">{value}</dd>
+                        </div>
+                      ))}
+                      {scan.errors.length > 0 ? <dd className="text-amber-700">{scan.errors.join(", ")}</dd> : null}
+                    </dl>
+                  ) : scanError ? (
+                    <div className="text-red-700">{text.scanRepositoryFailed}: {scanError}</div>
+                  ) : (
+                    <div className="text-muted">{text.noScanYet}</div>
+                  )}
+                </div>
               </>
             ) : (
               <>
-                {sharedFields}
+                {createNewFields}
                 <label className="block text-[13px] font-medium">
                   {text.projectGoal}
                   <input

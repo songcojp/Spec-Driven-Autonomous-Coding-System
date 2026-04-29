@@ -286,6 +286,15 @@ test("project API exposes project creation, repository summary, and health check
     const repository = await getJson(`http://127.0.0.1:${port}/projects/${project.id}/repository`);
     assert.equal(repository.isGitRepository, true);
 
+    const scanned = await postJson(`http://127.0.0.1:${port}/projects/scan`, {
+      targetRepoPath: repo,
+    });
+    assert.equal(scanned.name, "api-repo");
+    assert.equal(scanned.isGitRepository, true);
+    assert.equal(scanned.defaultBranch, "main");
+    assert.equal(scanned.packageManager, "npm");
+    assert.equal(scanned.hasSpecProtocolDirectory, true);
+
     const health = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/health`, {});
     assert.equal(health.status, "ready");
 

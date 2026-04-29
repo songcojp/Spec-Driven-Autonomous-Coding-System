@@ -58,6 +58,12 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await page.getByRole("button", { name: "创建项目" }).click();
   await expect(page.getByLabel("现有项目目录")).toBeVisible();
   await expect(page.getByLabel("项目目标")).toHaveCount(0);
+  await expect(page.getByLabel("项目名称")).toHaveCount(0);
+  await page.getByLabel("现有项目目录").fill("/home/john/Projects/imported-console");
+  await expect(page.getByText("识别项目")).toBeVisible();
+  await expect(page.getByText("imported-console", { exact: true })).toBeVisible();
+  await expect(page.getByText("识别分支")).toBeVisible();
+  await expect(page.getByText("main", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "创建新项目" }).click();
   await expect(page.getByLabel("项目目标")).toBeVisible();
   await expect(page.getByLabel("Workspace 目录名")).toBeVisible();
@@ -137,6 +143,23 @@ async function installConsoleRoutes(page: Page) {
   await page.route("**/console/subagents?projectId=project-2", async (route) => route.fulfill({ json: demoData.subagents }));
   await page.route("**/console/runner?projectId=project-2", async (route) => route.fulfill({ json: demoData.runner }));
   await page.route("**/console/reviews?projectId=project-2", async (route) => route.fulfill({ json: demoData.reviews }));
+  await page.route("**/projects/scan", async (route) => {
+    const body = route.request().postDataJSON() as { targetRepoPath?: string };
+    await route.fulfill({
+      json: {
+        targetRepoPath: body.targetRepoPath,
+        name: "imported-console",
+        repository: "git@github.com:example/imported-console.git",
+        defaultBranch: "main",
+        projectType: "specdrive-project",
+        techPreferences: ["npm", "specdrive"],
+        isGitRepository: true,
+        packageManager: "npm",
+        hasSpecProtocolDirectory: true,
+        errors: [],
+      },
+    });
+  });
   await page.route("**/projects", async (route) => {
     const body = route.request().postDataJSON() as { name?: string; targetRepoPath?: string };
     await route.fulfill({

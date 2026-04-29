@@ -11,6 +11,7 @@ import {
   readProjectRepository,
   runProjectHealthCheck,
   saveProjectConstitution,
+  scanProjectDirectory,
   type ProjectConstitutionInput,
 } from "./projects.ts";
 import {
@@ -73,6 +74,12 @@ async function routeRequest(
     if (request.method === "POST" && request.url === "/projects") {
       const project = createProject(config.dbPath, await readJsonBody(request));
       writeJson(response, 201, project);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/projects/scan") {
+      const scan = scanProjectDirectory(await readJsonBody(request));
+      writeJson(response, 200, scan);
       return;
     }
 

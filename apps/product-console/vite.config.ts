@@ -11,6 +11,10 @@ export default defineConfig({
         target: process.env.CONSOLE_API_BASE_URL ?? "http://localhost:4317",
         changeOrigin: true,
       },
+      "/projects": {
+        target: process.env.CONSOLE_API_BASE_URL ?? "http://localhost:4317",
+        changeOrigin: true,
+      },
     },
   },
   build: {

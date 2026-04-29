@@ -45,6 +45,19 @@ export type ProjectCreateForm = {
   automationEnabled: boolean;
 };
 
+export type ProjectDirectoryScan = {
+  targetRepoPath: string;
+  name: string;
+  repository: string;
+  defaultBranch: string;
+  projectType: string;
+  techPreferences: string[];
+  isGitRepository: boolean;
+  packageManager?: string;
+  hasSpecProtocolDirectory: boolean;
+  errors: string[];
+};
+
 export type DashboardModel = {
   projectHealth: { totalProjects: number; ready: number; blocked: number; failed: number };
   activeFeatures: Array<{ id: string; title: string; status: string; priority: number }>;

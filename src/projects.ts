@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { initializeProjectMemory } from "./memory.ts";
 import { recordAuditEvent } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
@@ -91,6 +91,19 @@ export type ProjectHealthCheck = {
   repositorySummary: RepositorySummary;
 };
 
+export type ProjectDirectoryScan = {
+  targetRepoPath: string;
+  name: string;
+  repository: string;
+  defaultBranch: string;
+  projectType: string;
+  techPreferences: string[];
+  isGitRepository: boolean;
+  packageManager?: string;
+  hasSpecProtocolDirectory: boolean;
+  errors: string[];
+};
+
 export function createProject(dbPath: string, input: ProjectInput): ProjectRecord {
   const id = randomUUID();
   const defaultBranch = input.defaultBranch ?? "main";
@@ -163,6 +176,46 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
     environment: input.environment,
     automationEnabled: Boolean(input.automationEnabled),
     status: "created",
+  };
+}
+
+export function scanProjectDirectory(input: { targetRepoPath?: string }): ProjectDirectoryScan {
+  const targetRepoPath = input.targetRepoPath ? resolve(input.targetRepoPath) : "";
+  if (!targetRepoPath) {
+    return {
+      targetRepoPath,
+      name: "Imported Project",
+      repository: targetRepoPath,
+      defaultBranch: "main",
+      projectType: "imported-project",
+      techPreferences: [],
+      isGitRepository: false,
+      hasSpecProtocolDirectory: false,
+      errors: ["repository_path_missing"],
+    };
+  }
+
+  const summary = readRepositorySummary(targetRepoPath);
+  const repository = summary.remoteUrl ?? targetRepoPath;
+  const name = inferProjectName(targetRepoPath, summary);
+  const packageManager = summary.packageManager;
+  const techPreferences = [
+    packageManager,
+    summary.hasSpecProtocolDirectory ? "specdrive" : undefined,
+    summary.hasAgentsFile ? "agents" : undefined,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    targetRepoPath,
+    name,
+    repository,
+    defaultBranch: summary.defaultBranch ?? summary.currentBranch ?? "main",
+    projectType: summary.hasSpecProtocolDirectory ? "specdrive-project" : "imported-project",
+    techPreferences,
+    isGitRepository: summary.isGitRepository,
+    packageManager,
+    hasSpecProtocolDirectory: summary.hasSpecProtocolDirectory,
+    errors: summary.errors,
   };
 }
 
@@ -544,6 +597,19 @@ function detectProvider(repositoryUrl?: string): string {
   if (repositoryUrl.includes("github.com")) return "github";
   if (repositoryUrl.includes("gitlab.com")) return "gitlab";
   return "private";
+}
+
+function inferProjectName(targetRepoPath: string, summary: RepositorySummary): string {
+  if (summary.remoteUrl) {
+    const remoteName = summary.remoteUrl
+      .split("/")
+      .at(-1)
+      ?.replace(/\.git$/, "");
+    if (remoteName) {
+      return remoteName;
+    }
+  }
+  return basename(targetRepoPath) || "Imported Project";
 }
 
 function nullableString(value: unknown): string | undefined {

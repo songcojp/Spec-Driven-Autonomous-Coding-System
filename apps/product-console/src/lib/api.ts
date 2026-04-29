@@ -1,4 +1,4 @@
-import type { CommandAction, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectSummary } from "../types";
+import type { CommandAction, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "../types";
 
 function endpoints(projectId: string) {
   const encodedProjectId = encodeURIComponent(projectId);
@@ -82,4 +82,16 @@ export async function createConsoleProject(input: ProjectCreateForm): Promise<Pr
     health: project.status === "failed" ? "failed" : project.status === "ready" ? "ready" : "blocked",
     lastActivityAt: new Date().toISOString(),
   };
+}
+
+export async function scanProjectDirectory(targetRepoPath: string): Promise<ProjectDirectoryScan> {
+  const response = await fetch("/projects/scan", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ targetRepoPath }),
+  });
+  if (!response.ok) {
+    throw new Error(`/projects/scan returned ${response.status}`);
+  }
+  return await response.json() as ProjectDirectoryScan;
 }

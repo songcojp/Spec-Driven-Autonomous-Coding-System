@@ -70,7 +70,7 @@ Spec Evolution:
 - [ ] 语言切换不得翻译或改写 Evidence、diff、日志、文件路径、命令输出和用户输入内容。
 - [ ] 浏览器级验证覆盖默认中文和至少一次语言切换。
 - [ ] Product Console 提供导入现有项目、新建项目表单、项目列表和当前项目切换控件。
-- [ ] 导入现有项目和新建项目必须使用不同表单：导入表单聚焦现有项目目录，新建表单聚焦项目目标、类型、技术偏好和 workspace 目录名。
+- [ ] 导入现有项目和新建项目必须使用不同表单：导入表单只要求设置现有项目目录，并自动扫描项目名称、默认分支、仓库来源和技术栈；新建表单聚焦项目目标、类型、技术偏好和 workspace 目录名。
 - [ ] 新建项目表单提交的新项目目录必须为 `workspace/<project-slug>`；导入现有项目提交用户填写的现有项目目录。
 - [ ] 切换项目后 Dashboard、Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 只展示当前项目数据。
 - [ ] 浏览器级验证覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及 `project_id` 缺失/不匹配时的阻塞反馈。
