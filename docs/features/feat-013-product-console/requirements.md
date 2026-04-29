@@ -5,11 +5,12 @@
 | Source | IDs / Sections |
 |---|---|
 | PRD | 第 8.1 至 8.7 节页面需求 |
-| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, NFR-006, NFR-007, NFR-008, NFR-010 |
+| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, NFR-006, NFR-007, NFR-008, NFR-010 |
 | HLD | 7.11 Product Console and Dashboard, 12 Observability and Operability |
 
 Spec Evolution:
 - CHG-009：实现证据显示当前仓库只有 Control Plane API、Query/ViewModel 和 API 层测试，没有用户可访问的前端应用、页面路由、组件系统或浏览器验收。FEAT-013 从 `done` 重新打开为 `in-progress`；API/ViewModel 只能作为 UI 后端基础，不能替代 Product Console 用户界面。
+- ADD-004：用户要求 UI 支持多语言切换，且默认中文。该需求作为 Product Console patch 处理，必须覆盖界面文案、语言偏好和浏览器级验证。
 
 ## Scope
 
@@ -21,6 +22,7 @@ Spec Evolution:
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳状态，并支持暂停或恢复 Runner。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。
+- Product Console 必须默认使用中文界面，并提供可见语言切换入口；切换范围覆盖导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息。
 
 ## Non-Scope
 
@@ -46,6 +48,7 @@ Spec Evolution:
 - 用户可以在浏览器中打开 Product Console，并在 Dashboard、Dashboard Board、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 之间切换。
 - 每个页面必须有加载态、空态、错误态和真实数据态；页面文案不能替代状态数据、Evidence、diff、日志或命令结果。
 - 用户动作必须通过可见控件发起，且控件调用 Control Plane 受控命令后展示成功、阻塞或失败反馈。
+- 用户可以切换界面语言并保留选择；Evidence、diff、日志、文件路径、命令输出和用户输入内容保持原文，不被界面翻译层改写。
 
 ## Acceptance Criteria
 
@@ -58,6 +61,10 @@ Spec Evolution:
 - [ ] Product Console 接入 HLD 指定的 React + Next.js 或 Vite React，以及 shadcn/ui + Tailwind CSS + Radix UI primitives，若因宿主框架调整必须在设计中记录替代方案。
 - [ ] 浏览器级验证覆盖 Console 首屏、页面切换、真实数据渲染、空态/错误态和一个受控命令动作；API 层测试不能单独满足 UI 验收。
 - [ ] FEAT-013 不得标记为 `done`，除非用户可访问 UI 与现有 API/ViewModel 同时完成并通过验证。
+- [ ] Product Console 首次打开默认展示中文界面。
+- [ ] 语言切换后当前页面和后续导航使用所选语言，刷新后仍保留用户选择。
+- [ ] 语言切换不得翻译或改写 Evidence、diff、日志、文件路径、命令输出和用户输入内容。
+- [ ] 浏览器级验证覆盖默认中文和至少一次语言切换。
 
 ## Risks and Open Questions
 

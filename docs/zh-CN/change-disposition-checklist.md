@@ -17,6 +17,7 @@
 | ADD-001 | 项目宪章创建、导入和生命周期管理 | PRD 第 5 节阶段 1；FR-021 `project-constitution-skill` | 已写入 `REQ-059`、HLD、FEAT-001；已同步为 FEAT-001 follow-up | 作为已完成 FEAT-001 的 follow-up 处理，不拆独立 Project Constitution Feature；后续实现 `TASK-009` 至 `TASK-011`。 |
 | ADD-002 | 调度触发模式 | PRD 第 6.8 节 FR-060 | 已写入 `REQ-060`、HLD、FEAT-004 | MVP 先实现触发记录与手动/定时入口；CI 失败、审批通过和依赖完成先作为受控事件触发记录，不直接绕过边界进入执行。 |
 | ADD-003 | Dashboard Board 操作能力 | PRD 第 8.5 节 | 已写入 `REQ-061`、HLD、FEAT-013 | 人工确认拖拽、批量排期、批量运行的 MVP 范围；建议先做受控命令，不直接改状态。 |
+| ADD-004 | Product Console UI 多语言切换，默认中文 | 用户指令；PRD 第 8.8 节 | 已写入 `REQ-062`、HLD/design、FEAT-013 | 作为已完成 FEAT-013 的 Product Console patch 处理；需实现语言切换、默认中文、语言偏好持久化和浏览器级验证。 |
 
 ## 变更清单
 
@@ -55,6 +56,7 @@
 | ADD-001 | 进入现有 FEAT-001 patch，不拆分新 Feature。 | 已在 FEAT-001 requirements、design、tasks 中标记项目宪章 follow-up，并保留 `REQ-059` 追踪。 | 需同步实现 |
 | ADD-002 | 进入 FEAT-004 patch；MVP 已实现触发模式记录与受控入口，手动/时间类触发进入 Feature 选择，CI 失败、审批通过和依赖完成作为可记录触发源，不要求接入外部 CI/审批系统。 | 已在 FEAT-004 requirements/design/tasks、Feature Index、实现和测试中覆盖 `REQ-060`；`schedule_run` 受控命令会记录 trigger 并对 accepted 触发生成 Feature Selection Decision。 | 已同步实现 |
 | ADD-003 | 进入 FEAT-013 patch；MVP 支持受状态机约束的拖拽意图、批量排期和批量运行命令，不允许 UI 直接改状态或写 Git。 | 已在 FEAT-013 requirements/design 覆盖 `REQ-061`；需补充 FEAT-013 patch 任务并实现受控命令/审计。 | 需同步实现 |
+| ADD-004 | 进入 FEAT-013 patch；Product Console 首次打开默认中文，并支持用户切换界面语言且保留偏好。 | 已在 PRD、requirements、HLD/design、Feature Index 和 FEAT-013 requirements/design/tasks 覆盖 `REQ-062`；需执行 `TASK-017` 至 `TASK-019`。 | 需同步实现 |
 | CHG-001 | 进入 FEAT-001 patch；当前代码未发现 `trust_level` project schema 字段，需补 schema、创建输入、查询输出和安全/调度可读路径。 | FEAT-001 requirements 已包含信任级别；需补充 FEAT-001 patch 任务并执行实现。 | 需同步实现 |
 | CHG-002 | 进入 FEAT-007 patch；并行写入策略按 MVP 固化为：只读可并行、不同文件可并行、同文件/同分支默认串行、高风险单 Agent。 | FEAT-007 requirements 已覆盖策略；需补充 FEAT-007 patch 任务并实现/验证调度可消费的隔离判定。 | 需同步实现 |
 | CHG-003 | 进入 FEAT-004 patch；`quickstart-validation` 与 `spec-consistency-analysis` 不只是 Skill Catalog 记录，计划流水线必须在对应阶段执行或显式阻塞。 | FEAT-004 requirements/design 已覆盖；需补充 FEAT-004 patch 任务并实现强制阶段。 | 需同步实现 |

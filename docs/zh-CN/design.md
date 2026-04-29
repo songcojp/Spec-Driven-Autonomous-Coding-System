@@ -76,6 +76,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-056 | 4.16, 6.1, 6.4 | Runner Console 展示 Runner 在线、队列、日志和心跳。 |
 | REQ-057 | 4.15, 4.16, 6.1, 7.9 | Review Center 管理待审批、高风险、阻塞和需澄清任务。 |
 | REQ-058 | 5, 6, 9 | Persistence Layer 持久化 MVP 核心实体必填字段。 |
+| REQ-062 | 4.16, 6.1, 11 | Product Console 默认中文，并支持界面语言切换。 |
 | NFR-001 | 4.9, 10 | Runner 默认禁用 danger-full-access 和 bypass approvals。 |
 | NFR-002 | 4.10, 4.13, 9 | worktree、diff 快照和恢复策略提供回滚路径。 |
 | NFR-003 | 5, 8, 9 | Run、状态、Memory 和 Evidence 更新使用幂等键。 |
@@ -606,6 +607,7 @@ Responsibilities:
 - Subagent Console 展示 Subagent、Run Contract、上下文切片、Evidence、token 使用和运行状态，并支持终止和重试。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳，并支持暂停或恢复 Runner。
 - Review Center UI 展示待审批列表、风险筛选、diff、Evidence 和审批操作。
+- Product Console 默认使用中文界面，并提供语言切换入口；界面文案随所选语言变化，Evidence、diff、日志、文件路径和命令输出等事实数据保持原文。
 
 Inputs:
 
@@ -618,6 +620,7 @@ Outputs:
 
 - UI view models。
 - Action commands。
+- Locale preference。
 
 Dependencies:
 
@@ -1599,7 +1602,7 @@ Evidence Pack 必须可被以下模块直接引用：
 - Subagent and Memory: REQ-014 至 REQ-023。
 - Planning, task graph, board, scheduler: REQ-024 至 REQ-036。
 - Runner, status, recovery, review, delivery: REQ-037 至 REQ-051。
-- Console and persistence: REQ-052 至 REQ-058。
+- Console and persistence: REQ-052 至 REQ-058、REQ-062。
 
 每个 `NFR-*` 应至少映射到策略或监控验证：
 
