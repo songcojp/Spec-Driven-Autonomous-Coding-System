@@ -7,11 +7,13 @@ import { initializeSchema, listTables } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
   buildWorktreeRecord,
+  buildTestEnvironmentIsolationRecord,
   checkMergeReadiness,
   classifyWorkspaceConflicts,
   createRollbackBoundary,
   createWorktree,
   decideCleanup,
+  evaluateParallelExecution,
   evaluateParallelFeature,
   persistWorktreeRecord,
   persistWorkspaceEvidence,
@@ -25,9 +27,55 @@ test("workspace schema owns worktree records, conflict checks, merge readiness, 
   initializeSchema(dbPath);
 
   const tables = listTables(dbPath);
-  for (const table of ["worktree_records", "conflict_check_results", "merge_readiness_results", "rollback_boundaries"]) {
+  for (const table of [
+    "worktree_records",
+    "conflict_check_results",
+    "merge_readiness_results",
+    "rollback_boundaries",
+    "test_environment_isolation_records",
+  ]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
+});
+
+test("parallel execution policy allows reads and isolated writes but serializes same branch and high risk work", () => {
+  const readOnly = evaluateParallelExecution({
+    candidate: { featureId: "FEAT-007", mode: "read", files: ["src/workspace.ts"] },
+    activeScopes: [{ featureId: "FEAT-004", mode: "write", files: ["src/workspace.ts"], branch: "feat/004" }],
+  });
+  assert.equal(readOnly.parallelAllowed, true);
+  assert.equal(readOnly.conflictCheck.reasons.length, 0);
+  assert.deepEqual(readOnly.conflictCheck.conflictingFiles, []);
+  assert.match(readOnly.evidence, /Read-only/);
+
+  const isolatedWrite = evaluateParallelExecution({
+    candidate: { featureId: "FEAT-007", mode: "write", files: ["src/workspace.ts"], branch: "feat/007" },
+    activeScopes: [{ featureId: "FEAT-006", mode: "write", files: ["src/memory.ts"], branch: "feat/006" }],
+    completedFeatureIds: ["FEAT-004"],
+  });
+  assert.equal(isolatedWrite.parallelAllowed, true);
+
+  const sameBranch = evaluateParallelExecution({
+    candidate: { featureId: "FEAT-007", mode: "write", files: ["src/workspace.ts"], branch: "feat/shared" },
+    activeScopes: [{ featureId: "FEAT-006", mode: "write", files: ["src/memory.ts"], branch: "feat/shared" }],
+  });
+  assert.equal(sameBranch.serialRequired, true);
+  assert.equal(sameBranch.reasons.includes("same_branch"), true);
+
+  const highRisk = evaluateParallelExecution({
+    candidate: { featureId: "FEAT-007", mode: "write", files: ["src/workspace.ts"], highRisk: true },
+    activeScopes: [],
+  });
+  assert.equal(highRisk.parallelAllowed, false);
+  assert.equal(highRisk.reasons.includes("high_risk_task"), true);
+
+  const incompleteDependency = evaluateParallelExecution({
+    candidate: { featureId: "FEAT-007", mode: "write", files: ["src/workspace.ts"], dependencies: ["FEAT-004"] },
+    activeScopes: [],
+    completedFeatureIds: [],
+  });
+  assert.equal(incompleteDependency.parallelAllowed, false);
+  assert.equal(incompleteDependency.reasons.includes("incomplete_dependency"), true);
 });
 
 test("worktree creation records path, branch, base commit, target branch, feature, task, runner, and cleanup state", () => {
@@ -228,6 +276,67 @@ test("workspace records and evidence persist for audit and recovery", () => {
   assert.equal(result.queries.conflict[0].parallel_allowed, 1);
   assert.equal(result.queries.readiness[0].ready, 1);
   assert.equal(result.queries.rollback[0].base_commit, "abc123");
+});
+
+test("test environment isolation is recorded for runner inputs and evidence metadata", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const worktree = buildWorktreeRecord({
+    worktreePath: "/repo.worktrees/feat-007",
+    featureId: "FEAT-007",
+    taskId: "TASK-010",
+    runnerId: "codex",
+    branch: "work/feat-007-task-010",
+    targetBranch: "main",
+    baseCommit: "abc123",
+    now: stableDate,
+  });
+  const isolation = buildTestEnvironmentIsolationRecord({
+    runId: "RUN-010",
+    featureId: "FEAT-007",
+    taskId: "TASK-010",
+    worktree,
+    environmentId: "it-feat-007-run-010",
+    environmentType: "integration",
+    cleanupStrategy: "drop sqlite database and remove temp container namespace",
+    resources: [
+      {
+        kind: "database",
+        name: "autobuild-test",
+        namespace: "it-feat-007-run-010",
+        connectionRef: "TEST_DATABASE_URL",
+        cleanupStrategy: "drop schema after run",
+      },
+      {
+        kind: "container",
+        name: "worker",
+        namespace: "it-feat-007-run-010",
+        cleanupStrategy: "remove container after run",
+      },
+    ],
+    now: stableDate,
+  });
+  persistWorkspaceEvidence(dbPath, { testEnvironment: isolation });
+
+  assert.equal(isolation.runnerInput.environmentId, "it-feat-007-run-010");
+  assert.equal(isolation.runnerInput.resourceRefs.length, 2);
+  assert.equal(String(JSON.stringify(isolation.evidencePackMetadata)).includes("TEST_DATABASE_URL"), true);
+
+  const rows = runSqlite(dbPath, [], [
+    {
+      name: "isolation",
+      sql: `SELECT run_id, feature_id, environment_id, environment_type, runner_input_json
+        FROM test_environment_isolation_records WHERE id = ?`,
+      params: [isolation.id],
+    },
+  ]).queries.isolation;
+  assert.deepEqual(rows[0], {
+    run_id: "RUN-010",
+    feature_id: "FEAT-007",
+    environment_id: "it-feat-007-run-010",
+    environment_type: "integration",
+    runner_input_json: JSON.stringify(isolation.runnerInput),
+  });
 });
 
 function makeDbPath(): string {

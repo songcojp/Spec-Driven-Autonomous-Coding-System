@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -757,6 +757,28 @@ export const MIGRATIONS: Migration[] = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_schedule_triggers_project_created ON schedule_triggers(project_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_schedule_triggers_feature_result ON schedule_triggers(feature_id, result, created_at)",
+    ],
+  },
+  {
+    version: 13,
+    description: "Add test environment isolation records",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS test_environment_isolation_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        feature_id TEXT NOT NULL,
+        task_id TEXT,
+        worktree_id TEXT,
+        environment_id TEXT NOT NULL,
+        environment_type TEXT NOT NULL,
+        resources_json TEXT NOT NULL,
+        workspace_path TEXT,
+        runner_input_json TEXT NOT NULL,
+        evidence_pack_metadata_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_test_environment_isolation_run ON test_environment_isolation_records(run_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_test_environment_isolation_feature ON test_environment_isolation_records(feature_id, environment_type, created_at)",
     ],
   },
 ];

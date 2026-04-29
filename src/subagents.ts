@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { runSqlite, type SqlStatement } from "./sqlite.ts";
 import type { BoardColumn, RiskLevel } from "./orchestration.ts";
-import type { WorktreeRecord } from "./workspace.ts";
+import type { TestEnvironmentIsolationRecord, WorktreeRecord } from "./workspace.ts";
 
 export type AgentType =
   | "spec"
@@ -32,6 +32,10 @@ export type AgentRunContract = {
   acceptanceCriteria: string[];
   outputSchema: Record<string, unknown>;
   workspace?: Pick<WorktreeRecord, "id" | "path" | "branch" | "baseCommit" | "targetBranch" | "featureId" | "taskId">;
+  testEnvironmentIsolation?: Pick<
+    TestEnvironmentIsolationRecord,
+    "id" | "environmentId" | "environmentType" | "runnerInput" | "evidencePackMetadata"
+  >;
   immutable: true;
   createdAt: string;
 };
@@ -120,6 +124,7 @@ export type CreateSubagentRunInput = {
   acceptanceCriteria?: string[];
   outputSchema?: Record<string, unknown>;
   workspace?: WorktreeRecord;
+  testEnvironmentIsolation?: TestEnvironmentIsolationRecord;
   now?: Date;
 };
 
@@ -226,6 +231,15 @@ export function createSubagentRun(input: CreateSubagentRunInput): SubagentRun {
           targetBranch: input.workspace.targetBranch,
           featureId: input.workspace.featureId,
           taskId: input.workspace.taskId,
+        }
+      : undefined,
+    testEnvironmentIsolation: input.testEnvironmentIsolation
+      ? {
+          id: input.testEnvironmentIsolation.id,
+          environmentId: input.testEnvironmentIsolation.environmentId,
+          environmentType: input.testEnvironmentIsolation.environmentType,
+          runnerInput: input.testEnvironmentIsolation.runnerInput,
+          evidencePackMetadata: input.testEnvironmentIsolation.evidencePackMetadata,
         }
       : undefined,
     immutable: true,
