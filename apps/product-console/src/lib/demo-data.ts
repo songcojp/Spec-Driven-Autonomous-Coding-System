@@ -193,6 +193,28 @@ const returnsPortalData: ConsoleProjectData = {
     ],
   },
   runner: {
+    summary: { onlineRunners: 1, runningTasks: 1, readyTasks: 1, blockedTasks: 2, successRate: 0.957, failureRate: 0.043 },
+    lanes: {
+      ready: [
+        { id: "T-231", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Run mobile browser acceptance", status: "ready", risk: "low", dependencies: [{ id: "T-228", status: "running", satisfied: false }, { id: "T-230", status: "review_needed", satisfied: false }], approvalStatus: "not_required", action: "schedule", blockedReasons: [], recentLog: "npm run console:test -- returns-mobile" },
+      ],
+      scheduled: [
+        { id: "T-229", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Connect carrier label quote mock", status: "scheduled", risk: "medium", dependencies: [{ id: "T-228", status: "running", satisfied: false }], approvalStatus: "pending", runnerId: "runner-web-01", runId: "RUN-709", action: "run", blockedReasons: ["Waiting for T-228 upload contract to be finalized."], recentLog: "node --test tests/carrier-labels.test.ts" },
+      ],
+      running: [
+        { id: "T-228", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Add photo evidence upload with preview", status: "running", risk: "medium", dependencies: [{ id: "T-227", status: "done", satisfied: true }], approvalStatus: "not_required", runnerId: "runner-web-01", runId: "RUN-708", action: "observe", blockedReasons: [], recentLog: "Mobile upload preview rendered and evidence fixture stored." },
+      ],
+      blocked: [
+        { id: "T-230", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Review refund approval copy", status: "review_needed", risk: "medium", dependencies: [{ id: "T-227", status: "done", satisfied: true }], approvalStatus: "pending", action: "review", blockedReasons: ["Product approval is required for customer-facing refund decision copy."], recentLog: "REV-318 waiting on product sign-off." },
+        { id: "T-232", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Publish governed return demo", status: "blocked", risk: "high", dependencies: [{ id: "T-230", status: "review_needed", satisfied: false }], approvalStatus: "pending", action: "review", blockedReasons: ["High risk release task requires approval before Runner execution."], recentLog: "Release gate held by Review Center." },
+      ],
+    },
+    recentTriggers: [
+      { id: "TRG-204-003", action: "manual", target: "feature:FEAT-204", result: "accepted", createdAt: "2026-04-29T03:42:00.000Z" },
+      { id: "AUD-204-011", action: "schedule_board_tasks", target: "feature:FEAT-204", result: "blocked", createdAt: "2026-04-29T03:38:00.000Z" },
+      { id: "AUD-204-010", action: "run_board_tasks", target: "feature:FEAT-204", result: "accepted", createdAt: "2026-04-29T03:12:00.000Z" },
+    ],
+    factSources: ["task_graph_tasks", "runs", "runner_heartbeats", "runner_policies", "raw_execution_logs", "review_items", "audit_timeline_events"],
     runners: [
       { runnerId: "runner-web-01", online: true, codexVersion: "gpt-5.4", sandboxMode: "workspace-write", approvalPolicy: "never", queue: [{ runId: "RUN-708", status: "running" }, { runId: "RUN-709", status: "queued" }, { runId: "RUN-710", status: "queued" }], recentLogs: [{ runId: "RUN-708", stdout: "Mobile upload preview rendered and evidence fixture stored.", stderr: "", createdAt: "2026-04-29T03:40:00.000Z" }], lastHeartbeatAt: "2026-04-29T03:45:00.000Z", heartbeatStale: false },
     ],
@@ -266,7 +288,7 @@ const emptyProjectData: ConsoleProjectData = {
   spec: { features: [], selectedFeature: undefined },
   skills: { skills: [] },
   subagents: { runs: [] },
-  runner: { runners: [] },
+  runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], runners: [] },
   reviews: { items: [], riskFilters: [] },
 };
 

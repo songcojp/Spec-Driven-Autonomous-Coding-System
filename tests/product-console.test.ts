@@ -305,7 +305,13 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.equal(runner.runners[0].queue[0].status, "running");
   assert.equal(runner.runners.find((entry) => entry.runnerId === "runner-other")?.codexVersion, undefined);
   assert.equal(scopedRunner.runners.some((entry) => entry.runnerId === "runner-other"), false);
-  assert.equal(runner.commands.map((command) => command.action).join(","), "pause_runner,resume_runner");
+  assert.equal(scopedRunner.summary.onlineRunners, 1);
+  assert.equal(scopedRunner.summary.successRate, 0.8);
+  assert.equal(scopedRunner.lanes.blocked.some((task) => task.id === "TASK-RUNNING"), true);
+  assert.equal(scopedRunner.lanes.blocked.find((task) => task.id === "TASK-RUNNING")?.blockedReasons.some((reason) => reason.includes("unresolved review")), true);
+  assert.equal(scopedRunner.lanes.blocked.find((task) => task.id === "TASK-RUNNING")?.runnerId, "runner-main");
+  assert.equal(scopedRunner.factSources.includes("audit_timeline_events"), true);
+  assert.equal(runner.commands.map((command) => command.action).join(","), "pause_runner,resume_runner,schedule_run,schedule_board_tasks,run_board_tasks");
 
   const reviews = buildReviewCenterView(dbPath);
   const scopedReviews = buildReviewCenterView(dbPath, "project-1");
@@ -321,6 +327,39 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.deepEqual(reviews.items[0].diff, { files: ["src/product-console.ts"] });
   assert.deepEqual(reviews.riskFilters, ["high", "medium"]);
   assert.equal(reviews.commands.some((command) => command.action === "write_spec_evolution"), true);
+});
+
+test("runner console view model exposes scheduling lanes and recent triggers", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  seedBoardPatchData(dbPath);
+  submitConsoleCommand(dbPath, {
+    action: "schedule_board_tasks",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Schedule ready work from runner center.",
+    payload: { taskIds: ["TASK-READY"] },
+    now: stableDate,
+  });
+
+  const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-1");
+
+  assert.equal(runner.summary.onlineRunners, 1);
+  assert.equal(runner.summary.readyTasks, 1);
+  assert.equal(runner.lanes.ready[0].id, "TASK-READY");
+  assert.equal(runner.lanes.scheduled.some((task) => task.id === "TASK-SCHEDULED"), true);
+  assert.equal(runner.lanes.running.length, 0);
+  assert.equal(runner.lanes.blocked.some((task) => task.id === "TASK-HIGH"), true);
+  assert.equal(runner.lanes.blocked.find((task) => task.id === "TASK-HIGH")?.action, "review");
+  assert.equal(runner.lanes.ready[0].dependencies[0].satisfied, true);
+  assert.equal(runner.lanes.ready[0].action, "schedule");
+  assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-SCHEDULED")?.action, "run");
+  assert.equal(runner.recentTriggers.some((entry) => entry.action === "schedule_board_tasks"), true);
+
+  const otherProject = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-2");
+  assert.equal(otherProject.lanes.ready.some((task) => task.featureId === "FEAT-013"), false);
+  assert.equal(otherProject.runners.some((entry) => entry.runnerId === "runner-main"), false);
 });
 
 test("skill center reads skills from the selected project directory", () => {

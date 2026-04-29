@@ -24,6 +24,15 @@ test("renders the console first screen and navigates across all pages", async ({
     await page.getByRole("button", { name: label, exact: true }).click();
     const heading = label === "仪表盘" ? "命令反馈" : label === "审查" ? /审查 \d+/ : label;
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    if (label === "Runner") {
+      await expect(page.getByText("任务调度中心")).toBeVisible();
+      await expect(page.getByText("Ready 1")).toBeVisible();
+      await expect(page.getByText("Scheduled 1")).toBeVisible();
+      await expect(page.getByRole("button", { name: "运行 T-229" }).first()).toBeVisible();
+      await expect(page.getByRole("button", { name: "暂停 Runner" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "资源池" })).toBeVisible();
+      await expect(page.getByText("schedule_board_tasks")).toBeVisible();
+    }
   }
 });
 

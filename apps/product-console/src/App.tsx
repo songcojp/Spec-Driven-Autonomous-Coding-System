@@ -138,11 +138,38 @@ const copy = {
     requestedBy: "请求人",
     command: "命令",
     runner: "Runner",
+    runnerCenter: "Runner",
+    runnerCenterSubtitle: "任务调度中心：统一查看任务排期、执行队列、资源和阻塞审计。",
     online: "在线",
     offline: "离线",
     heartbeat: "心跳",
     queue: "队列",
     pauseRunner: "暂停 Runner",
+    resumeRunner: "恢复 Runner",
+    onlineRunners: "在线 Runner",
+    runningTasks: "运行中",
+    readyTasks: "待排期",
+    blockedTasks: "阻塞/审查",
+    failureRate: "失败率",
+    readyLane: "Ready",
+    scheduledLane: "Scheduled",
+    runningLane: "Running",
+    blockedLane: "Blocked / Review",
+    runnerResources: "资源池",
+    recentTriggers: "最近调度",
+    recentLogs: "最近日志",
+    model: "模型",
+    sandbox: "Sandbox",
+    approvalPolicy: "审批策略",
+    queueDepth: "队列深度",
+    assignedRunner: "分配 Runner",
+    currentRun: "当前 Run",
+    dependencyOk: "依赖满足",
+    dependencyBlocked: "依赖等待",
+    reviewBlocked: "审查阻塞",
+    observe: "观察",
+    noRunnerTasks: "当前没有可调度任务。",
+    factSourcesRunner: "事实源：task_graph_tasks、runs、runner_heartbeats、review_items、audit_timeline_events",
     noRunner: "尚未记录 Runner 心跳。",
     subagents: "Subagent",
     allHealthy: "全部健康",
@@ -294,11 +321,38 @@ const copy = {
     requestedBy: "Requested by",
     command: "Command",
     runner: "Runner",
+    runnerCenter: "Runner",
+    runnerCenterSubtitle: "Scheduling center for task queues, execution resources, and blocked audit trails.",
     online: "Online",
     offline: "Offline",
     heartbeat: "Heartbeat",
     queue: "Queue",
     pauseRunner: "Pause Runner",
+    resumeRunner: "Resume Runner",
+    onlineRunners: "Online Runners",
+    runningTasks: "Running",
+    readyTasks: "Ready",
+    blockedTasks: "Blocked / Review",
+    failureRate: "Failure Rate",
+    readyLane: "Ready",
+    scheduledLane: "Scheduled",
+    runningLane: "Running",
+    blockedLane: "Blocked / Review",
+    runnerResources: "Resources",
+    recentTriggers: "Recent Triggers",
+    recentLogs: "Recent Logs",
+    model: "Model",
+    sandbox: "Sandbox",
+    approvalPolicy: "Approval Policy",
+    queueDepth: "Queue Depth",
+    assignedRunner: "Assigned Runner",
+    currentRun: "Current Run",
+    dependencyOk: "Dependencies met",
+    dependencyBlocked: "Dependencies waiting",
+    reviewBlocked: "Review blocked",
+    observe: "Observe",
+    noRunnerTasks: "No schedulable tasks are available.",
+    factSourcesRunner: "Fact sources: task_graph_tasks, runs, runner_heartbeats, review_items, audit_timeline_events",
     noRunner: "No runner heartbeats have been recorded.",
     subagents: "Subagents",
     allHealthy: "All Healthy",
@@ -530,15 +584,15 @@ export function App() {
 
   return (
     <Toast.Provider swipeDirection="right">
-      <div className="console-shell grid min-h-screen grid-cols-[220px_1fr] bg-canvas text-ink">
-        <aside className="console-sidebar sticky top-0 h-screen border-r border-line bg-white">
+      <div className="console-shell grid min-h-screen grid-cols-[220px_1fr] bg-canvas text-ink max-md:block">
+        <aside className="console-sidebar sticky top-0 h-screen border-r border-line bg-white max-md:static max-md:h-auto max-md:border-b max-md:border-r-0">
           <div className="flex h-16 items-center gap-3 border-b border-line px-5">
             <div className="grid size-8 place-items-center rounded-md border border-slate-300 text-action">
               <Code2 size={18} strokeWidth={2.2} />
             </div>
             <div className="whitespace-nowrap text-[15px] font-semibold">SpecDrive Console</div>
           </div>
-          <nav className="space-y-1 p-2" aria-label={text.consoleNavigation}>
+          <nav className="space-y-1 p-2 max-md:grid max-md:grid-cols-2 max-md:gap-1 max-md:space-y-0" aria-label={text.consoleNavigation}>
             {navItems.map((item) => {
               const Icon = item.icon;
               const active = item.key === view;
@@ -557,19 +611,19 @@ export function App() {
               );
             })}
           </nav>
-          <div className="absolute bottom-3 left-3 right-3 rounded-lg border border-line bg-slate-50 p-3">
+          <div className="absolute bottom-3 left-3 right-3 rounded-lg border border-line bg-slate-50 p-3 max-md:static max-md:m-3">
             <div className="text-[13px] font-semibold">{text.autobuildTeam}</div>
             <div className="mt-1 text-[12px] text-muted">{text.operator}</div>
           </div>
         </aside>
 
-        <main className="min-w-0">
-          <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6">
-            <div className="flex items-center gap-6">
-              <div>
-                <div className="flex items-center gap-2">
+        <main className="min-w-0 max-md:w-full">
+          <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6 max-md:px-4">
+            <div className="flex min-w-0 items-center gap-6 max-md:w-full max-md:flex-wrap max-md:gap-2">
+              <div className="min-w-0 max-md:flex-1">
+                <div className="flex items-center gap-2 max-md:flex-wrap">
                   <select
-                    className="h-9 max-w-[260px] rounded-md border border-line bg-white px-3 text-[14px] font-semibold text-ink"
+                    className="h-9 max-w-[260px] rounded-md border border-line bg-white px-3 text-[14px] font-semibold text-ink max-md:min-w-0 max-md:flex-1"
                     aria-label={text.projectList}
                     value={currentProject.id}
                     onChange={(event) => switchProject(event.target.value)}
@@ -583,11 +637,11 @@ export function App() {
                 <GitBranch size={14} />
                 {currentProject.defaultBranch}
               </Button>
-              <div className="text-[12px] text-muted">
+              <div className="min-w-0 truncate text-[12px] text-muted max-md:w-full max-md:whitespace-normal max-md:break-all">
                 <span className="font-medium text-ink">{currentProject.name}</span> · {text.projectDirectory}: {currentProject.projectDirectory}
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 max-md:flex-wrap">
               <label className="flex items-center gap-2 text-[12px] text-muted">
                 {text.language}
                 <select
@@ -636,7 +690,7 @@ export function App() {
               </Tabs.Content>
             </Tabs.Root>
           </div>
-          <footer className="fixed bottom-0 left-[220px] right-0 hidden h-10 items-center justify-between border-t border-line bg-white px-6 text-[12px] text-muted lg:flex">
+          <footer className="hidden h-10 items-center justify-between border-t border-line bg-white px-6 text-[12px] text-muted lg:flex">
             <div className="flex items-center gap-8">
               <span>{text.git}: main <span className="text-emerald-600">✓</span></span>
               <span>{text.commit}: a1b2c3d</span>
@@ -837,32 +891,230 @@ function CommandFeedback({ task, text, receipt }: { task?: BoardTask; text: Cons
 
 function RunnerPanel({ data, text, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
   const runner = data.runner.runners[0];
+  const lanes = data.runner.lanes ?? { ready: [], scheduled: [], running: [], blocked: [] };
+  const summary = data.runner.summary ?? {
+    onlineRunners: data.runner.runners.filter((entry) => entry.online).length,
+    runningTasks: lanes.running.length,
+    readyTasks: lanes.ready.length,
+    blockedTasks: lanes.blocked.length,
+    successRate: data.dashboard.runner.successRate,
+    failureRate: data.dashboard.runner.failureRate,
+  };
+  const firstRunnable = lanes.scheduled[0] ?? lanes.ready[0] ?? lanes.blocked[0];
   return (
-    <Panel>
-      <SectionTitle title={text.runner} action={<Chip tone={runner?.online ? "green" : "red"}>{runner?.online ? text.online : text.offline}</Chip>} />
-      {runner ? (
-        <div className="grid grid-cols-[170px_1fr] gap-0 p-4 max-sm:grid-cols-1">
-          <div className="border-r border-line pr-4 max-sm:border-r-0">
-            <div className="text-[12px] text-muted">{text.heartbeat}</div>
-            <div className="mt-3 h-28 rounded-md bg-gradient-to-b from-emerald-50 to-white p-3">
-              <svg viewBox="0 0 140 80" className="h-full w-full" aria-label="Runner heartbeat chart">
-                <polyline fill="none" stroke="#15a16c" strokeWidth="3" points="0,58 12,20 24,62 36,34 48,50 60,18 72,44 84,28 96,10 108,48 120,26 132,35" />
-              </svg>
-            </div>
+  <div className="space-y-4">
+    <Panel className="overflow-hidden">
+      <div className="border-b border-line bg-white px-4 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-[18px] font-semibold text-ink">{text.runnerCenter}</h2>
+            <p className="mt-1 text-[13px] text-muted">{text.runnerCenterSubtitle}</p>
           </div>
-          <div className="px-4 max-sm:px-0">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-[12px] text-muted">{text.queue} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5">{runner.queue.length}</span></div>
-              <Button disabled={busy} onClick={() => onCommand("pause_runner", "runner", runner.runnerId)}><Pause size={14} />{text.pauseRunner}</Button>
-            </div>
-            <div className="space-y-2">
-              {runner.queue.map((item) => <div key={item.runId} className="flex justify-between text-[13px]"><span>{item.runId}</span><span className="text-muted">{item.status}</span></div>)}
-            </div>
+          <div className="flex flex-wrap gap-2">
+            <Button><RefreshCw size={15} />{text.autoRefresh}</Button>
+            {runner ? (
+              <>
+                <Button disabled={busy} onClick={() => onCommand("resume_runner", "runner", runner.runnerId)}><Play size={14} />{text.resumeRunner}</Button>
+                <Button disabled={busy} onClick={() => onCommand("pause_runner", "runner", runner.runnerId)}><Pause size={14} />{text.pauseRunner}</Button>
+              </>
+            ) : null}
           </div>
         </div>
-      ) : <EmptyState title={text.noRunner} />}
+        <div className="mt-4 grid grid-cols-5 gap-3 max-xl:grid-cols-3 max-md:grid-cols-2">
+          <RunnerMetric icon={Bot} label={text.onlineRunners} value={String(summary.onlineRunners)} tone="green" />
+          <RunnerMetric icon={Workflow} label={text.runningTasks} value={String(summary.runningTasks)} tone="blue" />
+          <RunnerMetric icon={CalendarCheck} label={text.readyTasks} value={String(summary.readyTasks)} tone="neutral" />
+          <RunnerMetric icon={ShieldAlert} label={text.blockedTasks} value={String(summary.blockedTasks)} tone="amber" />
+          <RunnerMetric icon={CheckCircle2} label={text.runnerSuccess} value={formatPercent(summary.successRate)} tone="green" subValue={`${text.failureRate} ${formatPercent(summary.failureRate)}`} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[1fr_330px] gap-0 max-xl:grid-cols-1">
+        <div className="min-w-0 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Chip tone="green">{text.readyLane} {lanes.ready.length}</Chip>
+              <Chip tone="blue">{text.scheduledLane} {lanes.scheduled.length}</Chip>
+              <Chip tone="amber">{text.runningLane} {lanes.running.length}</Chip>
+              <Chip tone="red">{text.blockedLane} {lanes.blocked.length}</Chip>
+            </div>
+            <Button
+              tone="primary"
+              disabled={busy || !firstRunnable}
+              onClick={() => firstRunnable && onCommand(firstRunnable.action === "run" ? "run_board_tasks" : "schedule_board_tasks", "feature", firstRunnable.featureId ?? "feature", { taskIds: [firstRunnable.id] })}
+            >
+              {busy ? <Loader2 className="animate-spin" size={15} /> : <Play size={15} />}
+              {firstRunnable ? `${firstRunnable.action === "run" ? text.run : text.schedule} ${firstRunnable.id}` : text.schedule}
+            </Button>
+          </div>
+          <div className="grid grid-cols-4 gap-3 max-2xl:grid-cols-2 max-md:grid-cols-1">
+            <RunnerLane title={text.readyLane} tone="green" tasks={lanes.ready} text={text} onCommand={onCommand} busy={busy} />
+            <RunnerLane title={text.scheduledLane} tone="blue" tasks={lanes.scheduled} text={text} onCommand={onCommand} busy={busy} />
+            <RunnerLane title={text.runningLane} tone="amber" tasks={lanes.running} text={text} onCommand={onCommand} busy={busy} />
+            <RunnerLane title={text.blockedLane} tone="red" tasks={lanes.blocked} text={text} onCommand={onCommand} busy={busy} />
+          </div>
+        </div>
+
+        <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle title={text.runnerResources} action={<Chip tone={runner?.online ? "green" : "red"}>{runner?.online ? text.online : text.offline}</Chip>} />
+              {runner ? (
+                <div className="space-y-4 p-4">
+                  <div className="rounded-md bg-emerald-50 p-3">
+                    <div className="mb-2 flex items-center justify-between text-[12px] text-emerald-800">
+                      <span>{text.heartbeat}</span>
+                      <span>{runner.lastHeartbeatAt ?? text.none}</span>
+                    </div>
+                    <svg viewBox="0 0 180 76" className="h-20 w-full" aria-label="Runner heartbeat chart">
+                      <polyline fill="none" stroke="#0f9f6e" strokeWidth="3" points="0,55 14,30 28,58 42,38 56,45 70,18 84,42 98,24 112,12 126,48 140,28 154,34 168,22 180,30" />
+                    </svg>
+                  </div>
+                  <FactList rows={[
+                    [text.model, runner.codexVersion ?? text.none],
+                    [text.sandbox, runner.sandboxMode],
+                    [text.approvalPolicy, runner.approvalPolicy],
+                    [text.queueDepth, String(runner.queue.length)],
+                  ]} />
+                  <div className="space-y-2">
+                    {runner.queue.map((item) => (
+                      <div key={item.runId} className="flex items-center justify-between rounded-md border border-line bg-white px-3 py-2 text-[13px]">
+                        <span className="font-medium">{item.runId}</span>
+                        <Chip tone={statusTone[item.status] ?? "neutral"}>{item.status}</Chip>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : <EmptyState title={text.noRunner} />}
+            </div>
+
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle title={text.recentLogs} />
+              <div className="space-y-2 p-4">
+                {(runner?.recentLogs ?? []).slice(0, 3).map((log) => (
+                  <div key={`${log.runId}-${log.createdAt}`} className="rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] leading-5 text-slate-100">
+                    <div className="text-slate-400">{log.runId} · {log.createdAt}</div>
+                    <div>{log.stderr || log.stdout || text.none}</div>
+                  </div>
+                ))}
+                {(!runner || runner.recentLogs.length === 0) ? <div className="text-[13px] text-muted">{text.none}</div> : null}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle title={text.recentTriggers} />
+              <div className="space-y-2 p-4">
+                {(data.runner.recentTriggers ?? []).slice(0, 5).map((trigger) => (
+                  <div key={trigger.id} className="rounded-md border border-line px-3 py-2 text-[12px]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-ink">{trigger.action}</span>
+                      <Chip tone={trigger.result === "accepted" ? "green" : trigger.result === "blocked" ? "red" : "blue"}>{trigger.result}</Chip>
+                    </div>
+                    <div className="mt-1 text-muted">{trigger.target} · {trigger.createdAt}</div>
+                  </div>
+                ))}
+                {(data.runner.recentTriggers ?? []).length === 0 ? <div className="text-[13px] text-muted">{text.none}</div> : null}
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <div className="border-t border-line bg-white px-4 py-3 text-[12px] text-muted">{data.runner.factSources?.join("、") ?? text.factSourcesRunner}</div>
     </Panel>
+  </div>
   );
+}
+
+function RunnerMetric({ icon: Icon, label, value, tone, subValue }: { icon: typeof Home; label: string; value: string; tone: "neutral" | "green" | "amber" | "red" | "blue"; subValue?: string }) {
+  const toneClass = {
+    neutral: "bg-slate-50 text-slate-700",
+    green: "bg-emerald-50 text-emerald-700",
+    amber: "bg-amber-50 text-amber-700",
+    red: "bg-red-50 text-red-700",
+    blue: "bg-blue-50 text-blue-700",
+  }[tone];
+  return (
+    <div className="rounded-lg border border-line bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[12px] text-muted">{label}</div>
+          <div className="mt-1 text-[22px] font-semibold leading-none text-ink">{value}</div>
+          {subValue ? <div className="mt-1 text-[11px] text-muted">{subValue}</div> : null}
+        </div>
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${toneClass}`}>
+          <Icon size={18} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RunnerLane({ title, tone, tasks, text, onCommand, busy }: { title: string; tone: "green" | "blue" | "amber" | "red"; tasks: NonNullable<ConsoleData["runner"]["lanes"]>["ready"]; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
+  return (
+    <div className="min-h-[360px] rounded-lg border border-line bg-slate-50/80">
+      <div className="flex h-11 items-center justify-between border-b border-line px-3">
+        <div className="text-[13px] font-semibold text-ink">{title}</div>
+        <Chip tone={tone}>{tasks.length}</Chip>
+      </div>
+      <div className="space-y-3 p-3">
+        {tasks.length > 0 ? tasks.map((task) => (
+          <RunnerTaskCard key={task.id} task={task} text={text} onCommand={onCommand} busy={busy} />
+        )) : <div className="rounded-md border border-dashed border-slate-300 bg-white px-3 py-6 text-center text-[13px] text-muted">{text.noRunnerTasks}</div>}
+      </div>
+    </div>
+  );
+}
+
+function RunnerTaskCard({ task, text, onCommand, busy }: { task: NonNullable<ConsoleData["runner"]["lanes"]>["ready"][number]; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
+  const dependencyBlocked = task.dependencies.some((dependency) => !dependency.satisfied);
+  const commandAction = task.action === "run" ? "run_board_tasks" : "schedule_board_tasks";
+  const actionLabel = task.action === "run" ? text.run : task.action === "review" ? text.reviewBlocked : task.action === "observe" ? text.observe : text.schedule;
+  return (
+    <div className="rounded-lg border border-line bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[12px] font-medium text-action">{task.featureId ?? text.none} · {task.status}</div>
+          <div className="mt-1 text-[13px] font-semibold leading-5 text-ink">{task.id} {task.title}</div>
+        </div>
+        <Chip tone={statusTone[task.status] ?? "neutral"}>{task.status}</Chip>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted">
+        <RunnerTaskFact icon={ShieldCheck} label={text.risk} value={task.risk} />
+        <RunnerTaskFact icon={CheckCircle2} label={text.approval} value={task.approvalStatus} />
+        <RunnerTaskFact icon={GitBranch} label={text.assignedRunner} value={task.runnerId ?? text.none} />
+        <RunnerTaskFact icon={Code2} label={text.currentRun} value={task.runId ?? text.none} />
+      </div>
+      <div className="mt-3 flex items-center gap-2 text-[12px]">
+        <StatusDot status={dependencyBlocked ? "blocked" : "done"} />
+        <span className={dependencyBlocked ? "text-red-600" : "text-emerald-700"}>{dependencyBlocked ? text.dependencyBlocked : text.dependencyOk}</span>
+      </div>
+      {task.blockedReasons.length > 0 ? <div className="mt-2 rounded-md bg-red-50 px-2 py-1.5 text-[12px] leading-5 text-red-700">{task.blockedReasons[0]}</div> : null}
+      {task.recentLog ? <div className="mt-2 truncate rounded-md bg-slate-50 px-2 py-1.5 font-mono text-[11px] text-slate-600">{task.recentLog}</div> : null}
+      <div className="mt-3 flex justify-end">
+        <Button
+          tone={task.action === "review" ? "danger" : task.action === "observe" ? "quiet" : "primary"}
+          disabled={busy || task.action === "observe"}
+          onClick={() => onCommand(commandAction, "feature", task.featureId ?? "feature", { taskIds: [task.id] })}
+        >
+          {task.action === "review" ? <ShieldAlert size={14} /> : task.action === "observe" ? <ExternalLink size={14} /> : <Play size={14} />}
+          {task.action === "observe" ? actionLabel : `${actionLabel} ${task.id}`}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RunnerTaskFact({ icon: Icon, label, value }: { icon: typeof Home; label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md bg-slate-50 px-2 py-1.5">
+      <div className="flex items-center gap-1 text-slate-500"><Icon size={12} />{label}</div>
+      <div className="mt-0.5 truncate font-medium text-slate-800">{value}</div>
+    </div>
+  );
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 function SubagentPanel({ data, text, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {

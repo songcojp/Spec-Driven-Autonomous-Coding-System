@@ -169,6 +169,28 @@ export type SubagentConsoleViewModel = {
 };
 
 export type RunnerConsoleViewModel = {
+  summary: {
+    onlineRunners: number;
+    runningTasks: number;
+    readyTasks: number;
+    blockedTasks: number;
+    successRate: number;
+    failureRate: number;
+  };
+  lanes: {
+    ready: RunnerScheduleTaskViewModel[];
+    scheduled: RunnerScheduleTaskViewModel[];
+    running: RunnerScheduleTaskViewModel[];
+    blocked: RunnerScheduleTaskViewModel[];
+  };
+  recentTriggers: Array<{
+    id: string;
+    action: string;
+    target: string;
+    result: string;
+    createdAt: string;
+  }>;
+  factSources: string[];
   runners: Array<{
     runnerId: string;
     online: boolean;
@@ -181,6 +203,22 @@ export type RunnerConsoleViewModel = {
     heartbeatStale: boolean;
   }>;
   commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
+};
+
+export type RunnerScheduleTaskViewModel = {
+  id: string;
+  featureId?: string;
+  featureTitle?: string;
+  title: string;
+  status: BoardColumn | "unknown";
+  risk: RiskLevel | "unknown";
+  dependencies: Array<{ id: string; status: BoardColumn | "unknown"; satisfied: boolean }>;
+  approvalStatus: "approved" | "pending" | "not_required";
+  runnerId?: string;
+  runId?: string;
+  action: "schedule" | "run" | "review" | "observe";
+  blockedReasons: string[];
+  recentLog?: string;
 };
 
 export type ReviewCenterViewModel = {
@@ -577,38 +615,147 @@ export function buildSubagentConsoleView(dbPath: string, projectId?: string): Su
 export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), projectId?: string): RunnerConsoleViewModel {
   const runProjectFilter = projectId ? "WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)" : "";
   const runProjectParams = projectId ? [projectId] : [];
+  const featureProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
+  const taskProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
+  const projectParams = projectId ? [projectId] : [];
+  const metricProjectFilter = projectId ? "WHERE labels_json LIKE ?" : "";
+  const metricParams = projectId ? [`%"projectId":"${escapeLike(projectId)}"%`] : [];
+  const triggerProjectFilter = projectId ? "WHERE project_id = ?" : "";
+  const triggerParams = projectId ? [projectId] : [];
+  const reviewProjectFilter = projectId
+    ? `WHERE (
+        project_id = ?
+        OR feature_id IN (SELECT id FROM features WHERE project_id = ?)
+        OR task_id IN (SELECT id FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
+        OR task_id IN (SELECT id FROM task_graph_tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
+        OR run_id IN (SELECT id FROM runs WHERE project_id = ?)
+      )`
+    : "";
+  const reviewParams = projectId ? [projectId, projectId, projectId, projectId, projectId] : [];
   const result = runSqlite(dbPath, [], [
     { name: "policies", sql: `SELECT * FROM runner_policies ${runProjectFilter} ORDER BY created_at DESC`, params: runProjectParams },
     { name: "heartbeats", sql: `SELECT * FROM runner_heartbeats ${runProjectFilter} ORDER BY beat_at DESC`, params: runProjectParams },
     { name: "logs", sql: `SELECT * FROM raw_execution_logs ${runProjectFilter} ORDER BY created_at DESC LIMIT 25`, params: runProjectParams },
+    {
+      name: "graphTasks",
+      sql: `SELECT t.id, t.feature_id, f.title AS feature_title, t.title, t.status, t.dependencies_json, t.risk
+        FROM task_graph_tasks t
+        LEFT JOIN features f ON f.id = t.feature_id
+        ${featureProjectFilter ? `WHERE t.feature_id IN (SELECT id FROM features WHERE project_id = ?)` : ""}
+        ORDER BY t.updated_at DESC, t.created_at DESC, t.id`,
+      params: projectParams,
+    },
+    {
+      name: "tasks",
+      sql: `SELECT t.id, t.feature_id, f.title AS feature_title, t.title, t.status, COALESCE(t.depends_on_json, '[]') AS dependencies_json, 'unknown' AS risk
+        FROM tasks t
+        LEFT JOIN features f ON f.id = t.feature_id
+        ${taskProjectFilter ? `WHERE t.feature_id IN (SELECT id FROM features WHERE project_id = ?)` : ""}
+        ORDER BY t.created_at DESC, t.id`,
+      params: projectParams,
+    },
+    {
+      name: "runs",
+      sql: `SELECT id, task_id, feature_id, status, started_at FROM runs ${projectId ? "WHERE project_id = ?" : ""} ORDER BY COALESCE(started_at, '') DESC, id`,
+      params: projectParams,
+    },
+    { name: "reviews", sql: `SELECT id, task_id, feature_id, status, severity FROM review_items ${reviewProjectFilter} ORDER BY created_at DESC`, params: reviewParams },
+    {
+      name: "approvals",
+      sql: `SELECT ar.*, ri.task_id, ri.feature_id FROM approval_records ar JOIN review_items ri ON ri.id = ar.review_item_id ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC`,
+    },
+    { name: "metrics", sql: `SELECT metric_name, metric_value, labels_json FROM metric_samples ${metricProjectFilter} ORDER BY sampled_at, rowid`, params: metricParams },
+    {
+      name: "triggers",
+      sql: `SELECT id, mode, target_type, target_id, result, created_at FROM schedule_triggers ${triggerProjectFilter} ORDER BY created_at DESC, rowid DESC LIMIT 8`,
+      params: triggerParams,
+    },
+    {
+      name: "audit",
+      sql: "SELECT id, entity_type, entity_id, event_type, payload_json, created_at FROM audit_timeline_events ORDER BY created_at DESC, rowid DESC LIMIT 20",
+    },
   ]);
   const latestHeartbeats = latestRunnerStatuses(result.queries.heartbeats);
+  const taskRows = result.queries.graphTasks.length > 0 ? result.queries.graphTasks : result.queries.tasks;
+  const taskById = new Map(taskRows.map((row) => [String(row.id), row]));
+  const latestRunsByTask = latestRunsForTasks(result.queries.runs);
+  const latestHeartbeatsByRun = latestHeartbeatByRun(result.queries.heartbeats);
+  const laneTasks = buildRunnerScheduleLanes({
+    taskRows,
+    taskById,
+    runsByTask: latestRunsByTask,
+    heartbeatsByRun: latestHeartbeatsByRun,
+    logs: result.queries.logs,
+    reviews: result.queries.reviews,
+    approvals: result.queries.approvals,
+  });
+  const runners = latestHeartbeats.map((heartbeat) => {
+    const policy = result.queries.policies.find((row) => row.run_id === heartbeat.run_id);
+    const lastHeartbeatAt = String(heartbeat.beat_at);
+    const heartbeatIntervalSeconds = Number(policy?.heartbeat_interval_seconds ?? 20);
+    const heartbeatStale = now.getTime() - new Date(lastHeartbeatAt).getTime() > heartbeatIntervalSeconds * 2 * 1000;
+    return {
+      runnerId: String(heartbeat.runner_id),
+      online: String(heartbeat.status) === "online" && !heartbeatStale,
+      codexVersion: optionalString(policy?.model),
+      sandboxMode: String(policy?.sandbox_mode ?? "workspace-write") as RunnerSandboxMode,
+      approvalPolicy: String(policy?.approval_policy ?? "on-request") as RunnerApprovalPolicy,
+      queue: latestRunQueueStatuses(result.queries.heartbeats.filter((row) => row.runner_id === heartbeat.runner_id))
+        .map((row) => ({ runId: String(row.run_id), status: String(row.queue_status) as RunnerQueueStatus })),
+      recentLogs: result.queries.logs
+        .filter((row) => row.run_id === heartbeat.run_id)
+        .slice(0, 5)
+        .map((row) => ({ runId: String(row.run_id), stdout: String(row.stdout ?? ""), stderr: String(row.stderr ?? ""), createdAt: String(row.created_at) })),
+      lastHeartbeatAt,
+      heartbeatStale,
+    };
+  });
 
   return {
-    runners: latestHeartbeats.map((heartbeat) => {
-      const policy = result.queries.policies.find((row) => row.run_id === heartbeat.run_id);
-      const lastHeartbeatAt = String(heartbeat.beat_at);
-      const heartbeatIntervalSeconds = Number(policy?.heartbeat_interval_seconds ?? 20);
-      const heartbeatStale = now.getTime() - new Date(lastHeartbeatAt).getTime() > heartbeatIntervalSeconds * 2 * 1000;
-      return {
-        runnerId: String(heartbeat.runner_id),
-        online: String(heartbeat.status) === "online" && !heartbeatStale,
-        codexVersion: optionalString(policy?.model),
-        sandboxMode: String(policy?.sandbox_mode ?? "workspace-write") as RunnerSandboxMode,
-        approvalPolicy: String(policy?.approval_policy ?? "on-request") as RunnerApprovalPolicy,
-        queue: latestRunQueueStatuses(result.queries.heartbeats.filter((row) => row.runner_id === heartbeat.runner_id))
-          .map((row) => ({ runId: String(row.run_id), status: String(row.queue_status) as RunnerQueueStatus })),
-        recentLogs: result.queries.logs
-          .filter((row) => row.run_id === heartbeat.run_id)
-          .slice(0, 5)
-          .map((row) => ({ runId: String(row.run_id), stdout: String(row.stdout ?? ""), stderr: String(row.stderr ?? ""), createdAt: String(row.created_at) })),
-        lastHeartbeatAt,
-        heartbeatStale,
-      };
-    }),
+    summary: {
+      onlineRunners: runners.filter((runner) => runner.online).length,
+      runningTasks: laneTasks.running.length,
+      readyTasks: laneTasks.ready.length,
+      blockedTasks: laneTasks.blocked.length,
+      successRate: latestMetric(result.queries.metrics, "success_rate"),
+      failureRate: latestMetric(result.queries.metrics, "failure_rate"),
+    },
+    lanes: laneTasks,
+    recentTriggers: [
+      ...result.queries.triggers.map((row) => ({
+        id: String(row.id),
+        action: String(row.mode),
+        target: `${String(row.target_type)}:${String(row.target_id ?? "")}`,
+        result: String(row.result),
+        createdAt: String(row.created_at),
+      })),
+      ...filterRunnerAuditEvents(result.queries.audit, taskRows, projectId).map((row) => ({
+        id: String(row.id),
+        action: String(row.event_type).replace(/^console_command_/, ""),
+        target: `${String(row.entity_type)}:${String(row.entity_id)}`,
+        result: optionalString(parseJsonObject(row.payload_json).status) ?? "recorded",
+        createdAt: String(row.created_at),
+      })),
+    ].slice(0, 8),
+    factSources: [
+      "task_graph_tasks",
+      "tasks",
+      "runs",
+      "runner_heartbeats",
+      "runner_policies",
+      "raw_execution_logs",
+      "review_items",
+      "approval_records",
+      "audit_timeline_events",
+      "metric_samples",
+    ],
+    runners,
     commands: [
       { action: "pause_runner", entityType: "runner" },
       { action: "resume_runner", entityType: "runner" },
+      { action: "schedule_run", entityType: "feature" },
+      { action: "schedule_board_tasks", entityType: "feature" },
+      { action: "run_board_tasks", entityType: "feature" },
     ],
   };
 }
@@ -1182,6 +1329,145 @@ function sumMetrics(rows: Record<string, unknown>[], name: string): number {
 function latestMetric(rows: Record<string, unknown>[], name: string): number {
   const row = [...rows].reverse().find((entry) => entry.metric_name === name);
   return row ? Number(row.metric_value) : 0;
+}
+
+function latestRunsForTasks(rows: Record<string, unknown>[]): Map<string, Record<string, unknown>> {
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const taskId = optionalString(row.task_id);
+    if (!taskId) {
+      continue;
+    }
+    const existing = latest.get(taskId);
+    if (!existing || runnerRunPriority(row) > runnerRunPriority(existing)) {
+      latest.set(taskId, row);
+    }
+  }
+  return latest;
+}
+
+function runnerRunPriority(row: Record<string, unknown>): number {
+  const status = String(row.status);
+  if (status === "running") {
+    return 4;
+  }
+  if (status === "queued" || status === "scheduled") {
+    return 3;
+  }
+  if (status === "failed" || status === "blocked") {
+    return 2;
+  }
+  return 1;
+}
+
+function latestHeartbeatByRun(rows: Record<string, unknown>[]): Map<string, Record<string, unknown>> {
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const runId = optionalString(row.run_id);
+    if (runId && !latest.has(runId)) {
+      latest.set(runId, row);
+    }
+  }
+  return latest;
+}
+
+function buildRunnerScheduleLanes(input: {
+  taskRows: Record<string, unknown>[];
+  taskById: Map<string, Record<string, unknown>>;
+  runsByTask: Map<string, Record<string, unknown>>;
+  heartbeatsByRun: Map<string, Record<string, unknown>>;
+  logs: Record<string, unknown>[];
+  reviews: Record<string, unknown>[];
+  approvals: Record<string, unknown>[];
+}): RunnerConsoleViewModel["lanes"] {
+  const lanes: RunnerConsoleViewModel["lanes"] = { ready: [], scheduled: [], running: [], blocked: [] };
+  for (const row of input.taskRows) {
+    const taskId = String(row.id);
+    const status = normalizeBoardStatus(row.status);
+    const targetStatus = status === "ready" ? "scheduled" : status === "scheduled" ? "running" : undefined;
+    const reviews = input.reviews.filter((entry) => entry.task_id === row.id || (!entry.task_id && entry.feature_id === row.feature_id));
+    const approvals = input.approvals.filter((entry) => entry.task_id === row.id || (!entry.task_id && entry.feature_id === row.feature_id));
+    const blockedReasons = boardBlockedReasons(row, input.taskById, input.reviews, input.approvals, targetStatus);
+    const run = input.runsByTask.get(taskId);
+    const heartbeat = run ? input.heartbeatsByRun.get(String(run.id)) : undefined;
+    const log = run ? input.logs.find((entry) => entry.run_id === run.id) : undefined;
+    const task = {
+      id: taskId,
+      featureId: optionalString(row.feature_id),
+      featureTitle: optionalString(row.feature_title),
+      title: String(row.title),
+      status,
+      risk: normalizeRisk(row.risk),
+      dependencies: parseJsonArray(row.dependencies_json).map((dependency) => {
+        const id = String(dependency);
+        const dependencyStatus = normalizeBoardStatus(input.taskById.get(id)?.status);
+        return {
+          id,
+          status: dependencyStatus,
+          satisfied: dependencyStatus === "done" || dependencyStatus === "delivered",
+        };
+      }),
+      approvalStatus: approvalStatusForTask(row, reviews, approvals),
+      runnerId: optionalString(heartbeat?.runner_id),
+      runId: optionalString(run?.id),
+      action: runnerTaskAction(status, blockedReasons),
+      blockedReasons,
+      recentLog: optionalString(log?.stderr) ?? optionalString(log?.stdout),
+    } satisfies RunnerScheduleTaskViewModel;
+
+    if (["blocked", "failed", "review_needed"].includes(String(status)) || blockedReasons.length > 0) {
+      lanes.blocked.push(task);
+    } else if (status === "running" || status === "checking") {
+      lanes.running.push(task);
+    } else if (status === "scheduled") {
+      lanes.scheduled.push(task);
+    } else if (status === "ready" || status === "backlog") {
+      lanes.ready.push(task);
+    }
+  }
+  return {
+    ready: lanes.ready.slice(0, 8),
+    scheduled: lanes.scheduled.slice(0, 8),
+    running: lanes.running.slice(0, 8),
+    blocked: lanes.blocked.slice(0, 8),
+  };
+}
+
+function runnerTaskAction(status: BoardColumn | "unknown", blockedReasons: string[]): RunnerScheduleTaskViewModel["action"] {
+  if (blockedReasons.length > 0 || status === "review_needed" || status === "blocked" || status === "failed") {
+    return "review";
+  }
+  if (status === "ready" || status === "backlog") {
+    return "schedule";
+  }
+  if (status === "scheduled") {
+    return "run";
+  }
+  return "observe";
+}
+
+function filterRunnerAuditEvents(
+  rows: Record<string, unknown>[],
+  taskRows: Record<string, unknown>[],
+  projectId?: string,
+): Record<string, unknown>[] {
+  const featureIds = new Set(taskRows.map((row) => optionalString(row.feature_id)).filter((value): value is string => Boolean(value)));
+  const taskIds = new Set(taskRows.map((row) => String(row.id)));
+  return rows.filter((row) => {
+    const eventType = String(row.event_type);
+    if (!eventType.startsWith("console_command_")) {
+      return false;
+    }
+    const entityType = String(row.entity_type);
+    const entityId = String(row.entity_id);
+    const payload = parseJsonObject(row.payload_json);
+    return (
+      entityType === "runner"
+      || (entityType === "task" && taskIds.has(entityId))
+      || (entityType === "feature" && featureIds.has(entityId))
+      || (projectId !== undefined && optionalString(payload.projectId) === projectId)
+    );
+  });
 }
 
 function latestRunnerStatuses(rows: Record<string, unknown>[]): Record<string, unknown>[] {

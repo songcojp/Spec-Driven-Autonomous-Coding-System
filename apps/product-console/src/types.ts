@@ -140,6 +140,28 @@ export type SubagentModel = {
 };
 
 export type RunnerModel = {
+  summary?: {
+    onlineRunners: number;
+    runningTasks: number;
+    readyTasks: number;
+    blockedTasks: number;
+    successRate: number;
+    failureRate: number;
+  };
+  lanes?: {
+    ready: RunnerScheduleTask[];
+    scheduled: RunnerScheduleTask[];
+    running: RunnerScheduleTask[];
+    blocked: RunnerScheduleTask[];
+  };
+  recentTriggers?: Array<{
+    id: string;
+    action: string;
+    target: string;
+    result: string;
+    createdAt: string;
+  }>;
+  factSources?: string[];
   runners: Array<{
     runnerId: string;
     online: boolean;
@@ -151,6 +173,22 @@ export type RunnerModel = {
     lastHeartbeatAt?: string;
     heartbeatStale: boolean;
   }>;
+};
+
+export type RunnerScheduleTask = {
+  id: string;
+  featureId?: string;
+  featureTitle?: string;
+  title: string;
+  status: string;
+  risk: string;
+  dependencies: Array<{ id: string; status: string; satisfied: boolean }>;
+  approvalStatus: "approved" | "pending" | "not_required";
+  runnerId?: string;
+  runId?: string;
+  action: "schedule" | "run" | "review" | "observe";
+  blockedReasons: string[];
+  recentLog?: string;
 };
 
 export type ReviewModel = {
