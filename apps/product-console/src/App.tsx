@@ -962,6 +962,37 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
     automationEnabled: false,
   });
   const updateForm = (patch: Partial<ProjectCreateForm>) => setForm((previous) => ({ ...previous, ...patch }));
+  const sharedFields = (
+    <>
+      <label className="block text-[13px] font-medium">
+        {text.projectName}
+        <input
+          className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+          value={form.name}
+          onChange={(event) => updateForm({ name: event.target.value, workspaceSlug: form.workspaceSlug || slugifyProjectName(event.target.value) })}
+          placeholder="SpecDrive Demo"
+        />
+      </label>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="block text-[13px] font-medium">
+          {text.defaultBranch}
+          <input
+            className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+            value={form.defaultBranch}
+            onChange={(event) => updateForm({ defaultBranch: event.target.value })}
+          />
+        </label>
+        <label className="flex items-end gap-2 pb-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={form.automationEnabled}
+            onChange={(event) => updateForm({ automationEnabled: event.target.checked })}
+          />
+          {text.automationEnabled}
+        </label>
+      </div>
+    </>
+  );
   return (
     <Dialog.Root>
       <Dialog.Trigger asChild>
@@ -992,70 +1023,61 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
                 {text.createNewProject}
               </button>
             </div>
-            <label className="block text-[13px] font-medium">
-              {text.projectName}
-              <input
-                className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
-                value={form.name}
-                onChange={(event) => updateForm({ name: event.target.value, workspaceSlug: form.workspaceSlug || slugifyProjectName(event.target.value) })}
-                placeholder="SpecDrive Demo"
-              />
-            </label>
-            <label className="block text-[13px] font-medium">
-              {text.projectGoal}
-              <input
-                className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
-                value={form.goal}
-                onChange={(event) => updateForm({ goal: event.target.value })}
-                placeholder="Automate spec-driven delivery"
-              />
-            </label>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-[13px] font-medium">
-                {text.projectType}
-                <input
-                  className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
-                  value={form.projectType}
-                  onChange={(event) => updateForm({ projectType: event.target.value })}
-                />
-              </label>
-              <label className="block text-[13px] font-medium">
-                {text.defaultBranch}
-                <input
-                  className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
-                  value={form.defaultBranch}
-                  onChange={(event) => updateForm({ defaultBranch: event.target.value })}
-                />
-              </label>
-            </div>
-            <label className="block text-[13px] font-medium">
-              {form.mode === "create_new" ? text.workspaceSlug : text.existingProjectPath}
-              <input
-                className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
-                value={form.mode === "create_new" ? form.workspaceSlug : form.existingProjectPath}
-                onChange={(event) => form.mode === "create_new"
-                  ? updateForm({ workspaceSlug: slugifyProjectName(event.target.value) })
-                  : updateForm({ existingProjectPath: event.target.value })}
-                placeholder={form.mode === "create_new" ? "new-client-app" : "/home/john/Projects/existing-app"}
-              />
-            </label>
-            <label className="block text-[13px] font-medium">
-              {text.techPreferences}
-              <input
-                className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
-                value={form.techPreferences}
-                onChange={(event) => updateForm({ techPreferences: event.target.value })}
-                placeholder="TypeScript, React, Node.js"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-[13px]">
-              <input
-                type="checkbox"
-                checked={form.automationEnabled}
-                onChange={(event) => updateForm({ automationEnabled: event.target.checked })}
-              />
-              {text.automationEnabled}
-            </label>
+            {form.mode === "import_existing" ? (
+              <>
+                {sharedFields}
+                <label className="block text-[13px] font-medium">
+                  {text.existingProjectPath}
+                  <input
+                    className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+                    value={form.existingProjectPath}
+                    onChange={(event) => updateForm({ existingProjectPath: event.target.value })}
+                    placeholder="/home/john/Projects/existing-app"
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                {sharedFields}
+                <label className="block text-[13px] font-medium">
+                  {text.projectGoal}
+                  <input
+                    className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+                    value={form.goal}
+                    onChange={(event) => updateForm({ goal: event.target.value })}
+                    placeholder="Automate spec-driven delivery"
+                  />
+                </label>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-[13px] font-medium">
+                    {text.projectType}
+                    <input
+                      className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+                      value={form.projectType}
+                      onChange={(event) => updateForm({ projectType: event.target.value })}
+                    />
+                  </label>
+                  <label className="block text-[13px] font-medium">
+                    {text.workspaceSlug}
+                    <input
+                      className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+                      value={form.workspaceSlug}
+                      onChange={(event) => updateForm({ workspaceSlug: slugifyProjectName(event.target.value) })}
+                      placeholder="new-client-app"
+                    />
+                  </label>
+                </div>
+                <label className="block text-[13px] font-medium">
+                  {text.techPreferences}
+                  <input
+                    className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+                    value={form.techPreferences}
+                    onChange={(event) => updateForm({ techPreferences: event.target.value })}
+                    placeholder="TypeScript, React, Node.js"
+                  />
+                </label>
+              </>
+            )}
             <div className="flex justify-end">
               <Dialog.Close asChild>
                 <Button tone="primary" onClick={() => onCreate(form)}>{text.submitCommand}</Button>

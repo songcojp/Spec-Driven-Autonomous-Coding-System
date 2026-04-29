@@ -56,7 +56,12 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await expect(page.getByText("T-222 Verify project-scoped")).toBeVisible();
 
   await page.getByRole("button", { name: "创建项目" }).click();
+  await expect(page.getByLabel("现有项目目录")).toBeVisible();
+  await expect(page.getByLabel("项目目标")).toHaveCount(0);
   await page.getByRole("button", { name: "创建新项目" }).click();
+  await expect(page.getByLabel("项目目标")).toBeVisible();
+  await expect(page.getByLabel("Workspace 目录名")).toBeVisible();
+  await expect(page.getByLabel("现有项目目录")).toHaveCount(0);
   await page.getByLabel("项目名称").fill("New Client App");
   await page.getByLabel("项目目标").fill("Build a new client workspace");
   await page.getByLabel("Workspace 目录名").fill("new-client-app");
