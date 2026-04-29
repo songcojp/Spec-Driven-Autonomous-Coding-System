@@ -15,6 +15,7 @@ import {
   type ProjectConstitutionInput,
 } from "./projects.ts";
 import {
+  buildProjectOverview,
   buildDashboardBoardView,
   buildDashboardQuery,
   buildReviewCenterView,
@@ -151,6 +152,11 @@ async function routeRequest(
         projectId: url.searchParams.get("projectId") ?? undefined,
         refresh: url.searchParams.get("refresh") === "true",
       }));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/console/project-overview") {
+      writeJson(response, 200, buildProjectOverview(config.dbPath));
       return;
     }
 

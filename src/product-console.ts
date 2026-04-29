@@ -103,6 +103,37 @@ export type DashboardQueryModel = {
   factSources: string[];
 };
 
+export type ProjectOverviewModel = {
+  summary: {
+    totalProjects: number;
+    healthyProjects: number;
+    blockedProjects: number;
+    failedTasks: number;
+    pendingReviews: number;
+    onlineRunners: number;
+    totalCostUsd: number;
+  };
+  projects: Array<{
+    id: string;
+    name: string;
+    health: "ready" | "blocked" | "failed";
+    repository: string;
+    projectDirectory: string;
+    defaultBranch: string;
+    activeFeature?: { id: string; title: string; status: string };
+    taskCounts: Record<BoardColumn | "unknown", number>;
+    failedTasks: number;
+    pendingReviews: number;
+    runningSubagents: number;
+    runnerSuccessRate: number;
+    costUsd: number;
+    latestRisk?: { level: RiskLevel | "unknown"; message: string; source: string };
+    lastActivityAt: string;
+  }>;
+  signals: Array<{ id: string; title: string; tone: "amber" | "red" | "blue"; message: string; updatedAt?: string }>;
+  factSources: string[];
+};
+
 export type DashboardBoardViewModel = {
   tasks: Array<{
     id: string;
@@ -258,6 +289,155 @@ const BOARD_COLUMNS = new Set([
   "done",
   "delivered",
 ]);
+
+export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "projects",
+      sql: `SELECT p.id, p.name, p.status, p.target_repo_path, p.default_branch, p.updated_at,
+          rc.remote_url, rc.local_path
+        FROM projects p
+        LEFT JOIN repository_connections rc ON rc.project_id = p.id
+          AND rc.connected_at = (
+            SELECT MAX(connected_at) FROM repository_connections latest WHERE latest.project_id = p.id
+          )
+        ORDER BY COALESCE(p.updated_at, p.created_at, '') DESC, p.name`,
+    },
+    {
+      name: "features",
+      sql: `SELECT id, project_id, title, status, COALESCE(priority, 0) AS priority, COALESCE(updated_at, created_at) AS activity_at
+        FROM features
+        ORDER BY priority DESC, COALESCE(updated_at, created_at, '') DESC`,
+    },
+    {
+      name: "graphTasks",
+      sql: `SELECT t.id, t.feature_id, f.project_id, t.title, t.status, t.risk, COALESCE(t.updated_at, t.created_at) AS activity_at
+        FROM task_graph_tasks t
+        LEFT JOIN features f ON f.id = t.feature_id`,
+    },
+    {
+      name: "tasks",
+      sql: `SELECT t.id, t.feature_id, f.project_id, t.title, t.status, 'unknown' AS risk, t.created_at AS activity_at
+        FROM tasks t
+        LEFT JOIN features f ON f.id = t.feature_id`,
+    },
+    {
+      name: "runs",
+      sql: `SELECT r.id, r.task_id, r.feature_id, COALESCE(r.project_id, f.project_id) AS project_id, r.status, r.started_at
+        FROM runs r
+        LEFT JOIN features f ON f.id = r.feature_id
+        ORDER BY COALESCE(r.started_at, '') DESC`,
+    },
+    {
+      name: "heartbeats",
+      sql: `SELECT hb.runner_id, hb.status, hb.beat_at, COALESCE(r.project_id, f.project_id) AS project_id
+        FROM runner_heartbeats hb
+        LEFT JOIN runs r ON r.id = hb.run_id
+        LEFT JOIN features f ON f.id = r.feature_id
+        ORDER BY hb.beat_at DESC`,
+    },
+    {
+      name: "reviews",
+      sql: `SELECT ri.id, ri.status, ri.severity, ri.body, ri.created_at,
+          COALESCE(ri.project_id, f.project_id, tf.project_id, gtf.project_id, r.project_id) AS project_id
+        FROM review_items ri
+        LEFT JOIN features f ON f.id = ri.feature_id
+        LEFT JOIN tasks t ON t.id = ri.task_id
+        LEFT JOIN features tf ON tf.id = t.feature_id
+        LEFT JOIN task_graph_tasks gt ON gt.id = ri.task_id
+        LEFT JOIN features gtf ON gtf.id = gt.feature_id
+        LEFT JOIN runs r ON r.id = ri.run_id
+        ORDER BY ri.created_at DESC`,
+    },
+    { name: "metrics", sql: "SELECT metric_name, metric_value, labels_json FROM metric_samples ORDER BY sampled_at, rowid" },
+  ]);
+
+  const projectRows = result.queries.projects;
+  const graphTasksByProject = groupByProject(result.queries.graphTasks);
+  const fallbackTasksByProject = groupByProject(result.queries.tasks);
+  const featuresByProject = groupByProject(result.queries.features);
+  const runsByProject = groupByProject(result.queries.runs);
+  const reviewsByProject = groupByProject(result.queries.reviews);
+  const metricsByProject = groupMetricsByProject(result.queries.metrics);
+  const latestHeartbeats = latestRunnerStatuses(result.queries.heartbeats);
+  const heartbeatsByProject = groupByProject(latestHeartbeats);
+
+  const projects = projectRows.map((project) => {
+    const projectId = String(project.id);
+    const featureRows = featuresByProject.get(projectId) ?? [];
+    const taskRows = graphTasksByProject.get(projectId)?.length
+      ? graphTasksByProject.get(projectId) ?? []
+      : fallbackTasksByProject.get(projectId) ?? [];
+    const reviewRows = reviewsByProject.get(projectId) ?? [];
+    const runRows = runsByProject.get(projectId) ?? [];
+    const metricRows = metricsByProject.get(projectId) ?? [];
+    const riskRows = overviewRisks(reviewRows, runRows);
+    const activeFeature = featureRows.find((row) => !["done", "delivered"].includes(String(row.status)));
+    const health = normalizeProjectHealth(project.status);
+    return {
+      id: projectId,
+      name: String(project.name),
+      health,
+      repository: optionalString(project.remote_url) ?? optionalString(project.target_repo_path) ?? "",
+      projectDirectory: optionalString(project.local_path) ?? optionalString(project.target_repo_path) ?? "",
+      defaultBranch: String(project.default_branch ?? "main"),
+      activeFeature: activeFeature
+        ? { id: String(activeFeature.id), title: String(activeFeature.title), status: String(activeFeature.status) }
+        : undefined,
+      taskCounts: buildBoardCounts(taskRows),
+      failedTasks: countBy(taskRows, "status", "failed"),
+      pendingReviews: reviewRows.filter((row) => pendingReviewStatuses.has(String(row.status))).length,
+      runningSubagents: countBy(runRows, "status", "running"),
+      runnerSuccessRate: latestMetric(metricRows, "success_rate"),
+      costUsd: sumMetrics(metricRows, "cost_usd"),
+      latestRisk: riskRows[0],
+      lastActivityAt: latestActivityAt([
+        project.updated_at,
+        ...featureRows.map((row) => row.activity_at),
+        ...taskRows.map((row) => row.activity_at),
+        ...runRows.map((row) => row.started_at),
+        ...reviewRows.map((row) => row.created_at),
+      ]),
+    };
+  });
+
+  const pendingReviews = projects.reduce((sum, project) => sum + project.pendingReviews, 0);
+  const failedTasks = projects.reduce((sum, project) => sum + project.failedTasks, 0);
+  const onlineRunners = latestHeartbeats.filter((row) => String(row.status) === "online").length;
+  return {
+    summary: {
+      totalProjects: projects.length,
+      healthyProjects: projects.filter((project) => project.health === "ready").length,
+      blockedProjects: projects.filter((project) => project.health === "blocked").length,
+      failedTasks,
+      pendingReviews,
+      onlineRunners,
+      totalCostUsd: projects.reduce((sum, project) => sum + project.costUsd, 0),
+    },
+    projects,
+    signals: [
+      {
+        id: "pending-reviews",
+        title: "pending_reviews",
+        tone: "amber",
+        message: `${pendingReviews} unresolved review item${pendingReviews === 1 ? "" : "s"} across ${projects.filter((project) => project.pendingReviews > 0).length} project${projects.filter((project) => project.pendingReviews > 0).length === 1 ? "" : "s"}.`,
+      },
+      {
+        id: "blocked-tasks",
+        title: "blocked_tasks",
+        tone: failedTasks > 0 ? "red" : "amber",
+        message: `${projects.reduce((sum, project) => sum + (project.taskCounts.blocked ?? 0), 0)} blocked and ${failedTasks} failed task${failedTasks === 1 ? "" : "s"} across active projects.`,
+      },
+      {
+        id: "runner-health",
+        title: "runner_health",
+        tone: "blue",
+        message: `${onlineRunners}/${latestHeartbeats.length} runner${latestHeartbeats.length === 1 ? "" : "s"} online.`,
+      },
+    ],
+    factSources: ["projects", "features", "task_graph_tasks", "tasks", "runs", "runner_heartbeats", "review_items", "metric_samples"],
+  };
+}
 
 export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptions = {}): DashboardQueryModel {
   const started = process.hrtime.bigint();
@@ -1181,6 +1361,63 @@ function buildBoardCounts(rows: Record<string, unknown>[]): DashboardQueryModel[
     counts[key as BoardColumn | "unknown"] += 1;
   }
   return counts;
+}
+
+function groupByProject(rows: Record<string, unknown>[]): Map<string, Record<string, unknown>[]> {
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const projectId = optionalString(row.project_id);
+    if (!projectId) {
+      continue;
+    }
+    groups.set(projectId, [...groups.get(projectId) ?? [], row]);
+  }
+  return groups;
+}
+
+function groupMetricsByProject(rows: Record<string, unknown>[]): Map<string, Record<string, unknown>[]> {
+  const groups = new Map<string, Record<string, unknown>[]>();
+  for (const row of rows) {
+    const projectId = optionalString(parseJsonObject(row.labels_json).projectId);
+    if (!projectId) {
+      continue;
+    }
+    groups.set(projectId, [...groups.get(projectId) ?? [], row]);
+  }
+  return groups;
+}
+
+function normalizeProjectHealth(value: unknown): ProjectOverviewModel["projects"][number]["health"] {
+  const status = String(value);
+  if (status === "ready" || status === "failed") {
+    return status;
+  }
+  return "blocked";
+}
+
+function latestActivityAt(values: unknown[]): string {
+  return values
+    .map((value) => optionalString(value))
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1) ?? "";
+}
+
+function overviewRisks(reviewRows: Record<string, unknown>[], runRows: Record<string, unknown>[]): ProjectOverviewModel["projects"][number]["latestRisk"][] {
+  const reviewRisks = reviewRows
+    .filter((row) => pendingReviewStatuses.has(String(row.status)))
+    .map((row) => {
+      const body = parseJsonObject(row.body);
+      return {
+        level: normalizeRisk(row.severity),
+        message: typeof body.message === "string" ? body.message : String(row.body),
+        source: String(row.id),
+      };
+    });
+  const failedRuns = runRows
+    .filter((row) => String(row.status) === "failed")
+    .map((row) => ({ level: "medium" as const, message: `Run ${String(row.id)} failed.`, source: String(row.id) }));
+  return [...reviewRisks, ...failedRuns].filter((risk) => Boolean(risk.message));
 }
 
 function boardBlockedReasons(

@@ -3,6 +3,7 @@ import type { CommandAction, CommandReceipt, ConsoleData, ProjectCreateForm, Pro
 function endpoints(projectId: string) {
   const encodedProjectId = encodeURIComponent(projectId);
   return {
+    overview: "/console/project-overview",
     dashboard: `/console/dashboard?projectId=${encodedProjectId}`,
     board: `/console/dashboard-board?projectId=${encodedProjectId}`,
     spec: `/console/spec-workspace?projectId=${encodedProjectId}&featureId=FEAT-013`,

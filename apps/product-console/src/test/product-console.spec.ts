@@ -1,13 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { demoData } from "../lib/demo-data";
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    if (!window.sessionStorage.getItem("specdrive-test-storage-cleared")) {
+test.beforeEach(async ({ page }, testInfo) => {
+  await page.addInitScript((storageKey) => {
+    if (!window.sessionStorage.getItem(storageKey)) {
       window.localStorage.clear();
-      window.sessionStorage.setItem("specdrive-test-storage-cleared", "1");
+      window.sessionStorage.setItem(storageKey, "1");
     }
-  });
+  }, `specdrive-test-storage-cleared-${testInfo.testId}`);
   await installConsoleRoutes(page);
 });
 
@@ -16,13 +16,14 @@ test("renders the console first screen and navigates across all pages", async ({
 
   await expect(page.getByText("SpecDrive Console")).toBeVisible();
   await expect(page.getByLabel("项目列表")).toHaveValue("project-1");
-  await expect(page.getByText("项目健康")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "全局概况" })).toBeVisible();
+  await expect(page.getByText("项目总数")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
-  await expect(page.getByText("看板运行被阻塞")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Northwind Supply Planner/ })).toBeVisible();
 
-  for (const label of ["看板", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "仪表盘"]) {
+  for (const label of ["看板", "Spec 工作台", "Skill 中心", "Subagent", "Runner", "审查", "全局概况"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
-    const heading = label === "仪表盘" ? "命令反馈" : label === "审查" ? /审查 \d+/ : label;
+    const heading = label === "全局概况" ? "全局概况" : label === "看板" ? "项目主页" : label === "审查" ? /审查 \d+/ : label;
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();
     if (label === "Runner") {
       await expect(page.getByText("任务调度中心")).toBeVisible();
@@ -36,22 +37,65 @@ test("renders the console first screen and navigates across all pages", async ({
   }
 });
 
+test("supports collapsible navigation and keeps the content header fixed", async ({ page }) => {
+  await page.goto("/");
+
+  const shellHeader = page.locator("main > header");
+  await expect(page.getByLabel("收起导航")).toBeVisible();
+  await expect(shellHeader).toHaveCSS("position", "sticky");
+
+  const expandedWidth = await page.locator(".console-sidebar").boundingBox();
+  await page.getByLabel("收起导航").click();
+  await expect(page.getByLabel("展开导航")).toBeVisible();
+  const collapsedWidth = await page.locator(".console-sidebar").boundingBox();
+  if (page.viewportSize()!.width > 900) {
+    expect(collapsedWidth!.width).toBeLessThan(expandedWidth!.width);
+  }
+
+  await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Spec 工作台" })).toBeVisible();
+});
+
+test("omits the project metric summary strip from workbench pages", async ({ page }) => {
+  await page.goto("/");
+
+  for (const label of ["Spec 工作台", "Skill 中心", "Runner", "审查"]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(page.getByText("项目健康")).toHaveCount(0);
+    await expect(page.getByText("本月成本")).toHaveCount(0);
+  }
+});
+
 test("defaults to Chinese and persists language switching", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByLabel("语言")).toHaveValue("zh-CN");
-  await expect(page.getByRole("button", { name: "仪表盘", exact: true })).toBeVisible();
-  await expect(page.getByText("项目健康")).toBeVisible();
+  await expect(page.getByRole("button", { name: "全局概况", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "看板", exact: true })).toBeVisible();
+  await expect(page.getByText("项目总数")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.getByLabel("语言").selectOption("en");
-  await expect(page.getByRole("button", { name: "Dashboard", exact: true })).toBeVisible();
-  await expect(page.getByText("Project Health")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Global Overview", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Board", exact: true })).toBeVisible();
+  await expect(page.getByText("Total Projects")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.reload();
   await expect(page.getByLabel("Language")).toHaveValue("en");
-  await expect(page.getByRole("button", { name: "Dashboard", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Global Overview", exact: true })).toBeVisible();
+});
+
+test("global overview switches projects and opens the selected board", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "全局概况" })).toBeVisible();
+  await page.getByRole("row", { name: /Northwind Supply Planner/ }).click();
+  await expect(page.getByLabel("项目列表")).toHaveValue("project-2");
+
+  await page.getByRole("row", { name: /Northwind Supply Planner/ }).getByRole("button", { name: "查看看板" }).click();
+  await expect(page.getByRole("heading", { name: "项目主页" })).toBeVisible();
+  await expect(page.getByText("T-401 Model forecast confidence bands")).toBeVisible();
 });
 
 test("renders the Spec workspace workbench and submits controlled spec commands", async ({ page }) => {
@@ -91,6 +135,7 @@ test("creates projects and switches project-scoped console data", async ({ page 
 
   await page.getByLabel("项目列表").selectOption("project-2");
   await expect(page.getByText("Demand Forecast Review")).toBeVisible();
+  await page.getByRole("button", { name: "看板", exact: true }).click();
   await expect(page.getByText("T-401 Model forecast confidence bands")).toBeVisible();
 
   await page.getByRole("button", { name: "创建项目" }).click();
@@ -115,7 +160,7 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await expect(page.getByLabel("项目列表")).not.toHaveValue("project-1");
   await expect(page.getByText("项目目录: workspace/new-client-app")).toBeVisible();
   await page.getByRole("button", { name: "看板", exact: true }).click();
-  await expect(page.getByText("当前项目没有可用的看板任务。")).toBeVisible();
+  await expect(page.getByText("当前项目没有可用的看板任务。").first()).toBeVisible();
 });
 
 test("uses a complete mock project instead of UI demo data modes", async ({ page }) => {
@@ -125,6 +170,8 @@ test("uses a complete mock project instead of UI demo data modes", async ({ page
   await expect(page.getByLabel("项目列表")).toContainText("Acme Returns Portal");
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
   await page.getByRole("button", { name: "看板", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "项目主页" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "任务看板" })).toBeVisible();
   await expect(page.getByText("T-230 Review refund approval copy")).toBeVisible();
   await expect(page.getByText("T-231 Run mobile browser acceptance")).toBeVisible();
 });
@@ -132,6 +179,7 @@ test("uses a complete mock project instead of UI demo data modes", async ({ page
 test("submits a controlled command and shows blocked feedback", async ({ page }) => {
   await page.goto("/");
 
+  await page.getByRole("button", { name: "看板", exact: true }).click();
   await page.getByRole("button", { name: "运行", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
@@ -168,6 +216,7 @@ async function installConsoleRoutes(page: Page) {
     },
   };
   await page.route("**/console/dashboard?projectId=project-1", async (route) => route.fulfill({ json: demoData.dashboard }));
+  await page.route("**/console/project-overview", async (route) => route.fulfill({ json: demoData.overview }));
   await page.route("**/console/dashboard-board?projectId=project-1", async (route) => route.fulfill({ json: demoData.board }));
   await page.route("**/console/spec-workspace?projectId=project-1&featureId=FEAT-013", async (route) => route.fulfill({ json: demoData.spec }));
   await page.route("**/console/skills?projectId=project-1", async (route) => route.fulfill({ json: demoData.skills }));

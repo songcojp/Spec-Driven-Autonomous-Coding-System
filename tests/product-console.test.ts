@@ -8,6 +8,7 @@ import { runSqlite } from "../src/sqlite.ts";
 import {
   buildDashboardBoardView,
   buildDashboardQuery,
+  buildProjectOverview,
   buildReviewCenterView,
   buildRunnerConsoleView,
   buildSkillCenterView,
@@ -17,6 +18,28 @@ import {
 } from "../src/product-console.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
+
+test("project overview aggregates all projects without current project filtering", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+
+  const overview = buildProjectOverview(dbPath);
+
+  assert.equal(overview.summary.totalProjects, 2);
+  assert.equal(overview.summary.healthyProjects, 1);
+  assert.equal(overview.summary.blockedProjects, 1);
+  assert.equal(overview.summary.pendingReviews, 2);
+  assert.equal(overview.summary.onlineRunners, 2);
+  assert.equal(overview.summary.totalCostUsd, 100.25);
+  assert.deepEqual(overview.projects.map((project) => project.id).sort(), ["project-1", "project-2"]);
+  assert.equal(overview.projects.find((project) => project.id === "project-1")?.activeFeature?.id, "FEAT-013");
+  assert.equal(overview.projects.find((project) => project.id === "project-1")?.taskCounts.running, 1);
+  assert.equal(overview.projects.find((project) => project.id === "project-1")?.pendingReviews, 1);
+  assert.equal(overview.projects.find((project) => project.id === "project-1")?.runnerSuccessRate, 0.8);
+  assert.equal(overview.projects.find((project) => project.id === "project-2")?.pendingReviews, 1);
+  assert.equal(overview.projects.find((project) => project.id === "project-2")?.costUsd, 99);
+  assert.equal(overview.factSources.includes("projects"), true);
+});
 
 test("dashboard aggregates control-plane facts and records performance baselines", () => {
   const dbPath = makeDbPath();

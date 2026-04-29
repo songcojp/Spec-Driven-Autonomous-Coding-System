@@ -16,6 +16,8 @@ import {
   Home,
   LayoutDashboard,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pause,
   Play,
   Plus,
@@ -27,20 +29,20 @@ import {
   Workflow,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useMemo, useState, useTransition } from "react";
 import { createConsoleProject, scanProjectDirectory, submitCommand } from "./lib/api";
 import { demoData, getDemoDataForProject } from "./lib/demo-data";
 import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "./types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
 
 type Locale = "zh-CN" | "en";
-type ViewKey = "dashboard" | "board" | "spec" | "skills" | "subagents" | "runner" | "reviews";
+type ViewKey = "overview" | "board" | "spec" | "skills" | "subagents" | "runner" | "reviews";
 
 const localeStorageKey = "specdrive-console-locale";
 const projectStorageKey = "specdrive-current-project";
 
 const navItems: Array<{ key: ViewKey; icon: typeof Home }> = [
-  { key: "dashboard", icon: LayoutDashboard },
+  { key: "overview", icon: LayoutDashboard },
   { key: "board", icon: SquareKanban },
   { key: "spec", icon: FileText },
   { key: "skills", icon: Boxes },
@@ -64,7 +66,7 @@ const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | "blue">
 const copy = {
   "zh-CN": {
     nav: {
-      dashboard: "仪表盘",
+      overview: "全局概况",
       board: "看板",
       spec: "Spec 工作台",
       skills: "Skill 中心",
@@ -73,8 +75,29 @@ const copy = {
       reviews: "审查",
     },
     consoleNavigation: "控制台导航",
+    collapseNavigation: "收起导航",
+    expandNavigation: "展开导航",
     project: "项目",
     currentProject: "当前项目",
+    allProjects: "所有项目",
+    globalOverview: "全局概况",
+    globalOverviewSubtitle: "所有项目的健康、执行、审查和成本状态。",
+    totalProjects: "项目总数",
+    healthyProjects: "健康项目",
+    blockedProjects: "阻塞项目",
+    totalCost: "总成本",
+    projectOverview: "项目概况",
+    taskSummary: "任务",
+    subagentsShort: "Subagents",
+    runnerSuccessShort: "Runner 成功率",
+    costUsd: "成本 (USD)",
+    latestRisk: "最新风险",
+    viewBoard: "查看看板",
+    riskAndExecutionSignals: "风险与执行信号",
+    viewAll: "查看全部",
+    viewDetails: "查看详情",
+    justNow: "刚刚",
+    itemsTotal: (total: number) => `共 ${total} 项`,
     projectList: "项目列表",
     createProject: "创建项目",
     createProjectDescription: "导入已有项目时只需设置目录，系统会自动扫描仓库信息；新项目统一创建到 workspace 目录。",
@@ -115,7 +138,32 @@ const copy = {
     needsSetup: "需初始化",
     none: "无",
     createFeature: "创建 Feature",
-    board: "看板",
+    projectHome: "项目主页",
+    projectHomeSecondary: "Project Home",
+    taskBoard: "任务看板",
+    projectIdentity: "项目身份",
+    latestActivity: "最近活动",
+    currentActiveFeature: "当前活跃 Feature",
+    automationStatus: "自动化状态",
+    owner: "负责人",
+    featureSpecPath: "Feature Spec",
+    operationalSummary: "运行摘要",
+    taskBoardCounts: "任务状态",
+    currentRisks: "当前风险",
+    recentPrs: "最近 PR",
+    recentEvidenceEvents: "最近 Evidence / 审计",
+    viewAllRisks: "查看全部风险",
+    viewAllPrs: "查看全部 PR",
+    viewAllEvidence: "查看全部 Evidence",
+    noRisks: "当前没有项目风险。",
+    noPullRequests: "没有最近 PR。",
+    noEvidenceEvents: "没有最近 Evidence 或审计事件。",
+    total: "总数",
+    active: "活跃",
+    lastSevenDays: "最近 7 天",
+    requireAction: "需要处理",
+    taskBoardGroup: "分组：无",
+    filter: "筛选",
     noBoardTasks: "当前项目没有可用的看板任务。",
     searchTasks: "搜索任务...",
     schedule: "排期",
@@ -190,6 +238,11 @@ const copy = {
     taskDetail: "任务详情",
     selectTask: "选择一个看板任务以查看依赖、diff、测试、审批和恢复事实。",
     moveToRunning: "移动到运行中",
+    blockedReasons: "阻塞原因",
+    dependencyFacts: "依赖事实",
+    approvalState: "审批状态",
+    executionPlanNext: "下一步执行计划",
+    scheduleMore: "排期...",
     specWorkspace: "Spec 工作台",
     featureSpec: "Feature Spec",
     searchFeature: "搜索 Feature...",
@@ -247,7 +300,7 @@ const copy = {
   },
   en: {
     nav: {
-      dashboard: "Dashboard",
+      overview: "Global Overview",
       board: "Board",
       spec: "Spec Workspace",
       skills: "Skill Center",
@@ -256,8 +309,29 @@ const copy = {
       reviews: "Reviews",
     },
     consoleNavigation: "Console navigation",
+    collapseNavigation: "Collapse navigation",
+    expandNavigation: "Expand navigation",
     project: "Project",
     currentProject: "Current Project",
+    allProjects: "All Projects",
+    globalOverview: "Global Overview",
+    globalOverviewSubtitle: "Health, execution, review, and cost status across every project.",
+    totalProjects: "Total Projects",
+    healthyProjects: "Healthy Projects",
+    blockedProjects: "Blocked Projects",
+    totalCost: "Total Cost",
+    projectOverview: "Project Overview",
+    taskSummary: "Tasks",
+    subagentsShort: "Subagents",
+    runnerSuccessShort: "Runner Success",
+    costUsd: "Cost (USD)",
+    latestRisk: "Latest Risk",
+    viewBoard: "View Board",
+    riskAndExecutionSignals: "Risk & Execution Signals",
+    viewAll: "View All",
+    viewDetails: "View Details",
+    justNow: "Just now",
+    itemsTotal: (total: number) => `${total} items`,
     projectList: "Project List",
     createProject: "Create Project",
     createProjectDescription: "Set a directory to import an existing project and scan repository details automatically, or create a new project under workspace.",
@@ -298,7 +372,32 @@ const copy = {
     needsSetup: "Needs Setup",
     none: "None",
     createFeature: "Create Feature",
-    board: "Board",
+    projectHome: "Project Home",
+    projectHomeSecondary: "项目主页",
+    taskBoard: "Task Board",
+    projectIdentity: "Project Identity",
+    latestActivity: "Latest Activity",
+    currentActiveFeature: "Current Active Feature",
+    automationStatus: "Automation Status",
+    owner: "Owner",
+    featureSpecPath: "Feature Spec",
+    operationalSummary: "Operational Summary",
+    taskBoardCounts: "Task Board",
+    currentRisks: "Current Risks",
+    recentPrs: "Recent PRs",
+    recentEvidenceEvents: "Recent Evidence / Audit Events",
+    viewAllRisks: "View all risks",
+    viewAllPrs: "View all PRs",
+    viewAllEvidence: "View all evidence",
+    noRisks: "No current project risks.",
+    noPullRequests: "No recent PRs.",
+    noEvidenceEvents: "No recent evidence or audit events.",
+    total: "Total",
+    active: "Active",
+    lastSevenDays: "Last 7 days",
+    requireAction: "Require action",
+    taskBoardGroup: "Group: None",
+    filter: "Filter",
     noBoardTasks: "No board tasks are available for this project.",
     searchTasks: "Search tasks...",
     schedule: "Schedule",
@@ -373,6 +472,11 @@ const copy = {
     taskDetail: "Task Detail",
     selectTask: "Select a board task to inspect dependency, diff, test, approval, and recovery facts.",
     moveToRunning: "Move to Running",
+    blockedReasons: "Blocked Reasons",
+    dependencyFacts: "Dependency Facts",
+    approvalState: "Approval State",
+    executionPlanNext: "Execution Plan (Next)",
+    scheduleMore: "Schedule...",
     specWorkspace: "Spec Workspace",
     featureSpec: "Feature Spec",
     searchFeature: "Search Feature...",
@@ -428,7 +532,7 @@ const copy = {
     runnerFooter: "Runner: online",
     lastSync: "Last sync: 2m ago",
   },
-} satisfies Record<Locale, Record<string, unknown> & { nav: Record<ViewKey, string>; ofTasks: (start: number, end: number, total: number) => string; reviewsTitle: (count: number) => string }>;
+} satisfies Record<Locale, Record<string, unknown> & { nav: Record<ViewKey, string>; ofTasks: (start: number, end: number, total: number) => string; reviewsTitle: (count: number) => string; itemsTotal: (total: number) => string }>;
 
 type ConsoleCopy = (typeof copy)[Locale];
 
@@ -476,8 +580,9 @@ function bindProjects(data: Omit<ConsoleData, "projects"> | ConsoleData, project
 }
 
 export function App() {
-  const [view, setView] = useState<ViewKey>("dashboard");
+  const [view, setView] = useState<ViewKey>("overview");
   const [locale, setLocale] = useState<Locale>(readInitialLocale);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>(demoData.projects.projects);
   const [currentProjectId, setCurrentProjectId] = useState(readInitialProjectId);
   const [selectedTaskId, setSelectedTaskId] = useState("T-230");
@@ -583,13 +688,21 @@ export function App() {
 
   return (
     <Toast.Provider swipeDirection="right">
-      <div className="console-shell grid min-h-screen grid-cols-[220px_1fr] bg-canvas text-ink max-md:block">
-        <aside className="console-sidebar sticky top-0 h-screen border-r border-line bg-white max-md:static max-md:h-auto max-md:border-b max-md:border-r-0">
-          <div className="flex h-16 items-center gap-3 border-b border-line px-5">
+      <div className={`console-shell grid min-h-screen ${sidebarCollapsed ? "grid-cols-[72px_1fr]" : "grid-cols-[220px_1fr]"} bg-canvas text-ink transition-[grid-template-columns] duration-200 max-md:block`}>
+        <aside className="console-sidebar sticky top-0 h-screen border-r border-line bg-white transition-[width] max-md:static max-md:h-auto max-md:border-b max-md:border-r-0">
+          <div className={`flex h-16 items-center gap-3 border-b border-line ${sidebarCollapsed ? "justify-center px-2 max-md:justify-between max-md:px-4" : "px-5"}`}>
             <div className="grid size-8 place-items-center rounded-md border border-slate-300 text-action">
               <Code2 size={18} strokeWidth={2.2} />
             </div>
-            <div className="whitespace-nowrap text-[15px] font-semibold">SpecDrive Console</div>
+            <div className={`whitespace-nowrap text-[15px] font-semibold max-md:block ${sidebarCollapsed ? "hidden" : "block"}`}>SpecDrive Console</div>
+            <button
+              className={`${sidebarCollapsed ? "absolute right-2 top-3 max-md:static" : "ml-auto"} inline-flex size-9 items-center justify-center rounded-md border border-transparent text-muted hover:border-line hover:bg-slate-50 hover:text-ink`}
+              aria-label={sidebarCollapsed ? text.expandNavigation : text.collapseNavigation}
+              title={sidebarCollapsed ? text.expandNavigation : text.collapseNavigation}
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
           </div>
           <nav className="space-y-1 p-2 max-md:grid max-md:grid-cols-2 max-md:gap-1 max-md:space-y-0" aria-label={text.consoleNavigation}>
             {navItems.map((item) => {
@@ -601,23 +714,24 @@ export function App() {
                   key={item.key}
                   className={`flex h-11 w-full items-center gap-3 rounded-md px-4 text-left text-[14px] transition-colors ${
                     active ? "bg-blue-50 text-action" : "text-slate-700 hover:bg-slate-50"
-                  }`}
+                  } ${sidebarCollapsed ? "justify-center px-2 max-md:justify-start max-md:px-4" : ""}`}
                   onClick={() => setView(item.key)}
+                  title={label}
                 >
                   <Icon size={18} />
-                  {label}
+                  <span className={`max-md:inline ${sidebarCollapsed ? "sr-only" : "inline"}`}>{label}</span>
                 </button>
               );
             })}
           </nav>
-          <div className="absolute bottom-3 left-3 right-3 rounded-lg border border-line bg-slate-50 p-3 max-md:static max-md:m-3">
+          <div className={`absolute bottom-3 left-3 right-3 rounded-lg border border-line bg-slate-50 p-3 max-md:static max-md:m-3 ${sidebarCollapsed ? "hidden max-md:block" : ""}`}>
             <div className="text-[13px] font-semibold">{text.autobuildTeam}</div>
             <div className="mt-1 text-[12px] text-muted">{text.operator}</div>
           </div>
         </aside>
 
         <main className="min-w-0 max-md:w-full">
-          <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6 max-md:px-4">
+          <header className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6 shadow-sm max-md:px-4">
             <div className="flex min-w-0 items-center gap-6 max-md:w-full max-md:flex-wrap max-md:gap-2">
               <div className="min-w-0 max-md:flex-1">
                 <div className="flex items-center gap-2 max-md:flex-wrap">
@@ -660,17 +774,24 @@ export function App() {
           </header>
 
           <div className="space-y-5 p-5 pb-14">
-            <MetricsStrip data={currentData} text={text} project={currentProject} onCreateFeature={() => runCommand("create_feature", "project", currentProject.id)} />
-
             <Tabs.Root value={view} onValueChange={(value) => setView(value as ViewKey)}>
               <Tabs.List className="sr-only" aria-label={text.consoleNavigation}>
                 {navItems.map((item) => <Tabs.Trigger key={item.key} value={item.key}>{text.nav[item.key]}</Tabs.Trigger>)}
               </Tabs.List>
-              <Tabs.Content value="dashboard">
-                <DashboardView data={currentData} text={text} selectedTask={selectedTask} onSelectTask={setSelectedTaskId} onCommand={runCommand} busy={isPending} receipt={receipt} />
+              <Tabs.Content value="overview">
+                <GlobalOverviewView
+                  data={currentData}
+                  text={text}
+                  currentProjectId={currentProject.id}
+                  onSelectProject={switchProject}
+                  onViewBoard={(projectId) => {
+                    switchProject(projectId);
+                    setView("board");
+                  }}
+                />
               </Tabs.Content>
               <Tabs.Content value="board">
-                <BoardView data={currentData} text={text} selectedTask={selectedTask} onSelectTask={setSelectedTaskId} onCommand={runCommand} busy={isPending} />
+                <ProjectHomeView data={currentData} text={text} project={currentProject} selectedTask={selectedTask} onSelectTask={setSelectedTaskId} onCommand={runCommand} busy={isPending} />
               </Tabs.Content>
               <Tabs.Content value="spec">
                 <SpecWorkspace data={currentData} text={text} currentProjectId={currentProject.id} onCommand={runCommand} />
@@ -716,95 +837,449 @@ export function App() {
   );
 }
 
-function MetricsStrip({ data, text, project, onCreateFeature }: { data: ConsoleData; text: ConsoleCopy; project: ProjectSummary; onCreateFeature: () => void }) {
+function GlobalOverviewView({
+  data,
+  text,
+  currentProjectId,
+  onSelectProject,
+  onViewBoard,
+}: {
+  data: ConsoleData;
+  text: ConsoleCopy;
+  currentProjectId: string;
+  onSelectProject: (projectId: string) => void;
+  onViewBoard: (projectId: string) => void;
+}) {
+  const overviewProjects = mergeOverviewProjects(data);
+  const summary = data.overview.summary;
   const metrics = [
-    { label: text.projectHealth, value: project.health === "ready" ? text.healthy : text.needsSetup, icon: CheckCircle2, tone: project.health === "ready" ? "green" : "amber" },
-    { label: text.activeFeature, value: data.dashboard.activeFeatures[0]?.title ?? text.none, icon: Code2, tone: "blue" },
-    { label: text.failedTasks, value: String(data.dashboard.failedTasks.length), icon: ShieldAlert, tone: data.dashboard.failedTasks.length > 0 ? "red" : "green" },
-    { label: text.pendingReviews, value: String(data.dashboard.pendingApprovals), icon: ClipboardList, tone: data.dashboard.pendingApprovals > 0 ? "amber" : "green" },
-    { label: text.runnerSuccess, value: `${Math.round(data.dashboard.runner.successRate * 1000) / 10}%`, icon: CheckCircle2, tone: "green" },
-    { label: text.costMtd, value: `$${data.dashboard.cost.totalUsd.toFixed(2)}`, icon: CircleDollarSign, tone: "neutral" },
+    { label: text.totalProjects, value: String(summary.totalProjects), icon: FileText, tone: "blue" },
+    { label: text.healthyProjects, value: String(summary.healthyProjects), icon: CheckCircle2, tone: "green" },
+    { label: text.blockedProjects, value: String(summary.blockedProjects), icon: ShieldAlert, tone: summary.blockedProjects > 0 ? "amber" : "neutral" },
+    { label: text.failedTasks, value: String(summary.failedTasks), icon: XCircle, tone: summary.failedTasks > 0 ? "red" : "green" },
+    { label: text.pendingReviews, value: String(summary.pendingReviews), icon: ClipboardList, tone: summary.pendingReviews > 0 ? "amber" : "green" },
+    { label: text.onlineRunners, value: String(summary.onlineRunners), icon: Workflow, tone: "blue" },
+    { label: text.totalCost, value: `$${summary.totalCostUsd.toFixed(2)}`, icon: CircleDollarSign, tone: "neutral" },
   ] as const;
+
   return (
-    <Panel className="flex flex-wrap items-center">
-      {metrics.map((metric) => {
-        const Icon = metric.icon;
-        return (
-          <div key={metric.label} className="metric-separator flex min-w-[140px] flex-1 items-center gap-3 px-4 py-4">
-            <div className={`grid size-9 place-items-center rounded-md ${metricIconBg(metric.tone)}`}>
-              <Icon size={18} className={metric.tone === "red" ? "text-red-600" : metric.tone === "amber" ? "text-amber-600" : metric.tone === "blue" ? "text-action" : metric.tone === "green" ? "text-emerald-600" : "text-slate-600"} />
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-[26px] font-semibold tracking-normal text-ink">{text.globalOverview}</h1>
+        <p className="mt-2 text-[14px] text-muted">{text.globalOverviewSubtitle}</p>
+      </div>
+
+      <Panel className="grid grid-cols-7 divide-x divide-line max-2xl:grid-cols-4 max-2xl:divide-x-0 max-2xl:divide-y max-lg:grid-cols-2 max-sm:grid-cols-1">
+        {metrics.map((metric) => {
+          const Icon = metric.icon;
+          return (
+            <div key={metric.label} className="flex min-h-[102px] items-center gap-4 px-5 py-4">
+              <div className={`grid size-10 shrink-0 place-items-center rounded-md ${metricIconBg(metric.tone)}`}>
+                <Icon size={20} className={metricIconColor(metric.tone)} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-[13px] text-muted">{metric.label}</div>
+                <div className="mt-1 truncate text-[22px] font-semibold tracking-normal">{metric.value}</div>
+              </div>
             </div>
-            <div className="min-w-0">
-              <div className="text-[12px] text-muted">{metric.label}</div>
-              <div className="truncate text-[18px] font-semibold tracking-normal">{metric.value}</div>
+          );
+        })}
+      </Panel>
+
+      <Panel className="overflow-hidden">
+        <SectionTitle title={text.projectOverview} />
+        {overviewProjects.length > 0 ? (
+          <>
+            <div className="scrollbar-thin overflow-auto">
+              <table className="w-full min-w-[1220px] border-collapse text-left text-[13px]">
+                <thead className="border-b border-line bg-slate-50 text-[12px] font-medium text-muted">
+                  <tr>
+                    <th className="px-4 py-3">{text.project}</th>
+                    <th className="px-4 py-3">{text.status}</th>
+                    <th className="px-4 py-3">{text.defaultBranch}</th>
+                    <th className="px-4 py-3">{text.projectDirectory}</th>
+                    <th className="px-4 py-3">{text.activeFeature}</th>
+                    <th className="px-4 py-3">{text.taskSummary}</th>
+                    <th className="px-4 py-3">{text.pendingReviews}</th>
+                    <th className="px-4 py-3">{text.subagentsShort}</th>
+                    <th className="px-4 py-3">{text.runnerSuccessShort}</th>
+                    <th className="px-4 py-3">{text.costUsd}</th>
+                    <th className="px-4 py-3">{text.latestRisk}</th>
+                    <th className="px-4 py-3">{text.actions}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overviewProjects.map((project) => {
+                    const selected = project.id === currentProjectId;
+                    return (
+                      <tr
+                        key={project.id}
+                        className={`cursor-pointer border-b border-line last:border-0 ${selected ? "bg-blue-50/80 ring-1 ring-inset ring-blue-200" : "hover:bg-slate-50"}`}
+                        onClick={() => onSelectProject(project.id)}
+                      >
+                        <td className="px-4 py-4 align-top">
+                          <div className="flex min-w-[180px] items-start gap-2">
+                            <span className={`mt-1 text-[16px] ${selected ? "text-action" : "text-slate-300"}`}>★</span>
+                            <div>
+                              <div className="font-semibold text-action">{project.name}</div>
+                              <div className="mt-1 max-w-[220px] truncate text-[12px] text-muted">{project.repository || text.none}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 align-top"><Chip tone={project.health === "ready" ? "green" : project.health === "failed" ? "red" : "amber"}>{project.health === "ready" ? text.healthy : project.health}</Chip></td>
+                        <td className="px-4 py-4 align-top"><span className="inline-flex items-center gap-1 text-[12px] text-slate-700"><GitBranch size={13} />{project.defaultBranch}</span></td>
+                        <td className="max-w-[170px] px-4 py-4 align-top text-[12px] text-slate-700"><span className="line-clamp-2 break-all">{project.projectDirectory || text.none}</span></td>
+                        <td className="max-w-[180px] px-4 py-4 align-top">{project.activeFeature?.title ?? text.none}</td>
+                        <td className="px-4 py-4 align-top">
+                          <div className="grid min-w-[190px] grid-cols-5 gap-1 text-center text-[12px]">
+                            <TaskCount label="Ready" value={project.taskCounts.ready ?? 0} tone="neutral" />
+                            <TaskCount label="Running" value={project.taskCounts.running ?? 0} tone="blue" />
+                            <TaskCount label="Blocked" value={project.taskCounts.blocked ?? 0} tone="red" />
+                            <TaskCount label="Failed" value={project.failedTasks} tone="red" />
+                            <TaskCount label="Done" value={project.taskCounts.done ?? 0} tone="green" />
+                          </div>
+                        </td>
+                        <td className="px-4 py-4 align-top text-amber-600">{project.pendingReviews}</td>
+                        <td className="px-4 py-4 align-top">{project.runningSubagents}</td>
+                        <td className="px-4 py-4 align-top text-emerald-600">{formatPrecisePercent(project.runnerSuccessRate)}</td>
+                        <td className="px-4 py-4 align-top">${project.costUsd.toFixed(2)}</td>
+                        <td className="max-w-[220px] px-4 py-4 align-top text-[12px] text-slate-700">{project.latestRisk?.message ?? text.none}</td>
+                        <td className="px-4 py-4 align-top">
+                          <Button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onViewBoard(project.id);
+                            }}
+                          >
+                            {text.viewBoard}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between border-t border-line px-4 py-3 text-[12px] text-muted">
+              <span>{text.itemsTotal(overviewProjects.length)}</span>
+              <span>{data.overview.factSources.join(", ")}</span>
+            </div>
+          </>
+        ) : (
+          <EmptyState title={text.noFeatureSpecs} />
+        )}
+      </Panel>
+
+      <Panel>
+        <SectionTitle title={text.riskAndExecutionSignals} action={<Button tone="quiet">{text.viewAll}<ExternalLink size={13} /></Button>} />
+        <div className="divide-y divide-line">
+          {data.overview.signals.map((signal) => (
+            <div key={signal.id} className="flex flex-wrap items-center gap-4 px-4 py-3">
+              <StatusDot status={signal.tone === "red" ? "failed" : signal.tone === "amber" ? "review_needed" : "running"} />
+              <div className="min-w-[170px] font-semibold">{signalTitle(signal.title, text)}</div>
+              <Chip tone={signal.tone}>{signal.tone === "blue" ? text.runningLane : signal.tone === "red" ? text.risk : text.pendingReviews}</Chip>
+              <div className="min-w-0 flex-1 text-[13px] text-muted">{signal.message}</div>
+              <Button tone="quiet">{text.viewDetails}<ExternalLink size={13} /></Button>
+              <div className="w-16 text-right text-[12px] text-muted">{signal.updatedAt ?? text.justNow}</div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function mergeOverviewProjects(data: ConsoleData): ConsoleData["overview"]["projects"] {
+  const overviewById = new Map(data.overview.projects.map((project) => [project.id, project]));
+  return data.projects.projects.map((project) => overviewById.get(project.id) ?? {
+    id: project.id,
+    name: project.name,
+    health: project.health,
+    repository: project.repository,
+    projectDirectory: project.projectDirectory,
+    defaultBranch: project.defaultBranch,
+    taskCounts: {},
+    failedTasks: 0,
+    pendingReviews: 0,
+    runningSubagents: 0,
+    runnerSuccessRate: 0,
+    costUsd: 0,
+    lastActivityAt: project.lastActivityAt,
+  });
+}
+
+function TaskCount({ label, value, tone }: { label: string; value: number; tone: "neutral" | "green" | "red" | "blue" }) {
+  const color = tone === "green" ? "text-emerald-600" : tone === "red" ? "text-red-600" : tone === "blue" ? "text-action" : "text-slate-700";
+  return (
+    <div>
+      <div className="text-[10px] text-muted">{label}</div>
+      <div className={`mt-1 font-semibold ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+function signalTitle(value: string, text: ConsoleCopy): string {
+  if (value === "pending_reviews") {
+    return text.pendingReviews;
+  }
+  if (value === "blocked_tasks") {
+    return text.blockedTasks;
+  }
+  if (value === "runner_health") {
+    return `${text.runner} ${text.healthy}`;
+  }
+  return value;
+}
+
+function ProjectHomeView({ data, text, project, selectedTask, onSelectTask, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; project: ProjectSummary; selectedTask?: BoardTask; onSelectTask: (id: string) => void; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-5 max-xl:grid-cols-1">
+      <div className="min-w-0 space-y-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <h1 className="text-[24px] font-semibold tracking-normal text-ink">{text.projectHome}</h1>
+          <span className="pb-1 text-[13px] text-muted">{text.projectHomeSecondary}</span>
+        </div>
+        <ProjectHomeOverview data={data} text={text} project={project} />
+        <ProjectHomeMetrics data={data} text={text} />
+        <ProjectHomeActivity data={data} text={text} />
+        <BoardPanel tasks={data.board.tasks} text={text} selectedTask={selectedTask} onSelectTask={onSelectTask} onCommand={onCommand} busy={busy} />
+      </div>
+      <TaskInspector task={selectedTask} text={text} onCommand={onCommand} busy={busy} />
+    </div>
+  );
+}
+
+function ProjectHomeOverview({ data, text, project }: { data: ConsoleData; text: ConsoleCopy; project: ProjectSummary }) {
+  const activeFeature = data.dashboard.activeFeatures[0];
+  const latestPr = data.dashboard.recentPullRequests[0];
+  const runner = data.runner.runners[0];
+  return (
+    <Panel>
+      <div className="grid grid-cols-4 divide-x divide-line max-2xl:grid-cols-2 max-2xl:divide-x-0 max-2xl:divide-y max-md:grid-cols-1">
+        <div className="space-y-4 p-4">
+          <SectionKicker icon={Home} label={text.projectIdentity} />
+          <div>
+            <div className="text-[20px] font-semibold tracking-normal">{project.name}</div>
+            <div className="mt-3 text-[12px] font-medium text-muted">{text.repository}</div>
+            <a className="mt-1 inline-flex max-w-full items-center gap-1 truncate text-[13px] font-medium text-action" href="#">
+              <GitBranch size={14} />
+              {project.repository}
+              <ExternalLink size={12} />
+            </a>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[12px] font-medium text-blue-700">
+              <GitBranch size={13} />
+              {project.defaultBranch}
             </div>
           </div>
-        );
-      })}
-      <div className="p-4">
-        <Button tone="primary" className="whitespace-nowrap" onClick={onCreateFeature}>
-          <Plus size={16} />
-          {text.createFeature}
-        </Button>
+        </div>
+
+        <div className="space-y-4 p-4">
+          <SectionKicker icon={CheckCircle2} label={text.latestActivity} />
+          <div className="flex items-start gap-2">
+            <StatusDot status={latestPr ? "done" : project.health} />
+            <div className="min-w-0">
+              <div className="truncate text-[14px] font-semibold text-ink">{latestPr ? `${latestPr.id} merged` : project.lastActivityAt}</div>
+              <div className="mt-1 text-[12px] leading-5 text-muted">{latestPr?.title ?? project.projectDirectory}</div>
+            </div>
+          </div>
+          <div className="text-[12px] text-muted">{latestPr?.createdAt ?? project.lastActivityAt}</div>
+        </div>
+
+        <div className="space-y-4 p-4">
+          <SectionKicker icon={Code2} label={text.currentActiveFeature} />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="break-words text-[18px] font-semibold tracking-normal">{activeFeature?.title ?? text.none}</div>
+              <a className="mt-3 inline-flex max-w-full items-center gap-1 truncate text-[13px] font-medium text-action" href="#">
+                <FileText size={14} />
+                docs/features/{activeFeature?.id.toLowerCase() ?? "none"}
+              </a>
+              <div className="mt-3 text-[12px] text-muted">{text.owner}: {text.operator}</div>
+            </div>
+            <Chip tone={statusTone[activeFeature?.status ?? ""] ?? "neutral"}>{activeFeature?.status ?? text.none}</Chip>
+          </div>
+        </div>
+
+        <div className="space-y-4 p-4">
+          <SectionKicker icon={ShieldCheck} label={text.projectHealth} />
+          <div className="flex items-center gap-2 text-[18px] font-semibold text-emerald-700">
+            <CheckCircle2 size={20} />
+            {project.health === "ready" ? text.healthy : project.health}
+          </div>
+          <div className="border-t border-line pt-4">
+            <div className="text-[12px] font-medium text-muted">{text.automationStatus}</div>
+            <div className="mt-2 flex items-center gap-2 text-[16px] font-semibold text-emerald-700">
+              <Play size={18} />
+              {runner?.online ? text.runningLane : text.offline}
+            </div>
+            <div className="mt-1 text-[12px] text-muted">{text.runner}: {runner?.runnerId ?? text.none}</div>
+          </div>
+        </div>
       </div>
     </Panel>
   );
 }
 
-function DashboardView({
-  data,
-  text,
-  selectedTask,
-  onSelectTask,
-  onCommand,
-  busy,
-  receipt,
-}: {
-  data: ConsoleData;
-  text: ConsoleCopy;
-  selectedTask?: BoardTask;
-  onSelectTask: (id: string) => void;
-  onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void;
-  busy: boolean;
-  receipt?: CommandReceipt;
-}) {
+function ProjectHomeMetrics({ data, text }: { data: ConsoleData; text: ConsoleCopy }) {
+  const boardTotal = Object.values(data.dashboard.boardCounts).reduce((total, count) => total + count, 0);
+  const boardBreakdown = Object.entries(data.dashboard.boardCounts).filter(([, count]) => count > 0).slice(0, 3);
+  const items = [
+    {
+      icon: SquareKanban,
+      label: text.taskBoardCounts,
+      value: String(boardTotal || data.board.tasks.length),
+      sub: boardBreakdown.map(([status, count]) => `${count} ${status}`).join(" · ") || text.noBoardTasks,
+      tone: "blue",
+    },
+    {
+      icon: Bot,
+      label: text.subagents,
+      value: String(data.dashboard.runningSubagents),
+      sub: text.active,
+      tone: "neutral",
+    },
+    {
+      icon: Workflow,
+      label: text.runnerSuccess,
+      value: formatPrecisePercent(data.dashboard.runner.successRate),
+      sub: text.lastSevenDays,
+      tone: "green",
+    },
+    {
+      icon: ClipboardList,
+      label: text.pendingReviews,
+      value: String(data.dashboard.pendingApprovals),
+      sub: text.requireAction,
+      tone: "amber",
+    },
+    {
+      icon: ShieldAlert,
+      label: text.failedTasks,
+      value: String(data.dashboard.failedTasks.length),
+      sub: text.lastSevenDays,
+      tone: data.dashboard.failedTasks.length > 0 ? "red" : "green",
+    },
+    {
+      icon: CircleDollarSign,
+      label: text.costMtd,
+      value: `$${data.dashboard.cost.totalUsd.toFixed(2)}`,
+      sub: `${data.dashboard.cost.tokensUsed.toLocaleString()} tokens`,
+      tone: "neutral",
+    },
+  ] as const;
   return (
-    <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] gap-4 max-xl:grid-cols-1">
-      <BoardPanel tasks={data.board.tasks} text={text} selectedTask={selectedTask} onSelectTask={onSelectTask} onCommand={onCommand} busy={busy} compact />
-      <div className="space-y-4">
-        <ReviewsPanel data={data} text={text} onCommand={onCommand} busy={busy} compact />
-        <CommandFeedback task={selectedTask} text={text} receipt={receipt} />
+    <Panel>
+      <div className="grid grid-cols-6 divide-x divide-line max-2xl:grid-cols-3 max-2xl:divide-x-0 max-2xl:divide-y max-md:grid-cols-1">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} className="min-w-0 p-4">
+              <div className="mb-3 flex items-center gap-2 text-[12px] font-medium text-muted">
+                <Icon size={16} className={item.tone === "red" ? "text-red-600" : item.tone === "amber" ? "text-amber-600" : item.tone === "green" ? "text-emerald-600" : item.tone === "blue" ? "text-action" : "text-slate-500"} />
+                <span className="truncate">{item.label}</span>
+              </div>
+              <div className="text-[28px] font-semibold leading-none tracking-normal">{item.value}</div>
+              <div className="mt-2 min-h-8 text-[12px] leading-4 text-muted">{item.sub}</div>
+            </div>
+          );
+        })}
       </div>
-      <RunnerPanel data={data} text={text} onCommand={onCommand} busy={busy} />
-      <SubagentPanel data={data} text={text} onCommand={onCommand} busy={busy} />
+    </Panel>
+  );
+}
+
+function ProjectHomeActivity({ data, text }: { data: ConsoleData; text: ConsoleCopy }) {
+  const evidenceRows = [
+    ...data.subagents.runs.flatMap((run) => run.evidence.map((entry) => ({ id: entry.id, summary: entry.summary, meta: run.id, path: entry.path }))),
+    ...data.reviews.items.flatMap((item) => item.evidence.map((entry) => ({ id: entry.id, summary: entry.summary, meta: item.id, path: entry.path }))),
+  ].slice(0, 3);
+  return (
+    <div className="grid grid-cols-3 gap-4 max-xl:grid-cols-1">
+      <ProjectHomeListPanel
+        title={text.currentRisks}
+        empty={text.noRisks}
+        footer={text.viewAllRisks}
+        rows={data.dashboard.risks.slice(0, 3).map((risk) => ({
+          id: risk.source,
+          title: risk.message,
+          meta: risk.level,
+          tone: risk.level === "high" ? "red" : "amber",
+        }))}
+      />
+      <ProjectHomeListPanel
+        title={text.recentPrs}
+        empty={text.noPullRequests}
+        footer={text.viewAllPrs}
+        rows={data.dashboard.recentPullRequests.slice(0, 3).map((pr) => ({
+          id: pr.id,
+          title: pr.title,
+          meta: pr.createdAt ?? text.none,
+          tone: "green",
+          href: pr.url,
+        }))}
+      />
+      <ProjectHomeListPanel
+        title={text.recentEvidenceEvents}
+        empty={text.noEvidenceEvents}
+        footer={text.viewAllEvidence}
+        rows={evidenceRows.map((entry) => ({
+          id: entry.id,
+          title: entry.summary,
+          meta: entry.meta,
+          tone: "blue",
+          href: entry.path,
+        }))}
+      />
     </div>
   );
 }
 
-function BoardView({ data, text, selectedTask, onSelectTask, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; selectedTask?: BoardTask; onSelectTask: (id: string) => void; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
+function ProjectHomeListPanel({ title, rows, empty, footer }: { title: string; rows: Array<{ id: string; title: string; meta: string; tone: "green" | "amber" | "red" | "blue"; href?: string }>; empty: string; footer: string }) {
   return (
-    <div className="grid grid-cols-[1fr_360px] gap-4 max-lg:grid-cols-1">
-      <BoardPanel tasks={data.board.tasks} text={text} selectedTask={selectedTask} onSelectTask={onSelectTask} onCommand={onCommand} busy={busy} />
-      <TaskInspector task={selectedTask} text={text} onCommand={onCommand} busy={busy} />
+    <Panel>
+      <SectionTitle title={title} />
+      <div className="space-y-2 p-3">
+        {rows.length > 0 ? rows.map((row) => {
+          const indicatorClass = row.tone === "green" ? "text-emerald-600" : row.tone === "amber" ? "text-amber-600" : row.tone === "red" ? "text-red-600" : "text-action";
+          return (
+            <a key={`${row.id}-${row.title}`} href={row.href ?? "#"} className="grid grid-cols-[72px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-line bg-white px-3 py-2 text-[12px] hover:bg-slate-50">
+              <span className={`font-semibold ${indicatorClass}`}>{row.id}</span>
+              <span className="truncate text-ink">{row.title}</span>
+              <span className="whitespace-nowrap text-muted">{row.meta}</span>
+            </a>
+          );
+        }) : <div className="px-2 py-6 text-center text-[13px] text-muted">{empty}</div>}
+      </div>
+      <div className="border-t border-line px-4 py-2 text-[12px] font-medium text-action">{footer}</div>
+    </Panel>
+  );
+}
+
+function SectionKicker({ icon: Icon, label }: { icon: typeof Home; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-[12px] font-medium text-muted">
+      <Icon size={15} />
+      {label}
     </div>
   );
 }
 
 function BoardPanel({ tasks, text, selectedTask, onSelectTask, onCommand, busy, compact = false }: { tasks: BoardTask[]; text: ConsoleCopy; selectedTask?: BoardTask; onSelectTask: (id: string) => void; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean; compact?: boolean }) {
   if (tasks.length === 0) {
-    return <Panel><SectionTitle title={text.board} /><EmptyState title={text.noBoardTasks} /></Panel>;
+    return <Panel><SectionTitle title={text.taskBoard} /><EmptyState title={text.noBoardTasks} /></Panel>;
   }
   const targetTask = selectedTask ?? tasks[0];
   const targetFeatureId = targetTask.featureId ?? "demo-feature";
   return (
     <Panel>
       <SectionTitle
-        title={text.board}
+        title={text.taskBoard}
         action={(
           <div className="flex items-center gap-2">
+            {!compact ? <Button tone="quiet">{text.taskBoardGroup}</Button> : null}
             <div className="hidden h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-[13px] text-muted md:flex">
               <Search size={15} />
-              {text.searchTasks}
+              {compact ? text.searchTasks : text.filter}
             </div>
             <Button onClick={() => onCommand("schedule_board_tasks", "feature", targetFeatureId, { taskIds: [targetTask.id] })}>{text.schedule}</Button>
             <Button tone="primary" disabled={busy} onClick={() => onCommand("run_board_tasks", "feature", targetFeatureId, { taskIds: [targetTask.id] })}>
@@ -1116,6 +1591,10 @@ function formatPercent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+function formatPrecisePercent(value: number): string {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
 function SubagentPanel({ data, text, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
   return (
     <Panel>
@@ -1170,20 +1649,97 @@ function TaskInspector({ task, text, onCommand, busy }: { task?: BoardTask; text
   if (!task) {
     return <Panel><SectionTitle title={text.taskDetail} /><EmptyState title={text.selectTask} /></Panel>;
   }
+  const targetFeatureId = task.featureId ?? "feature";
+  const executionSteps = [
+    `${text.dependencies}: ${task.dependencies.map((item) => item.id).join(", ") || text.none}`,
+    `${text.approval}: ${task.approvalStatus}`,
+    `${text.tests}: ${(task.testResults as { command?: string } | undefined)?.command ?? text.none}`,
+    task.blockedReasons[0] ?? `${text.moveToRunning}: ${task.id}`,
+  ];
   return (
-    <Panel>
-      <SectionTitle title={task.id} action={<Chip tone={statusTone[task.status] ?? "neutral"}>{task.status}</Chip>} />
-      <div className="space-y-4 p-4 text-[13px]">
-        <h3 className="text-[16px] font-semibold">{task.title}</h3>
-        <FactList rows={[
-          [text.risk, task.risk],
-          [text.approval, task.approvalStatus],
-          [text.dependencies, task.dependencies.map((item) => `${item.id}: ${item.status}`).join(", ") || text.none],
-          [text.blocked, task.blockedReasons.join(" ") || text.none],
-        ]} />
-        <Button tone="primary" disabled={busy} onClick={() => onCommand("move_board_task", "task", task.id, { targetStatus: "running" })}>{text.moveToRunning}</Button>
+    <Panel className="sticky top-20 overflow-hidden max-xl:static">
+      <div className="flex min-h-14 items-center justify-between border-b border-line px-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="truncate text-[18px] font-semibold tracking-normal">{task.id}</h2>
+            <Chip tone={statusTone[task.status] ?? "neutral"}>{task.status}</Chip>
+          </div>
+          <div className="mt-1 truncate text-[13px] text-muted">{task.title}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 border-b border-line text-center text-[12px] text-muted">
+        {["Details", "Logs", "Artifacts", "Subagents"].map((tab, index) => (
+          <button key={tab} className={`h-10 border-b-2 ${index === 0 ? "border-action font-medium text-action" : "border-transparent"}`}>{tab}</button>
+        ))}
+      </div>
+      <div className="space-y-5 p-4 text-[13px]">
+        <InspectorBlock title={text.blockedReasons}>
+          <div className="space-y-2">
+            {(task.blockedReasons.length > 0 ? task.blockedReasons : [text.none]).map((reason) => (
+              <div key={reason} className="rounded-md border border-line bg-white px-3 py-2">
+                <div className="flex items-start gap-2">
+                  <XCircle className={reason === text.none ? "text-slate-400" : "text-red-600"} size={15} />
+                  <span className="leading-5">{reason}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </InspectorBlock>
+
+        <InspectorBlock title={text.dependencyFacts}>
+          <div className="rounded-md border border-line">
+            {task.dependencies.length > 0 ? task.dependencies.map((dependency) => (
+              <div key={dependency.id} className="flex items-center justify-between gap-3 border-b border-line px-3 py-2 last:border-0">
+                <span className="font-medium">{dependency.id}</span>
+                <span className={dependency.satisfied ? "text-emerald-700" : "text-red-600"}>{dependency.satisfied ? text.acceptedStatus : text.blocked}</span>
+              </div>
+            )) : <div className="px-3 py-2 text-muted">{text.none}</div>}
+          </div>
+        </InspectorBlock>
+
+        <InspectorBlock title={text.approvalState}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
+              <span>{text.approval}</span>
+              <Chip tone={statusTone[task.approvalStatus] ?? "neutral"}>{task.approvalStatus}</Chip>
+            </div>
+            <div className="flex items-center justify-between rounded-md border border-line px-3 py-2">
+              <span>{text.risk}</span>
+              <Chip tone={task.risk === "high" ? "red" : task.risk === "medium" ? "amber" : "green"}>{task.risk}</Chip>
+            </div>
+          </div>
+        </InspectorBlock>
+
+        <InspectorBlock title={text.executionPlanNext}>
+          <ol className="list-decimal space-y-2 pl-5 text-[12px] leading-5 text-muted">
+            {executionSteps.map((step) => <li key={step}>{step}</li>)}
+          </ol>
+        </InspectorBlock>
+
+        <div className="space-y-3 pt-1">
+          <Button className="w-full" tone="primary" disabled={busy} onClick={() => onCommand("move_board_task", "task", task.id, { targetStatus: "running" })}>
+            <Play size={15} />
+            {text.moveToRunning}
+          </Button>
+          <div className="grid grid-cols-[1fr_auto] gap-2">
+            <Button disabled={busy} onClick={() => onCommand("schedule_board_tasks", "feature", targetFeatureId, { taskIds: [task.id] })}>
+              <CalendarCheck size={15} />
+              {text.scheduleMore}
+            </Button>
+            <Button aria-label={text.actions}><ExternalLink size={15} /></Button>
+          </div>
+        </div>
       </div>
     </Panel>
+  );
+}
+
+function InspectorBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h3 className="mb-2 text-[13px] font-semibold text-ink">{title}</h3>
+      {children}
+    </section>
   );
 }
 
@@ -1865,4 +2421,12 @@ function metricIconBg(tone: string): string {
   if (tone === "blue") return "bg-blue-50";
   if (tone === "green") return "bg-emerald-50";
   return "bg-slate-50";
+}
+
+function metricIconColor(tone: string): string {
+  if (tone === "red") return "text-red-600";
+  if (tone === "amber") return "text-amber-600";
+  if (tone === "blue") return "text-action";
+  if (tone === "green") return "text-emerald-600";
+  return "text-slate-600";
 }

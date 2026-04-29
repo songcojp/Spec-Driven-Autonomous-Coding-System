@@ -76,6 +76,37 @@ export type DashboardModel = {
   factSources: string[];
 };
 
+export type ProjectOverviewModel = {
+  summary: {
+    totalProjects: number;
+    healthyProjects: number;
+    blockedProjects: number;
+    failedTasks: number;
+    pendingReviews: number;
+    onlineRunners: number;
+    totalCostUsd: number;
+  };
+  projects: Array<{
+    id: string;
+    name: string;
+    health: "ready" | "blocked" | "failed";
+    repository: string;
+    projectDirectory: string;
+    defaultBranch: string;
+    activeFeature?: { id: string; title: string; status: string };
+    taskCounts: Record<string, number>;
+    failedTasks: number;
+    pendingReviews: number;
+    runningSubagents: number;
+    runnerSuccessRate: number;
+    costUsd: number;
+    latestRisk?: { level: string; message: string; source: string };
+    lastActivityAt: string;
+  }>;
+  signals: Array<{ id: string; title: string; tone: "amber" | "red" | "blue"; message: string; updatedAt?: string }>;
+  factSources: string[];
+};
+
 export type BoardTask = {
   id: string;
   featureId?: string;
@@ -213,6 +244,7 @@ export type ConsoleData = {
     currentProjectId: string;
     projects: ProjectSummary[];
   };
+  overview: ProjectOverviewModel;
   dashboard: DashboardModel;
   board: BoardModel;
   spec: SpecWorkspaceModel;

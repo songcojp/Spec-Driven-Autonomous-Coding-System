@@ -26,7 +26,62 @@ const projects = {
   ],
 } satisfies ConsoleData["projects"];
 
+const overview = {
+  summary: {
+    totalProjects: 2,
+    healthyProjects: 2,
+    blockedProjects: 0,
+    failedTasks: 0,
+    pendingReviews: 3,
+    onlineRunners: 2,
+    totalCostUsd: 135.96,
+  },
+  projects: [
+    {
+      id: "project-1",
+      name: "Acme Returns Portal",
+      health: "ready",
+      repository: "git@github.com:acme/returns-portal.git",
+      projectDirectory: "workspace/acme-returns-portal",
+      defaultBranch: "main",
+      activeFeature: { id: "FEAT-204", title: "Mobile Returns Portal", status: "in-progress" },
+      taskCounts: { ready: 4, running: 2, blocked: 2, failed: 0, done: 11 },
+      failedTasks: 0,
+      pendingReviews: 2,
+      runningSubagents: 3,
+      runnerSuccessRate: 0.957,
+      costUsd: 84.32,
+      latestRisk: { level: "medium", message: "Refund approval copy needs sign-off", source: "REV-318" },
+      lastActivityAt: "2026-04-29T03:45:00.000Z",
+    },
+    {
+      id: "project-2",
+      name: "Northwind Supply Planner",
+      health: "ready",
+      repository: "git@github.com:northwind/supply-planner.git",
+      projectDirectory: "workspace/northwind-supply-planner",
+      defaultBranch: "develop",
+      activeFeature: { id: "FEAT-311", title: "Demand Forecast Review", status: "in-progress" },
+      taskCounts: { ready: 2, running: 1, blocked: 1, failed: 0, done: 7 },
+      failedTasks: 0,
+      pendingReviews: 1,
+      runningSubagents: 2,
+      runnerSuccessRate: 0.924,
+      costUsd: 51.64,
+      latestRisk: { level: "medium", message: "Forecast override policy needs approval", source: "REV-402" },
+      lastActivityAt: "2026-04-29T02:20:00.000Z",
+    },
+  ],
+  signals: [
+    { id: "pending-reviews", title: "pending_reviews", tone: "amber", message: "共有 3 项待审查，跨 2 个项目", updatedAt: "刚刚" },
+    { id: "blocked-tasks", title: "blocked_tasks", tone: "red", message: "2 个项目中有 3 个任务被阻塞", updatedAt: "2 分钟前" },
+    { id: "runner-health", title: "runner_health", tone: "blue", message: "2/2 个 Runner 在线，成功率 93.9%（7 天）", updatedAt: "5 分钟前" },
+  ],
+  factSources: ["projects", "features", "task_graph_tasks", "runs", "runner_heartbeats", "review_items", "metric_samples"],
+} satisfies ConsoleData["overview"];
+
 const returnsPortalData: ConsoleProjectData = {
+  overview,
   dashboard: {
     projectHealth: { totalProjects: 2, ready: 2, blocked: 0, failed: 0 },
     activeFeatures: [
@@ -283,6 +338,7 @@ const supplyPlannerData: ConsoleProjectData = {
 };
 
 const emptyProjectData: ConsoleProjectData = {
+  overview,
   dashboard: { ...returnsPortalData.dashboard, activeFeatures: [], failedTasks: [], pendingApprovals: 0, runningSubagents: 0, risks: [], recentPullRequests: [], boardCounts: {} },
   board: { tasks: [], commands: returnsPortalData.board.commands, factSources: returnsPortalData.board.factSources },
   spec: { features: [], selectedFeature: undefined },
