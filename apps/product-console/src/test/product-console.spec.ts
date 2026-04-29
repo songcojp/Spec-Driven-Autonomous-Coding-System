@@ -103,6 +103,14 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
 
   await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Spec 工作台" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "PRD 操作流程" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "扫描 PRD" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "上传 PRD", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成 EARS" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成 HLD" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "拆分 Feature Spec" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入规划流水线" })).toBeVisible();
+  await expect(page.getByText("docs/zh-CN/PRD.md")).toBeVisible();
   await expect(page.getByText("Feature Spec", { exact: true })).toBeVisible();
   await expect(page.getByText("FEAT-204 Mobile Returns Portal")).toBeVisible();
   await expect(page.getByText("需求列表")).toBeVisible();
@@ -122,9 +130,25 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("FEAT-203 Refund Rules Engine")).toBeVisible();
   await expect(page.getByText("当前分区暂无可用 Spec 数据。").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "规划流水线" }).click();
+  await page.getByRole("button", { name: "规划流水线", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
+
+  await page.getByRole("button", { name: "扫描 PRD" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("scan_prd_source recorded")).toBeVisible();
+  await page.getByLabel("上传 PRD 文件").setInputFiles({
+    name: "uploaded-prd.md",
+    mimeType: "text/markdown",
+    buffer: Buffer.from("# Uploaded PRD\n\nWHEN a user scans a PRD\nTHE SYSTEM SHALL create governed workflow input."),
+  });
+  await expect(page.getByText("uploaded-prd.md")).toBeVisible();
+  await expect(page.getByLabel("Notifications (F8)").getByText("upload_prd_source recorded")).toBeVisible();
+  await page.getByRole("button", { name: "生成 EARS" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("generate_ears recorded")).toBeVisible();
+  await page.getByRole("button", { name: "生成 HLD" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("generate_hld recorded")).toBeVisible();
+  await page.getByRole("button", { name: "拆分 Feature Spec" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("split_feature_specs recorded")).toBeVisible();
 });
 
 test("creates projects and switches project-scoped console data", async ({ page }) => {
@@ -262,17 +286,19 @@ async function installConsoleRoutes(page: Page) {
   });
   await page.route("**/console/commands", async (route) => {
     const body = route.request().postDataJSON() as { action: string; entityId: string; projectId?: string };
+    const workflowActions = new Set(["scan_prd_source", "upload_prd_source", "generate_ears", "generate_hld", "split_feature_specs"]);
+    const accepted = body.action === "create_project" || workflowActions.has(body.action);
     await route.fulfill({
       json: {
         id: "receipt-1",
         action: body.action,
-        status: body.action === "create_project" ? "accepted" : "blocked",
+        status: accepted ? "accepted" : "blocked",
         entityType: "feature",
         entityId: body.entityId,
         projectId: body.projectId,
         auditEventId: "audit-1",
         acceptedAt: "2026-04-29T03:40:00.000Z",
-        blockedReasons: body.action === "create_project" ? [] : ["Product approval is required for customer-facing refund decision copy."],
+        blockedReasons: accepted ? [] : ["Product approval is required for customer-facing refund decision copy."],
       },
     });
   });

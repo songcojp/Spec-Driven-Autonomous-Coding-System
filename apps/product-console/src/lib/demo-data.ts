@@ -198,6 +198,22 @@ const returnsPortalData: ConsoleProjectData = {
     factSources: ["task_graph_tasks", "review_items", "approval_records", "evidence_packs", "state_transitions"],
   },
   spec: {
+    prdWorkflow: {
+      sourcePath: "docs/zh-CN/PRD.md",
+      sourceVersion: "v1.3.0",
+      scanMode: "smart",
+      lastScanAt: "05-19 09:12",
+      runtime: "10m 24s",
+      blockedReasons: ["存在阻塞项，无法进入规划流水线"],
+      stages: [
+        { key: "scan_prd", action: "scan_prd_source", status: "completed", updatedAt: "05-19 09:12", auditEventId: "AUD-PRD-001", evidencePath: "reports/FEAT-013-scan.md" },
+        { key: "upload_prd", action: "upload_prd_source", status: "completed", updatedAt: "05-19 09:14", auditEventId: "AUD-PRD-002", evidencePath: "reports/FEAT-013-upload.md" },
+        { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", evidencePath: "ears/FEAT-013.md" },
+        { key: "generate_hld", action: "generate_hld", status: "completed", updatedAt: "05-19 09:18", auditEventId: "AUD-PRD-004", evidencePath: "hld/FEAT-013.md" },
+        { key: "split_feature_specs", action: "split_feature_specs", status: "blocked", updatedAt: "05-19 09:22", auditEventId: "AUD-PRD-005", evidencePath: "reports/FEAT-013-split.md" },
+        { key: "planning_pipeline", action: "schedule_run", status: "pending" },
+      ],
+    },
     features: [
       { id: "FEAT-204", title: "Mobile Returns Portal", folder: "feat-204-mobile-returns", status: "implementing", primaryRequirements: ["REQ-204-001", "REQ-204-002", "REQ-204-003"] },
       { id: "FEAT-203", title: "Refund Rules Engine", folder: "feat-203-refund-rules", status: "ready", primaryRequirements: ["REQ-203-001", "REQ-203-004"] },

@@ -309,6 +309,9 @@ test("console view models expose specs, skills, subagents, runner, and reviews",
   assert.deepEqual(specWorkspace.selectedFeature?.contracts, [{ endpoints: ["/console/dashboard"] }]);
   assert.equal(specWorkspace.selectedFeature?.versionDiffs.length, 2);
   assert.equal(specWorkspace.commands[0].action, "create_feature");
+  assert.equal(specWorkspace.commands.some((command) => command.action === "scan_prd_source"), true);
+  assert.equal(specWorkspace.commands.some((command) => command.action === "generate_ears"), true);
+  assert.equal(specWorkspace.prdWorkflow.sourcePath, "docs/zh-CN/PRD.md");
   assert.equal(specWorkspace.commands.some((command) => command.action === "schedule_run"), true);
 
   const skillCenter = buildSkillCenterView(dbPath, "project-1");
@@ -412,6 +415,17 @@ test("console command gateway audits controlled writes without mutating worktree
     { name: "worktrees", sql: "SELECT path, branch, status FROM worktree_records ORDER BY id" },
   ]).queries.worktrees;
   assert.throws(() => submitConsoleCommand(dbPath, {} as never), /Console command requires action/);
+  assert.throws(
+    () => submitConsoleCommand(dbPath, {
+      action: "unknown_command" as never,
+      entityType: "project",
+      entityId: "project-1",
+      requestedBy: "operator",
+      reason: "Reject unsupported command.",
+      now: stableDate,
+    }),
+    /not supported/,
+  );
   const receipt = submitConsoleCommand(dbPath, {
     action: "pause_runner",
     entityType: "runner",
@@ -429,17 +443,30 @@ test("console command gateway audits controlled writes without mutating worktree
     reason: "Resume after maintenance.",
     now: "2026-04-28T12:00:00.000Z" as never,
   });
+  const workflowReceipt = submitConsoleCommand(dbPath, {
+    action: "scan_prd_source",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Scan project PRD.",
+    payload: { sourcePath: "docs/zh-CN/PRD.md", scanMode: "smart" },
+    now: stableDate,
+  });
   const after = runSqlite(dbPath, [], [
     { name: "worktrees", sql: "SELECT path, branch, status FROM worktree_records ORDER BY id" },
     { name: "audit", sql: "SELECT event_type, source, reason, payload_json FROM audit_timeline_events WHERE id = ?", params: [receipt.auditEventId] },
+    { name: "workflowAudit", sql: "SELECT event_type, payload_json FROM audit_timeline_events WHERE id = ?", params: [workflowReceipt.auditEventId] },
   ]);
 
   assert.equal(receipt.status, "accepted");
+  assert.equal(workflowReceipt.status, "accepted");
   assert.equal(stringTimeReceipt.acceptedAt, "2026-04-28T12:00:00.000Z");
   assert.deepEqual(after.queries.worktrees, before);
   assert.equal(after.queries.audit[0].event_type, "console_command_pause_runner");
   assert.equal(after.queries.audit[0].source, "product_console");
   assert.match(String(after.queries.audit[0].payload_json), /operator/);
+  assert.equal(after.queries.workflowAudit[0].event_type, "console_command_scan_prd_source");
+  assert.equal(String(after.queries.workflowAudit[0].payload_json).includes("docs/zh-CN/PRD.md"), true);
 });
 
 test("console write commands persist rule and spec evolution evidence", () => {

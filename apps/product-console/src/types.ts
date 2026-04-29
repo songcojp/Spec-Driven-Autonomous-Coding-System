@@ -1,6 +1,11 @@
 export type CommandAction =
   | "create_project"
   | "create_feature"
+  | "scan_prd_source"
+  | "upload_prd_source"
+  | "generate_ears"
+  | "generate_hld"
+  | "split_feature_specs"
   | "terminate_subagent"
   | "retry_subagent"
   | "pause_runner"
@@ -129,6 +134,23 @@ export type BoardModel = {
 
 export type SpecWorkspaceModel = {
   features: Array<{ id: string; title: string; folder?: string; status: string; primaryRequirements: string[] }>;
+  prdWorkflow?: {
+    sourcePath: string;
+    sourceName?: string;
+    sourceVersion?: string;
+    scanMode?: string;
+    lastScanAt?: string;
+    runtime?: string;
+    blockedReasons: string[];
+    stages: Array<{
+      key: string;
+      action: CommandAction;
+      status: "pending" | "accepted" | "blocked" | "completed";
+      updatedAt?: string;
+      auditEventId?: string;
+      evidencePath?: string;
+    }>;
+  };
   selectedFeature?: {
     id: string;
     title: string;

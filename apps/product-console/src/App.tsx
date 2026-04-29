@@ -26,10 +26,11 @@ import {
   ShieldAlert,
   ShieldCheck,
   SquareKanban,
+  Upload,
   Workflow,
   XCircle,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createConsoleProject, scanProjectDirectory, submitCommand } from "./lib/api";
 import { demoData, getDemoDataForProject } from "./lib/demo-data";
 import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "./types";
@@ -244,6 +245,29 @@ const copy = {
     executionPlanNext: "下一步执行计划",
     scheduleMore: "排期...",
     specWorkspace: "Spec 工作台",
+    prdWorkflow: "PRD 操作流程",
+    prdWorkflowSubtitle: "按 PRD 流程提交受控命令，生成 EARS、HLD 并拆分 Feature Spec。",
+    scanPrd: "扫描 PRD",
+    uploadPrd: "上传 PRD",
+    uploadPrdFileInput: "上传 PRD 文件",
+    generateEars: "生成 EARS",
+    generateHld: "生成 HLD",
+    splitFeatureSpecs: "拆分 Feature Spec",
+    enterPlanningPipeline: "进入规划流水线",
+    currentPrdFile: "当前源文件",
+    prdVersion: "PRD 版本",
+    scanMode: "扫描模式",
+    smartMode: "智能模式",
+    lastScan: "最后扫描",
+    runtime: "运行耗时",
+    workflowPending: "待执行",
+    workflowAccepted: "已接受",
+    workflowBlocked: "已阻塞",
+    workflowCompleted: "已完成",
+    workflowBlockedItems: "阻塞项",
+    viewAuditLog: "查看运行日志",
+    sourceUploaded: "已选择上传文件",
+    sourcePath: "来源路径",
     featureSpec: "Feature Spec",
     searchFeature: "搜索 Feature...",
     all: "全部",
@@ -478,6 +502,29 @@ const copy = {
     executionPlanNext: "Execution Plan (Next)",
     scheduleMore: "Schedule...",
     specWorkspace: "Spec Workspace",
+    prdWorkflow: "PRD Workflow",
+    prdWorkflowSubtitle: "Submit governed commands to generate EARS, HLD, and split Feature Specs from the PRD.",
+    scanPrd: "Scan PRD",
+    uploadPrd: "Upload PRD",
+    uploadPrdFileInput: "Upload PRD File",
+    generateEars: "Generate EARS",
+    generateHld: "Generate HLD",
+    splitFeatureSpecs: "Split Feature Spec",
+    enterPlanningPipeline: "Enter Planning Pipeline",
+    currentPrdFile: "Current Source",
+    prdVersion: "PRD Version",
+    scanMode: "Scan Mode",
+    smartMode: "Smart Mode",
+    lastScan: "Last Scan",
+    runtime: "Runtime",
+    workflowPending: "Pending",
+    workflowAccepted: "Accepted",
+    workflowBlocked: "Blocked",
+    workflowCompleted: "Completed",
+    workflowBlockedItems: "Blocked Items",
+    viewAuditLog: "View Run Log",
+    sourceUploaded: "Selected Upload",
+    sourcePath: "Source Path",
     featureSpec: "Feature Spec",
     searchFeature: "Search Feature...",
     all: "All",
@@ -1811,12 +1858,19 @@ function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: Cons
   ];
 
   if (!selected) {
-    return <Panel><SectionTitle title={text.specWorkspace} /><EmptyState title={text.noFeatureSpecs} /></Panel>;
+    return (
+      <div className="space-y-4">
+        <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProjectId={currentProjectId} selectedFeatureId={undefined} onCommand={onCommand} />
+        <Panel><SectionTitle title={text.specWorkspace} /><EmptyState title={text.noFeatureSpecs} /></Panel>
+      </div>
+    );
   }
 
   return (
-    <Panel>
-      <SectionTitle title={text.specWorkspace} />
+    <div className="space-y-4">
+      <SpecPrdWorkflowPanel workflow={data.spec.prdWorkflow} text={text} currentProjectId={currentProjectId} selectedFeatureId={selected.id} onCommand={onCommand} />
+      <Panel>
+        <SectionTitle title={text.specWorkspace} />
       <div className="grid grid-cols-[280px_minmax(0,1fr)_320px] gap-4 p-4 max-xl:grid-cols-1">
         <aside className="min-w-0 rounded-md border border-line bg-white">
           <div className="border-b border-line p-3">
@@ -1966,7 +2020,158 @@ function SpecWorkspace({ data, text, currentProjectId, onCommand }: { data: Cons
         </aside>
       </div>
       <div className="border-t border-line px-4 py-3 text-[12px] text-muted">{text.factSourcesSpec}</div>
+      </Panel>
+    </div>
+  );
+}
+
+const workflowStageFallbacks = [
+  { key: "scan_prd", action: "scan_prd_source" },
+  { key: "upload_prd", action: "upload_prd_source" },
+  { key: "generate_ears", action: "generate_ears" },
+  { key: "generate_hld", action: "generate_hld" },
+  { key: "split_feature_specs", action: "split_feature_specs" },
+  { key: "planning_pipeline", action: "schedule_run" },
+] satisfies Array<{ key: string; action: CommandReceipt["action"] }>;
+
+function SpecPrdWorkflowPanel({
+  workflow,
+  text,
+  currentProjectId,
+  selectedFeatureId,
+  onCommand,
+}: {
+  workflow?: ConsoleData["spec"]["prdWorkflow"];
+  text: ConsoleCopy;
+  currentProjectId: string;
+  selectedFeatureId?: string;
+  onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploadName, setUploadName] = useState(workflow?.sourceName ?? "");
+  useEffect(() => {
+    setUploadName(workflow?.sourceName ?? "");
+  }, [currentProjectId, workflow?.sourceName]);
+  const stages = workflow?.stages?.length ? workflow.stages : workflowStageFallbacks.map((stage) => ({ ...stage, status: "pending" as const }));
+  const stageByKey = new Map(stages.map((stage) => [stage.key, stage]));
+  const sourcePath = workflow?.sourceName ?? workflow?.sourcePath ?? "docs/zh-CN/PRD.md";
+  const blockedReasons = workflow?.blockedReasons?.length ? workflow.blockedReasons : [];
+  const stageDefinitions = [
+    { key: "scan_prd", label: text.scanPrd, icon: Search, action: "scan_prd_source" as const },
+    { key: "upload_prd", label: text.uploadPrd, icon: Upload, action: "upload_prd_source" as const },
+    { key: "generate_ears", label: text.generateEars, icon: FileText, action: "generate_ears" as const },
+    { key: "generate_hld", label: text.generateHld, icon: Boxes, action: "generate_hld" as const },
+    { key: "split_feature_specs", label: text.splitFeatureSpecs, icon: GitBranch, action: "split_feature_specs" as const },
+    { key: "planning_pipeline", label: text.enterPlanningPipeline, icon: Workflow, action: "schedule_run" as const },
+  ];
+
+  function runWorkflowAction(action: CommandReceipt["action"], key: string) {
+    const entityType = key === "planning_pipeline" && selectedFeatureId ? "feature" : "project";
+    const entityId = entityType === "feature" ? selectedFeatureId! : currentProjectId;
+    onCommand(action, entityType, entityId, {
+      stage: key,
+      sourcePath: workflow?.sourcePath ?? "docs/zh-CN/PRD.md",
+      sourceVersion: workflow?.sourceVersion ?? "v1.3.0",
+      scanMode: workflow?.scanMode ?? "smart",
+    });
+  }
+
+  async function handleUpload(file: File | undefined) {
+    if (!file) return;
+    setUploadName(file.name);
+    const content = await file.text();
+    onCommand("upload_prd_source", "project", currentProjectId, {
+      stage: "upload_prd",
+      sourceType: "upload",
+      fileName: file.name,
+      contentPreview: content.slice(0, 5000),
+      contentLength: content.length,
+      languageHint: file.name.toLowerCase().includes("zh") ? "zh-CN" : "unknown",
+    });
+  }
+
+  return (
+    <Panel className="overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div>
+          <h2 className="text-[17px] font-semibold tracking-normal text-ink">{text.prdWorkflow}</h2>
+          <p className="mt-1 text-[12px] text-muted">{text.prdWorkflowSubtitle}</p>
+        </div>
+        <Button tone="quiet"><RefreshCw size={14} />{text.viewAuditLog}</Button>
+      </div>
+      <div className="grid grid-cols-6 divide-x divide-line max-xl:grid-cols-3 max-xl:divide-x-0 max-xl:divide-y max-md:grid-cols-1">
+        {stageDefinitions.map((definition, index) => {
+          const Icon = definition.icon;
+          const stage = stageByKey.get(definition.key);
+          const status = stage?.status ?? "pending";
+          const isBlocked = status === "blocked";
+          const isAccepted = status === "accepted" || status === "completed";
+          const statusLabel = status === "blocked" ? text.workflowBlocked : status === "completed" ? text.workflowCompleted : status === "accepted" ? text.workflowAccepted : text.workflowPending;
+          const tone = isBlocked ? "red" : isAccepted ? "green" : "amber";
+          return (
+            <div key={definition.key} className="relative min-w-0 p-4">
+              {index < stageDefinitions.length - 1 ? <div className="absolute right-3 top-9 h-px w-8 bg-slate-300 max-xl:hidden" /> : null}
+              <div className="flex items-start gap-3">
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">{index + 1}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Icon size={18} className={isBlocked ? "text-red-600" : "text-action"} />
+                    <div className="truncate text-[13px] font-semibold text-ink">{definition.label}</div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Chip tone={tone}>{statusLabel}</Chip>
+                    <span className="text-[12px] text-muted">{stage?.updatedAt ?? "--"}</span>
+                  </div>
+                  <Button
+                    className="mt-3 w-full"
+                    tone={definition.key === "planning_pipeline" ? "primary" : "default"}
+                    onClick={() => definition.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(definition.action, definition.key)}
+                  >
+                    {definition.label}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_1.4fr] gap-0 border-t border-line bg-slate-50 max-xl:grid-cols-2 max-md:grid-cols-1">
+        <WorkflowFact label={text.currentPrdFile} value={uploadName || sourcePath} icon={FileText} />
+        <WorkflowFact label={text.prdVersion} value={workflow?.sourceVersion ?? "v1.3.0"} icon={GitBranch} />
+        <WorkflowFact label={text.scanMode} value={workflow?.scanMode === "smart" || !workflow?.scanMode ? text.smartMode : workflow.scanMode} icon={Search} />
+        <WorkflowFact label={text.lastScan} value={workflow?.lastScanAt ?? "--"} icon={CalendarCheck} />
+        <div className={`m-3 rounded-md border p-3 text-[13px] ${blockedReasons.length > 0 ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-semibold">
+              {blockedReasons.length > 0 ? <ShieldAlert size={16} /> : <CheckCircle2 size={16} />}
+              {blockedReasons.length > 0 ? `${text.workflowBlockedItems} ${blockedReasons.length}` : text.workflowAccepted}
+            </div>
+            <span className="text-[12px]">{workflow?.runtime ?? "10m 24s"}</span>
+          </div>
+          <div className="mt-1 truncate pl-6">{blockedReasons[0] ?? `${text.sourcePath}: ${workflow?.sourcePath ?? "docs/zh-CN/PRD.md"}`}</div>
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        aria-label={text.uploadPrdFileInput}
+        className="sr-only"
+        type="file"
+        accept=".md,.txt,text/markdown,text/plain"
+        onChange={(event) => {
+          void handleUpload(event.currentTarget.files?.[0]);
+          event.currentTarget.value = "";
+        }}
+      />
     </Panel>
+  );
+}
+
+function WorkflowFact({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Home }) {
+  return (
+    <div className="min-w-0 border-r border-line px-4 py-3 last:border-r-0 max-xl:border-r-0">
+      <div className="flex items-center gap-2 text-[12px] text-muted"><Icon size={14} />{label}</div>
+      <div className="mt-2 truncate text-[13px] font-semibold text-ink">{value}</div>
+    </div>
   );
 }
 

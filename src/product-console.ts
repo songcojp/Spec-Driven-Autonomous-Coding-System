@@ -21,6 +21,11 @@ import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordAp
 
 export type ConsoleCommandAction =
   | "create_feature"
+  | "scan_prd_source"
+  | "upload_prd_source"
+  | "generate_ears"
+  | "generate_hld"
+  | "split_feature_specs"
   | "terminate_subagent"
   | "retry_subagent"
   | "pause_runner"
@@ -38,6 +43,32 @@ export type ConsoleCommandAction =
   | "move_board_task"
   | "schedule_board_tasks"
   | "run_board_tasks";
+
+const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
+  "create_feature",
+  "scan_prd_source",
+  "upload_prd_source",
+  "generate_ears",
+  "generate_hld",
+  "split_feature_specs",
+  "terminate_subagent",
+  "retry_subagent",
+  "pause_runner",
+  "resume_runner",
+  "approve_review",
+  "reject_review",
+  "request_review_changes",
+  "rollback_review",
+  "split_review_task",
+  "update_spec",
+  "mark_review_complete",
+  "schedule_run",
+  "write_project_rule",
+  "write_spec_evolution",
+  "move_board_task",
+  "schedule_board_tasks",
+  "run_board_tasks",
+]);
 
 export type ConsoleCommandStatus = "accepted" | "blocked";
 
@@ -162,6 +193,23 @@ export type SpecWorkspaceViewModel = {
     status: string;
     primaryRequirements: string[];
   }>;
+  prdWorkflow: {
+    sourcePath: string;
+    sourceName?: string;
+    sourceVersion?: string;
+    scanMode?: string;
+    lastScanAt?: string;
+    runtime?: string;
+    blockedReasons: string[];
+    stages: Array<{
+      key: string;
+      action: ConsoleCommandAction;
+      status: "pending" | "accepted" | "blocked" | "completed";
+      updatedAt?: string;
+      auditEventId?: string;
+      evidencePath?: string;
+    }>;
+  };
   selectedFeature?: {
     id: string;
     title: string;
@@ -688,6 +736,27 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       sql: "SELECT id, path, summary, created_at FROM delivery_reports WHERE feature_id = ? ORDER BY created_at DESC",
       params: [featureId ?? ""],
     },
+    {
+      name: "workflowAudit",
+      sql: `SELECT id, entity_type, entity_id, event_type, reason, payload_json, created_at
+        FROM audit_timeline_events
+        WHERE event_type IN (
+          'console_command_scan_prd_source',
+          'console_command_upload_prd_source',
+          'console_command_generate_ears',
+          'console_command_generate_hld',
+          'console_command_split_feature_specs',
+          'console_command_schedule_run'
+        )
+        AND (
+          (entity_type = 'project' AND entity_id = ?)
+          OR (entity_type = 'feature' AND entity_id = ?)
+          OR (entity_type = 'spec' AND entity_id = ?)
+        )
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 30`,
+      params: [projectId ?? "", featureId ?? "", featureId ?? ""],
+    },
   ]);
   const features = result.queries.features.map((row) => ({
     id: String(row.id),
@@ -708,6 +777,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
 
   return {
     features,
+    prdWorkflow: buildPrdWorkflow(result.queries.workflowAudit),
     selectedFeature: feature
       ? {
           ...feature,
@@ -746,6 +816,11 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       : undefined,
     commands: [
       { action: "create_feature", entityType: "project" },
+      { action: "scan_prd_source", entityType: "project" },
+      { action: "upload_prd_source", entityType: "project" },
+      { action: "generate_ears", entityType: "project" },
+      { action: "generate_hld", entityType: "project" },
+      { action: "split_feature_specs", entityType: "project" },
       { action: "schedule_run", entityType: "project" },
       { action: "schedule_run", entityType: "feature" },
     ],
@@ -757,6 +832,59 @@ export function buildSkillCenterView(dbPath: string, projectId?: string, project
   const skillRoot = project?.targetRepoPath ?? projectRoot;
   return {
     skills: listProjectSkills({ root: skillRoot }),
+  };
+}
+
+function buildPrdWorkflow(auditRows: Record<string, unknown>[]): SpecWorkspaceViewModel["prdWorkflow"] {
+  const stages: SpecWorkspaceViewModel["prdWorkflow"]["stages"] = [
+    { key: "scan_prd", action: "scan_prd_source", status: "pending" },
+    { key: "upload_prd", action: "upload_prd_source", status: "pending" },
+    { key: "generate_ears", action: "generate_ears", status: "pending" },
+    { key: "generate_hld", action: "generate_hld", status: "pending" },
+    { key: "split_feature_specs", action: "split_feature_specs", status: "pending" },
+    { key: "planning_pipeline", action: "schedule_run", status: "pending" },
+  ];
+  const latestByAction = new Map<ConsoleCommandAction, Record<string, unknown>>();
+  for (const row of auditRows) {
+    const action = String(row.event_type).replace(/^console_command_/, "") as ConsoleCommandAction;
+    if (!latestByAction.has(action)) {
+      latestByAction.set(action, row);
+    }
+  }
+
+  const decoratedStages = stages.map((stage) => {
+    const row = latestByAction.get(stage.action);
+    if (!row) {
+      return stage;
+    }
+    const payload = parseJsonObject(row.payload_json);
+    const boardValidation = parseJsonObject(payload.boardValidation);
+    const blockedReasons = arrayValue(boardValidation.blockedReasons).map(String);
+    const commandPayload = parseJsonObject(payload.payload);
+    return {
+      ...stage,
+      status: blockedReasons.length > 0 ? "blocked" as const : "accepted" as const,
+      updatedAt: optionalString(row.created_at),
+      auditEventId: optionalString(row.id),
+      evidencePath: optionalString(commandPayload.evidencePath),
+    };
+  });
+
+  const sourcePayload = [...latestByAction.values()]
+    .map((row) => parseJsonObject(parseJsonObject(row.payload_json).payload))
+    .find((payload) => optionalString(payload.sourcePath) || optionalString(payload.fileName)) ?? {};
+  const allBlockedReasons = [...latestByAction.values()]
+    .flatMap((row) => arrayValue(parseJsonObject(parseJsonObject(row.payload_json).boardValidation).blockedReasons).map(String));
+
+  return {
+    sourcePath: optionalString(sourcePayload.sourcePath) ?? "docs/zh-CN/PRD.md",
+    sourceName: optionalString(sourcePayload.fileName),
+    sourceVersion: optionalString(sourcePayload.sourceVersion) ?? "v1.3.0",
+    scanMode: optionalString(sourcePayload.scanMode) ?? "smart",
+    lastScanAt: decoratedStages.find((stage) => stage.updatedAt)?.updatedAt,
+    runtime: optionalString(sourcePayload.runtime) ?? "10m 24s",
+    blockedReasons: [...new Set(allBlockedReasons)],
+    stages: decoratedStages,
   };
 }
 
@@ -987,6 +1115,9 @@ export function buildReviewCenterView(dbPath: string, projectId?: string): Revie
 
 export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput): ConsoleCommandReceipt {
   const action = requireCommandString(input, "action") as ConsoleCommandAction;
+  if (!CONSOLE_COMMAND_ACTIONS.has(action)) {
+    throw new Error(`Console command action is not supported: ${action}`);
+  }
   const entityType = requireCommandString(input, "entityType") as ConsoleCommandInput["entityType"];
   const entityId = requireCommandString(input, "entityId");
   const requestedBy = requireCommandString(input, "requestedBy");
