@@ -1,0 +1,4 @@
+interface:
+  display_name: "Change Requirement"
+  short_description: "Revise requirements and manage Spec Evolution"
+  default_prompt: "Use $change-requirement to revise this requirement and propagate the change through the SpecDrive docs."
