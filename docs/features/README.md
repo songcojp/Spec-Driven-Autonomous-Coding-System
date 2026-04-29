@@ -80,3 +80,9 @@ FEAT-000 System Bootstrap
 6. FEAT-009 and FEAT-010 close the check and recovery loop.
 7. FEAT-011 and FEAT-012 provide approval and delivery closure.
 8. FEAT-013 exposes the operational surfaces over the control-plane state.
+
+## Spec Evolution Notes
+
+| Item | Feature | Decision | Follow-up |
+|---|---|---|---|
+| ADD-001 | FEAT-001 | 项目宪章创建、导入和生命周期管理作为 FEAT-001 patch 处理，不拆分独立 Feature。 | 执行 `feat-001-project-repository-foundation/tasks.md` 中的 `TASK-009` 至 `TASK-011`。 |

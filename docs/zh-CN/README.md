@@ -10,3 +10,4 @@
 * [EARS 需求文档](requirements.md)
 * [项目高层设计文档](hld.md)
 * [需求新增与变更处理机制](change-management.md)
+* [需求新增与变更待处置清单](change-disposition-checklist.md)

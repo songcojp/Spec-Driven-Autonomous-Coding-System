@@ -29,6 +29,14 @@
 5. Project Health Checker 输出 `ready`、`blocked` 或 `failed`。
 6. 状态写入持久层并供 Dashboard、Scheduler、Project Memory 和 Review Center 查询。
 
+## Constitution Follow-up Flow
+
+1. 用户在项目初始化阶段选择导入已有宪章或创建默认宪章。
+2. Project Constitution Service 校验宪章包含项目目标、工程原则、边界规则、审批规则和默认约束。
+3. 服务写入 ProjectConstitution 当前版本和版本历史，并将版本号绑定到 Project 初始化事实源。
+4. 宪章发生变更时，系统记录变更版本并标记受影响 Feature、Task 或 Run 需要重新校验。
+5. Project Memory、Scheduler、Review Center 和 Feature Spec 流程按 Project ID 读取当前有效宪章。
+
 ## Dependencies
 
 - FEAT-014 提供 Project、RepositoryConnection 和 HealthCheckResult 的持久化能力。
@@ -38,3 +46,4 @@
 
 - 健康检查结果必须能作为 Evidence 或审计事件被引用。
 - 检测到敏感文件风险时，应交给 FEAT-011 的 Review Center 或安全策略显示。
+- 项目宪章创建、导入和变更必须形成可追踪审计事件，并能指向对应 ProjectConstitution 版本。

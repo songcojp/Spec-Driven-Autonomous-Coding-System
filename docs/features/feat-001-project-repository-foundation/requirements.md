@@ -48,3 +48,8 @@
 
 - GitHub、GitLab、本地 Git 和私有 Git 的认证方式差异较大，MVP 应先统一为本地 CLI/路径可观测状态。
 - 健康检查命令发现策略需要避免执行破坏性命令。
+
+## Spec Evolution
+
+- ADD-001 已确认作为本 Feature 的 follow-up 处理，不拆分独立 Project Constitution Feature。
+- FEAT-001 原完成结论保持不变；项目宪章创建、导入、版本记录和下游重新校验能力进入 patch 任务。
