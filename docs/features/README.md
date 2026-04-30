@@ -19,6 +19,7 @@
 | FEAT-012 | Delivery and Spec Evolution | `feat-012-delivery-spec-evolution` | done | REQ-048 至 REQ-050 | M6 | FEAT-009、FEAT-011 |
 | FEAT-013 | Product Console | `feat-013-product-console` | in-progress | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066 至 REQ-068 | M2-M7 | FEAT-001、FEAT-004、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
+| FEAT-015 | Chat Interface | `feat-015-chat-interface` | in-progress | REQ-069 至 REQ-073 | M7 | FEAT-013、FEAT-004、FEAT-014 |
 
 FEAT-013 当前补充 Runner / Scheduler UI refinement：`docs/ui/task-scheduler-console-concept.png` 是任务调度中心的实现基线，覆盖 scheduler pipeline、BullMQ queue、任务队列表格、job inspector、Evidence 和日志反馈。
 
@@ -70,6 +71,7 @@ FEAT-000 System Bootstrap
 | FEAT-012 | FEAT-009、FEAT-011 |
 | FEAT-013 | FEAT-001、FEAT-004、FEAT-008 |
 | FEAT-014 | FEAT-000 |
+| FEAT-015 | FEAT-013、FEAT-004、FEAT-014 |
 
 ## Delivery Order
 

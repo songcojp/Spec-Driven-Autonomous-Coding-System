@@ -29,6 +29,7 @@ import { demoData, getDemoDataForProject } from "./lib/demo-data";
 import type { CommandReceipt, ConsoleData, ProjectCreateForm, ProjectSummary } from "./types";
 import { Button, Chip } from "./components/ui/primitives";
 import { CreateProjectDialog } from "./components/CreateProjectDialog";
+import { ChatPanel } from "./components/ChatPanel";
 import { OverviewPage } from "./pages/OverviewPage";
 import { BoardPage } from "./pages/BoardPage";
 import { SpecPage } from "./pages/SpecPage";
@@ -88,6 +89,7 @@ export function App() {
   const [view, setView] = useState<ViewKey>("overview");
   const [locale, setLocale] = useState<Locale>(readInitialLocale);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>(demoData.projects.projects);
   const [overviewData, setOverviewData] = useState(demoData.overview);
   const [currentProjectId, setCurrentProjectId] = useState(readInitialProjectId);
@@ -500,6 +502,7 @@ export function App() {
         </Toast.Root>
       ) : null}
       <Toast.Viewport />
+      <ChatPanel open={showChat} onToggle={() => setShowChat((prev) => !prev)} projectId={currentProject.id} locale={locale} />
     </Toast.Provider>
   );
 }

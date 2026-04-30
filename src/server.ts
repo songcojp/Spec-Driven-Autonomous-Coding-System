@@ -29,6 +29,7 @@ import {
   type ConsoleCommandInput,
 } from "./product-console.ts";
 import type { SchedulerClient } from "./scheduler.ts";
+import { getOrCreateSession, processChatMessage, getChatHistory } from "./chat.ts";
 
 export type ControlPlaneServer = {
   server: Server;
@@ -209,6 +210,35 @@ async function routeRequest(
 
     if (request.method === "POST" && url.pathname === "/console/commands") {
       writeJson(response, 202, submitConsoleCommand(config.dbPath, await readJsonBody(request) as ConsoleCommandInput, { scheduler: options.scheduler }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/chat/sessions") {
+      const body = await readJsonBody(request);
+      const projectId = body.projectId ? String(body.projectId) : undefined;
+      const session = getOrCreateSession(config.dbPath, projectId);
+      writeJson(response, 200, session);
+      return;
+    }
+
+    const chatMessagesMatch = url.pathname.match(/^\/chat\/sessions\/([^/]+)\/messages$/);
+    if (chatMessagesMatch && request.method === "POST") {
+      const sessionId = chatMessagesMatch[1];
+      const body = await readJsonBody(request);
+      const content = String(body.content ?? "");
+      if (!content.trim()) {
+        writeJson(response, 400, { error: "content is required" });
+        return;
+      }
+      const chatResponse = await processChatMessage(config.dbPath, sessionId, content, { scheduler: options.scheduler });
+      writeJson(response, 200, chatResponse);
+      return;
+    }
+
+    if (chatMessagesMatch && request.method === "GET") {
+      const sessionId = chatMessagesMatch[1];
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      writeJson(response, 200, getChatHistory(config.dbPath, sessionId, limit > 0 ? limit : 50));
       return;
     }
 

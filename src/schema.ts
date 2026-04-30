@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -934,7 +934,110 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_target_updated ON scheduler_job_records(target_type, target_id, updated_at)",
     ],
   },
+  {
+    version: 19,
+    description: "Add chat session and message tables",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS chat_sessions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        title TEXT,
+        pending_command_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      `CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        intent_type TEXT,
+        command_action TEXT,
+        command_status TEXT,
+        command_receipt_json TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_chat_sessions_project ON chat_sessions(project_id, updated_at)",
+    ],
+  },
 ];
+
+export type ChatIntentType =
+  | "query_status"
+  | "query_review"
+  | "add_requirement"
+  | "change_requirement"
+  | "schedule_run"
+  | "pause_runner"
+  | "resume_runner"
+  | "approve_review"
+  | "reject_review"
+  | "generate_ears"
+  | "generate_hld"
+  | "confirm"
+  | "cancel"
+  | "help"
+  | "unknown";
+
+export type ChatRiskLevel = "low" | "medium" | "high";
+
+export type ChatIntentResult = {
+  intent: ChatIntentType;
+  confidence: number;
+  entities: {
+    featureId?: string;
+    taskId?: string;
+    reviewItemId?: string;
+    requirementText?: string;
+    changeDescription?: string;
+  };
+  commandAction?: string;
+  riskLevel: ChatRiskLevel;
+  confirmationRequired: boolean;
+  responseText: string;
+};
+
+export type ChatSession = {
+  id: string;
+  projectId?: string;
+  title?: string;
+  pendingCommandJson?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  intentType?: ChatIntentType;
+  commandAction?: string;
+  commandStatus?: string;
+  commandReceiptJson?: string;
+  createdAt: string;
+};
+
+export type ChatAssistantResponse = {
+  messageId: string;
+  state: "answered" | "pending_confirmation" | "executed" | "cancelled" | "error";
+  text: string;
+  intent?: ChatIntentType;
+  preview?: {
+    action: string;
+    entityType: string;
+    entityId: string;
+    payloadSummary: string;
+  };
+  receipt?: {
+    action: string;
+    status: string;
+    runId?: string;
+    schedulerJobId?: string;
+    blockedReasons?: string[];
+  };
+};
 
 export type SchemaState = {
   schemaVersion: number;

@@ -1127,6 +1127,16 @@ Product Console 必须提供系统设置入口，用于管理跨页面、跨 Run
 
 系统设置中的 CLI 配置页必须支持查看当前 active adapter、打开 JSON 配置、通过 JSON Schema 驱动的表单编辑命令参数、安全策略、输出映射和 session resume 设置，并在保存前执行 dry-run 校验。表单编辑和原始 JSON 编辑必须共享同一份配置事实源。
 
+### 8.10 Chat Interface 自然语言指令面板
+
+Product Console 在所有页面右下角提供可折叠的 Chat Interface 悬浮面板，允许用户通过自然语言提问和下达指令，系统识别意图后转换为受控命令执行。
+
+面板支持以下意图类型：查询任务状态、查询 Review 待审批项、新增需求、变更需求、触发调度（schedule_run）、暂停/恢复 Runner、批准/拒绝 Review、生成 EARS 需求、生成 HLD、帮助说明、取消和确认。
+
+高风险意图（schedule_run、pause_runner、resume_runner、approve_review、reject_review）在执行前必须向用户展示操作预览，等待用户发送确认指令后才通过受控命令执行。低风险和中等风险意图立即执行。
+
+意图分类优先调用 Codex CLI，Codex 不可用时退回规则关键词分类。对话历史和命令回执持久化到 SQLite chat_sessions 和 chat_messages 表，按 project_id 关联，支持会话重连时恢复历史记录。
+
 ---
 
 ## 9. 非功能需求

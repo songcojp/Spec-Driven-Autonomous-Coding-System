@@ -83,6 +83,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-051 | 7.9, 8, 9, 10, 12, 14 | Evidence Pack 是状态判断、恢复、审批和交付报告的共享证据格式。 |
 | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换、Spec Sources 扫描状态、系统设置、CLI Adapter JSON 表单配置和默认中文的界面语言切换。 |
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
+| REQ-069, REQ-070, REQ-071, REQ-072, REQ-073 | 7.14, 8, 9 | Chat Interface 提供悬浮面板、意图分类、受控命令派发、高风险二次确认和会话/消息持久化。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
 | NFR-007, NFR-008, NFR-009, NFR-011 | 11, 12, 13, 14 | 性能指标作为基线记录，只读 Subagent 并发作为受控并行能力。 |
@@ -404,6 +405,24 @@ Collaborates With:
 
 - Repository Adapter、Evidence Store、Spec Protocol Engine、Review Center。
 
+### 7.14 Chat Interface
+
+Responsibilities:
+
+- 在 Product Console 所有页面提供悬浮对话面板，接收用户自然语言输入。
+- 通过 Codex CLI 对消息进行意图分类（classifyIntent），Codex 不可用时退回规则关键词分类。
+- 将低/中风险意图立即转换为受控命令（submitConsoleCommand）执行，返回自然语言摘要。
+- 将高风险意图存储为待确认命令（pending_command_json），展示操作预览，等待用户 confirm 或 cancel。
+- 将会话、消息、意图类型、命令回执和状态持久化到 SQLite chat_sessions 和 chat_messages 表。
+
+Owns:
+
+- ChatSession、ChatMessage。
+
+Collaborates With:
+
+- Product Console（UI 挂载）、submitConsoleCommand（命令派发）、Codex Runner（意图分类调用）、Evidence Store（查询上下文构建）。
+
 ## 8. Data Domains and Ownership
 
 | Data Domain | Primary Owner | Key Entities | Persistence Strategy |
@@ -417,6 +436,7 @@ Collaborates With:
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Evidence and Audit | Evidence Store | EvidencePack、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/evidence/` artifact。 |
 | Review and Delivery | Review Center / Delivery Manager | ReviewItem、ApprovalRecord、DeliveryReport、PullRequestRecord | SQLite + Markdown artifact。 |
+| Chat Interface | Chat Interface | ChatSession、ChatMessage | SQLite chat_sessions + chat_messages；pending_command_json 为会话级临时状态。 |
 
 Data ownership rules:
 

@@ -391,3 +391,61 @@ export type ConsoleData = {
   reviews: ReviewModel;
   audit: AuditModel;
 };
+
+export type ChatIntentType =
+  | "query_status"
+  | "query_review"
+  | "add_requirement"
+  | "change_requirement"
+  | "schedule_run"
+  | "pause_runner"
+  | "resume_runner"
+  | "approve_review"
+  | "reject_review"
+  | "generate_ears"
+  | "generate_hld"
+  | "confirm"
+  | "cancel"
+  | "help"
+  | "unknown";
+
+export type ChatSession = {
+  id: string;
+  projectId?: string;
+  title?: string;
+  pendingCommandJson?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  intentType?: ChatIntentType;
+  commandAction?: string;
+  commandStatus?: string;
+  commandReceiptJson?: string;
+  createdAt: string;
+};
+
+export type ChatAssistantResponse = {
+  messageId: string;
+  state: "answered" | "pending_confirmation" | "executed" | "cancelled" | "error";
+  text: string;
+  intent?: ChatIntentType;
+  preview?: {
+    action: string;
+    entityType: string;
+    entityId: string;
+    payloadSummary: string;
+  };
+  receipt?: {
+    action: string;
+    status: string;
+    runId?: string;
+    schedulerJobId?: string;
+    blockedReasons?: string[];
+  };
+};
