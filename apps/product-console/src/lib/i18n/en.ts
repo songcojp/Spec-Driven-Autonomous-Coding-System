@@ -189,6 +189,7 @@ export const en = {
   displayName: "Display Name",
   executable: "Executable",
   defaultModel: "Default Model",
+  defaultReasoningEffort: "Default Reasoning Effort",
   defaultSandbox: "Default Sandbox",
   defaultApproval: "Default Approval",
   argumentTemplate: "Argument Template",

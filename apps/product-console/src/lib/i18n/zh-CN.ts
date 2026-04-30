@@ -189,6 +189,7 @@ export const zhCN = {
   displayName: "显示名称",
   executable: "可执行文件",
   defaultModel: "默认模型",
+  defaultReasoningEffort: "默认推理强度",
   defaultSandbox: "默认 Sandbox",
   defaultApproval: "默认审批",
   argumentTemplate: "参数模板",

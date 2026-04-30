@@ -437,6 +437,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     risk: loaded.risk,
     workspaceRoot: loaded.workspaceRoot,
     model: loaded.adapter.defaults.model,
+    reasoningEffort: loaded.adapter.defaults.reasoningEffort,
     profile: loaded.adapter.defaults.profile,
     requestedSandboxMode: loaded.adapter.defaults.sandbox,
     requestedApprovalPolicy: loaded.adapter.defaults.approval,

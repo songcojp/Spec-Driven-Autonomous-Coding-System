@@ -35,6 +35,7 @@ import {
 
 export type RunnerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type RunnerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never" | "bypass";
+export type RunnerReasoningEffort = "low" | "medium" | "high" | "xhigh";
 export type RunnerQueueStatus = "queued" | "running" | "completed" | "review_needed" | "blocked" | "failed";
 
 export type RunnerPolicy = {
@@ -44,6 +45,7 @@ export type RunnerPolicy = {
   sandboxMode: RunnerSandboxMode;
   approvalPolicy: RunnerApprovalPolicy;
   model: string;
+  reasoningEffort: RunnerReasoningEffort;
   profile?: string;
   outputSchema: Record<string, unknown>;
   workspaceRoot: string;
@@ -106,6 +108,8 @@ export type CliAdapterConfig = {
   formSchema: Record<string, unknown>;
   defaults: {
     model?: string;
+    reasoningEffort?: RunnerReasoningEffort;
+    reasoning_effort?: RunnerReasoningEffort;
     profile?: string;
     sandbox?: RunnerSandboxMode;
     approval?: RunnerApprovalPolicy;
@@ -154,6 +158,7 @@ export type RunnerPolicyInput = {
   taskType?: string;
   workspaceRoot: string;
   model?: string;
+  reasoningEffort?: RunnerReasoningEffort;
   profile?: string;
   outputSchema?: Record<string, unknown>;
   resumeSessionId?: string;
@@ -303,7 +308,8 @@ export type RunnerConsoleSnapshot = {
   heartbeatStale: boolean;
 };
 
-const DEFAULT_MODEL = "gpt-5.3-codex-spark";
+const DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
 export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "codex-cli",
   displayName: "Codex CLI",
@@ -312,6 +318,8 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   argumentTemplate: [
     "-a",
     "{{approval}}",
+    "-c",
+    "model_reasoning_effort=\"{{reasoning_effort}}\"",
     "exec",
     "--json",
     "--sandbox",
@@ -327,6 +335,8 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
     "{{approval}}",
     "--sandbox",
     "{{sandbox}}",
+    "-c",
+    "model_reasoning_effort=\"{{reasoning_effort}}\"",
     "{{profile_flag}}",
     "{{profile}}",
     "exec",
@@ -346,6 +356,7 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
       { path: "executable", label: "Executable", type: "text" },
       { path: "argumentTemplate", label: "Arguments", type: "list" },
       { path: "defaults.model", label: "Default model", type: "text" },
+      { path: "defaults.reasoningEffort", label: "Default reasoning effort", type: "select" },
       { path: "defaults.sandbox", label: "Sandbox", type: "select" },
       { path: "defaults.approval", label: "Approval", type: "select" },
       { path: "outputMapping.sessionIdPath", label: "Session id path", type: "text" },
@@ -353,8 +364,9 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   },
   defaults: {
     model: DEFAULT_MODEL,
+    reasoningEffort: DEFAULT_REASONING_EFFORT,
     sandbox: "workspace-write",
-    approval: "on-request",
+    approval: "never",
   },
   environmentAllowlist: [],
   outputMapping: {
@@ -367,6 +379,7 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
 };
 const DEFAULT_OUTPUT_SCHEMA = {
   type: "object",
+  additionalProperties: false,
   required: ["summary", "status", "evidence"],
   properties: {
     summary: { type: "string" },
@@ -415,6 +428,7 @@ export function resolveRunnerPolicy(input: RunnerPolicyInput): RunnerPolicy {
     sandboxMode,
     approvalPolicy,
     model: input.model ?? DEFAULT_MODEL,
+    reasoningEffort: input.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     profile: input.profile,
     outputSchema: input.outputSchema ?? DEFAULT_OUTPUT_SCHEMA,
     workspaceRoot: input.workspaceRoot,
@@ -504,6 +518,7 @@ export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Rec
     formSchema: isRecord(input.formSchema) ? input.formSchema : isRecord(input.form_schema) ? input.form_schema : DEFAULT_CLI_ADAPTER_CONFIG.formSchema,
     defaults: {
       model: optionalConfigString(defaults.model) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.model,
+      reasoningEffort: normalizeReasoningEffort(defaults.reasoningEffort ?? defaults.reasoning_effort) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.reasoningEffort,
       profile: optionalConfigString(defaults.profile),
       sandbox: normalizeSandbox(defaults.sandbox) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.sandbox,
       approval: normalizeApproval(defaults.approval) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.approval,
@@ -533,6 +548,7 @@ export function validateCliAdapterConfig(config: CliAdapterConfig): CliAdapterVa
   if (!config.outputMapping.sessionIdPath.trim()) errors.push("outputMapping.sessionIdPath is required");
   if (config.defaults.sandbox === "danger-full-access") errors.push("default sandbox may not be danger-full-access");
   if (config.defaults.approval === "bypass") errors.push("default approval may not bypass approvals");
+  if (!normalizeReasoningEffort(config.defaults.reasoningEffort)) errors.push("default reasoning effort must be low, medium, high, or xhigh");
   return { valid: errors.length === 0, errors };
 }
 
@@ -583,6 +599,7 @@ export function renderCliAdapterCommand(input: {
     approval: input.policy.approvalPolicy,
     sandbox: input.policy.sandboxMode,
     model: input.policy.model,
+    reasoning_effort: input.policy.reasoningEffort,
     profile: input.policy.profile ?? "",
     profile_flag: input.policy.profile ? "-p" : "",
     output_schema: input.outputSchemaPath,
@@ -1553,14 +1570,15 @@ export function persistCodexRunnerArtifacts(
   const statements: SqlStatement[] = [
     {
       sql: `INSERT INTO runner_policies (
-        id, run_id, risk, sandbox_mode, approval_policy, model, profile,
+        id, run_id, risk, sandbox_mode, approval_policy, model, reasoning_effort, profile,
         output_schema_json, workspace_root, resume_session_id, heartbeat_interval_seconds, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         risk = excluded.risk,
         sandbox_mode = excluded.sandbox_mode,
         approval_policy = excluded.approval_policy,
         model = excluded.model,
+        reasoning_effort = excluded.reasoning_effort,
         profile = excluded.profile,
         output_schema_json = excluded.output_schema_json,
         workspace_root = excluded.workspace_root,
@@ -1573,6 +1591,7 @@ export function persistCodexRunnerArtifacts(
         input.policy.sandboxMode,
         input.policy.approvalPolicy,
         input.policy.model,
+        input.policy.reasoningEffort,
         input.policy.profile ?? null,
         JSON.stringify(input.policy.outputSchema),
         input.policy.workspaceRoot,
@@ -1728,6 +1747,10 @@ function normalizeApproval(value: unknown): RunnerApprovalPolicy | undefined {
     : undefined;
 }
 
+function normalizeReasoningEffort(value: unknown): RunnerReasoningEffort | undefined {
+  return value === "low" || value === "medium" || value === "high" || value === "xhigh" ? value : undefined;
+}
+
 function normalizeAdapterStatus(value: unknown): CliAdapterStatus | undefined {
   return value === "draft" || value === "active" || value === "disabled" || value === "invalid" ? value : undefined;
 }
@@ -1787,6 +1810,7 @@ function runCommand(
       ? setInterval(onHeartbeat, Math.max(10, heartbeatIntervalSeconds) * 1000)
       : undefined;
 
+    child.stdin?.end();
     child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", (error) => {

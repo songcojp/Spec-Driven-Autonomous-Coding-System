@@ -87,7 +87,7 @@ test("CLI adapter normalizes snake_case DB row fields to camelCase config", () =
     resume_argument_template: ["resume", "{sessionId}"],
     config_schema: { type: "object" },
     form_schema: { fields: [] },
-    defaults: { model: "gemini-pro", sandbox: "workspace-write", approval: "on-request" },
+    defaults: { model: "gemini-pro", reasoning_effort: "high", sandbox: "workspace-write", approval: "on-request" },
     environment_allowlist: ["HOME", "PATH"],
     output_mapping: { event_stream: "json", evidence_schema: "v1", session_id_path: "session_id" },
     status: "active",
@@ -103,6 +103,7 @@ test("CLI adapter normalizes snake_case DB row fields to camelCase config", () =
   assert.deepEqual(normalized.environmentAllowlist, ["HOME", "PATH"]);
   assert.equal(normalized.outputMapping.eventStream, "json");
   assert.equal(normalized.defaults.model, "gemini-pro");
+  assert.equal(normalized.defaults.reasoningEffort, "high");
   assert.equal(normalized.status, "active");
 });
 
@@ -117,6 +118,8 @@ test("runner policy resolves safe defaults and clamps heartbeat cadence", () => 
 
   assert.equal(lowRisk.sandboxMode, "workspace-write");
   assert.equal(lowRisk.approvalPolicy, "on-request");
+  assert.equal(lowRisk.model, "gpt-5.5");
+  assert.equal(lowRisk.reasoningEffort, "medium");
   assert.equal(lowRisk.heartbeatIntervalSeconds, 10);
   assert.notEqual(lowRisk.sandboxMode, "danger-full-access");
 
@@ -243,17 +246,19 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
     "on-request",
     "--sandbox",
     "workspace-write",
+    "-c",
+    'model_reasoning_effort="medium"',
     "-p",
     "automation",
     "exec",
     "resume",
     "--json",
     "-m",
-    "gpt-5.3-codex-spark",
-    "SESSION-OLD",
   ]);
-  assert.match(calls[0].args[12], /Implement bounded task token=abc123/);
-  assert.match(calls[0].args[12], /matching this schema/);
+  assert.equal(calls[0].args[12], "gpt-5.3-codex-spark");
+  assert.equal(calls[0].args[13], "SESSION-OLD");
+  assert.match(calls[0].args[14], /Implement bounded task token=abc123/);
+  assert.match(calls[0].args[14], /matching this schema/);
   assert.equal(calls[0].cwd, workspaceRoot);
   assert.doesNotMatch(result.session.args.join(" "), /abc123/);
   assert.match(result.session.args.join(" "), /token=\[REDACTED\]/);
@@ -316,18 +321,56 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
     },
   });
 
-  assert.deepEqual(calls[0].args.slice(0, 10), [
+  assert.deepEqual(calls[0].args.slice(0, 12), [
     "-a",
     "on-request",
+    "-c",
+    'model_reasoning_effort="medium"',
     "exec",
     "--json",
     "--sandbox",
     "workspace-write",
     "--model",
-    "gpt-5.3-codex-spark",
+    "gpt-5.5",
     "--output-schema",
     "/tmp/runner-output.schema.json",
   ]);
+});
+
+test("Codex CLI adapter closes child stdin for non-interactive runner commands", { timeout: 5000 }, async () => {
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-STDIN",
+    risk: "low",
+    workspaceRoot: makeWorkspacePath(),
+    now: stableDate,
+  });
+
+  const result = await runCodexCli({
+    policy,
+    prompt: "Run non-interactive command",
+    outputSchemaPath: "/tmp/runner-stdin.schema.json",
+    now: stableDate,
+    adapterConfig: normalizeCliAdapterConfig({
+      ...DEFAULT_CLI_ADAPTER_CONFIG,
+      executable: process.execPath,
+      argumentTemplate: [
+        "-e",
+        [
+          "process.stdin.resume();",
+          "process.stdin.on('end',()=>{",
+          "console.log(JSON.stringify({type:'result',status:'completed',stdinClosed:true}));",
+          "});",
+        ].join(""),
+        "{{prompt}}",
+        "{{output_schema}}",
+      ],
+      resumeArgumentTemplate: [],
+      defaults: { model: "node", sandbox: "workspace-write", approval: "never" },
+    }),
+  });
+
+  assert.equal(result.session.exitCode, 0);
+  assert.equal(result.rawLog.events[0].stdinClosed, true);
 });
 
 test("Codex CLI adapter removes generated output schema files after execution", async () => {
@@ -1620,7 +1663,7 @@ test("runner artifacts persist for audit and console lookup", async () => {
   });
 
   const rows = runSqlite(dbPath, [], [
-    { name: "policy", sql: "SELECT sandbox_mode, approval_policy FROM runner_policies WHERE id = ?", params: [policy.id] },
+    { name: "policy", sql: "SELECT sandbox_mode, approval_policy, model, reasoning_effort FROM runner_policies WHERE id = ?", params: [policy.id] },
     { name: "heartbeat", sql: "SELECT queue_status FROM runner_heartbeats WHERE id = ?", params: [heartbeat.id] },
     { name: "session", sql: "SELECT session_id, exit_code FROM codex_session_records WHERE id = ?", params: [adapter.session.id] },
     { name: "log", sql: "SELECT events_json FROM raw_execution_logs WHERE id = ?", params: [adapter.rawLog.id] },
@@ -1628,6 +1671,8 @@ test("runner artifacts persist for audit and console lookup", async () => {
 
   assert.equal(rows.queries.policy[0].sandbox_mode, "workspace-write");
   assert.equal(rows.queries.policy[0].approval_policy, "on-request");
+  assert.equal(rows.queries.policy[0].model, "gpt-5.5");
+  assert.equal(rows.queries.policy[0].reasoning_effort, "medium");
   assert.equal(rows.queries.heartbeat[0].queue_status, "completed");
   assert.equal(rows.queries.session[0].session_id, "S-1");
   assert.equal(rows.queries.session[0].exit_code, 0);

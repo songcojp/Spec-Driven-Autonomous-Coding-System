@@ -20,7 +20,7 @@ test("current schema includes status checker, recovery history, and attachment t
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 19);
+  assert.equal(SCHEMA_VERSION, 20);
   assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   for (const table of ["status_check_results", "spec_alignment_results", "evidence_attachment_refs", "recovery_attempts", "forbidden_retry_records"]) {

@@ -194,6 +194,11 @@ export function SettingsPage({
                     onChange={(value) => updateDefaults("model", value)}
                   />
                   <SettingsInput
+                    label={text.defaultReasoningEffort}
+                    value={String(defaults?.reasoningEffort ?? "")}
+                    onChange={(value) => updateDefaults("reasoningEffort", value)}
+                  />
+                  <SettingsInput
                     label={text.defaultSandbox}
                     value={String(defaults?.sandbox ?? "")}
                     onChange={(value) => updateDefaults("sandbox", value)}

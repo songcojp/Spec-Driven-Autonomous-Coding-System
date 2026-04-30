@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -959,6 +959,13 @@ export const MIGRATIONS: Migration[] = [
       )`,
       "CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_chat_sessions_project ON chat_sessions(project_id, updated_at)",
+    ],
+  },
+  {
+    version: 20,
+    description: "Add runner reasoning effort to policy records",
+    statements: [
+      "ALTER TABLE runner_policies ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'medium'",
     ],
   },
 ];
