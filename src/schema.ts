@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -909,6 +909,29 @@ export const MIGRATIONS: Migration[] = [
         switched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       "CREATE INDEX IF NOT EXISTS idx_projects_status_updated ON projects(status, updated_at)",
+    ],
+  },
+  {
+    version: 18,
+    description: "Add BullMQ scheduler job records",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS scheduler_job_records (
+        id TEXT PRIMARY KEY,
+        bullmq_job_id TEXT NOT NULL,
+        queue_name TEXT NOT NULL,
+        job_type TEXT NOT NULL,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        status TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduler_jobs_bullmq ON scheduler_job_records(queue_name, bullmq_job_id)",
+      "CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_queue_status ON scheduler_job_records(queue_name, status, updated_at)",
+      "CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_target_updated ON scheduler_job_records(target_type, target_id, updated_at)",
     ],
   },
 ];

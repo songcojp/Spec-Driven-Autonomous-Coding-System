@@ -10,6 +10,13 @@ export type RunnerConfig = {
   sandboxMode: string;
 };
 
+export type WorkerMode = "embedded" | "worker-only" | "off";
+
+export type SchedulerConfig = {
+  redisUrl: string;
+  workerMode: WorkerMode;
+};
+
 export type AppConfig = {
   projectRoot: string;
   port: number;
@@ -17,10 +24,12 @@ export type AppConfig = {
   dbPath: string;
   logLevel: LogLevel;
   runnerConfig: RunnerConfig;
+  schedulerConfig: SchedulerConfig;
 };
 
-type ConfigInput = Partial<Omit<AppConfig, "runnerConfig">> & {
+type ConfigInput = Partial<Omit<AppConfig, "runnerConfig" | "schedulerConfig">> & {
   runnerConfig?: Partial<RunnerConfig>;
+  schedulerConfig?: Partial<SchedulerConfig>;
 };
 
 type LoadConfigOptions = {
@@ -69,6 +78,18 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
       ...definedValues(envConfig.runnerConfig ?? {}),
       ...definedValues(cliConfig.runnerConfig ?? {}),
     },
+    schedulerConfig: {
+      redisUrl: cliConfig.schedulerConfig?.redisUrl
+        ?? envConfig.schedulerConfig?.redisUrl
+        ?? fileConfig.schedulerConfig?.redisUrl
+        ?? "redis://127.0.0.1:6379",
+      workerMode: validateWorkerMode(
+        cliConfig.schedulerConfig?.workerMode
+          ?? envConfig.schedulerConfig?.workerMode
+          ?? fileConfig.schedulerConfig?.workerMode
+          ?? "embedded",
+      ),
+    },
   };
 
   validateConfig(merged);
@@ -97,6 +118,10 @@ function readEnvConfig(env: NodeJS.ProcessEnv): ConfigInput {
       command: env.AUTOBUILD_RUNNER_COMMAND,
       args: env.AUTOBUILD_RUNNER_ARGS ? env.AUTOBUILD_RUNNER_ARGS.split(" ").filter(Boolean) : undefined,
       sandboxMode: env.AUTOBUILD_RUNNER_SANDBOX_MODE,
+    },
+    schedulerConfig: {
+      redisUrl: env.AUTOBUILD_REDIS_URL,
+      workerMode: env.AUTOBUILD_WORKER_MODE as WorkerMode | undefined,
     },
   };
 }
@@ -127,6 +152,13 @@ function readCliConfig(argv: string[]): ConfigInput {
         throw new BootstrapError("config", "Invalid --runner-config-json", errorMessage(error));
       }
       index += 1;
+    } else if (arg === "--redis-url" && next) {
+      config.schedulerConfig = { ...(config.schedulerConfig ?? {}), redisUrl: next };
+      index += 1;
+    } else if (arg === "--worker-only") {
+      config.schedulerConfig = { ...(config.schedulerConfig ?? {}), workerMode: "worker-only" };
+    } else if (arg === "--no-worker") {
+      config.schedulerConfig = { ...(config.schedulerConfig ?? {}), workerMode: "off" };
     }
   }
 
@@ -148,10 +180,20 @@ function validateConfig(config: AppConfig): void {
   if (!config.runnerConfig.command) {
     missing.push("runnerConfig.command");
   }
+  if (!config.schedulerConfig.redisUrl) {
+    missing.push("schedulerConfig.redisUrl");
+  }
 
   if (missing.length > 0) {
     throw new BootstrapError("config", `Invalid or missing required config: ${missing.join(", ")}`, { missing });
   }
+}
+
+function validateWorkerMode(value: unknown): WorkerMode {
+  if (value === "embedded" || value === "worker-only" || value === "off") {
+    return value;
+  }
+  throw new BootstrapError("config", `Invalid scheduler workerMode: ${String(value)}`);
 }
 
 function validateLogLevel(value: unknown): LogLevel {

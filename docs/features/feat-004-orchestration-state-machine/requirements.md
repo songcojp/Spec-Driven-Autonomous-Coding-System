@@ -16,6 +16,7 @@
 - Project Scheduler 从 Feature Spec Pool 动态选择 ready Feature。
 - Feature Scheduler 根据依赖、风险、文件范围、Runner 可用性、worktree 状态、成本预算、执行窗口和审批要求推进任务。
 - 记录立即执行、指定时间、每日、每小时、夜间、工作日、依赖完成、CI 失败和审批通过等触发模式；事件类触发先记录为受控请求。
+- 通过 BullMQ + Redis 调度 `feature.select`、`feature.plan` 和 `cli.run` job，并用 SQLite 保存 scheduler job 事实和审计。
 - 维护状态聚合、调度审计、状态转换审计和可恢复运行状态。
 
 ## Non-Scope
@@ -34,7 +35,9 @@
 
 - Project Scheduler 不得依赖 Project Memory 中的静态候选队列作为真实来源。
 - Feature 选择必须记录候选摘要、选择原因和 Memory 摘要。
-- 每次调度运行必须记录触发模式、触发时间、触发来源、触发对象和调度结果。
+- 每次调度运行必须记录触发模式、触发时间、触发来源、触发对象、BullMQ job id、queue、job type、attempts、payload 和调度结果。
+- `schedule_run` 不得同步产生 FeatureSelectionDecision；`selectionDecisionId` 只能由 `feature.select` Worker 写入后出现。
+- `feature.plan` 在 Codex Skill planning bridge 缺失时必须 blocked，原因固定为 `Planning skill execution bridge is not implemented`，不得生成假任务图。
 - 手动和时间类触发可进入候选选择；CI 失败、审批通过和依赖完成触发在 MVP 中必须先记录为 `recorded` 或 `blocked`，等待上游 Evidence/Review/Dependency 子系统确认后再进入候选选择。
 - 任务图不得包含平台 Skill 或 Subagent 字段。
 - Feature done 判定必须同时满足任务 Done、Feature 验收、Spec Alignment Check 和必要测试通过。
@@ -47,7 +50,8 @@
 - [ ] Running 任务完成检测后可进入 Done、Review Needed、Blocked 或 Failed。
 - [ ] Feature 进入 review_needed 时记录 approval_needed、clarification_needed 或 risk_review_needed。
 - [ ] Feature Scheduler 只调度依赖已满足且边界允许的任务。
-- [ ] 手动、指定时间和周期触发能生成可审计的调度触发记录并进入候选选择。
+- [ ] 手动、指定时间和周期触发能生成可审计的调度触发记录和 scheduler job，并由 Worker 进入候选选择。
+- [ ] Redis 不可用时 scheduler health 为 blocked，API 不崩溃。
 - [ ] CI 失败、审批通过和依赖完成触发不得绕过 Feature/Task 边界、审批规则或安全策略。
 
 ## Risks and Open Questions
@@ -55,3 +59,4 @@
 - Project Scheduler 的固定规则需要保持可解释，避免引入不可审计的评分黑盒。
 - Dashboard Board 的拖拽或批量操作只产生状态机允许的状态变更或调度请求。
 - 事件类触发的上游接入仍依赖 CI、Review Center 和依赖检测事件源；当前实现只保留受控记录和边界保护。
+- Planning Skill bridge 未实现前，Feature 会停在 blocked；后续接入 Codex Skill bridge 时需重新打开本 Feature 的 planning 子流程。

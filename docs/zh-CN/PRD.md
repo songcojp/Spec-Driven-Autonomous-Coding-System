@@ -673,6 +673,8 @@ Done → Delivered
 
 系统支持立即执行、指定时间执行、每日执行、每小时巡检、夜间自动执行、工作日执行、依赖完成后执行、CI 失败后执行、审批通过后执行。
 
+调度触发必须进入真实任务调度系统，而不是由 Console 请求同步完成。MVP 使用 BullMQ + Redis 承担延迟、周期和 Worker 执行，SQLite 继续作为业务事实、审计和恢复来源。Redis 不可用时，调度健康状态为 blocked，API 和 Console 不得崩溃。
+
 #### FR-061 调度层级
 
 系统调度分为两层：
@@ -691,11 +693,17 @@ Feature Scheduler
 
 Project Scheduler 负责 Feature 选择、Feature 级并行控制、Feature 生命周期推进和跨 Feature 资源分配。Feature Scheduler 负责 Feature 内任务排序、任务并行、Runner 分配和任务状态推进。
 
+Project Scheduler 的调度 job 类型为 `feature.select` 和 `feature.plan`。`feature.select` 必须从当前 Feature Spec Pool 读取 live `ready` Feature 并写入选择决策；`feature.plan` 在 Codex Skill planning bridge 未实现前必须把 Feature 标记为 blocked，原因固定为 `Planning skill execution bridge is not implemented`，不得生成假任务图或伪造 Skill 输出。
+
+CLI 执行调度 job 类型为 `cli.run`。Task Board 的运行动作只允许把已排期任务入队，由 Runner Worker 执行 CLI、写 heartbeat/session/log/evidence/status check，并回写 Run 与 Task 状态。
+
 #### FR-062 调度策略
 
 **项目级调度**：Project Scheduler 触发选择器根据优先级、依赖完成情况、验收风险和就绪状态选定下一个 Feature；每次调度都从 Feature Spec Pool 动态计算候选集，识别最新优先级、阻塞解除、人工覆盖和 Spec 变更；项目级并行开关关闭时逐个 Feature 串行推进，开启时按 FR-058 选择多个可并行 Feature。
 
 **Feature 内调度**：Feature Scheduler 在单个 Feature Spec 的任务图内，根据优先级、依赖状态、风险等级、并行能力、Runner 可用性、Git worktree 状态、成本预算、允许执行窗口和审批要求排序。
+
+Console 中的 `schedule_run` 返回调度触发 ID 与 scheduler job ID；Feature selection decision 只能由 Worker 执行后产生。`schedule_board_tasks` 只执行 `ready -> scheduled` 和审计；`run_board_tasks` 只创建 Run 并入队 `cli.run`，不得在点击时直接执行 CLI 或伪造执行结果。
 
 #### FR-063 Worktree 并行隔离
 

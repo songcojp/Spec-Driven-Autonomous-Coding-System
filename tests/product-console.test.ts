@@ -15,6 +15,7 @@ import {
   buildSystemSettingsView,
   submitConsoleCommand,
 } from "../src/product-console.ts";
+import { createMemoryScheduler } from "../src/scheduler.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
@@ -289,8 +290,8 @@ test("board commands validate state, dependency, risk, and approval gates before
   assert.match(String(audit.queries.events[1].payload_json), /blockedReasons/);
   assert.deepEqual(audit.queries.tasks.map((row) => [row.id, row.status]), [
     ["TASK-HIGH", "scheduled"],
-    ["TASK-READY", "ready"],
-    ["TASK-SCHEDULED", "scheduled"],
+    ["TASK-READY", "scheduled"],
+    ["TASK-SCHEDULED", "running"],
   ]);
 });
 
@@ -441,14 +442,14 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-1");
 
   assert.equal(runner.summary.onlineRunners, 1);
-  assert.equal(runner.summary.readyTasks, 1);
-  assert.equal(runner.lanes.ready[0].id, "TASK-READY");
+  assert.equal(runner.summary.readyTasks, 0);
+  assert.equal(runner.lanes.scheduled.some((task) => task.id === "TASK-READY"), true);
   assert.equal(runner.lanes.scheduled.some((task) => task.id === "TASK-SCHEDULED"), true);
   assert.equal(runner.lanes.running.length, 0);
   assert.equal(runner.lanes.blocked.some((task) => task.id === "TASK-HIGH"), true);
   assert.equal(runner.lanes.blocked.find((task) => task.id === "TASK-HIGH")?.action, "review");
-  assert.equal(runner.lanes.ready[0].dependencies[0].satisfied, true);
-  assert.equal(runner.lanes.ready[0].action, "schedule");
+  assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.dependencies[0].satisfied, true);
+  assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.action, "run");
   assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-SCHEDULED")?.action, "run");
   assert.equal(runner.recentTriggers.some((entry) => entry.action === "schedule_board_tasks"), true);
 
@@ -779,6 +780,7 @@ test("console write commands persist rule and spec evolution evidence", () => {
 test("console schedule command records scheduler triggers without bypassing boundaries", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
   runSqlite(dbPath, [{ sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" }]);
 
   const receipt = submitConsoleCommand(dbPath, {
@@ -789,7 +791,7 @@ test("console schedule command records scheduler triggers without bypassing boun
     reason: "Schedule feature execution.",
     payload: { projectId: "project-1", mode: "manual" },
     now: stableDate,
-  });
+  }, { scheduler });
   const eventReceipt = submitConsoleCommand(dbPath, {
     action: "schedule_run",
     entityType: "feature",
@@ -798,7 +800,7 @@ test("console schedule command records scheduler triggers without bypassing boun
     reason: "Record CI trigger.",
     payload: { projectId: "project-1", mode: "ci_failed" },
     now: stableDate,
-  });
+  }, { scheduler });
   assert.throws(
     () =>
       submitConsoleCommand(dbPath, {
@@ -826,10 +828,15 @@ test("console schedule command records scheduler triggers without bypassing boun
       name: "decisions",
       sql: "SELECT id, selected_feature_id, memory_summary FROM feature_selection_decisions ORDER BY rowid",
     },
+    {
+      name: "jobs",
+      sql: "SELECT id, job_type, queue_name, target_type, target_id, status FROM scheduler_job_records ORDER BY rowid",
+    },
   ]);
 
   assert.equal(receipt.scheduleTriggerId, result.queries.triggers[0].id);
-  assert.equal(receipt.selectionDecisionId, result.queries.decisions[0].id);
+  assert.equal(receipt.schedulerJobId, result.queries.jobs[0].id);
+  assert.equal(receipt.selectionDecisionId, undefined);
   assert.equal(eventReceipt.scheduleTriggerId, result.queries.triggers[1].id);
   assert.equal(eventReceipt.selectionDecisionId, undefined);
   assert.deepEqual(
@@ -843,9 +850,10 @@ test("console schedule command records scheduler triggers without bypassing boun
     ["feature", "FEAT-013"],
     ["feature", "FEAT-013"],
   ]);
-  assert.deepEqual(result.queries.decisions.map((row) => [row.selected_feature_id, row.memory_summary]), [
-    ["FEAT-013", `schedule_trigger:${receipt.scheduleTriggerId}`],
+  assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.target_type, row.target_id, row.status]), [
+    ["feature.select", "specdrive:feature-scheduler", "feature", "FEAT-013", "queued"],
   ]);
+  assert.deepEqual(result.queries.decisions, []);
 });
 
 function makeDbPath(): string {

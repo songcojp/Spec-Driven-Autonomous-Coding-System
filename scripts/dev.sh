@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PORT="${AUTOBUILD_PORT:-4317}"
 FRONTEND_PORT="${CONSOLE_PORT:-5173}"
 CONSOLE_API_BASE_URL="${CONSOLE_API_BASE_URL:-http://localhost:${BACKEND_PORT}}"
+WORKER_MODE="${AUTOBUILD_WORKER_MODE:-embedded}"
 
 COMMAND="${1:-start}"
 
@@ -67,13 +68,27 @@ start_services() {
     if [ "${FRONTEND_PID:-}" ]; then
       kill "${FRONTEND_PID}" >/dev/null 2>&1 || true
     fi
+    if [ "${WORKER_PID:-}" ]; then
+      kill "${WORKER_PID}" >/dev/null 2>&1 || true
+    fi
   }
 
   trap cleanup EXIT INT TERM
 
+  local backend_worker_arg=()
+  if [ "$WORKER_MODE" = "off" ] || [ "$WORKER_MODE" = "worker-only" ]; then
+    backend_worker_arg=(--no-worker)
+  fi
+
   echo "Starting SpecDrive AutoBuild backend with hot reload on http://localhost:${BACKEND_PORT}"
-  npm run backend:dev -- --port "${BACKEND_PORT}" &
+  npm run backend:dev -- --port "${BACKEND_PORT}" "${backend_worker_arg[@]}" &
   BACKEND_PID="$!"
+
+  if [ "$WORKER_MODE" = "worker-only" ]; then
+    echo "Starting SpecDrive BullMQ worker with hot reload"
+    npm run backend:dev -- --worker-only &
+    WORKER_PID="$!"
+  fi
 
   echo "Starting Product Console frontend with hot reload on http://localhost:${FRONTEND_PORT}"
   CONSOLE_API_BASE_URL="${CONSOLE_API_BASE_URL}" npm run console:dev -- --port "${FRONTEND_PORT}" &
@@ -82,10 +97,11 @@ start_services() {
   echo
   echo "Product Console: http://localhost:${FRONTEND_PORT}"
   echo "Backend health:  http://localhost:${BACKEND_PORT}/health"
-  echo "Press Ctrl+C to stop both processes."
+  echo "Worker mode:     ${WORKER_MODE} (Redis is not started by this script)"
+  echo "Press Ctrl+C to stop all processes."
   echo
 
-  wait -n "${BACKEND_PID}" "${FRONTEND_PID}"
+  wait -n "${BACKEND_PID}" "${FRONTEND_PID}" ${WORKER_PID:+"${WORKER_PID}"}
 }
 
 case "$COMMAND" in

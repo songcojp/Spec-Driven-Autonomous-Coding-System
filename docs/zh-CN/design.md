@@ -322,7 +322,8 @@ Responsibilities:
 
 - Project Scheduler 从 Feature Spec Pool 动态读取 `ready` Feature 并选择下一个 Feature。
 - Feature Scheduler 在 Feature 内部根据任务依赖、风险、文件范围、Runner 可用性、成本预算、执行窗口和审批要求推进任务。
-- Planning Pipeline 自动执行 `technical-context-skill`、`research-decision-skill`、`architecture-plan-skill`、`data-model-skill`、`contract-design-skill`、`task-slicing-skill`。
+- BullMQ + Redis 承担 `feature.select`、`feature.plan` 和 `cli.run` job 的延迟、周期和 Worker 执行；SQLite 记录调度事实和审计。
+- Planning Skill bridge 未实现前，`feature.plan` 必须 blocked，不生成假任务图或 Skill 输出。
 - Task Graph Builder 生成可追踪任务图。
 - Feature Aggregator 根据任务状态、验收、Spec Alignment 和测试结果判断 Feature 状态。
 
@@ -339,12 +340,13 @@ Outputs:
 - FeatureSelectionDecision。
 - StateTransition。
 - TaskSchedule。
+- SchedulerJobRecord。
 - RunRequest。
 
 Dependencies:
 
 - Persistent Store。
-- Skill Executor。
+- BullMQ / Redis。
 - Workspace Manager。
 - Runner Queue。
 - Audit Timeline。
@@ -1155,29 +1157,28 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
   participant PS as Project Scheduler
+  participant Q as BullMQ feature-scheduler
   participant Pool as Feature Spec Pool
   participant F as Feature Selector
-  participant Plan as Planning Pipeline
-  participant K as Skill Executor
+  participant Plan as Codex Skill Planning Bridge
   participant M as Project Memory
   participant SM as State Machine
 
-  PS->>Pool: read current ready Features
-  Pool-->>PS: candidates
-  PS->>F: rank by priority/dependencies/risk/ready age
-  F-->>PS: selected Feature + reason
-  PS->>SM: ready -> planning
-  PS->>M: write selection snapshot
-  Plan->>K: technical-context-skill
-  Plan->>K: research-decision-skill
-  Plan->>K: architecture-plan-skill
-  par model and contract
-    Plan->>K: data-model-skill
-    Plan->>K: contract-design-skill
+  PS->>Q: enqueue feature.select
+  Q->>Pool: read current ready Features
+  Pool-->>Q: candidates
+  Q->>F: rank by priority/dependencies/risk/ready age
+  F-->>Q: selected Feature + reason
+  Q->>SM: ready -> planning
+  Q->>M: write selection snapshot
+  Q->>Q: enqueue feature.plan
+  alt planning bridge missing
+    Q->>SM: planning -> blocked
+  else future bridge available
+    Q->>Plan: execute planning skills through Codex
+    Plan-->>Q: TaskGraph
+    Q->>SM: planning -> tasked
   end
-  Plan->>K: task-slicing-skill
-  K-->>Plan: TaskGraph
-  Plan->>SM: planning -> tasked
 ```
 
 ### 7.4 Task Scheduling and Worktree Isolation
@@ -1186,7 +1187,7 @@ sequenceDiagram
 sequenceDiagram
   participant FS as Feature Scheduler
   participant WM as Workspace Manager
-  participant Q as Runner Queue
+  participant Q as BullMQ cli-runner
   participant SM as State Machine
 
   FS->>SM: read ready tasks and dependencies
@@ -1195,7 +1196,7 @@ sequenceDiagram
     WM->>WM: create or assign worktree
     WM-->>FS: WorktreeRecord
     FS->>SM: Ready -> Scheduled
-    FS->>Q: enqueue RunRequest
+    FS->>Q: enqueue cli.run
   else conflict or approval required
     FS->>SM: Ready -> Review Needed/Blocked
   end
@@ -1205,23 +1206,20 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-  participant Q as Runner Queue
-  participant SR as Subagent Runtime
+  participant Q as BullMQ cli-runner
   participant M as Memory Service
   participant C as Codex Runner
   participant E as Evidence Store
   participant SC as Status Checker
 
-  Q->>SR: RunRequest
-  SR->>SR: build Agent Run Contract
-  SR->>M: get memory injection block
-  SR->>C: codex exec with contract and memory
+  Q->>M: get memory injection block
+  Q->>C: codex exec through active CLI Adapter
   loop heartbeat
     C->>E: runner heartbeat/event
   end
-  C-->>SR: raw result
-  SR->>E: persist Evidence Pack
-  SR->>SC: request status check
+  C-->>Q: raw result
+  Q->>E: persist session/log/Evidence Pack
+  Q->>SC: request status check when configured
 ```
 
 ### 7.6 Status Check, Merge, and Memory Update
@@ -1416,6 +1414,9 @@ Task state rules:
 ### 8.4 Scheduler Truth and Recovery
 
 - Project Scheduler 不读取 Project Memory 的静态候选队列作为调度真实来源。
+- Redis/BullMQ 不保存业务事实；`scheduler_job_records`、ScheduleTrigger、FeatureSelectionDecision、Run、heartbeat、log 和 Evidence 都写入 SQLite。
+- `schedule_run` 的同步响应只能证明 trigger/job 已登记；Feature selection decision 必须等 `feature.select` Worker 执行后出现。
+- `feature.plan` 在 Codex Skill planning bridge 缺失时固定进入 blocked，避免 fake planning 或 fake task graph。
 - Feature Scheduler 不调度依赖未满足、文件边界冲突、Runner 不可用、成本预算超限或审批未完成的任务。
 - 崩溃恢复时先从 Persistent Store 恢复 Run、任务和状态，再核查 Git/worktree 和 Project Memory，最后修正投影状态。
 - 如果 Project Memory、Dashboard 和 Git 事实冲突，以仓库代码、Git 状态和文件系统检查为准。

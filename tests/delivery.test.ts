@@ -14,7 +14,7 @@ test("current schema includes delivery manager records", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 17);
+  assert.equal(SCHEMA_VERSION, 18);
   assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   assert.equal(tables.includes("pull_request_records"), true);

@@ -13,3 +13,6 @@
 - [x] TASK-011: 实现调度触发记录与受控入口，持久化触发模式、触发时间、来源、对象、结果和阻塞原因，并让 accepted 手动/时间触发进入 Feature 选择。
 - [x] TASK-012: 添加调度触发测试，验证手动/时间类触发可进入选择，CI/审批/依赖事件不会绕过边界。
 - [x] TASK-013: 任务图和调度状态移除 Skill/Subagent 字段。
+- [x] TASK-014: 将调度入口重构为 BullMQ + Redis job，固定 queue 为 `specdrive:feature-scheduler` / `specdrive:cli-runner`，并新增 `scheduler_job_records` SQLite 审计事实。
+- [x] TASK-015: 将 `schedule_run` 改为只登记 trigger 并 enqueue `feature.select`；Feature selection decision 由 Worker 从 live Feature Pool 选择后产生。
+- [x] TASK-016: 实现 `feature.plan` bridge-missing blocked 语义，固定原因 `Planning skill execution bridge is not implemented`，且不生成假 TaskGraph。

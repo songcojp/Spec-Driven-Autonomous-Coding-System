@@ -119,7 +119,7 @@ flowchart LR
 | Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、Evidence、审计和指标。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
 | API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter | UI、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 CLI 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；TypeScript 可用 Zod 生成或校验 schema。 |
-| Background Jobs / Agents | SQLite-backed queue 或本地持久化队列 + Runner Worker；Subagent Run 通过 Agent Run Contract 启动 | 长时间任务不能只存在内存；Run、心跳、状态和 Evidence 必须可恢复。 | 写任务默认串行；只读 Subagent 可并发；写入型并行必须绑定 worktree。 |
+| Background Jobs / Scheduler | BullMQ + Redis queue + Worker；SQLite 保存 scheduler job record、Run、心跳、状态和 Evidence | 长时间任务不能只存在内存；延迟/周期/Worker 执行交给成熟队列，业务事实仍可恢复。 | Redis 不可用时 scheduler health 为 blocked；写任务默认串行，写入型并行必须绑定 worktree。 |
 | Testing | Vitest/Jest 覆盖服务与状态机；Playwright 覆盖 Console；CLI adapter 使用 fixture 和本地集成测试 | 核心风险在状态机、schema、Runner policy、工作区隔离和 UI 状态展示，测试应围绕这些边界。 | 目标仓库的测试命令由项目健康检查发现，不由本系统固定。 |
 | Deployment / Operations | MVP 本地进程：Control Plane + Runner Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合 Codex CLI、Git worktree 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Runner 池。 |
 
@@ -220,17 +220,17 @@ Responsibilities:
 - Project Scheduler 从 Feature Spec Pool 动态选择 `ready` Feature。
 - Project Scheduler 接收立即执行、指定时间、周期巡检、依赖完成、CI 失败和审批通过等触发模式。
 - Feature Scheduler 在 Feature 内根据依赖、风险、文件范围、Runner 可用性、预算和审批状态调度任务。
-- Planning Pipeline 自动执行计划阶段 Skill 并生成 Task Graph。
+- `feature.select` Worker 执行 live Feature 选择；`feature.plan` 在 Codex Skill bridge 缺失时 blocked，不生成假 Task Graph。
 - Feature Aggregator 根据任务状态、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
 - 维护 Feature 与 Task 的内部状态机。
 
 Owns:
 
-- FeatureSelectionDecision、TaskGraph、TaskSchedule、StateTransition。
+- FeatureSelectionDecision、ScheduleTrigger、SchedulerJobRecord、TaskGraph、TaskSchedule、StateTransition。
 
 Collaborates With:
 
-- Spec Protocol Engine、Skill System、Workspace Manager、Subagent Runtime、Project Memory Service、Review Center。
+- Spec Protocol Engine、Workspace Manager、BullMQ Scheduler Worker、Codex Runner、Project Memory Service、Review Center。
 
 ### 7.5 Subagent Runtime and Context Broker
 
@@ -394,8 +394,8 @@ Collaborates With:
 | Project and Repository | Project Management | Project、ProjectSelectionContext、RepositoryConnection、ProjectHealthCheck | SQLite + project artifact projection。 |
 | Spec Protocol | Spec Protocol Engine | Feature、Requirement、ClarificationLog、Checklist、SpecVersion、SpecSlice | SQLite + Markdown/JSON artifact。 |
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
-| Orchestration State | Orchestration and State Machine | Task、TaskGraph、StateTransition、FeatureSelectionDecision | SQLite source of truth。 |
-| Runtime Execution | Subagent Runtime and Codex Runner | Run、AgentRunContract、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord | SQLite + JSON adapter config + execution logs。 |
+| Orchestration State | Orchestration and State Machine | Task、TaskGraph、StateTransition、FeatureSelectionDecision、ScheduleTrigger、SchedulerJobRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
+| Runtime Execution | Codex Runner | Run、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Evidence and Audit | Evidence Store | EvidencePack、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/evidence/` artifact。 |
@@ -405,8 +405,8 @@ Data ownership rules:
 
 - Feature / Task 状态只由内部状态机写入。
 - Project Memory 是恢复投影，不能覆盖 Feature Spec Pool、Persistent Store 或 Git 事实。
-- Agent Run Contract 启动前冻结，之后作为审计对象，不应被原地修改。
-- Evidence Pack 必须能追踪到 Run、Task、Feature、Skill 和状态判断。
+- SchedulerJobRecord 必须记录 BullMQ job id、queue、job type、target、payload、attempts、status 和 error；Redis 队列不是业务事实源。
+- Evidence Pack 必须能追踪到 Run、Task、Feature、scheduler job 和状态判断。
 - 仓库凭据、密钥和连接串不得写入 Project Memory、Evidence 或普通日志。
 
 ## 9. Integration and Interface Strategy
@@ -414,14 +414,14 @@ Data ownership rules:
 ### Internal Collaboration Style
 
 - Control Plane 通过同步命令处理用户动作、调度触发、审批动作和查询。
-- Scheduler、Runner、Status Checker、Recovery 和 Delivery 之间通过持久状态、队列项和 Evidence 解耦。
-- Skill 通过机器可验证 schema 交互，MVP 统一使用 JSON Schema；TypeScript 实现可用 Zod 生成或校验 JSON Schema。
-- Subagent Run 通过 Agent Run Contract 明确边界，所有执行结果统一归档为 Evidence Pack。
+- Scheduler、Runner、Status Checker、Recovery 和 Delivery 之间通过 SQLite 状态、BullMQ job 和 Evidence 解耦。
+- Planning 类 Skill 仍由 Codex CLI 工作流执行；平台在 planning bridge 未实现前不得伪造 Skill 输出或任务图。
 
 ### External Integrations
 
 | Integration | MVP Strategy | Constraint |
 |---|---|---|
+| BullMQ + Redis | `specdrive:feature-scheduler` 和 `specdrive:cli-runner` 两个 queue 承担 delayed、repeatable 和 Worker job 执行。 | Redis 不保存业务事实；断连时 scheduler health 为 blocked，SQLite 保留 trigger/job/audit。 |
 | Codex CLI | 由 Runner CLI Adapter 调用 `codex exec` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行；命令模板和输出映射来自 active JSON adapter 配置。 |
 | Git CLI | 由 Repository Adapter 和 Workspace Manager 读取状态、创建分支和管理 worktree。 | Git 状态是代码事实来源。 |
 | GitHub `gh` CLI | 由 Delivery Manager 创建 PR，读取必要 PR 状态。 | MVP 不单独建模 Git 平台权限矩阵。 |
@@ -485,13 +485,15 @@ flowchart TD
 ```mermaid
 flowchart TD
   Pool[Feature Spec Pool] --> Selector[Project Scheduler + Feature Selector]
-  Selector --> Planning[Planning Pipeline]
+  Selector --> SchedulerJob[feature.plan job]
+  SchedulerJob -->|bridge missing| BlockedPlanning[Feature blocked]
+  SchedulerJob -->|future bridge| Planning[Codex Skill Planning Bridge]
   Planning --> Graph[Task Graph]
   Graph --> Board[Task Board]
   Board --> Schedule[Feature Scheduler]
-  Schedule --> Contract[Agent Run Contract]
-  Contract --> Memory[Project Memory Injection]
-  Memory --> Runner[Subagent + Codex Runner]
+  Schedule --> CliJob[cli.run job]
+  CliJob --> Memory[Project Memory Injection]
+  Memory --> Runner[Codex Runner]
   Runner --> Evidence[Evidence Pack]
   Evidence --> Check[Status Checker]
   Check -->|Done| Merge[Result Merger]
@@ -564,9 +566,13 @@ MVP 拓扑采用单项目、本地优先部署：
 flowchart TB
   Browser[Browser / Product Console] --> API[Local Control Plane API]
   API --> DB[(SQLite Persistent Store)]
-  API --> Queue[Local Durable Runner Queue]
+  API --> FeatureQueue[BullMQ feature-scheduler queue]
+  API --> CliQueue[BullMQ cli-runner queue]
+  FeatureQueue --> Redis[(Redis)]
+  CliQueue --> Redis
   API --> Files[.autobuild Artifact Root]
-  Queue --> Runner[Local Runner Worker]
+  FeatureQueue --> FeatureWorker[Feature Scheduler Worker]
+  CliQueue --> Runner[Local Runner Worker]
   Runner --> Codex[Codex CLI]
   Runner --> Repo[Target Repository]
   Repo --> WT1[Task Worktree]
@@ -582,6 +588,7 @@ Runtime decisions:
 - 写入型并行必须使用独立 worktree 和隔离分支。
 - 同一文件、锁文件、数据库 schema、公共配置和不可隔离共享运行时资源默认串行。
 - Runner 与 Control Plane 通过队列、持久状态和 Evidence 协同，避免长时间任务只存在于内存。
+- Worker 拓扑默认为 backend embedded；`--worker-only` 可只启动 Worker，`--no-worker` 可关闭内嵌 Worker。
 - Persistent Store 是恢复和状态真实来源；artifact 文件用于 CLI 注入、审计附件和人类阅读。
 
 ## 14. Testing and Quality Strategy
@@ -671,14 +678,14 @@ Decomposition rules:
 
 | 用户流程步骤 | 实现方式 | 理由 |
 |---|---|---|
-| Project Scheduler 选择 ready Feature | **Code** | 优先级算法 + 去重 + 崩溃恢复，不能靠 LLM 推理替代 |
+| Project Scheduler 选择 ready Feature | **Code**（BullMQ job + SQLite 事实源） | 优先级算法 + 去重 + 崩溃恢复，不能靠 LLM 推理替代 |
 | Feature 状态 → `planning` | **Code** | 状态机迁移 |
-| 生成技术计划、研究结论、数据模型、接口契约 | **Skill** | 规划流水线：`technical-context-skill` → `research-decision-skill` → `architecture-plan-skill` → `data-model-skill` → `contract-design-skill` → `quickstart-validation-skill` → `spec-consistency-analysis-skill` |
+| 生成技术计划、研究结论、数据模型、接口契约 | **Skill**（bridge 未实现时 blocked） | 规划流水线应通过 Codex 执行 `technical-context-skill` → `research-decision-skill` → `architecture-plan-skill` → `data-model-skill` → `contract-design-skill` → `quickstart-validation-skill` → `spec-consistency-analysis-skill`；未接 bridge 前不得伪造输出 |
 | 生成任务图 | **Skill**（任务分解）+ **Code**（任务图写入） | `task-slicing-skill` 生成内容；任务图读取后写入 SQLite 是 Code |
 | Feature 状态 → `tasked`，任务进入看板 | **Code** | 状态机迁移 + 看板持久化 |
-| Feature Scheduler 调度任务 | **Code** | 依赖图解析、串行锁、重试限制，是结构不变式 |
+| Feature Scheduler 调度任务 | **Code**（状态迁移 + `cli.run` 入队） | 依赖图解析、串行锁、重试限制，是结构不变式 |
 | Project Memory 注入 CLI 上下文 | **Code** | 会话启动前注入文件，是触发侧副作用 |
-| Subagent + Codex Runner 执行编码、测试、修复 | **CLI 原生**（执行）+ **Code**（run 记录 / 心跳 / 日志） | CLI 负责委托和上下文；Code 只记录周边 run event |
+| Codex Runner 执行编码、测试、修复 | **CLI 原生**（执行）+ **Code**（BullMQ Worker / run 记录 / 心跳 / 日志 / Evidence） | CLI 负责执行和上下文；Code 记录并回写 run/task 状态 |
 | Project Memory 更新 | **Code** | Evidence Pack 驱动的结构化文件更新，含 token 预算压缩逻辑 |
 | Status Checker 判断任务状态 | **Code**（diff / build / test / lint / security 命令执行）+ **Skill**（Spec Alignment 语义比对） | 确定性检查是 Code；语义对齐是 LLM 推理 |
 | Done → 更新任务图 | **Code** | 状态机迁移 |

@@ -33,6 +33,7 @@ Spec Evolution:
 - Skill Center 已移除，Console 不展示平台 Skill 页面。
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
+- Runner Console 的队列状态必须来自 `scheduler_job_records` 与 Runner heartbeat/session/log，而不是静态 recent logs。
 - System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。
@@ -55,6 +56,7 @@ Spec Evolution:
 - Project Home 可以展示当前项目级概览、运行摘要、风险、最近 PR、Evidence / 审计事件和任务看板入口。
 - Task Board 可以展示任务依赖、diff、测试结果、审批状态和失败恢复历史入口。
 - Task Board 的拖拽或批量操作只能产生受状态机允许的状态变更或调度请求。
+- `schedule_board_tasks` 只执行排期状态迁移；`run_board_tasks` 只入队 `cli.run`，不得由 Console 请求直接执行 CLI。
 - 用户可以从 Spec Workspace 追踪需求到任务图。
 - 用户可以从 Spec Workspace 看到阶段 1 自动项目初始化是否阻塞阶段 2 需求录入，也可以看到阶段 3 规划执行状态；没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 / 阶段 3 Spec 流程。
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。

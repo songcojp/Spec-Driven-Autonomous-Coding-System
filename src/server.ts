@@ -27,6 +27,7 @@ import {
   submitConsoleCommand,
   type ConsoleCommandInput,
 } from "./product-console.ts";
+import type { SchedulerClient } from "./scheduler.ts";
 
 export type ControlPlaneServer = {
   server: Server;
@@ -34,18 +35,21 @@ export type ControlPlaneServer = {
   setReadyState: (state: ReadyState) => void;
 };
 
-export function createControlPlaneServer(config: AppConfig, initialState: ReadyState): ControlPlaneServer {
+export function createControlPlaneServer(config: AppConfig, initialState: ReadyState, options: { scheduler?: SchedulerClient } = {}): ControlPlaneServer {
   let readyState = initialState;
 
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/health") {
       const statusCode = readyState.status === "error" ? 503 : 200;
       response.writeHead(statusCode, { "content-type": "application/json" });
-      response.end(JSON.stringify(readyState));
+      response.end(JSON.stringify({
+        ...readyState,
+        scheduler: options.scheduler?.health?.(),
+      }));
       return;
     }
 
-    void routeRequest(config, request, response);
+    void routeRequest(config, request, response, options);
   });
 
   server.on("error", (error) => {
@@ -69,6 +73,7 @@ async function routeRequest(
   config: AppConfig,
   request: IncomingMessage,
   response: ServerResponse,
+  options: { scheduler?: SchedulerClient } = {},
 ): Promise<void> {
   try {
     const url = new URL(request.url ?? "/", "http://control-plane.local");
@@ -197,7 +202,7 @@ async function routeRequest(
     }
 
     if (request.method === "POST" && url.pathname === "/console/commands") {
-      writeJson(response, 202, submitConsoleCommand(config.dbPath, await readJsonBody(request) as ConsoleCommandInput));
+      writeJson(response, 202, submitConsoleCommand(config.dbPath, await readJsonBody(request) as ConsoleCommandInput, { scheduler: options.scheduler }));
       return;
     }
 

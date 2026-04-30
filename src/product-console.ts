@@ -6,12 +6,10 @@ import { runSqlite } from "./sqlite.ts";
 import { createFeatureSpec, projectSpecArtifact, scanSpecSources, type FeatureSpec, type SpecSourceScanSummary } from "./spec-protocol.ts";
 import {
   createScheduleTrigger,
-  persistSelectionDecision,
   persistScheduleTrigger,
-  selectNextFeature,
+  persistStateTransition,
   transitionTask,
   type BoardColumn,
-  type FeatureCandidate,
   type FeatureLifecycleStatus,
   type RiskLevel,
   type ScheduleTriggerMode,
@@ -27,6 +25,10 @@ import {
   type RunnerQueueStatus,
   type RunnerSandboxMode,
 } from "./codex-runner.ts";
+import {
+  createUnavailableScheduler,
+  type SchedulerClient,
+} from "./scheduler.ts";
 import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
 import {
   connectProjectRepository,
@@ -124,6 +126,8 @@ export type ConsoleCommandReceipt = {
   approvalRecordId?: string;
   featureId?: string;
   scheduleTriggerId?: string;
+  schedulerJobId?: string;
+  schedulerJobIds?: string[];
   selectionDecisionId?: string;
   blockedReasons?: string[];
 };
@@ -1259,6 +1263,8 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
   const metricParams = projectId ? [`%"projectId":"${escapeLike(projectId)}"%`] : [];
   const triggerProjectFilter = projectId ? "WHERE project_id = ?" : "";
   const triggerParams = projectId ? [projectId] : [];
+  const schedulerProjectFilter = projectId ? "WHERE payload_json LIKE ?" : "";
+  const schedulerProjectParams = projectId ? [`%"projectId":"${escapeLike(projectId)}"%`] : [];
   const reviewProjectFilter = projectId
     ? `WHERE (
         project_id = ?
@@ -1306,6 +1312,13 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       name: "triggers",
       sql: `SELECT id, mode, target_type, target_id, result, created_at FROM schedule_triggers ${triggerProjectFilter} ORDER BY created_at DESC, rowid DESC LIMIT 8`,
       params: triggerParams,
+    },
+    {
+      name: "schedulerJobs",
+      sql: `SELECT id, bullmq_job_id, queue_name, job_type, target_type, target_id, status, error, updated_at
+        FROM scheduler_job_records ${schedulerProjectFilter}
+        ORDER BY updated_at DESC, rowid DESC LIMIT 12`,
+      params: schedulerProjectParams,
     },
     {
       name: "audit",
@@ -1362,6 +1375,13 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     },
     lanes: laneTasks,
     recentTriggers: [
+      ...result.queries.schedulerJobs.map((row) => ({
+        id: String(row.id),
+        action: String(row.job_type),
+        target: `${String(row.target_type)}:${String(row.target_id ?? "")}`,
+        result: String(row.status),
+        createdAt: String(row.updated_at),
+      })),
       ...result.queries.triggers.map((row) => ({
         id: String(row.id),
         action: String(row.mode),
@@ -1383,6 +1403,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       "runs",
       "runner_heartbeats",
       "runner_policies",
+      "scheduler_job_records",
       "raw_execution_logs",
       "review_items",
       "approval_records",
@@ -1470,7 +1491,7 @@ export function buildReviewCenterView(dbPath: string, projectId?: string): Revie
   };
 }
 
-export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput): ConsoleCommandReceipt {
+export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput, options: { scheduler?: SchedulerClient } = {}): ConsoleCommandReceipt {
   const action = requireCommandString(input, "action") as ConsoleCommandAction;
   if (!CONSOLE_COMMAND_ACTIONS.has(action)) {
     throw new Error(`Console command action is not supported: ${action}`);
@@ -1482,16 +1503,19 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
 
   const acceptedAt = normalizeCommandTime(input.now).toISOString();
   const id = randomUUID();
+  const scheduler = options.scheduler ?? createUnavailableScheduler(dbPath, "Scheduler is not connected to Redis.");
   const boardValidation = validateBoardCommand(dbPath, input);
+  const boardResult = boardValidation.blockedReasons.length === 0 ? executeBoardCommand(dbPath, input, acceptedAt, scheduler) : undefined;
   const settingsValidation = executeCliAdapterCommand(dbPath, input, acceptedAt);
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
-  const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt);
+  const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt, scheduler);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
   const projectInitializationResult = executeProjectInitializationCommand(dbPath, input);
   const specIntakeResult = executeSpecIntakeCommand(dbPath, input, acceptedAt);
   const blockedReasons = [
     ...boardValidation.blockedReasons,
     ...(settingsValidation?.blockedReasons ?? []),
+    ...(boardResult?.blockedReasons ?? []),
     ...(projectInitializationResult?.blockedReasons ?? []),
     ...(specIntakeResult?.blockedReasons ?? []),
   ];
@@ -1509,8 +1533,10 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
       projectInitialization: projectInitializationResult,
       specIntake: specIntakeResult,
       scheduleTriggerId: scheduleResult?.triggerId,
-      selectionDecisionId: scheduleResult?.selectionDecisionId,
+      schedulerJobId: scheduleResult?.schedulerJobId,
+      schedulerJobIds: boardResult?.schedulerJobIds,
       boardValidation,
+      boardResult,
       settingsValidation,
       payload: input.payload ?? {},
     },
@@ -1527,7 +1553,8 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
     approvalRecordId: approvalRecord?.id,
     featureId: optionalString(specIntakeResult?.featureId),
     scheduleTriggerId: scheduleResult?.triggerId,
-    selectionDecisionId: scheduleResult?.selectionDecisionId,
+    schedulerJobId: scheduleResult?.schedulerJobId,
+    schedulerJobIds: boardResult?.schedulerJobIds,
     blockedReasons: blockedReasons.length > 0 ? blockedReasons : undefined,
   };
 }
@@ -1696,7 +1723,8 @@ function executeScheduleCommand(
   dbPath: string,
   input: ConsoleCommandInput,
   acceptedAt: string,
-): { triggerId: string; selectionDecisionId?: string } | undefined {
+  scheduler: SchedulerClient,
+): { triggerId: string; schedulerJobId?: string } | undefined {
   if (input.action !== "schedule_run") {
     return undefined;
   }
@@ -1725,14 +1753,16 @@ function executeScheduleCommand(
   if (trigger.result !== "accepted") {
     return { triggerId: trigger.id };
   }
-
-  const { candidates, completedFeatureIds } = loadScheduleCandidates(dbPath, input, trigger.projectId);
-  const decision = persistSelectionDecision(
-    dbPath,
-    selectNextFeature(candidates, completedFeatureIds, `schedule_trigger:${trigger.id}`, new Date(acceptedAt)),
-    trigger.projectId,
-  );
-  return { triggerId: trigger.id, selectionDecisionId: decision.id };
+  const job = scheduler.enqueueFeatureSelect({
+    triggerId: trigger.id,
+    projectId: trigger.projectId,
+    featureId: trigger.featureId,
+    target: trigger.target,
+    mode: trigger.mode,
+    requestedFor: trigger.requestedFor,
+    createdAt: acceptedAt,
+  });
+  return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId };
 }
 
 function writeSpecIntakeArtifact(projectPath: string, directory: string, fileName: string, value: unknown): string {
@@ -1900,47 +1930,6 @@ function sanitizeArtifactName(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "spec-source.md";
 }
 
-function loadScheduleCandidates(
-  dbPath: string,
-  input: ConsoleCommandInput,
-  projectId?: string,
-): { candidates: FeatureCandidate[]; completedFeatureIds: string[] } {
-  const projectClause = projectId ? "project_id = ?" : "1 = 1";
-  const projectParams = projectId ? [projectId] : [];
-  const featureClause = input.entityType === "feature" ? " AND id = ?" : "";
-  const featureParams = input.entityType === "feature" ? [input.entityId] : [];
-  const result = runSqlite(dbPath, [], [
-    {
-      name: "features",
-      sql: `SELECT id, title, status, COALESCE(priority, 0) AS priority,
-          COALESCE(dependencies_json, '[]') AS dependencies_json,
-          COALESCE(primary_requirements_json, '[]') AS primary_requirements_json,
-          created_at
-        FROM features
-        WHERE ${projectClause}${featureClause}
-        ORDER BY priority DESC, created_at`,
-      params: [...projectParams, ...featureParams],
-    },
-  ]);
-
-  const rows = result.queries.features;
-  return {
-    candidates: rows.map((row) => ({
-      id: String(row.id),
-      title: String(row.title),
-      status: normalizeFeatureStatus(row.status),
-      priority: Number(row.priority ?? 0),
-      dependencies: parseJsonArray(row.dependencies_json).map(String),
-      requirementIds: parseJsonArray(row.primary_requirements_json).map(String),
-      acceptanceRisk: "low",
-      readySince: optionalString(row.created_at) ?? new Date(0).toISOString(),
-    })),
-    completedFeatureIds: rows
-      .filter((row) => String(row.status) === "done" || String(row.status) === "delivered")
-      .map((row) => String(row.id)),
-  };
-}
-
 function validateBoardCommand(dbPath: string, input: ConsoleCommandInput): { blockedReasons: string[] } {
   if (!["move_board_task", "schedule_board_tasks", "run_board_tasks"].includes(input.action)) {
     return { blockedReasons: [] };
@@ -2042,6 +2031,117 @@ function validateBoardCommand(dbPath: string, input: ConsoleCommandInput): { blo
   }
 
   return { blockedReasons: [...new Set(blockedReasons)] };
+}
+
+function executeBoardCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+  scheduler: SchedulerClient,
+): { schedulerJobIds: string[]; runIds: string[]; blockedReasons: string[] } | undefined {
+  if (!["move_board_task", "schedule_board_tasks", "run_board_tasks"].includes(input.action)) {
+    return undefined;
+  }
+  const taskIds = boardCommandTaskIds(input);
+  const targetStatus = boardCommandTargetStatus(input);
+  if (!targetStatus || taskIds.length === 0) {
+    return { schedulerJobIds: [], runIds: [], blockedReasons: [] };
+  }
+  const rows = loadBoardCommandTasks(dbPath, taskIds);
+  const blockedReasons: string[] = [];
+  const schedulerJobIds: string[] = [];
+  const runIds: string[] = [];
+
+  for (const taskId of taskIds) {
+    const task = rows.find((entry) => entry.id === taskId);
+    if (!task) {
+      blockedReasons.push(`Task ${taskId} was not found.`);
+      continue;
+    }
+    const from = normalizeBoardStatus(task.status);
+    if (input.action === "run_board_tasks") {
+      if (from !== "scheduled") {
+        blockedReasons.push(`Task ${taskId} must be scheduled before CLI execution.`);
+        continue;
+      }
+      const runId = randomUUID();
+      runSqlite(dbPath, [
+        {
+          sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          params: [
+            runId,
+            taskId,
+            task.featureId ?? null,
+            task.projectId ?? null,
+            "queued",
+            acceptedAt,
+            JSON.stringify({ commandAction: input.action, scheduler: "bullmq" }),
+          ],
+        },
+      ]);
+      const job = scheduler.enqueueCliRun({
+        projectId: task.projectId,
+        featureId: task.featureId,
+        taskId,
+        runId,
+      });
+      schedulerJobIds.push(job.schedulerJobId);
+      runIds.push(runId);
+      continue;
+    }
+
+    persistStateTransition(dbPath, transitionTask(taskId, from, targetStatus, {
+      reason: input.reason,
+      evidence: `console_command:${input.action}`,
+      triggeredBy: "product_console",
+      occurredAt: acceptedAt,
+    }));
+    updateTaskStatus(dbPath, taskId, targetStatus);
+  }
+
+  return { schedulerJobIds, runIds, blockedReasons: [...new Set(blockedReasons)] };
+}
+
+function loadBoardCommandTasks(dbPath: string, taskIds: string[]): Array<{
+  id: string;
+  featureId?: string;
+  projectId?: string;
+  status: BoardColumn | "unknown";
+}> {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "graphTasks",
+      sql: `SELECT t.id, t.feature_id, f.project_id, t.status
+        FROM task_graph_tasks t LEFT JOIN features f ON f.id = t.feature_id
+        WHERE t.id IN (${placeholders(taskIds.length)})`,
+      params: taskIds,
+    },
+    {
+      name: "tasks",
+      sql: `SELECT t.id, t.feature_id, f.project_id, t.status
+        FROM tasks t LEFT JOIN features f ON f.id = t.feature_id
+        WHERE t.id IN (${placeholders(taskIds.length)})`,
+      params: taskIds,
+    },
+  ]);
+  const byId = new Map<string, { id: string; featureId?: string; projectId?: string; status: BoardColumn | "unknown" }>();
+  for (const row of [...result.queries.tasks, ...result.queries.graphTasks]) {
+    byId.set(String(row.id), {
+      id: String(row.id),
+      featureId: optionalString(row.feature_id),
+      projectId: optionalString(row.project_id),
+      status: normalizeBoardStatus(row.status),
+    });
+  }
+  return [...byId.values()];
+}
+
+function updateTaskStatus(dbPath: string, taskId: string, status: BoardColumn): void {
+  runSqlite(dbPath, [
+    { sql: "UPDATE task_graph_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", params: [status, taskId] },
+    { sql: "UPDATE tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", params: [status, taskId] },
+  ]);
 }
 
 function executeCliAdapterCommand(

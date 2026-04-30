@@ -34,3 +34,4 @@
 - [ ] TASK-031: 在系统设置 CLI 配置页实现 CLI Adapter 原始 JSON 编辑器和 JSON Schema 表单编辑器，确保二者共享同一份待保存配置状态。
 - [ ] TASK-032: 将 CLI Adapter dry-run、保存草稿、启用/禁用暴露为系统设置受控命令，并展示字段级错误、命令模板错误、安全策略错误和成功反馈。
 - [ ] TASK-033: 更新 Product Console 单测和浏览器验证，覆盖系统设置入口、Runner Console 跳转、CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存、启用配置和无效配置不影响 running Run 的反馈。
+- [x] TASK-034: 将 Runner Queue 视图接入 `scheduler_job_records` + Runner heartbeat/log，并把 `run_board_tasks` 改为 enqueue `cli.run`。

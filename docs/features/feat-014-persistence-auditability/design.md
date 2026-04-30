@@ -9,6 +9,7 @@ Persistence and Auditability 是跨 Feature 基础能力。SQLite 是 MVP 的 Pe
 | Component | Responsibility |
 |---|---|
 | Persistent Store | 保存 MVP 核心实体和状态真实来源。 |
+| Scheduler Job Records | 保存 BullMQ job id、queue、job type、target、status、payload、attempts 和错误信息。 |
 | Idempotency Manager | 管理 Run、状态、Memory、Evidence 和恢复流程的幂等键。 |
 | Audit Timeline | 记录状态变化、Run、审批、恢复、Memory 压缩、worktree 生命周期和交付事件。 |
 | Metrics Collector | 记录 token、成本、成功率、失败率、性能基线和心跳。 |
@@ -17,7 +18,7 @@ Persistence and Auditability 是跨 Feature 基础能力。SQLite 是 MVP 的 Pe
 
 ## Data Ownership
 
-- Owns: Project、Feature、Requirement、Task、Run、ProjectMemory、EvidencePack 的持久化基础；AuditTimelineEvent、MetricSample、IdempotencyKey。
+- Owns: Project、Feature、Requirement、Task、Run、ProjectMemory、EvidencePack、SchedulerJobRecord 的持久化基础；AuditTimelineEvent、MetricSample、IdempotencyKey。
 - Reads/Writes: 所有 Feature 的状态和 artifact 引用。
 - Does Not Own: Git 事实、调度决策业务规则、Runner 执行策略。
 
@@ -28,6 +29,7 @@ Persistence and Auditability 是跨 Feature 基础能力。SQLite 是 MVP 的 Pe
 | Feature / Task 状态 | SQLite | Dashboard、Project Memory、Delivery Report |
 | Project Memory | `.autobuild/memory/project.md` + SQLite 版本索引 | Codex CLI 注入 |
 | Evidence | SQLite + `.autobuild/evidence/` | Review、Recovery、Delivery |
+| Scheduler Job | SQLite `scheduler_job_records` | BullMQ/Redis queue state、Runner Console |
 | Delivery Report | SQLite 记录 + `.autobuild/reports/` | PR 和人工审查 |
 | Run 元数据 | SQLite + `.autobuild/runs/` | Recovery Bootstrap |
 

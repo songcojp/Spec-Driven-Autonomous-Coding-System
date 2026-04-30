@@ -36,6 +36,7 @@
 | CHG-012 | 阶段 2 自动扫描 Spec Sources | 用户指令：阶段 2 自动扫描 PRD、EARS、HLD、Feature Spec 等；PRD 第 5 节阶段 2；REQ-064 | 已写入 PRD、requirements、HLD/design、FEAT-002、FEAT-013 | 作为 FEAT-002 + FEAT-013 patch：FEAT-002 提供扫描模型；FEAT-013 展示扫描状态，且阶段 2 不触发 HLD 生成、Feature Spec 拆分或规划流水线。 |
 | CHG-014 | 阶段 2 扫描和上传合并为一个步骤 | 用户指令：spec流程阶段2，spec扫描和上传合成一个步骤，显示扫描、上传两个按钮；REQ-064；FEAT-013 | 已写入 PRD、requirements、HLD/design、FEAT-013 | 作为 FEAT-013 patch：ViewModel 只暴露一个阶段 2 步骤，UI 在该步骤中保留扫描和上传两个按钮及命令回执。 |
 | CHG-009 | Product Console 完成标准修正：API/ViewModel 不能替代用户 UI | 用户审查；实现证据 `src/product-console.ts`、`src/server.ts`、`tests/product-console.test.ts` | 已同步 FEAT-013 和技能契约 | 重新打开 FEAT-013；补真实前端应用、页面组件、浏览器级验收，并修复拆分/执行技能避免再次漏 UI。 |
+| CHG-015 | Runner 重构为 BullMQ + Redis 调度系统 | 用户指令；实现证据 `src/scheduler.ts`、`src/index.ts`、`src/product-console.ts`、`tests/scheduler.test.ts` | 已写入 PRD、requirements、HLD/design、FEAT-004、FEAT-008、FEAT-013、FEAT-014 | 作为 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 联合 patch：`schedule_run` 只入队，`feature.plan` bridge 缺失时 blocked，`cli.run` 由 Worker 执行，SQLite 保存 scheduler job record。 |
 
 ## 人工处置顺序建议
 
@@ -58,7 +59,7 @@
 | ID | 处理结论 | 下游同步 | 状态 |
 |---|---|---|---|
 | ADD-001 | 进入现有 FEAT-001 patch，不拆分新 Feature。 | 已在 FEAT-001 requirements、design、tasks 中标记项目宪章 follow-up，并保留 `REQ-059` 追踪。 | 需同步实现 |
-| ADD-002 | 进入 FEAT-004 patch；MVP 已实现触发模式记录与受控入口，手动/时间类触发进入 Feature 选择，CI 失败、审批通过和依赖完成作为可记录触发源，不要求接入外部 CI/审批系统。 | 已在 FEAT-004 requirements/design/tasks、Feature Index、实现和测试中覆盖 `REQ-060`；`schedule_run` 受控命令会记录 trigger 并对 accepted 触发生成 Feature Selection Decision。 | 已同步实现 |
+| ADD-002 | 进入 FEAT-004 patch；MVP 已实现触发模式记录与受控入口，手动/时间类触发进入 BullMQ Feature 选择 job，CI 失败、审批通过和依赖完成作为可记录触发源，不要求接入外部 CI/审批系统。 | 已在 FEAT-004 requirements/design/tasks、Feature Index、实现和测试中覆盖 `REQ-060`；`schedule_run` 受控命令会记录 trigger 并入队 `feature.select`，Feature Selection Decision 由 Worker 执行后产生。 | 已同步实现 |
 | ADD-003 | 进入 FEAT-013 patch；MVP 支持受状态机约束的拖拽意图、批量排期和批量运行命令，不允许 UI 直接改状态或写 Git。 | 已在 FEAT-013 requirements/design 覆盖 `REQ-061`；需补充 FEAT-013 patch 任务并实现受控命令/审计。 | 需同步实现 |
 | ADD-004 | 进入 FEAT-013 patch；Product Console 首次打开默认中文，并支持用户切换界面语言且保留偏好。 | 已在 PRD、requirements、HLD/design、Feature Index、FEAT-013 requirements/design/tasks、Product Console UI 和浏览器级测试覆盖 `REQ-062`。 | 已同步实现 |
 | ADD-005 | 进入 FEAT-001 与 FEAT-013 patch；系统需支持导入现有项目、在统一 `workspace/` 目录下创建新项目、项目目录、当前项目上下文和项目级 UI 切换，所有查询、命令、Memory 投影和调度入口按 `project_id` 隔离。 | 已在 PRD、requirements、HLD/design、Feature Index、FEAT-001 requirements/design/tasks 和 FEAT-013 requirements/design/tasks 覆盖 `REQ-063`；FEAT-013 UI 已实现并通过浏览器测试，FEAT-001 持久化上下文仍需后续执行。 | 需同步实现 |
@@ -74,6 +75,7 @@
 | CHG-012 | 进入 FEAT-002 / FEAT-013 patch；阶段 2 自动扫描 Spec Sources，扫描 HLD / Feature Spec 事实源但不生成 HLD 或拆分 Feature Spec。 | 已新增 REQ-064，并同步 PRD、HLD/design、Feature Index、FEAT-002 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
 | CHG-014 | 进入 FEAT-013 patch；阶段 2 将 Spec 扫描和上传合并为一个“Spec 扫描与上传”步骤，并在同一步骤内提供“扫描”和“上传”两个按钮。 | 已同步 PRD、REQ-064、HLD/design、FEAT-013 requirements/design/tasks、Product Console UI 和浏览器级测试。 | 已同步实现 |
 | CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `task-slicing-skill` / `codex-coding-skill` 技能契约。 | 需同步实现 |
+| CHG-015 | 进入 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 patch；调度需求由 BullMQ + Redis 承载，SQLite 继续作为业务事实和审计源。 | 已同步 PRD、requirements、HLD/design、Feature Index、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks、FEAT-013 requirements/tasks 和 FEAT-014 requirements/design；实现和测试已覆盖。 | 已同步实现 |
 
 ## Feature Spec Execute 评估
 
@@ -81,6 +83,7 @@
 |---|---|---|---|---|
 | P0 | FEAT-001 Project and Repository Foundation | ADD-001、ADD-005、CHG-001 | 执行 `codex-coding-skill` patch | 已完成 Feature 出现数据模型、项目宪章和多项目上下文 follow-up；需补 schema/API/tests。 |
 | P1 | FEAT-004 Orchestration and State Machine | CHG-003 | 执行后续 `codex-coding-skill` patch | ADD-002 已完成；计划流水线强制阶段仍需后续处理。 |
+| P1 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 Scheduler Integration | CHG-015 | 已执行 patch | BullMQ + Redis 调度、scheduler job record、`feature.select` / `feature.plan` / `cli.run` Worker 和 Console 队列状态已实现；后续只剩 Codex Skill planning bridge。 |
 | P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `codex-coding-skill` patch | 并行写入和测试资源隔离属于执行安全边界。 |
 | P2 | FEAT-013 Product Console | ADD-003、ADD-005、CHG-005、CHG-009 | 执行 `codex-coding-skill` patch | 必须交付真实浏览器 UI、页面路由、组件系统、项目切换入口和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |
 | - | FEAT-010 Failure Recovery | CHG-007 | 不执行 | 已实现且测试覆盖。 |

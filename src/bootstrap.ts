@@ -3,6 +3,7 @@ import { ensureArtifactDirectories } from "./artifacts.ts";
 import { type AppConfig, loadConfig } from "./config.ts";
 import { BootstrapError, formatBootstrapError, type StepLog } from "./errors.ts";
 import { getCurrentSchemaVersion, initializeSchema } from "./schema.ts";
+import type { SchedulerHealth } from "./scheduler.ts";
 
 export type ReadyState =
   | {
@@ -10,12 +11,14 @@ export type ReadyState =
       version: string;
       schemaVersion: number;
       artifactRoot: string;
+      scheduler?: SchedulerHealth;
     }
   | {
       status: "ready";
       version: string;
       schemaVersion: number;
       artifactRoot: string;
+      scheduler?: SchedulerHealth;
     }
   | {
       status: "error";

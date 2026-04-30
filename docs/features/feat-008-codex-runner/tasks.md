@@ -12,3 +12,4 @@
 - [ ] TASK-010: 实现 CLI Adapter 配置校验和 dry-run，覆盖命令模板变量、必填字段、workspace root、安全策略、output mapping 和 session resume 映射。
 - [ ] TASK-011: 将 Runner Queue Worker 接入 active CLI Adapter，确保无 active adapter 或配置无效时新 Run blocked，且不影响 running Run。
 - [ ] TASK-012: 添加 CLI Adapter 配置、dry-run、active 配置回退、Codex 等价命令生成和无效配置阻塞测试。
+- [x] TASK-013: 将 Runner Queue Worker 接入 BullMQ `specdrive:cli-runner` / `cli.run`，由 Worker 调用现有 Codex runner 并持久化 heartbeat、session、raw log、Evidence 和 task/run 状态。
