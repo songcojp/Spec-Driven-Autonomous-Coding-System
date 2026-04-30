@@ -263,7 +263,8 @@ test("project health checker classifies ready, blocked, and failed states with r
   });
   const blocked = runProjectHealthCheck(config.dbPath, blockedProject.id);
   assert.equal(blocked.status, "blocked");
-  assert.equal(blocked.reasons.includes("git_repository_missing"), true);
+  assert.equal(blocked.reasons.includes("git_repository_missing"), false);
+  assert.equal(blocked.reasons.includes("package_manager_missing"), true);
 
   const failedProject = createProject(config.dbPath, {
     name: "Failed",

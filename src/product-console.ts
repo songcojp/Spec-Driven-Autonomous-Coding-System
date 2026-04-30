@@ -964,13 +964,12 @@ function buildPrdWorkflow(input: {
   const healthCheck = input.healthCheck;
   const projectStatus = optionalString(project?.status);
   const projectPath = optionalString(repositoryConnection?.local_path) ?? optionalString(project?.target_repo_path);
-  const repositoryRemoteUrl = optionalString(repositoryConnection?.remote_url);
   const healthReasons = parseJsonArray(healthCheck?.reasons_json).map(String);
   const isSpecProtocolMissing = healthReasons.includes("spec_protocol_directory_missing");
   const projectBlockedReasons = [
     ...healthReasons,
     ...(!project ? ["Create or import a project before Spec intake."] : []),
-    ...(project && !repositoryRemoteUrl ? ["Connect a Git repository remote before Spec intake."] : []),
+    ...(project && !repositoryConnection ? ["Connect a Git repository before Spec intake."] : []),
   ];
   const commandStatus = (action: ConsoleCommandAction): "accepted" | "blocked" | undefined => {
     const row = latestByAction.get(action);
@@ -1014,9 +1013,9 @@ function buildPrdWorkflow(input: {
     {
       key: "connect_git_repository",
       action: "connect_git_repository",
-      status: projectStageStatus(Boolean(repositoryRemoteUrl), project ? "Connect a Git repository remote before Spec intake." : undefined, "connect_git_repository"),
+      status: projectStageStatus(Boolean(repositoryConnection), project ? "Connect a Git repository before Spec intake." : undefined, "connect_git_repository"),
       updatedAt: optionalString(repositoryConnection?.connected_at) ?? commandUpdatedAt("connect_git_repository"),
-      blockedReason: project && !repositoryRemoteUrl ? "Connect a Git repository remote before Spec intake." : undefined,
+      blockedReason: project && !repositoryConnection ? "Connect a Git repository before Spec intake." : undefined,
     },
     {
       key: "initialize_spec_protocol",

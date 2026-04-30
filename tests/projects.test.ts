@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initializeSchema } from "../src/schema.ts";
@@ -205,7 +205,7 @@ test("initializeProjectPhase1 derives workspace path for create_new when no targ
   );
 });
 
-test("initializeProjectPhase1 returns success:false with blockingReasons when project path is not a git repo", () => {
+test("initializeProjectPhase1 creates local git for a project path without git metadata", () => {
   const root = mkdtempSync(join(tmpdir(), "proj-nogit-"));
   mkdirSync(join(root, "workspace"), { recursive: true });
 
@@ -214,12 +214,11 @@ test("initializeProjectPhase1 returns success:false with blockingReasons when pr
     ...baseInput({ name: "NoGit", creationMode: "import_existing", targetRepoPath: root }),
   });
 
-  assert.equal(result.success, false, "Non-git repo should not succeed");
+  assert.equal(result.success, false, "Project still blocks on missing project health files");
+  assert.equal(existsSync(join(root, ".git")), true);
   assert.ok(result.blockingReasons.length > 0, "Should have blocking reasons");
-  assert.ok(
-    result.blockingReasons.some((r) => r.includes("git")),
-    `Expected git-related blocking reason, got: ${JSON.stringify(result.blockingReasons)}`,
-  );
+  assert.equal(result.blockingReasons.some((r) => r.includes("git")), false);
+  assert.equal(result.blockingReasons.includes("package_manager_missing"), true);
 });
 
 test("initializeProjectPhase1 returns success:false on duplicate targetRepoPath", () => {
@@ -233,6 +232,18 @@ test("initializeProjectPhase1 returns success:false on duplicate targetRepoPath"
   const result = initializeProjectPhase1(dbPath, baseInput({ name: "Second", creationMode: "import_existing", targetRepoPath: root }));
   assert.equal(result.project.status, "failed", "Duplicate path project should have failed status");
   assert.equal(result.success, false);
+});
+
+test("connectProjectRepository initializes local git without requiring remote url", () => {
+  const root = mkdtempSync(join(tmpdir(), "proj-local-git-"));
+  const dbPath = freshDb();
+  const project = createProject(dbPath, baseInput({ targetRepoPath: root, creationMode: "import_existing" }));
+
+  const healthCheck = runProjectHealthCheck(dbPath, project.id);
+
+  assert.equal(existsSync(join(root, ".git")), true);
+  assert.equal(healthCheck.reasons.includes("git_repository_missing"), false);
+  assert.equal(healthCheck.reasons.includes("repository_url_missing"), false);
 });
 
 test("readProjectRepository reads realtime git facts and only updates last_read_at", () => {

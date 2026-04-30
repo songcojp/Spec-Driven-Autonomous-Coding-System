@@ -487,9 +487,6 @@ export function connectProjectRepository(
   const requestedRemoteUrl = normalizeOptionalString(input.repositoryUrl);
   let summary = readRepositorySummary(project.targetRepoPath);
   if (!summary.isGitRepository) {
-    if (!requestedRemoteUrl) {
-      throw new Error("Git repository is missing; provide a repository URL to initialize and bind origin.");
-    }
     runGit(project.targetRepoPath, ["init"]);
     if (project.defaultBranch) {
       runGit(project.targetRepoPath, ["checkout", "-B", project.defaultBranch]);
@@ -498,13 +495,9 @@ export function connectProjectRepository(
   }
 
   const remoteUrl = requestedRemoteUrl ?? summary.remoteUrl;
-  if (!remoteUrl) {
-    throw new Error("Repository URL is required to bind remote origin.");
-  }
-
   if (requestedRemoteUrl) {
     const existingRemote = gitOptional(project.targetRepoPath, ["config", "--get", "remote.origin.url"]);
-    runGit(project.targetRepoPath, existingRemote ? ["remote", "set-url", "origin", remoteUrl] : ["remote", "add", "origin", remoteUrl]);
+    runGit(project.targetRepoPath, existingRemote ? ["remote", "set-url", "origin", requestedRemoteUrl] : ["remote", "add", "origin", requestedRemoteUrl]);
     summary = readRepositorySummary(project.targetRepoPath);
   }
 
@@ -751,7 +744,6 @@ function upsertRepositoryConnection(dbPath: string, connection: RepositoryConnec
 function classifyReasons(summary: RepositorySummary): string[] {
   const reasons: string[] = [];
   if (!summary.isGitRepository) reasons.push("git_repository_missing");
-  if (summary.isGitRepository && !summary.remoteUrl) reasons.push("repository_url_missing");
   if (!summary.packageManager) reasons.push("package_manager_missing");
   if (!summary.testCommand) reasons.push("test_command_missing");
   if (!summary.buildCommand) reasons.push("build_command_missing");
