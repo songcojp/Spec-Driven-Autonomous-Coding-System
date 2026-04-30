@@ -35,6 +35,7 @@ Spec Evolution:
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
 - Runner Console 的队列状态必须来自 `scheduler_job_records` 与 Runner heartbeat/session/log，而不是静态 recent logs。
 - System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
+- Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler/Run、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。
 - Product Console 必须默认使用中文界面，并提供可见语言切换入口；切换范围覆盖导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息。
@@ -71,6 +72,7 @@ Spec Evolution:
 - 用户动作必须通过可见控件发起，且控件调用 Control Plane 受控命令后展示成功、阻塞或失败反馈。
 - 所有项目级受控命令必须携带当前 `project_id`；缺少或不匹配时展示阻塞反馈，不得静默使用上一个项目。
 - 用户可以切换界面语言并保留选择；Evidence、diff、日志、文件路径、命令输出和用户输入内容保持原文，不被界面翻译层改写。
+- 受控命令必须记录 action、entity、requestedBy、reason、payload、accepted/blocked 状态和 audit event；查询接口不得隐藏写入副作用或直接修改 Git、worktree、artifact、数据库状态或 CLI 执行状态。
 
 ## Acceptance Criteria
 
@@ -78,6 +80,7 @@ Spec Evolution:
 - [ ] 批量排期和批量运行保留审计记录，并对高风险、依赖未满足或审批缺失任务给出阻塞原因。
 - [ ] 看板加载和状态刷新耗时被记录为性能基线。
 - [ ] Runner 心跳、成本、成功率和失败率可展示。
+- [ ] Dashboard、Project Home、Spec Workspace、Runner Console、Review Center 和 System Settings 的普通接口只提供查询、schema 或只读预览；会落库、调度、执行、审批、配置生效或写 Evidence 的动作均有 command receipt 和审计事件。
 - [ ] Dashboard 不覆盖 Persistent Store、Project Memory 或 Git 事实。
 - [ ] 仓库包含可运行的前端应用入口、路由和页面组件，至少覆盖 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center。
 - [ ] Product Console 接入 HLD 指定的 React + Next.js 或 Vite React，以及 shadcn/ui + Tailwind CSS + Radix UI primitives，若因宿主框架调整必须在设计中记录替代方案。

@@ -46,6 +46,14 @@ ADD-006 update：Product Console 增加 System Settings，并将 CLI Adapter 配
 - Reads: Control Plane API、Audit/Metrics、Evidence、Memory 投影、Review 查询。
 - Writes: 受控命令请求；不直接写 Git、worktree 或 artifact。
 
+## Controlled Command Boundary
+
+Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evidence、审计、状态摘要和表单选项。任何会写入持久状态、触发调度、执行 CLI、改变审批/规则/配置、写入 Evidence 或 Project Memory 的用户动作，都必须提交给 Console Command Gateway，并返回 command receipt。
+
+受控命令必须包含 action、entityType、entityId、requestedBy、reason 和当前 `project_id`（适用项目级动作时）。命令执行前必须完成项目隔离、状态机、依赖、高风险、审批、workspace root 和 CLI Adapter 配置校验；失败时展示 blocked reason 并保留原页面状态。Product Console 不得通过普通 `POST`/`PATCH` ViewModel endpoint、前端本地状态或直接 CLI 调用绕过审计。
+
+普通接口适用于 Dashboard、Project Home、Spec Workspace、Runner Console、Review Center、System Settings 的只读数据加载、过滤、排序、语言切换、配置 schema 读取和只读预览。只读预览一旦升级为落库、初始化、调度、写 artifact 或配置生效，必须转为受控命令。
+
 ## State and Flow
 
 1. 用户在浏览器打开 Product Console。

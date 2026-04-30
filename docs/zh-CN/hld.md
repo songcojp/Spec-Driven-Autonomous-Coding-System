@@ -2,7 +2,9 @@
 
 版本：V2.0  
 状态：项目级高层设计  
-来源：`docs/zh-CN/PRD.md`、`docs/zh-CN/requirements.md`、`docs/zh-CN/design.md`、`docs/zh-CN/spec-ref.md`
+来源：`docs/zh-CN/PRD.md`、`docs/zh-CN/requirements.md`、`docs/zh-CN/spec-ref.md`
+
+说明：`docs/zh-CN/design.md` 已作废并仅作为历史快照保留；项目级架构规则、受控命令边界、接口边界和代码职责边界均以本文为准。
 
 ---
 
@@ -21,6 +23,21 @@ MVP 采用本地优先的控制面架构：
 - Git repository、worktree 和 branch 是写入隔离边界。
 - Persistent Store 是调度和状态真实来源；Project Memory 是 CLI 恢复投影，不是调度真实来源。
 - Dashboard 只展示控制面状态，并通过受控命令触发操作，不直接修改 Git 工作区。
+
+### 1.1 Controlled Command, API, and Code Boundary
+
+受控命令是 Product Console、Spec Workspace、Task Board、Runner Console 或系统设置发起有后果操作的唯一入口。凡是会改变持久状态、触发 Scheduler/Run、写入 Evidence/Project Memory、修改配置、推进审批或可能被安全策略阻塞的用户/系统意图，必须先转换为 schema-validated command，写入审计并返回 command receipt；不得由前端、查询接口或普通 ViewModel 直接修改 Git、worktree、artifact、数据库状态或执行 CLI。
+
+使用受控命令的情况包括：
+
+- 创建或导入项目后触发初始化闭环、连接仓库、初始化 Spec Protocol、创建 Project Memory 或项目宪章。
+- Spec Sources 扫描、上传、EARS / Feature Spec 生成、需求质量检查、阶段 3 调度和状态检查等会产生写入或运行副作用的 Spec 操作。
+- Task Board 拖拽、批量排期、批量运行、Runner 暂停/恢复、Review 审批、规则写入、Spec Evolution 写入和 CLI Adapter 配置 validate/save/activate/disable。
+- 所有执行类命令必须携带当前 `project_id`，并在进入 Runner 前解析为当前项目 repository `local_path` 或 `target_repo_path`；缺失、不匹配或不可读时返回 blocked receipt。
+
+普通接口用于读取和展示事实，不承担写入副作用。Dashboard、Project Home、Runner Console、Review Center、Spec Workspace ViewModel、项目列表、Evidence 摘要、审计时间线、配置 schema、表单选项、加载态、空态、过滤、排序和语言切换应使用查询接口或前端本地状态。只读预览类接口可以扫描目录或配置并返回事实，但一旦需要落库、调度、写 artifact 或改变状态，必须切换为受控命令。
+
+代码负责实现受控命令背后的确定性机制：持久化 Project/Feature/Task/Run/Evidence/Audit，执行状态机迁移、幂等去重、审批约束、危险命令和 forbidden files 检查、workspace root 校验、CLI Adapter dry-run、Scheduler job 入队、Runner 心跳、失败指纹、重试上限和 Evidence 打包。Skill 或 CLI prompt 负责推理、拆解、评审和生成内容；不能替代代码维护结构性不变式。
 
 ## 2. Goals and Non-Goals
 
@@ -128,7 +145,7 @@ Rejected / deferred alternatives:
 - 不采用自研大模型；模型能力由 Codex CLI 或后续 Runner adapter 提供。
 - 不在 MVP 中引入复杂微服务；控制面和 Runner Worker 可先在同一主机运行。
 - 不以 Project Memory 作为调度数据库；Memory 只为 CLI 恢复提供压缩上下文。
-- `docs/zh-CN/design.md` 中出现 `.autobuild/`，但 PRD 与 requirements 当前指定 `.autobuild/`；HLD 决定 MVP artifact root 使用 `.autobuild/`，后续应同步修正设计文档。
+- `docs/zh-CN/design.md` 已作废；若历史内容与本文、PRD 或 requirements 冲突，以本文和当前 Feature Spec 为准。
 
 ## 6. Architecture Overview
 
@@ -443,7 +460,7 @@ MVP 项目级 artifact root 使用 `.autobuild/`：
 - `.autobuild/reports/`：Delivery Report 和 Spec Evolution 建议。
 - `.autobuild/runs/`：Run 元数据、日志摘要和恢复索引。
 
-`docs/zh-CN/design.md` 中的 `.autobuild/` 命名应在后续设计同步中修正，避免实现阶段出现双目录事实源。
+`docs/zh-CN/design.md` 已作废；不得继续把其中的历史字段、目录命名或旧平台边界作为新实现依据。
 
 ## 10. Cross-Feature Workflows
 

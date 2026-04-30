@@ -721,6 +721,7 @@ THE SYSTEM SHALL 支持看板拖拽、批量排期、批量运行，以及查看
 验收：
 - [ ] 拖拽或批量操作只能产生受状态机允许的状态变更或调度请求。
 - [ ] 批量排期和批量运行必须保留审计记录，并对高风险、依赖未满足或审批缺失任务给出阻塞原因。
+- [ ] Dashboard Board 不得通过普通查询接口、前端本地状态或直接 CLI 调用改变任务状态；拖拽、批量排期和批量运行必须产生受控命令回执。
 
 ### REQ-062：支持 UI 多语言切换
 来源：用户指令：UI 支持多语言切换，默认中文；PRD 第 8.8 节
@@ -749,6 +750,7 @@ THE SYSTEM SHALL 维护项目目录和当前项目上下文，并自动完成项
 - [ ] 用户切换项目后，Dashboard、Spec Workspace、Runner Console、Review Center 和 Board 都只展示当前项目的数据。
 - [ ] 项目级受控命令必须携带当前 `project_id`；缺少或不匹配时不得执行，并返回可观察的阻塞原因。
 - [ ] Spec 流程所有文件读写、命令执行和证据路径解析必须使用当前项目目录或其 `.autobuild/`，不得使用 Product Console / AutoBuild 进程的运行目录作为兜底。
+- [ ] 普通查询接口只能读取项目状态、ViewModel、schema 或只读预览；项目初始化、调度、执行、配置生效、审批、规则写入和 Evidence / Project Memory 写入必须通过受控命令并写审计。
 - [ ] Project Memory 注入、Feature 选择、调度运行和 Evidence 查询不得跨项目复用状态。
 - [ ] 阶段 1 自动初始化失败时，系统返回具体阻塞原因，不要求用户在 Product Console 中逐步手动执行初始化子步骤。
 

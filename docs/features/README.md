@@ -1,6 +1,6 @@
 # Feature Spec Index: SpecDrive AutoBuild
 
-本文依据 `docs/zh-CN/PRD.md`、`docs/zh-CN/requirements.md`、`docs/zh-CN/hld.md` 和 `docs/zh-CN/design.md` 拆分 MVP Feature Spec。拆分原则为垂直可验收、需求可追踪、实现边界清晰，并优先沿 HLD 第 15 节建议的子系统边界落地。
+本文依据 `docs/zh-CN/PRD.md`、`docs/zh-CN/requirements.md` 和 `docs/zh-CN/hld.md` 拆分 MVP Feature Spec。`docs/zh-CN/design.md` 已作废，仅作为历史快照保留。拆分原则为垂直可验收、需求可追踪、实现边界清晰，并优先沿 HLD 第 15 节建议的子系统边界落地。
 
 | Feature ID | Feature | Folder | Status | Primary Requirements | Suggested Milestone | Dependencies |
 |---|---|---|---|---|---|---|

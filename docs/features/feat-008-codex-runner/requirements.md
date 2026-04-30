@@ -12,6 +12,7 @@
 
 - 通过 Runner CLI Adapter 调用 Codex CLI 执行代码修改、测试或修复，默认 adapter 为 `codex-cli`。
 - 通过 BullMQ `cli.run` job 调度 Runner Worker；Console 运行动作不得直接执行 CLI。
+- Runner 只消费已审计的 scheduler job / Run / invocation contract，不提供给 Product Console 直接执行 shell 或 CLI 的接口。
 - 通过 JSON + JSON Schema 管理 CLI Adapter 配置，隔离 executable、argument template、输出映射和 session resume 逻辑。
 - 根据任务风险设置 sandbox mode、approval policy、model、profile、output schema、JSON event stream、workspace root 和 session resume。
 - 默认禁止 `danger-full-access` 和 bypass approvals。
@@ -33,6 +34,7 @@
 - Runner CLI Adapter 必须产出结构化 Evidence Pack 或原始执行结果供 Evidence Store 处理。
 - Runner Worker 必须读取已排期 Run、active CLI Adapter、workspace root 和状态检查配置后执行。
 - Runner 不得在调度器、状态机或任务图中硬编码 Codex 命令细节。
+- Runner 不得绕过受控命令和 Scheduler 直接响应 UI 写操作；所有执行类入口必须有 Run、job、audit 和 Evidence 追踪。
 - CLI Adapter 配置必须以 JSON 为唯一事实源，并支持 dry-run 校验。
 - 高风险任务不得自动以高权限写入模式执行。
 - 认证、权限、支付、迁移、密钥和 forbidden files 修改必须触发安全规则。

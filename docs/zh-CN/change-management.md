@@ -44,7 +44,7 @@
 3. 若改变产品范围、页面、数据模型、里程碑、风险或非目标，先更新 PRD。
 4. 更新 `requirements.md`：新增稳定 ID、来源、优先级、EARS statement 和可测试验收。
 5. 更新追踪矩阵、MVP 映射和开放问题。
-6. 若影响架构、数据所有权、状态机、接口、安全、调度或技术栈，更新 `hld.md` 或 `design.md`。
+6. 若影响架构、数据所有权、状态机、接口、安全、调度或技术栈，更新 `hld.md`；`design.md` 已作废，不再作为同步目标。
 7. 若影响可执行拆分，更新 `docs/features/README.md` 和受影响 Feature Spec。
 
 ### 3.2 需求变更
@@ -54,7 +54,7 @@
 1. 定位被变更需求的当前事实源和所有引用位置。
 2. 判断是否保持原 ID：语义相同则保留 ID；语义替换则标记 superseded/deprecated，并新增 ID。
 3. 若来自实现、测试、review 或交付证据，记录证据来源和影响范围。
-4. 更新 PRD、`requirements.md`、HLD/design、Feature Spec，顺序与新增需求一致。
+4. 更新 PRD、`requirements.md`、HLD、Feature Spec，顺序与新增需求一致。
 5. 如果影响 active 或 done 的 Feature Spec，必须更新 Feature Spec 状态或备注，避免后续执行沿用旧假设。
 
 ### 3.3 覆盖缺口修复
@@ -77,7 +77,7 @@
 - [ ] MVP 映射是否仍反映交付顺序。
 - [ ] HLD requirement coverage 是否包含新增或变更的 ID。
 - [ ] HLD 子系统职责、数据所有权、状态机、接口或安全策略是否需要同步。
-- [ ] `docs/zh-CN/design.md` 是否需要同步详细设计、API、流程、状态机或数据模型。
+- [ ] `docs/zh-CN/hld.md` 是否需要同步受控命令、接口、代码职责、数据所有权、状态机、安全策略、调度或技术栈。
 - [ ] `docs/features/README.md` 是否需要更新 Primary Requirements、依赖或状态。
 - [ ] 受影响 Feature Spec 的 `requirements.md` 是否同步 scope、requirements 和 acceptance。
 - [ ] 受影响 Feature Spec 的 `design.md` 是否同步组件、数据、流程、依赖和证据。
@@ -116,7 +116,7 @@
 
 建议把提交按职责拆分：
 
-1. 主线规格提交：PRD、`requirements.md`、HLD/design。
+1. 主线规格提交：PRD、`requirements.md`、HLD。
 2. Feature Spec 同步提交：`docs/features/README.md` 和受影响 feature folders。
 3. 技能或机制提交：`.agents/skills/*` 或本文档。
 4. 实现提交：代码、测试和迁移。
@@ -137,7 +137,7 @@
 3. 分配版本级别和风险路由。
 4. 更新主线文档。
 5. 同步追踪矩阵与 MVP 映射。
-6. 同步 HLD/design。
+6. 同步 HLD。
 7. 同步 Feature Spec。
 8. 处理 active/done/delivered Feature 的状态影响。
 9. 跑一致性搜索和 `git diff --check`。

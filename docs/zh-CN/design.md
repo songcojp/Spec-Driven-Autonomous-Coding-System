@@ -1,5 +1,7 @@
 # Design: SpecDrive AutoBuild
 
+> 状态：已作废。自 2026-04-30 起，项目级架构边界、受控命令规则、接口与代码职责边界以 `docs/zh-CN/hld.md` 为准；本文件仅作为历史设计快照保留，不再作为实现、评审或变更同步的来源。
+
 ## 1. Overview
 
 本设计覆盖 SpecDrive AutoBuild MVP 的产品级系统边界，对应 `docs/zh-CN/PRD.md` 和 `docs/zh-CN/requirements.md`。系统目标是把自然语言、PRD、EARS 或混合需求输入转化为可执行 Feature Spec，并通过 Scheduler、Project Memory、Codex Runner 外部运行观测、内部状态机、Evidence Pack、Review Center 和 Dashboard 形成可控、可恢复、可审计的长时间自主编程闭环。

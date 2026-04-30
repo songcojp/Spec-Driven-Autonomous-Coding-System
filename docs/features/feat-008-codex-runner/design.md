@@ -4,6 +4,8 @@
 
 Codex Runner 是执行层入口。它由 BullMQ `cli.run` Worker 触发，读取 Run、Task、WorktreeRecord、Runner Policy 和 active CLI Adapter JSON 配置，在指定 workspace root 中调用 Codex CLI，采集事件、日志、心跳和结构化输出，并把结果交给 Evidence Store 和 Status Checker。Codex CLI 是 MVP 默认 adapter；命令模板、参数映射、输出解析和 session resume 规则由 adapter 配置承载。
 
+Runner 不接收 Product Console 的直接 CLI 执行请求。Console、Spec Workspace 或 Task Board 的执行类动作必须先成为受控命令，经 Control Plane 校验、审计、Scheduler job 和 Run 记录后，才由 Runner Worker 通过 active CLI Adapter 执行。
+
 ## Components
 
 | Component | Responsibility |
@@ -32,6 +34,8 @@ Codex Runner 是执行层入口。它由 BullMQ `cli.run` Worker 触发，读取
 6. Heartbeat 周期更新。
 7. Raw Log Collector 归档脱敏日志和 JSON 事件。
 8. Worker 持久化 session/log/evidence/status check，并按结果回写 Run 与 Task 状态。
+
+Runner 侧代码负责 workspace 校验、policy 合并、adapter dry-run、危险命令和 forbidden files 检查、心跳、日志、Evidence、session 和状态回写；CLI skill prompt 只负责执行或推理内容，不负责维护状态机、审计、重试和项目隔离不变式。
 
 ## CLI Adapter JSON Config
 
