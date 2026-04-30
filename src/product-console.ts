@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
 import { createFeatureSpec, projectSpecArtifact, scanSpecSources, type FeatureSpec, type SpecSourceScanSummary } from "./spec-protocol.ts";
@@ -2164,7 +2164,7 @@ function executeSpecSkillCommand(
   const skillSlug = skillSlugForSpecAction(input.action);
   const sourcePaths = sourcePathsForSpecAction(input.action, payload, featureId);
   const imagePaths = imagePathsForSpecAction(input.action, payload);
-  const expectedArtifacts = expectedArtifactsForSpecAction(input.action, featureId);
+  const expectedArtifacts = expectedArtifactsForSpecAction(input.action, featureId, sourcePaths, project.targetRepoPath);
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
@@ -2254,9 +2254,14 @@ function imagePathsForSpecAction(action: ConsoleCommandAction, payload: Record<s
   return undefined;
 }
 
-function expectedArtifactsForSpecAction(action: ConsoleCommandAction, featureId?: string): string[] {
+function expectedArtifactsForSpecAction(
+  action: ConsoleCommandAction,
+  featureId?: string,
+  sourcePaths: string[] = [],
+  workspaceRoot?: string,
+): string[] {
   if (action === "generate_ears") {
-    return ["docs/zh-CN/requirements.md"];
+    return [requirementsArtifactForSource(sourcePaths[0], workspaceRoot)];
   }
   if (action === "split_feature_specs") {
     return [
@@ -2273,6 +2278,20 @@ function expectedArtifactsForSpecAction(action: ConsoleCommandAction, featureId?
     return featureId ? [`docs/features/${featureId}/ui-spec.md`] : ["docs/ui/ui-spec.md"];
   }
   return featureId ? [`docs/features/${featureId}/tasks.md`] : ["docs/features/README.md"];
+}
+
+function requirementsArtifactForSource(sourcePath?: string, workspaceRoot?: string): string {
+  const fallback = "docs/zh-CN/requirements.md";
+  if (!sourcePath) return fallback;
+  const relativeSource = isAbsolute(sourcePath) && workspaceRoot
+    ? relative(workspaceRoot, sourcePath)
+    : sourcePath;
+  if (!relativeSource || relativeSource.startsWith("..") || isAbsolute(relativeSource)) {
+    return fallback;
+  }
+  const folder = dirname(relativeSource);
+  const artifact = folder === "." ? "requirements.md" : join(folder, "requirements.md");
+  return artifact.replaceAll("\\", "/");
 }
 
 function writeSpecIntakeArtifact(projectPath: string, directory: string, fileName: string, value: unknown): string {

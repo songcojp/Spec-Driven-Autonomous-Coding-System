@@ -35,7 +35,7 @@ const cliAdapterConfig = {
   resumeArgumentTemplate: ["-a", "{{approval}}", "--sandbox", "{{sandbox}}", "-c", "model_reasoning_effort=\"{{reasoning_effort}}\"", "{{profile_flag}}", "{{profile}}", "exec", "resume", "--json", "-m", "{{model}}", "{{resume_session_id}}", "{{resume_prompt}}"],
   configSchema: { type: "object" },
   formSchema: { fields: ["executable", "defaults.model", "defaults.reasoningEffort", "defaults.sandbox", "defaults.approval"] },
-  defaults: { model: "gpt-5.5", reasoningEffort: "medium", sandbox: "workspace-write", approval: "never" },
+  defaults: { model: "gpt-5.3-codex-spark", reasoningEffort: "medium", sandbox: "workspace-write", approval: "never" },
   environmentAllowlist: [],
   outputMapping: { sessionIdJsonPath: "session_id" },
   status: "active",

@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { join, normalize, relative } from "node:path";
 import { Queue, Worker, type JobsOptions, type Job, type WorkerOptions } from "bullmq";
 import IORedis from "ioredis";
 import { runSqlite } from "./sqlite.ts";
@@ -39,6 +41,8 @@ export const FEATURE_WORKER_LOCK_DURATION_MS = 5 * 60 * 1000;
 export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
 export const PLANNING_BRIDGE_NOT_IMPLEMENTED = "Planning skill execution bridge is not implemented";
 export const PLANNING_BRIDGE_WORKSPACE_BLOCKED = "Planning skill execution bridge is blocked because the project workspace is unavailable";
+const MAX_CONTEXT_FILE_BYTES = 120_000;
+const MAX_CONTEXT_BUNDLE_BYTES = 360_000;
 
 export type SchedulerJobType = "feature.select" | "feature.plan" | "cli.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "blocked" | "failed";
@@ -739,7 +743,13 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
     taskId: payload.taskId,
     requirementIds: parseJsonArray(featureRow?.primary_requirements_json).map(String),
   });
-  const context = `Run ${payload.runId}${payload.taskId ? ` for task ${payload.taskId}` : ""}${featureId ? ` in feature ${featureId}` : ""}: ${title}\n\n${description}`;
+  const context = [
+    `Run ${payload.runId}${payload.taskId ? ` for task ${payload.taskId}` : ""}${featureId ? ` in feature ${featureId}` : ""}: ${title}`,
+    "",
+    description,
+    "",
+    buildWorkspaceContextBundle(workspace.workspaceRoot, skillInvocation),
+  ].join("\n");
   return {
     taskStatus: row ? normalizeBoardStatus(row.status) : undefined,
     featureId,
@@ -753,6 +763,65 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
     prompt: buildSkillInvocationPrompt(skillInvocation, context),
     skillInvocation,
   };
+}
+
+function buildWorkspaceContextBundle(workspaceRoot: string, contract: SkillInvocationContract): string {
+  const requestedPaths = uniqueStrings([
+    "AGENTS.md",
+    `.agents/skills/${contract.skillSlug}/SKILL.md`,
+    ...contract.sourcePaths,
+  ]);
+  const sections: string[] = [
+    "Workspace Context Bundle:",
+    "The scheduler pre-read these workspace-local files before invoking the CLI. If shell commands fail in the child runner, use this bundle as the governing read evidence and still produce the expected artifacts.",
+  ];
+  let remainingBytes = MAX_CONTEXT_BUNDLE_BYTES;
+
+  for (const requestedPath of requestedPaths) {
+    if (remainingBytes <= 0) {
+      sections.push("\n[context-truncated]\nThe context bundle byte limit was reached.");
+      break;
+    }
+    const safePath = safeWorkspaceRelativePath(requestedPath);
+    if (!safePath) {
+      sections.push(`\n### ${requestedPath}\n[omitted: path is outside the workspace boundary]`);
+      continue;
+    }
+    const absolutePath = join(workspaceRoot, safePath);
+    const relativePath = relative(workspaceRoot, absolutePath);
+    if (relativePath.startsWith("..") || relativePath === "" || relativePath.startsWith("/") || relativePath.includes("..\\")) {
+      sections.push(`\n### ${requestedPath}\n[omitted: path is outside the workspace boundary]`);
+      continue;
+    }
+    if (!existsSync(absolutePath)) {
+      sections.push(`\n### ${safePath}\n[missing]`);
+      continue;
+    }
+    const stat = statSync(absolutePath);
+    if (!stat.isFile()) {
+      sections.push(`\n### ${safePath}\n[omitted: not a file]`);
+      continue;
+    }
+    const maxBytes = Math.min(MAX_CONTEXT_FILE_BYTES, remainingBytes);
+    const content = readFileSync(absolutePath);
+    const clipped = content.subarray(0, maxBytes);
+    remainingBytes -= clipped.length;
+    const suffix = content.length > clipped.length ? "\n[truncated]" : "";
+    sections.push(`\n### ${safePath}\n\`\`\`markdown\n${clipped.toString("utf8")}${suffix}\n\`\`\``);
+  }
+
+  return sections.join("\n");
+}
+
+function safeWorkspaceRelativePath(input: string): string | undefined {
+  if (!input || input.startsWith("/")) return undefined;
+  const normalized = normalize(input).replaceAll("\\", "/");
+  if (normalized === "." || normalized === ".." || normalized.startsWith("../")) return undefined;
+  return normalized;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
 }
 
 function transitionTaskIfAllowed(dbPath: string, taskId: string, from: BoardColumn, to: BoardColumn, reason: string, evidence: string): void {

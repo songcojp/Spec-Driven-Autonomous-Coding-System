@@ -8,6 +8,7 @@ import { initializeSchema, listTables, MIGRATIONS } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
   buildEvidencePackInput,
+  buildSkillInvocationPrompt,
   buildRunnerConsoleSnapshot,
   DEFAULT_CLI_ADAPTER_CONFIG,
   dryRunCliAdapterConfig,
@@ -118,7 +119,7 @@ test("runner policy resolves safe defaults and clamps heartbeat cadence", () => 
 
   assert.equal(lowRisk.sandboxMode, "workspace-write");
   assert.equal(lowRisk.approvalPolicy, "on-request");
-  assert.equal(lowRisk.model, "gpt-5.5");
+  assert.equal(lowRisk.model, "gpt-5.3-codex-spark");
   assert.equal(lowRisk.reasoningEffort, "medium");
   assert.equal(lowRisk.heartbeatIntervalSeconds, 10);
   assert.notEqual(lowRisk.sandboxMode, "danger-full-access");
@@ -210,6 +211,49 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   assert.equal(dangerousPrompt.reasons.some((reason) => reason.includes("dangerous command")), true);
 });
 
+test("safety gate ignores high-risk words inside bundled source context", () => {
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-SOURCE-CONTEXT",
+    risk: "medium",
+    workspaceRoot: "/workspace/project",
+    now: stableDate,
+  });
+
+  const result = evaluateRunnerSafety({
+    policy,
+    prompt: [
+      "Execute this SpecDrive CLI skill invocation.",
+      "Workspace Context Bundle:",
+      "### docs/PRD.md",
+      "MVP 不接入支付，不处理 auth token，不做 permission system.",
+    ].join("\n"),
+    taskText: "Generate EARS requirements from PRD.",
+  });
+
+  assert.equal(result.allowed, true);
+  assert.equal(result.reviewNeeded, false);
+});
+
+test("skill invocation prompt asks child CLI to return docs artifacts as evidence", () => {
+  const prompt = buildSkillInvocationPrompt(
+    {
+      projectId: "project-1",
+      workspaceRoot: "/workspace/project",
+      skillSlug: "pr-ears-requirement-decomposition-skill",
+      sourcePaths: ["docs/PRD.md"],
+      expectedArtifacts: ["docs/requirements.md"],
+      traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+      requestedAction: "generate_ears",
+    },
+    "Context",
+  );
+
+  assert.match(prompt, /do not use file write tools/);
+  assert.match(prompt, /ARTIFACT: <relative-path>/);
+  assert.match(prompt, /parent scheduler will materialize/);
+  assert.match(prompt, /IDs in the artifact must be unique/);
+});
+
 test("Codex CLI adapter captures JSON events, session id, output, and redacts logs", async () => {
   const workspaceRoot = makeWorkspacePath();
   const policy = resolveRunnerPolicy({
@@ -248,17 +292,19 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
     "workspace-write",
     "-c",
     'model_reasoning_effort="medium"',
+    "--cd",
+    workspaceRoot,
     "-p",
     "automation",
     "exec",
     "resume",
-    "--json",
-    "-m",
   ]);
-  assert.equal(calls[0].args[12], "gpt-5.3-codex-spark");
-  assert.equal(calls[0].args[13], "SESSION-OLD");
-  assert.match(calls[0].args[14], /Implement bounded task token=abc123/);
-  assert.match(calls[0].args[14], /matching this schema/);
+  assert.equal(calls[0].args[12], "--json");
+  assert.equal(calls[0].args[13], "-m");
+  assert.equal(calls[0].args[14], "gpt-5.3-codex-spark");
+  assert.equal(calls[0].args[15], "SESSION-OLD");
+  assert.match(calls[0].args[16], /Implement bounded task token=abc123/);
+  assert.match(calls[0].args[16], /matching this schema/);
   assert.equal(calls[0].cwd, workspaceRoot);
   assert.doesNotMatch(result.session.args.join(" "), /abc123/);
   assert.match(result.session.args.join(" "), /token=\[REDACTED\]/);
@@ -321,17 +367,19 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
     },
   });
 
-  assert.deepEqual(calls[0].args.slice(0, 12), [
+  assert.deepEqual(calls[0].args.slice(0, 14), [
     "-a",
     "on-request",
     "-c",
     'model_reasoning_effort="medium"',
+    "--cd",
+    policy.workspaceRoot,
     "exec",
     "--json",
     "--sandbox",
     "workspace-write",
     "--model",
-    "gpt-5.5",
+    "gpt-5.3-codex-spark",
     "--output-schema",
     "/tmp/runner-output.schema.json",
   ]);
@@ -432,6 +480,98 @@ test("runner queue worker routes blocked work to review and executes allowed wor
   assert.equal(executed.status, "completed");
   assert.equal(executed.adapterResult?.session.exitCode, 0);
 
+  const missingArtifactRoot = makeWorkspacePath();
+  const missingArtifactPolicy = resolveRunnerPolicy({
+    runId: "RUN-006A",
+    risk: "low",
+    workspaceRoot: missingArtifactRoot,
+    now: stableDate,
+  });
+  const missingArtifact = await processRunnerQueueItem(
+    {
+      runId: "RUN-006A",
+      prompt: "Generate requirements",
+      policy: missingArtifactPolicy,
+      skillInvocation: {
+        projectId: "project-1",
+        workspaceRoot: missingArtifactRoot,
+        skillSlug: "pr-ears-requirement-decomposition-skill",
+        sourcePaths: ["docs/PRD.md"],
+        expectedArtifacts: ["docs/requirements.md"],
+        traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+        requestedAction: "generate_ears",
+      },
+    },
+    () => ({ status: 0, stdout: '{"type":"result","message":"done"}', stderr: "" }),
+  );
+  assert.equal(missingArtifact.status, "failed");
+
+  const materializedArtifactRoot = makeWorkspacePath();
+  const materializedArtifactPolicy = resolveRunnerPolicy({
+    runId: "RUN-006M",
+    risk: "low",
+    workspaceRoot: materializedArtifactRoot,
+    now: stableDate,
+  });
+  const materializedArtifact = await processRunnerQueueItem(
+    {
+      runId: "RUN-006M",
+      prompt: "Generate requirements",
+      policy: materializedArtifactPolicy,
+      skillInvocation: {
+        projectId: "project-1",
+        workspaceRoot: materializedArtifactRoot,
+        skillSlug: "pr-ears-requirement-decomposition-skill",
+        sourcePaths: ["docs/PRD.md"],
+        expectedArtifacts: ["docs/requirements.md"],
+        traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+        requestedAction: "generate_ears",
+      },
+    },
+    () => ({
+      status: 0,
+      stdout: [
+        "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"summary\\\":\\\"generated\\\",\\\"status\\\":\\\"completed\\\",\\\"evidence\\\":[\\\"ARTIFACT: docs/requirements.md\\\\n```markdown\\\\n# Requirements\\\\n\\\\nREQ-001: THE SYSTEM SHALL run.\\\\n```\\\"]}\"}}",
+      ].join("\n"),
+      stderr: "",
+    }),
+  );
+  assert.equal(materializedArtifact.status, "completed");
+  assert.match(readFileSync(join(materializedArtifactRoot, "docs", "requirements.md"), "utf8"), /REQ-001/);
+
+  const summaryArtifactRoot = makeWorkspacePath();
+  const summaryArtifactPolicy = resolveRunnerPolicy({
+    runId: "RUN-006S",
+    risk: "low",
+    workspaceRoot: summaryArtifactRoot,
+    now: stableDate,
+  });
+  const summaryArtifact = await processRunnerQueueItem(
+    {
+      runId: "RUN-006S",
+      prompt: "Generate requirements",
+      policy: summaryArtifactPolicy,
+      skillInvocation: {
+        projectId: "project-1",
+        workspaceRoot: summaryArtifactRoot,
+        skillSlug: "pr-ears-requirement-decomposition-skill",
+        sourcePaths: ["docs/PRD.md"],
+        expectedArtifacts: ["docs/requirements.md"],
+        traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+        requestedAction: "generate_ears",
+      },
+    },
+    () => ({
+      status: 0,
+      stdout: [
+        "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"summary\\\":\\\"ARTIFACT: docs/requirements.md\\\\n```markdown\\\\n# Requirements from summary\\\\n\\\\nREQ-002: THE SYSTEM SHALL land summary artifacts.\\\\n```\\\",\\\"status\\\":\\\"completed\\\",\\\"evidence\\\":[]}\"}}",
+      ].join("\n"),
+      stderr: "",
+    }),
+  );
+  assert.equal(summaryArtifact.status, "completed");
+  assert.match(readFileSync(join(summaryArtifactRoot, "docs", "requirements.md"), "utf8"), /REQ-002/);
+
   const reviewNeeded = await processRunnerQueueItem(
     {
       runId: "RUN-006",
@@ -442,6 +582,20 @@ test("runner queue worker routes blocked work to review and executes allowed wor
   );
 
   assert.equal(reviewNeeded.status, "review_needed");
+
+  const nestedReviewNeeded = await processRunnerQueueItem(
+    {
+      runId: "RUN-006N",
+      prompt: "Run tests",
+      policy: allowedPolicy,
+    },
+    () => ({
+      status: 0,
+      stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"summary\\":\\"write failed\\",\\"status\\":\\"review_needed\\",\\"evidence\\":[]}"}}',
+      stderr: "",
+    }),
+  );
+  assert.equal(nestedReviewNeeded.status, "review_needed");
 
   const highRiskCommand = await processRunnerQueueItem({
     runId: "RUN-006C",
@@ -1671,7 +1825,7 @@ test("runner artifacts persist for audit and console lookup", async () => {
 
   assert.equal(rows.queries.policy[0].sandbox_mode, "workspace-write");
   assert.equal(rows.queries.policy[0].approval_policy, "on-request");
-  assert.equal(rows.queries.policy[0].model, "gpt-5.5");
+  assert.equal(rows.queries.policy[0].model, "gpt-5.3-codex-spark");
   assert.equal(rows.queries.policy[0].reasoning_effort, "medium");
   assert.equal(rows.queries.heartbeat[0].queue_status, "completed");
   assert.equal(rows.queries.session[0].session_id, "S-1");

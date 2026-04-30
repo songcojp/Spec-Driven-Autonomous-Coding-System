@@ -860,6 +860,7 @@ test("spec intake workflow displays the actual discovered source instead of a de
 test("spec intake workflow discovers docs PRD at the project docs root", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
   const projectPath = mkdtempSync(join(tmpdir(), "spec-intake-docs-prd-"));
   mkdirSync(join(projectPath, "docs"), { recursive: true });
   writeFileSync(
@@ -882,10 +883,26 @@ test("spec intake workflow discovers docs PRD at the project docs root", () => {
     now: stableDate,
   });
   const workspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+  const generateReceipt = submitConsoleCommand(dbPath, {
+    action: "generate_ears",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Generate EARS from root docs PRD.",
+    payload: { sourcePath: workspace.prdWorkflow.sourcePath },
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+  ]);
+  const jobPayload = JSON.parse(String(result.queries.jobs[0].payload_json));
 
   assert.equal(receipt.status, "accepted");
   assert.equal(workspace.prdWorkflow.sourcePath, "docs/PRD.md");
   assert.equal(workspace.prdWorkflow.resolvedSourcePath, join(projectPath, "docs", "PRD.md"));
+  assert.equal(generateReceipt.status, "accepted");
+  assert.deepEqual(jobPayload.sourcePaths, ["docs/PRD.md"]);
+  assert.deepEqual(jobPayload.expectedArtifacts, ["docs/requirements.md"]);
 });
 
 test("console write commands persist rule and spec evolution evidence", () => {

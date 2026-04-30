@@ -166,6 +166,11 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   assert.equal(calls[0].cwd, root);
   assert.match(calls[0].args.join("\n"), /Skill Invocation Contract/);
   assert.match(calls[0].args.join("\n"), /codex-coding-skill/);
+  assert.match(calls[0].args.join("\n"), /Workspace Context Bundle/);
+  assert.match(calls[0].args.join("\n"), /### AGENTS.md/);
+  assert.match(calls[0].args.join("\n"), /# Test workspace/);
+  assert.match(calls[0].args.join("\n"), /### \.agents\/skills\/codex-coding-skill\/SKILL.md/);
+  assert.match(calls[0].args.join("\n"), /# Codex coding skill/);
   assert.equal(rows.runs[0].status, "completed");
   assert.equal(rows.task[0].status, "checking");
   assert.deepEqual(rows.sessions.map((row) => [row.session_id, row.exit_code]), [["SESSION-CLI", 0]]);

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { accessSync, constants, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ORDINARY_LOG_SECRET_PATTERNS } from "./persistence.ts";
@@ -52,6 +52,7 @@ export type RunnerPolicy = {
   testEnvironmentIsolation?: TestRunnerIsolationInput;
   resumeSessionId?: string;
   heartbeatIntervalSeconds: number;
+  commandTimeoutMs: number;
   createdAt: string;
 };
 
@@ -166,6 +167,7 @@ export type RunnerPolicyInput = {
   requestedApprovalPolicy?: RunnerApprovalPolicy;
   testEnvironmentIsolation?: TestRunnerIsolationInput;
   heartbeatIntervalSeconds?: number;
+  commandTimeoutMs?: number;
   now?: Date;
 };
 
@@ -308,8 +310,9 @@ export type RunnerConsoleSnapshot = {
   heartbeatStale: boolean;
 };
 
-const DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_MODEL = "gpt-5.3-codex-spark";
 const DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
+const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
 export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "codex-cli",
   displayName: "Codex CLI",
@@ -320,6 +323,8 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
     "{{approval}}",
     "-c",
     "model_reasoning_effort=\"{{reasoning_effort}}\"",
+    "--cd",
+    "{{workspace}}",
     "exec",
     "--json",
     "--sandbox",
@@ -337,6 +342,8 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
     "{{sandbox}}",
     "-c",
     "model_reasoning_effort=\"{{reasoning_effort}}\"",
+    "--cd",
+    "{{workspace}}",
     "{{profile_flag}}",
     "{{profile}}",
     "exec",
@@ -416,6 +423,7 @@ export function resolveRunnerPolicy(input: RunnerPolicyInput): RunnerPolicy {
   const sandboxMode = input.risk === "high" && requestedSandboxMode === "danger-full-access" ? "read-only" : requestedSandboxMode;
   const approvalPolicy = requestedApprovalPolicy === "bypass" ? "on-request" : requestedApprovalPolicy;
   const heartbeatIntervalSeconds = clampHeartbeat(input.heartbeatIntervalSeconds ?? 20);
+  const commandTimeoutMs = clampCommandTimeout(input.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS);
 
   if (!input.workspaceRoot.trim()) {
     throw new Error("RunnerPolicy requires a workspace root.");
@@ -435,6 +443,7 @@ export function resolveRunnerPolicy(input: RunnerPolicyInput): RunnerPolicy {
     testEnvironmentIsolation: input.testEnvironmentIsolation,
     resumeSessionId: input.resumeSessionId,
     heartbeatIntervalSeconds,
+    commandTimeoutMs,
     createdAt: now.toISOString(),
   };
 }
@@ -486,7 +495,7 @@ export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
     }
   }
 
-  const safetyText = [input.taskText, input.prompt].filter(Boolean).join("\n");
+  const safetyText = [input.taskText, input.prompt ? stripWorkspaceContextBundle(input.prompt) : undefined].filter(Boolean).join("\n");
   if (safetyText && DANGEROUS_COMMAND_PATTERNS.some((pattern) => pattern.test(safetyText))) {
     reasons.push("prompt or task text includes a dangerous command and requires review");
   }
@@ -501,6 +510,12 @@ export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
     reasons,
     evidence: reviewNeeded ? `Runner safety gate blocked execution: ${reasons.join("; ")}.` : "Runner safety gate passed.",
   };
+}
+
+function stripWorkspaceContextBundle(prompt: string): string {
+  const marker = "Workspace Context Bundle:";
+  const index = prompt.indexOf(marker);
+  return index >= 0 ? prompt.slice(0, index) : prompt;
 }
 
 export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Record<string, unknown>): CliAdapterConfig {
@@ -664,6 +679,16 @@ export function validateWorkspaceRoot(workspaceRoot: string | undefined): Worksp
 }
 
 export function buildSkillInvocationPrompt(contract: SkillInvocationContract, context: string): string {
+  const expectedDocsArtifacts = contract.expectedArtifacts.filter(isMaterializedSpecArtifact);
+  const artifactEvidenceRules = expectedDocsArtifacts.length > 0
+    ? [
+        "- For expected docs artifacts, do not use file write tools in the child CLI session.",
+        "- Return each complete expected docs artifact as one evidence string using exactly: ARTIFACT: <relative-path> followed by a markdown fenced block containing the full file content.",
+        "- The parent scheduler will materialize those ARTIFACT evidence strings into workspace files after the CLI exits.",
+        "- Defined US, REQ, NFR, and EDGE IDs in the artifact must be unique and monotonically increasing; do not reuse an ID in definitions.",
+        "- If an ID changes during generation, update traceability references to match the final defined ID.",
+      ]
+    : [];
   const taskSlicingRules = contract.skillSlug === "task-slicing-skill"
     ? [
         "- For split_feature_specs, decompose PRD, EARS requirements, and HLD into implementation-ready Feature Spec package directories.",
@@ -680,7 +705,10 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "Rules:",
     "- Use only skills discovered from this workspace's .agents/skills directory.",
     "- Treat AGENTS.md and the referenced source paths as governing context.",
+    "- If the prompt includes a Workspace Context Bundle, use it as already-read workspace evidence; do not block solely because shell-based file reads fail.",
     "- Produce the expected artifacts and include traceability in the final evidence.",
+    "- If direct file writes fail, return each complete artifact as one evidence string using exactly: ARTIFACT: <relative-path> followed by a markdown fenced block containing the full file content.",
+    ...artifactEvidenceRules,
     "- Do not assume a platform Skill Registry or Skill Center exists.",
     ...taskSlicingRules,
     "",
@@ -719,7 +747,14 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
         ? await input.asyncRunner(rendered.command, rendered.args, input.policy.workspaceRoot)
         : input.runner
           ? input.runner(rendered.command, rendered.args, input.policy.workspaceRoot)
-          : await runCommand(rendered.command, rendered.args, input.policy.workspaceRoot, input.policy.heartbeatIntervalSeconds, input.onHeartbeat);
+          : await runCommand(
+              rendered.command,
+              rendered.args,
+              input.policy.workspaceRoot,
+              input.policy.heartbeatIntervalSeconds,
+              input.policy.commandTimeoutMs,
+              input.onHeartbeat,
+            );
     } catch (error) {
       writeCliOutputLog(logFiles, {
         status: null,
@@ -756,6 +791,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       files: logFiles,
       createdAt: completedAt,
     };
+    materializeArtifactEvidence(input.policy.workspaceRoot, input.skillInvocation, events);
     writeCliOutputLog(logFiles, {
       status: result.status,
       stdout,
@@ -785,6 +821,54 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       rmSync(dirname(outputSchemaPath), { recursive: true, force: true });
     }
   }
+}
+
+function materializeArtifactEvidence(
+  workspaceRoot: string,
+  invocation: SkillInvocationContract | undefined,
+  events: CodexJsonEvent[],
+): void {
+  if (!invocation) return;
+  const expected = new Set(invocation.expectedArtifacts.filter(isMaterializedSpecArtifact));
+  if (expected.size === 0) return;
+
+  for (const evidence of extractEvidenceStrings(events)) {
+    const artifact = parseArtifactEvidence(evidence);
+    if (!artifact || !expected.has(artifact.path)) continue;
+    const outputPath = join(workspaceRoot, artifact.path);
+    mkdirSync(dirname(outputPath), { recursive: true });
+    writeFileSync(outputPath, artifact.content, { encoding: "utf8" });
+  }
+}
+
+function extractEvidenceStrings(events: CodexJsonEvent[]): string[] {
+  return events.flatMap((event) => {
+    const records: Record<string, unknown>[] = [];
+    if (typeof event.output === "object" && event.output !== null) records.push(event.output as Record<string, unknown>);
+    if (Array.isArray(event.evidence)) records.push(event as Record<string, unknown>);
+    const item = typeof event.item === "object" && event.item !== null ? event.item as Record<string, unknown> : undefined;
+    if (typeof item?.text === "string") {
+      try {
+        const parsed = JSON.parse(item.text) as Record<string, unknown>;
+        records.push(parsed);
+      } catch {
+        // Ignore free-form agent text.
+      }
+    }
+    return records.flatMap((record) => {
+      const evidence = Array.isArray(record.evidence) ? record.evidence.filter((value): value is string => typeof value === "string") : [];
+      const summary = typeof record.summary === "string" ? [record.summary] : [];
+      return [...evidence, ...summary];
+    });
+  });
+}
+
+function parseArtifactEvidence(evidence: string): { path: string; content: string } | undefined {
+  const match = evidence.match(/^ARTIFACT:\s*([^\n]+)\n```(?:markdown|md)?\n([\s\S]*?)\n```\s*$/);
+  if (!match) return undefined;
+  const path = normalizePath(match[1].trim());
+  if (!path || path.startsWith("../") || path.startsWith("/") || path.includes("<")) return undefined;
+  return { path, content: match[2].endsWith("\n") ? match[2] : `${match[2]}\n` };
 }
 
 export async function processRunnerQueueItem(
@@ -1227,6 +1311,7 @@ function writeCliInputLog(input: {
           model: input.policy.model,
           profile: input.policy.profile,
           heartbeatIntervalSeconds: input.policy.heartbeatIntervalSeconds,
+          commandTimeoutMs: input.policy.commandTimeoutMs,
         },
         skillInvocation: input.skillInvocation,
         createdAt: input.createdAt,
@@ -1677,6 +1762,10 @@ function classifyQueueStatus(result: CodexAdapterResult): RunnerQueueStatus {
     return reportedStatus;
   }
 
+  if (result.evidence.skillInvocation && missingExpectedArtifacts(result).length > 0) {
+    return "failed";
+  }
+
   if (result.session.args.includes("resume")) {
     return "review_needed";
   }
@@ -1687,17 +1776,50 @@ function classifyQueueStatus(result: CodexAdapterResult): RunnerQueueStatus {
 function extractReportedStatus(events: CodexJsonEvent[]): RunnerQueueStatus | undefined {
   for (const event of events) {
     const status = typeof event.status === "string" ? event.status : undefined;
-    if (status === "review_needed" || status === "blocked" || status === "failed" || status === "completed") {
-      return status;
-    }
+    const normalizedStatus = normalizeQueueStatus(status);
+    if (normalizedStatus) return normalizedStatus;
 
     const output = typeof event.output === "object" && event.output !== null ? event.output as Record<string, unknown> : undefined;
     const outputStatus = typeof output?.status === "string" ? output.status : undefined;
-    if (outputStatus === "review_needed" || outputStatus === "blocked" || outputStatus === "failed" || outputStatus === "completed") {
-      return outputStatus;
-    }
+    const normalizedOutputStatus = normalizeQueueStatus(outputStatus);
+    if (normalizedOutputStatus) return normalizedOutputStatus;
+
+    const item = typeof event.item === "object" && event.item !== null ? event.item as Record<string, unknown> : undefined;
+    const itemStatus = normalizeQueueStatus(typeof item?.status === "string" ? item.status : undefined);
+    if (itemStatus) return itemStatus;
+    const itemTextStatus = parseReportedStatusFromText(typeof item?.text === "string" ? item.text : undefined);
+    if (itemTextStatus) return itemTextStatus;
   }
   return undefined;
+}
+
+function normalizeQueueStatus(status?: string): RunnerQueueStatus | undefined {
+  return status === "review_needed" || status === "blocked" || status === "failed" || status === "completed"
+    ? status
+    : undefined;
+}
+
+function parseReportedStatusFromText(text?: string): RunnerQueueStatus | undefined {
+  if (!text) return undefined;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    return normalizeQueueStatus(typeof parsed.status === "string" ? parsed.status : undefined);
+  } catch {
+    return undefined;
+  }
+}
+
+function missingExpectedArtifacts(result: CodexAdapterResult): string[] {
+  const invocation = result.evidence.skillInvocation;
+  if (!invocation) return [];
+  return invocation.expectedArtifacts.filter((artifact) => {
+    if (!isMaterializedSpecArtifact(artifact)) return false;
+    return !existsSync(join(invocation.workspaceRoot, artifact));
+  });
+}
+
+function isMaterializedSpecArtifact(artifact: string): boolean {
+  return artifact.startsWith("docs/") && !artifact.includes("<") && !artifact.startsWith("/");
 }
 
 function writeOutputSchema(policy: RunnerPolicy): string {
@@ -1791,6 +1913,11 @@ function clampHeartbeat(value: number): number {
   return Math.min(30, Math.max(10, Math.round(value)));
 }
 
+function clampCommandTimeout(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_COMMAND_TIMEOUT_MS;
+  return Math.min(60 * 60 * 1000, Math.max(1000, Math.round(value)));
+}
+
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
 }
@@ -1800,21 +1927,31 @@ function runCommand(
   args: string[],
   cwd: string,
   heartbeatIntervalSeconds: number,
+  commandTimeoutMs: number,
   onHeartbeat?: () => void,
 ): Promise<CodexCommandResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
+    let timedOut = false;
     const heartbeat = onHeartbeat
       ? setInterval(onHeartbeat, Math.max(10, heartbeatIntervalSeconds) * 1000)
       : undefined;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        if (!child.killed) child.kill("SIGKILL");
+      }, 2000).unref();
+    }, commandTimeoutMs);
 
     child.stdin?.end();
     child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", (error) => {
       if (heartbeat) clearInterval(heartbeat);
+      clearTimeout(timeout);
       resolve({
         status: null,
         stdout: Buffer.concat(stdout).toString("utf8"),
@@ -1824,10 +1961,12 @@ function runCommand(
     });
     child.on("close", (code) => {
       if (heartbeat) clearInterval(heartbeat);
+      clearTimeout(timeout);
       resolve({
         status: code,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
+        error: timedOut ? new Error(`Codex command timed out after ${commandTimeoutMs}ms`) : undefined,
       });
     });
   });
