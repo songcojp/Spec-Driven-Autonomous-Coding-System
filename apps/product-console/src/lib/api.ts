@@ -6,7 +6,7 @@ function endpoints(projectId: string) {
     overview: "/console/project-overview",
     dashboard: `/console/dashboard?projectId=${encodedProjectId}`,
     board: `/console/dashboard-board?projectId=${encodedProjectId}`,
-    spec: `/console/spec-workspace?projectId=${encodedProjectId}&featureId=FEAT-013`,
+    spec: `/console/spec-workspace?projectId=${encodedProjectId}`,
     runner: `/console/runner?projectId=${encodedProjectId}`,
     settings: "/console/system-settings",
     reviews: `/console/reviews?projectId=${encodedProjectId}`,

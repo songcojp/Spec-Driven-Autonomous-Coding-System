@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, isAbsolute, join } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
 import { createFeatureSpec, projectSpecArtifact, scanSpecSources, type FeatureSpec, type SpecSourceScanSummary } from "./spec-protocol.ts";
@@ -122,6 +122,7 @@ export type ConsoleCommandReceipt = {
   auditEventId: string;
   acceptedAt: string;
   approvalRecordId?: string;
+  featureId?: string;
   scheduleTriggerId?: string;
   selectionDecisionId?: string;
   blockedReasons?: string[];
@@ -766,6 +767,12 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
 export function buildSpecWorkspaceView(dbPath: string, featureId?: string, projectId?: string): SpecWorkspaceViewModel {
   const featureFilter = projectId ? "WHERE project_id = ?" : "";
   const featureParams = projectId ? [projectId] : [];
+  const featureOrder = "datetime(COALESCE(updated_at, created_at)) DESC, datetime(created_at) DESC, id DESC";
+  const selectedFeatureSql = projectId
+    ? `(SELECT id FROM features WHERE project_id = ? ORDER BY ${featureOrder} LIMIT 1)`
+    : `(SELECT id FROM features ORDER BY ${featureOrder} LIMIT 1)`;
+  const selectedFeatureExpr = `COALESCE(NULLIF(?, ''), ${selectedFeatureSql})`;
+  const selectedFeatureParams = projectId ? [featureId ?? "", projectId] : [featureId ?? ""];
   const result = runSqlite(dbPath, [], [
     {
       name: "projects",
@@ -792,26 +799,26 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       sql: `SELECT * FROM project_health_checks ${projectId ? "WHERE project_id = ?" : ""} ORDER BY checked_at DESC LIMIT 1`,
       params: projectId ? [projectId] : [],
     },
-    { name: "features", sql: `SELECT * FROM features ${featureFilter} ORDER BY created_at DESC`, params: featureParams },
+    { name: "features", sql: `SELECT * FROM features ${featureFilter} ORDER BY ${featureOrder}`, params: featureParams },
     {
       name: "requirements",
-      sql: "SELECT * FROM requirements WHERE feature_id = ? ORDER BY created_at, id",
-      params: [featureId ?? ""],
+      sql: `SELECT * FROM requirements WHERE feature_id = ${selectedFeatureExpr} ORDER BY created_at, id`,
+      params: selectedFeatureParams,
     },
     {
       name: "taskGraphs",
-      sql: "SELECT graph_json FROM task_graphs WHERE feature_id = ? ORDER BY created_at DESC LIMIT 1",
-      params: [featureId ?? ""],
+      sql: `SELECT graph_json FROM task_graphs WHERE feature_id = ${selectedFeatureExpr} ORDER BY created_at DESC LIMIT 1`,
+      params: selectedFeatureParams,
     },
     {
       name: "featureEvidence",
-      sql: "SELECT id, kind, summary, path, metadata_json FROM evidence_packs WHERE feature_id = ? ORDER BY created_at DESC",
-      params: [featureId ?? ""],
+      sql: `SELECT id, kind, summary, path, metadata_json FROM evidence_packs WHERE feature_id = ${selectedFeatureExpr} ORDER BY created_at DESC`,
+      params: selectedFeatureParams,
     },
     {
       name: "deliveryReports",
-      sql: "SELECT id, path, summary, created_at FROM delivery_reports WHERE feature_id = ? ORDER BY created_at DESC",
-      params: [featureId ?? ""],
+      sql: `SELECT id, path, summary, created_at FROM delivery_reports WHERE feature_id = ${selectedFeatureExpr} ORDER BY created_at DESC`,
+      params: selectedFeatureParams,
     },
     {
       name: "workflowAudit",
@@ -846,7 +853,10 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
     status: String(row.status),
     primaryRequirements: parseJsonArray(row.primary_requirements_json),
   }));
-  const feature = featureId ? features.find((entry) => entry.id === featureId) : undefined;
+  const selectedFeatureId = featureId && features.some((entry) => entry.id === featureId)
+    ? featureId
+    : features[0]?.id;
+  const feature = selectedFeatureId ? features.find((entry) => entry.id === selectedFeatureId) : undefined;
   const evidence = result.queries.featureEvidence.map((row) => ({
     id: String(row.id),
     kind: String(row.kind),
@@ -952,9 +962,9 @@ function buildPrdWorkflow(input: {
     };
   });
 
-  const sourcePayload = [...latestByAction.values()]
-    .map((row) => parseJsonObject(parseJsonObject(row.payload_json).payload))
-    .find((payload) => optionalString(payload.sourcePath) || optionalString(payload.fileName)) ?? {};
+  const rawSourcePayload = [...latestByAction.values()]
+    .map(extractWorkflowSourcePayload)
+    .find((payload) => optionalString(payload.sourcePath) || optionalString(payload.resolvedSourcePath) || optionalString(payload.fileName)) ?? {};
   const allBlockedReasons = [...latestByAction.values()]
     .flatMap((row) => arrayValue(parseJsonObject(parseJsonObject(row.payload_json).boardValidation).blockedReasons).map(String));
   const project = input.project;
@@ -964,10 +974,10 @@ function buildPrdWorkflow(input: {
   const healthCheck = input.healthCheck;
   const projectStatus = optionalString(project?.status);
   const projectPath = optionalString(repositoryConnection?.local_path) ?? optionalString(project?.target_repo_path);
+  const sourcePayload = resolveWorkflowSourcePayload(projectPath, rawSourcePayload);
   const healthReasons = parseJsonArray(healthCheck?.reasons_json).map(String);
   const isSpecProtocolMissing = healthReasons.includes("spec_protocol_directory_missing");
   const projectBlockedReasons = [
-    ...healthReasons,
     ...(!project ? ["Create or import a project before Spec intake."] : []),
     ...(project && !repositoryConnection ? ["Connect a Git repository before Spec intake."] : []),
   ];
@@ -1037,6 +1047,10 @@ function buildPrdWorkflow(input: {
       updatedAt: optionalString(memoryVersion?.created_at) ?? commandUpdatedAt("initialize_project_memory"),
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
+  const projectStageBlockedReasons = [
+    ...projectBlockedReasons,
+    ...projectStages.map((stage) => stage.blockedReason).filter((reason): reason is string => Boolean(reason)),
+  ];
   const stageStatusByKey = new Map(decoratedStages.map((stage) => [stage.key, stage.status]));
   const scanStage = decoratedStages.find((stage) => stage.key === "scan_prd");
   const uploadStage = decoratedStages.find((stage) => stage.key === "upload_prd");
@@ -1074,7 +1088,7 @@ function buildPrdWorkflow(input: {
       status: input.features.some((feature) => feature.status === "ready") ? "completed" as const : input.features.length > 0 ? "accepted" as const : "pending" as const,
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
-  const projectPhaseStatus = projectBlockedReasons.length > 0 || projectStages.some((stage) => stage.status === "blocked")
+  const projectPhaseStatus = projectStageBlockedReasons.length > 0 || projectStages.some((stage) => stage.status === "blocked")
     ? "blocked"
     : projectStages.every((stage) => stage.status === "completed")
       ? "completed"
@@ -1115,20 +1129,20 @@ function buildPrdWorkflow(input: {
 
   return {
     targetRepoPath: optionalString(sourcePayload.targetRepoPath),
-    sourcePath: optionalString(sourcePayload.sourcePath) ?? "docs/zh-CN/PRD.md",
+    sourcePath: optionalString(sourcePayload.sourcePath) ?? "No Spec source selected",
     resolvedSourcePath: optionalString(sourcePayload.resolvedSourcePath),
     sourceName: optionalString(sourcePayload.fileName),
     sourceVersion: optionalString(sourcePayload.sourceVersion) ?? "v1.3.0",
     scanMode: optionalString(sourcePayload.scanMode) ?? "smart",
     lastScanAt: decoratedStages.find((stage) => stage.updatedAt)?.updatedAt,
     runtime: optionalString(sourcePayload.runtime) ?? "10m 24s",
-    blockedReasons: [...new Set([...projectBlockedReasons, ...allBlockedReasons])],
+    blockedReasons: [...new Set([...projectStageBlockedReasons, ...allBlockedReasons])],
     phases: [
       {
         key: "project_initialization",
         status: projectPhaseStatus,
         updatedAt: latestProjectUpdatedAt,
-        blockedReasons: [...new Set(projectBlockedReasons)],
+        blockedReasons: [...new Set(projectStageBlockedReasons)],
         facts: [
           { label: "Project", value: optionalString(project?.name) ?? "Not created" },
           { label: "Repository", value: projectPath ?? "Not connected" },
@@ -1142,7 +1156,7 @@ function buildPrdWorkflow(input: {
         updatedAt: decoratedStages.find((stage) => stage.updatedAt)?.updatedAt,
         blockedReasons: intakeBlockedReasons,
         facts: [
-          { label: "PRD", value: optionalString(sourcePayload.resolvedSourcePath) ?? optionalString(sourcePayload.sourcePath) ?? "docs/zh-CN/PRD.md" },
+          { label: "PRD", value: optionalString(sourcePayload.resolvedSourcePath) ?? optionalString(sourcePayload.sourcePath) ?? "No Spec source selected" },
           { label: "Features", value: String(input.features.length) },
           { label: "Requirements", value: String(input.selectedRequirementCount) },
         ],
@@ -1162,6 +1176,76 @@ function buildPrdWorkflow(input: {
       },
     ],
     stages: decoratedStages,
+  };
+}
+
+function extractWorkflowSourcePayload(row: Record<string, unknown>): Record<string, unknown> {
+  const payload = parseJsonObject(row.payload_json);
+  const commandPayload = parseJsonObject(payload.payload);
+  const specIntake = parseJsonObject(payload.specIntake);
+  return {
+    ...commandPayload,
+    fileName: optionalString(specIntake.fileName) ?? optionalString(commandPayload.fileName),
+    sourcePath: optionalString(specIntake.sourcePath) ?? optionalString(commandPayload.sourcePath),
+    resolvedSourcePath: optionalString(specIntake.resolvedSourcePath) ?? optionalString(commandPayload.resolvedSourcePath),
+    sourceVersion: optionalString(specIntake.sourceVersion) ?? optionalString(commandPayload.sourceVersion),
+    scanMode: optionalString(commandPayload.scanMode),
+  };
+}
+
+function resolveWorkflowSourcePayload(projectPath: string | undefined, payload: Record<string, unknown>): Record<string, unknown> {
+  const existing = resolveExistingSourcePath(projectPath, optionalString(payload.sourcePath), optionalString(payload.resolvedSourcePath));
+  if (existing) {
+    return {
+      ...payload,
+      sourcePath: existing.sourcePath,
+      resolvedSourcePath: existing.resolvedSourcePath,
+    };
+  }
+
+  if (projectPath) {
+    try {
+      const fallback = selectSpecSource(projectPath, {}, scanSpecSources(projectPath));
+      if (fallback) {
+        return {
+          ...payload,
+          sourcePath: fallback.sourcePath,
+          resolvedSourcePath: fallback.resolvedSourcePath,
+        };
+      }
+    } catch {
+      // The workflow view must not trust or surface stale source paths when the project path is unreadable.
+    }
+  }
+
+  return {
+    ...payload,
+    sourcePath: undefined,
+    resolvedSourcePath: undefined,
+  };
+}
+
+function resolveExistingSourcePath(
+  projectPath: string | undefined,
+  sourcePath: string | undefined,
+  resolvedSourcePath: string | undefined,
+): { sourcePath: string; resolvedSourcePath: string } | undefined {
+  if (resolvedSourcePath && existsSync(resolvedSourcePath)) {
+    return {
+      sourcePath: sourcePath ?? resolvedSourcePath,
+      resolvedSourcePath,
+    };
+  }
+  if (!sourcePath) {
+    return undefined;
+  }
+  const candidate = isAbsolute(sourcePath) ? sourcePath : projectPath ? join(projectPath, sourcePath) : undefined;
+  if (!candidate || !existsSync(candidate)) {
+    return undefined;
+  }
+  return {
+    sourcePath,
+    resolvedSourcePath: candidate,
   };
 }
 
@@ -1441,6 +1525,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
     auditEventId,
     acceptedAt,
     approvalRecordId: approvalRecord?.id,
+    featureId: optionalString(specIntakeResult?.featureId),
     scheduleTriggerId: scheduleResult?.triggerId,
     selectionDecisionId: scheduleResult?.selectionDecisionId,
     blockedReasons: blockedReasons.length > 0 ? blockedReasons : undefined,
@@ -1517,6 +1602,7 @@ function executeSpecIntakeCommand(
     const payload = parseJsonObject(input.payload);
     if (input.action === "scan_prd_source") {
       const scan = scanSpecSources(project.targetRepoPath, new Date(acceptedAt));
+      const source = selectSpecSource(project.targetRepoPath, payload, scan);
       const evidencePath = writeSpecIntakeArtifact(project.targetRepoPath, "reports", `spec-source-scan-${Date.parse(acceptedAt)}.json`, scan);
       const evidenceId = recordSpecIntakeEvidence(dbPath, {
         path: evidencePath,
@@ -1531,6 +1617,8 @@ function executeSpecIntakeCommand(
         missingCount: scan.missingItems.length,
         conflictCount: scan.conflicts.length,
         clarificationCount: scan.clarificationItems.length,
+        sourcePath: source?.sourcePath,
+        resolvedSourcePath: source?.resolvedSourcePath,
         blockedReasons: [],
       };
     }
@@ -1550,19 +1638,27 @@ function executeSpecIntakeCommand(
           uploadPath,
         },
       });
-      return { evidenceId, evidencePath: uploadPath, uploadedPath: uploadPath, blockedReasons: [] };
+      return {
+        evidenceId,
+        evidencePath: uploadPath,
+        uploadedPath: uploadPath,
+        fileName,
+        sourcePath: uploadPath,
+        resolvedSourcePath: join(project.targetRepoPath, uploadPath),
+        blockedReasons: [],
+      };
     }
 
     const scan = scanSpecSources(project.targetRepoPath, new Date(acceptedAt));
-    const rawInput = resolveSpecInput(project.targetRepoPath, payload, scan);
-    if (!rawInput.trim()) {
+    const resolvedInput = resolveSpecInput(project.targetRepoPath, payload, scan);
+    if (!resolvedInput.content.trim()) {
       return { blockedReasons: ["No readable Spec source content was found for EARS generation."] };
     }
     const featureId = nextGeneratedFeatureId(dbPath);
     const spec = createFeatureSpec({
       featureId,
-      rawInput,
-      sourceType: detectSpecSourceType(optionalString(payload.sourcePath)),
+      rawInput: resolvedInput.content,
+      sourceType: detectSpecSourceType(resolvedInput.sourcePath),
       scanSummary: scan,
       now: new Date(acceptedAt),
     });
@@ -1585,6 +1681,8 @@ function executeSpecIntakeCommand(
       featureId: spec.id,
       evidenceId,
       evidencePath: specArtifactPath,
+      sourcePath: resolvedInput.sourcePath,
+      resolvedSourcePath: resolvedInput.resolvedSourcePath,
       requirementCount: spec.requirements.length,
       status: spec.status,
       blockedReasons: [],
@@ -1671,10 +1769,40 @@ function recordSpecIntakeEvidence(
   return id;
 }
 
-function resolveSpecInput(projectPath: string, payload: Record<string, unknown>, scan: SpecSourceScanSummary): string {
+function selectSpecSource(
+  projectPath: string,
+  payload: Record<string, unknown>,
+  scan: SpecSourceScanSummary,
+): { sourcePath: string; resolvedSourcePath: string } | undefined {
+  const requestedSourcePath = optionalString(payload.sourcePath);
+  const requestedSource = scan.sources.find((source) => source.relativePath === requestedSourcePath);
+  const source = requestedSource
+    ?? scan.sources.find((entry) => entry.fileType === "PRD")
+    ?? scan.sources.find((entry) => entry.fileType === "EARS")
+    ?? scan.sources.find((entry) => entry.fileType === "README")
+    ?? scan.sources[0];
+  if (!source) {
+    return undefined;
+  }
+  return {
+    sourcePath: source.relativePath,
+    resolvedSourcePath: join(projectPath, source.relativePath),
+  };
+}
+
+function resolveSpecInput(
+  projectPath: string,
+  payload: Record<string, unknown>,
+  scan: SpecSourceScanSummary,
+): { content: string; sourcePath?: string; resolvedSourcePath?: string } {
   const uploadedContent = optionalString(payload.contentPreview);
   if (uploadedContent) {
-    return uploadedContent;
+    const sourcePath = optionalString(payload.sourcePath) ?? optionalString(payload.fileName);
+    return {
+      content: uploadedContent,
+      sourcePath,
+      resolvedSourcePath: sourcePath ? join(projectPath, sourcePath) : undefined,
+    };
   }
 
   const requestedSourcePath = optionalString(payload.sourcePath);
@@ -1687,12 +1815,16 @@ function resolveSpecInput(projectPath: string, payload: Record<string, unknown>,
 
   for (const candidate of candidates) {
     try {
-      return readFileSync(join(projectPath, candidate), "utf8");
+      return {
+        content: readFileSync(join(projectPath, candidate), "utf8"),
+        sourcePath: candidate,
+        resolvedSourcePath: join(projectPath, candidate),
+      };
     } catch {
       continue;
     }
   }
-  return "";
+  return { content: "" };
 }
 
 function persistGeneratedFeatureSpec(dbPath: string, projectId: string, spec: FeatureSpec): void {
@@ -2668,6 +2800,9 @@ function arrayValue(value: unknown): unknown[] {
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) {
+    return value;
+  }
   const parsed = parseJson(value);
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
 }

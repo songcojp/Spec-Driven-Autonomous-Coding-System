@@ -527,11 +527,15 @@ export function scanSpecSources(projectPath: string, now = new Date()): SpecSour
   const staticCandidates: Array<[string, SpecSourceFileType]> = [
     ["README.md", "README"],
     ["docs/README.md", "README"],
+    ["docs/PRD.md", "PRD"],
     ["docs/zh-CN/PRD.md", "PRD"],
     ["docs/en/PRD.md", "PRD"],
+    ["docs/requirements.md", "EARS"],
     ["docs/zh-CN/requirements.md", "EARS"],
     ["docs/en/requirements.md", "EARS"],
+    ["docs/hld.md", "HLD"],
     ["docs/zh-CN/hld.md", "HLD"],
+    ["docs/design.md", "design"],
     ["docs/zh-CN/design.md", "design"],
     ["docs/en/requirements.md", "EARS"],
   ];

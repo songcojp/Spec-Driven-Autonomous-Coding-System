@@ -278,12 +278,12 @@ async function installConsoleRoutes(page: Page) {
   await page.route("**/console/dashboard?projectId=project-1", async (route) => route.fulfill({ json: demoData.dashboard }));
   await page.route("**/console/project-overview", async (route) => route.fulfill({ json: demoData.overview }));
   await page.route("**/console/dashboard-board?projectId=project-1", async (route) => route.fulfill({ json: demoData.board }));
-  await page.route("**/console/spec-workspace?projectId=project-1&featureId=FEAT-013", async (route) => route.fulfill({ json: demoData.spec }));
+  await page.route("**/console/spec-workspace?projectId=project-1", async (route) => route.fulfill({ json: demoData.spec }));
   await page.route("**/console/runner?projectId=project-1", async (route) => route.fulfill({ json: demoData.runner }));
   await page.route("**/console/reviews?projectId=project-1", async (route) => route.fulfill({ json: demoData.reviews }));
   await page.route("**/console/dashboard?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.dashboard }));
   await page.route("**/console/dashboard-board?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.board }));
-  await page.route("**/console/spec-workspace?projectId=project-2&featureId=FEAT-013", async (route) => route.fulfill({ json: projectTwoData.spec }));
+  await page.route("**/console/spec-workspace?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.spec }));
   await page.route("**/console/runner?projectId=project-2", async (route) => route.fulfill({ json: demoData.runner }));
   await page.route("**/console/reviews?projectId=project-2", async (route) => route.fulfill({ json: demoData.reviews }));
   await page.route("**/projects/scan", async (route) => {

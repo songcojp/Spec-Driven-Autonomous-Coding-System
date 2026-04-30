@@ -257,6 +257,7 @@ test("scanSpecSources returns scan results for existing project spec files", () 
   mkdirSync(join(root, "docs", "features", "feat-002"), { recursive: true });
 
   writeFileSync(join(root, "README.md"), "# My Project\nREQ-001 is satisfied by FEAT-001.");
+  writeFileSync(join(root, "docs", "PRD.md"), "## Root PRD\n# Goal\nCreate a project from root docs.");
   writeFileSync(join(root, "docs", "zh-CN", "requirements.md"),
     "REQ-001: The system shall create a project.\nREQ-002: The system shall validate input.");
   writeFileSync(join(root, "docs", "zh-CN", "hld.md"), "## HLD\nFEAT-001 covers REQ-001.");
@@ -283,6 +284,7 @@ test("scanSpecSources returns scan results for existing project spec files", () 
   assert.ok(fileTypes.includes("HLD"), "hld.md should be scanned");
   assert.ok(fileTypes.includes("feature-requirements"), "feature requirements should be scanned");
   assert.ok(fileTypes.includes("design"), "feature design should be scanned");
+  assert.ok(summary.sources.some((source) => source.relativePath === "docs/PRD.md" && source.fileType === "PRD"));
   assert.ok(fileTypes.includes("tasks"), "feature tasks should be scanned");
 
   // All returned sources should exist

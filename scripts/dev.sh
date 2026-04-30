@@ -71,11 +71,11 @@ start_services() {
 
   trap cleanup EXIT INT TERM
 
-  echo "Starting SpecDrive AutoBuild backend on http://localhost:${BACKEND_PORT}"
-  npm start -- --port "${BACKEND_PORT}" &
+  echo "Starting SpecDrive AutoBuild backend with hot reload on http://localhost:${BACKEND_PORT}"
+  npm run backend:dev -- --port "${BACKEND_PORT}" &
   BACKEND_PID="$!"
 
-  echo "Starting Product Console frontend on http://localhost:${FRONTEND_PORT}"
+  echo "Starting Product Console frontend with hot reload on http://localhost:${FRONTEND_PORT}"
   CONSOLE_API_BASE_URL="${CONSOLE_API_BASE_URL}" npm run console:dev -- --port "${FRONTEND_PORT}" &
   FRONTEND_PID="$!"
 

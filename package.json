@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "bash scripts/dev.sh",
     "start": "node src/index.ts",
+    "backend:dev": "node --watch src/index.ts",
     "bootstrap": "node src/index.ts --bootstrap-only",
     "console:dev": "vite --host 0.0.0.0 --config apps/product-console/vite.config.ts",
     "console:build": "vite build --config apps/product-console/vite.config.ts",

@@ -32,6 +32,7 @@ export type CommandReceipt = {
   entityId: string;
   projectId?: string;
   acceptedAt: string;
+  featureId?: string;
   blockedReasons?: string[];
 };
 
