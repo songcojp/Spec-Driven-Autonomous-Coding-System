@@ -6,12 +6,23 @@ import { join } from "node:path";
 import { initializeSchema, listTables } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
+  BULLMQ_CLI_RUNNER_QUEUE,
+  BULLMQ_FEATURE_SCHEDULER_QUEUE,
+  CLI_RUNNER_QUEUE,
   createMemoryScheduler,
+  FEATURE_SCHEDULER_QUEUE,
   PLANNING_BRIDGE_NOT_IMPLEMENTED,
   runCliRunJob,
   runFeaturePlanJob,
   runFeatureSelectJob,
 } from "../src/scheduler.ts";
+
+test("BullMQ queue names avoid reserved colon separator while logical queue names stay traceable", () => {
+  assert.equal(FEATURE_SCHEDULER_QUEUE, "specdrive:feature-scheduler");
+  assert.equal(CLI_RUNNER_QUEUE, "specdrive:cli-runner");
+  assert.equal(BULLMQ_FEATURE_SCHEDULER_QUEUE.includes(":"), false);
+  assert.equal(BULLMQ_CLI_RUNNER_QUEUE.includes(":"), false);
+});
 
 test("scheduler schema records BullMQ job metadata", () => {
   const dbPath = makeDbPath();

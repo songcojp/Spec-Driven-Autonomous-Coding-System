@@ -33,6 +33,8 @@ import {
 
 export const FEATURE_SCHEDULER_QUEUE = "specdrive:feature-scheduler";
 export const CLI_RUNNER_QUEUE = "specdrive:cli-runner";
+export const BULLMQ_FEATURE_SCHEDULER_QUEUE = "specdrive-feature-scheduler";
+export const BULLMQ_CLI_RUNNER_QUEUE = "specdrive-cli-runner";
 export const PLANNING_BRIDGE_NOT_IMPLEMENTED = "Planning skill execution bridge is not implemented";
 export const PLANNING_BRIDGE_WORKSPACE_BLOCKED = "Planning skill execution bridge is blocked because the project workspace is unavailable";
 
@@ -105,8 +107,8 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
   connection.on("ready", () => {
     lastError = undefined;
   });
-  const featureQueue = new Queue(FEATURE_SCHEDULER_QUEUE, { connection });
-  const cliQueue = new Queue(CLI_RUNNER_QUEUE, { connection });
+  const featureQueue = new Queue(BULLMQ_FEATURE_SCHEDULER_QUEUE, { connection });
+  const cliQueue = new Queue(BULLMQ_CLI_RUNNER_QUEUE, { connection });
 
   return {
     enqueueFeatureSelect(payload) {
@@ -212,12 +214,12 @@ export async function createSchedulerWorkers(input: {
   connection.on("error", () => undefined);
   const scheduler = input.scheduler ?? createBullMqScheduler(input.dbPath, input.redisUrl);
   const featureWorker = new Worker(
-    FEATURE_SCHEDULER_QUEUE,
+    BULLMQ_FEATURE_SCHEDULER_QUEUE,
     async (job) => dispatchFeatureJob(input.dbPath, scheduler, job),
     { connection },
   );
   const cliWorker = new Worker(
-    CLI_RUNNER_QUEUE,
+    BULLMQ_CLI_RUNNER_QUEUE,
     async (job) => dispatchCliJob(input.dbPath, job, input.runner),
     { connection },
   );
