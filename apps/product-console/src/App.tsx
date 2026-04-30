@@ -67,6 +67,10 @@ const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | "blue">
   queued: "blue",
   pending: "amber",
   review_needed: "amber",
+  transition: "blue",
+  evidence: "blue",
+  approval: "green",
+  recorded: "neutral",
   blocked: "red",
   failed: "red",
 };
@@ -77,8 +81,8 @@ const copy = {
       overview: "全局概况",
       board: "项目主页",
       spec: "Spec 工作台",
-      runner: "Runner",
-      reviews: "审查",
+      runner: "任务调度",
+      reviews: "审计中心",
       settings: "系统设置",
     },
     consoleNavigation: "控制台导航",
@@ -199,7 +203,7 @@ const copy = {
     requestedBy: "请求人",
     command: "命令",
     runner: "Runner",
-    runnerCenter: "Runner",
+    runnerCenter: "任务调度",
     runnerCenterSubtitle: "任务调度中心：统一查看任务排期、执行队列、资源和阻塞审计。",
     online: "在线",
     offline: "离线",
@@ -279,7 +283,23 @@ const copy = {
     action: "操作",
     noEvidence: "无 Evidence",
     retry: "重试",
-    reviewsTitle: (count: number) => `审查 ${count}`,
+    reviewsTitle: (count: number) => `审计中心 ${count}`,
+    auditCenterTitle: "审计中心",
+    auditTimeline: "Audit Timeline",
+    commandReceipts: "命令回执",
+    stateTransitions: "状态转换",
+    blockedCommands: "阻塞命令",
+    acceptedCommands: "接受命令",
+    pendingApprovals: "待处理审批",
+    eventType: "事件类型",
+    eventCommand: "事件 / 命令",
+    job: "Job",
+    eventDetail: "事件详情",
+    linkedEvidence: "关联 Evidence",
+    approvalRecords: "Approval 记录",
+    searchAudit: "搜索 Run / Job / 命令 / 事件ID...",
+    moreFilters: "更多筛选",
+    selectedEvent: "已选事件",
     id: "ID",
     task: "任务",
     status: "状态",
@@ -390,8 +410,8 @@ const copy = {
       overview: "Dashboard",
       board: "Project Home",
       spec: "Spec Workspace",
-      runner: "Runner",
-      reviews: "Reviews",
+      runner: "Task Scheduler",
+      reviews: "Audit Center",
       settings: "Settings",
     },
     consoleNavigation: "Console navigation",
@@ -512,8 +532,8 @@ const copy = {
     requestedBy: "Requested by",
     command: "Command",
     runner: "Runner",
-    runnerCenter: "Runner",
-    runnerCenterSubtitle: "Scheduling center for task queues, execution resources, and blocked audit trails.",
+    runnerCenter: "Task Scheduler",
+    runnerCenterSubtitle: "Task scheduling center for queues, execution resources, and blocked audit trails.",
     online: "Online",
     offline: "Offline",
     heartbeat: "Heartbeat",
@@ -592,7 +612,23 @@ const copy = {
     action: "Action",
     noEvidence: "No evidence",
     retry: "Retry",
-    reviewsTitle: (count: number) => `Reviews ${count}`,
+    reviewsTitle: (count: number) => `Audit Center ${count}`,
+    auditCenterTitle: "Audit Center",
+    auditTimeline: "Audit Timeline",
+    commandReceipts: "Command Receipts",
+    stateTransitions: "State Transitions",
+    blockedCommands: "Blocked Commands",
+    acceptedCommands: "Accepted Commands",
+    pendingApprovals: "Pending Approvals",
+    eventType: "Event Type",
+    eventCommand: "Event / Command",
+    job: "Job",
+    eventDetail: "Event Detail",
+    linkedEvidence: "Linked Evidence",
+    approvalRecords: "Approval Records",
+    searchAudit: "Search Run / Job / command / event ID...",
+    moreFilters: "More Filters",
+    selectedEvent: "Selected Event",
     id: "ID",
     task: "Task",
     status: "Status",
@@ -2285,28 +2321,163 @@ function formatRelativeTime(isoString: string | undefined, locale: Locale): stri
 }
 
 function ReviewsPanel({ data, text, onCommand, busy, compact = false }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean; compact?: boolean }) {
+  const audit = data.audit;
+  const selected = audit.selectedEvent ?? audit.timeline[0];
+  const timeline = audit.timeline.slice(0, compact ? 6 : 12);
   return (
-    <Panel>
-      <SectionTitle title={text.reviewsTitle(data.reviews.items.length)} />
-      {data.reviews.items.length > 0 ? (
-        <div className="overflow-auto">
-          <table className="w-full min-w-[520px] text-left text-[13px]">
-            <thead className="border-b border-line bg-slate-50 text-[12px] text-muted"><tr><th className="px-4 py-3">{text.id}</th><th>{text.task}</th><th>{text.status}</th><th>{text.actions}</th></tr></thead>
-            <tbody>
-              {data.reviews.items.slice(0, compact ? 4 : 12).map((item) => (
-                <tr key={item.id} className="border-b border-line last:border-0">
-                  <td className="px-4 py-3">{item.id}</td>
-                  <td className="py-3">{item.taskId}<div className="text-[12px] text-muted">{item.body}</div></td>
-                  <td className="py-3"><Chip tone={statusTone[item.status] ?? "amber"}>{item.status}</Chip></td>
-                  <td className="py-3"><Button disabled={busy} onClick={() => onCommand("approve_review", "review_item", item.id)}>{text.approve}</Button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div className="space-y-4">
+      <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+          <div>
+            <h1 className="text-[24px] font-semibold tracking-normal">{text.auditCenterTitle}</h1>
+            <div className="mt-2 text-[14px] font-medium text-action">{text.auditTimeline}</div>
+          </div>
+          <div className="flex items-center gap-2 text-[13px] text-muted">
+            <span>UTC+8</span>
+            <Button className="size-9 p-0" aria-label={text.autoRefresh}><RefreshCw size={15} /></Button>
+          </div>
         </div>
-      ) : <EmptyState title={text.noReviews} />}
-    </Panel>
+
+        <div className="grid gap-3 border-b border-line p-4 md:grid-cols-3 xl:grid-cols-6">
+          <AuditMetric label={text.commandReceipts} value={audit.summary.acceptedCommands + audit.summary.blockedCommands} icon={<FileText size={18} />} />
+          <AuditMetric label={text.acceptedCommands} value={audit.summary.acceptedCommands} tone="green" icon={<ShieldCheck size={18} />} />
+          <AuditMetric label={text.blockedCommands} value={audit.summary.blockedCommands} tone="red" icon={<ShieldAlert size={18} />} />
+          <AuditMetric label={text.stateTransitions} value={audit.summary.stateTransitions} tone="blue" icon={<Workflow size={18} />} />
+          <AuditMetric label={text.evidence} value={audit.summary.evidenceCount} tone="blue" icon={<FileText size={18} />} />
+          <AuditMetric label={text.pendingApprovals} value={audit.summary.pendingApprovals} tone="amber" icon={<ClipboardList size={18} />} />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
+          <div className="flex min-w-[280px] flex-1 items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-[13px] text-muted">
+            <Search size={15} />
+            <span>{text.searchAudit}</span>
+          </div>
+          <select className="h-9 rounded-md border border-line bg-white px-3 text-[13px]"><option>{text.status}: {text.all}</option></select>
+          <select className="h-9 rounded-md border border-line bg-white px-3 text-[13px]"><option>{text.eventType}: {text.all}</option></select>
+          <Button tone="quiet"><Search size={14} />{text.moreFilters}</Button>
+        </div>
+
+        <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_430px]">
+          <div className="overflow-auto border-r border-line">
+            {timeline.length > 0 ? (
+              <table className="w-full min-w-[820px] text-left text-[13px]">
+                <thead className="border-b border-line bg-slate-50 text-[12px] text-muted">
+                  <tr><th className="px-4 py-3">{text.receivedAt}</th><th>{text.status}</th><th>{text.eventType}</th><th>{text.eventCommand}</th><th>{text.run}</th><th>{text.job}</th><th>{text.requestedBy}</th></tr>
+                </thead>
+                <tbody>
+                  {timeline.map((event) => (
+                    <tr key={event.id} className={`border-b border-line last:border-0 ${event.id === selected?.id ? "bg-blue-50/70" : "hover:bg-slate-50"}`}>
+                      <td className="px-4 py-3 font-medium text-slate-700">{formatAuditTime(event.occurredAt)}</td>
+                      <td className="py-3"><Chip tone={statusTone[event.status] ?? "neutral"}>{event.status}</Chip></td>
+                      <td className="py-3 text-slate-600">{event.eventType}</td>
+                      <td className="py-3 font-medium">{event.action}</td>
+                      <td className="py-3 text-action">{event.runId ?? text.none}</td>
+                      <td className="py-3 text-action">{event.jobId ?? text.none}</td>
+                      <td className="py-3 text-muted">{event.requestedBy ?? "system"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <EmptyState title={text.noReviews} />}
+          </div>
+
+          <aside className="min-h-[420px] bg-white">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <div className="font-semibold">{text.eventDetail}</div>
+              <Chip tone={statusTone[selected?.status ?? "recorded"] ?? "neutral"}>{selected?.status ?? "recorded"}</Chip>
+            </div>
+            {selected ? (
+              <div className="space-y-3 p-4 text-[13px]">
+                <div className="flex items-center gap-2 text-[15px] font-semibold">
+                  {selected.status === "blocked" ? <ShieldAlert size={18} className="text-red-600" /> : <ShieldCheck size={18} className="text-emerald-600" />}
+                  {text.selectedEvent}
+                </div>
+                <FactList rows={[
+                  [text.id, selected.id],
+                  [text.receivedAt, selected.occurredAt],
+                  [text.requestedBy, selected.requestedBy ?? "system"],
+                  [text.eventType, selected.eventType],
+                  [text.command, selected.action],
+                  [text.status, selected.status],
+                  [text.blockedReasons, selected.blockedReasons[0] ?? selected.reason ?? text.none],
+                  [text.run, selected.runId ?? text.none],
+                  [text.job, selected.jobId ?? text.none],
+                  ["Spec", selected.featureId ?? text.none],
+                  [text.task, selected.taskId ?? text.none],
+                ]} />
+              </div>
+            ) : <EmptyState title={text.noReviews} />}
+          </aside>
+        </div>
+      </Panel>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+        <Panel>
+          <SectionTitle title={`${text.linkedEvidence} (${audit.linkedEvidence.length})`} />
+          <AuditEvidenceTable rows={audit.linkedEvidence} text={text} />
+        </Panel>
+        <Panel>
+          <SectionTitle title={`${text.approvalRecords} (${audit.approvals.length})`} />
+          <AuditApprovalTable rows={audit.approvals} text={text} busy={busy} onCommand={onCommand} />
+        </Panel>
+      </div>
+    </div>
   );
+}
+
+function AuditMetric({ label, value, icon, tone = "neutral" }: { label: string; value: number; icon: ReactNode; tone?: "neutral" | "green" | "amber" | "red" | "blue" }) {
+  const toneClass = tone === "green" ? "text-emerald-600" : tone === "amber" ? "text-amber-600" : tone === "red" ? "text-red-600" : tone === "blue" ? "text-action" : "text-slate-500";
+  return (
+    <div className="rounded-md border border-line bg-white p-3">
+      <div className="flex items-center justify-between gap-3 text-[12px] text-muted"><span>{label}</span><span className={toneClass}>{icon}</span></div>
+      <div className="mt-2 text-[24px] font-semibold tracking-normal">{value.toLocaleString()}</div>
+    </div>
+  );
+}
+
+function AuditEvidenceTable({ rows, text }: { rows: ConsoleData["audit"]["linkedEvidence"]; text: ConsoleCopy }) {
+  if (rows.length === 0) return <EmptyState title={text.noEvidence} />;
+  return (
+    <div className="overflow-auto">
+      <table className="w-full min-w-[520px] text-left text-[13px]">
+        <thead className="border-b border-line bg-slate-50 text-[12px] text-muted"><tr><th className="px-4 py-3">{text.id}</th><th>{text.eventType}</th><th>{text.receivedAt}</th><th>{text.run}</th></tr></thead>
+        <tbody>{rows.map((row) => (
+          <tr key={row.id} className="border-b border-line last:border-0">
+            <td className="px-4 py-3 font-medium text-action">{row.id}</td>
+            <td className="py-3"><Chip tone="blue">{row.kind}</Chip><div className="mt-1 max-w-[320px] truncate text-[12px] text-muted">{row.summary}</div></td>
+            <td className="py-3">{formatAuditTime(row.createdAt)}</td>
+            <td className="py-3 text-action">{row.runId ?? text.none}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function AuditApprovalTable({ rows, text, busy, onCommand }: { rows: ConsoleData["audit"]["approvals"]; text: ConsoleCopy; busy: boolean; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void }) {
+  if (rows.length === 0) return <EmptyState title={text.noReviews} />;
+  return (
+    <div className="overflow-auto">
+      <table className="w-full min-w-[520px] text-left text-[13px]">
+        <thead className="border-b border-line bg-slate-50 text-[12px] text-muted"><tr><th className="px-4 py-3">{text.requestedBy}</th><th>{text.status}</th><th>{text.receivedAt}</th><th>{text.actions}</th></tr></thead>
+        <tbody>{rows.map((row) => (
+          <tr key={row.id} className="border-b border-line last:border-0">
+            <td className="px-4 py-3">{row.actor}</td>
+            <td className="py-3"><Chip tone={statusTone[row.decision] ?? "green"}>{row.decision}</Chip><div className="mt-1 max-w-[260px] truncate text-[12px] text-muted">{row.reason}</div></td>
+            <td className="py-3">{formatAuditTime(row.decidedAt)}</td>
+            <td className="py-3"><Button disabled={busy} onClick={() => onCommand("approve_review", "review_item", row.reviewItemId)}>{text.approve}</Button></td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatAuditTime(value: string): string {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toISOString().slice(11, 19);
 }
 
 function TaskInspector({ task, text, onCommand, busy }: { task?: BoardTask; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {
@@ -2463,10 +2634,14 @@ function SpecWorkspace({
   const featureTasks = data.board.tasks.filter((task) => task.featureId === selected?.id);
   const reviewForFeature = data.reviews.items.find((item) => item.featureId === selected?.id || featureTasks.some((task) => task.id === item.taskId));
   const recentEvidence = [
+    ...data.audit.linkedEvidence
+      .filter((entry) => !selected?.id || entry.runId || entry.id)
+      .map((entry) => ({ id: entry.id, summary: entry.summary, path: entry.path, source: entry.kind })),
     ...data.reviews.items
       .filter((item) => item.featureId === selected?.id || featureTasks.some((task) => task.id === item.taskId))
       .flatMap((item) => item.evidence.map((entry) => ({ ...entry, source: item.id }))),
   ].slice(0, 4);
+  const latestAuditEvent = data.audit.timeline.find((event) => event.featureId === selected?.id || featureTasks.some((task) => task.id === event.taskId)) ?? data.audit.timeline[0];
   const blockedReason = reviewForFeature?.body ?? text.defaultApprovalReason;
   const statusFilters = [
     { key: "all", label: text.all },
@@ -2637,10 +2812,10 @@ function SpecWorkspace({
           <div className="rounded-md border border-line bg-white p-4 text-[13px]">
             <div className="mb-3 text-[15px] font-semibold">{text.audit}</div>
             <FactList rows={[
-              [text.latestCommand, "schedule_run"],
-              [text.receivedAt, "2026-04-29T03:40:00Z"],
-              [text.receiver, "spec-bot"],
-              [text.version, "v1.3.2"],
+              [text.latestCommand, latestAuditEvent?.action ?? text.none],
+              [text.receivedAt, latestAuditEvent?.occurredAt ?? text.none],
+              [text.receiver, latestAuditEvent?.requestedBy ?? "system"],
+              [text.status, latestAuditEvent?.status ?? text.none],
             ]} />
           </div>
         </aside>

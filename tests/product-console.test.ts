@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
+  buildAuditCenterView,
   buildDashboardBoardView,
   buildDashboardQuery,
   buildProjectOverview,
@@ -423,6 +424,13 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.deepEqual(reviews.items[0].diff, { files: ["src/product-console.ts"] });
   assert.deepEqual(reviews.riskFilters, ["high", "medium"]);
   assert.equal(reviews.commands.some((command) => command.action === "write_spec_evolution"), true);
+
+  const audit = buildAuditCenterView(dbPath, "project-1");
+  assert.equal(audit.factSources.includes("audit_timeline_events"), true);
+  assert.equal(audit.timeline.some((event) => event.eventType === "console_command_import_or_create_constitution"), true);
+  assert.equal(audit.timeline.some((event) => event.eventType === "evidence_recorded" && event.evidenceId === "EVID-1"), true);
+  assert.equal(audit.linkedEvidence.some((entry) => entry.id === "EVID-1"), true);
+  assert.equal(audit.summary.pendingApprovals, 1);
 });
 
 test("runner console view model exposes scheduling lanes and recent triggers", () => {

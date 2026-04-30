@@ -10,6 +10,7 @@ function endpoints(projectId: string) {
     runner: `/console/runner?projectId=${encodedProjectId}`,
     settings: "/console/system-settings",
     reviews: `/console/reviews?projectId=${encodedProjectId}`,
+    audit: `/console/audit?projectId=${encodedProjectId}`,
   } as const;
 }
 

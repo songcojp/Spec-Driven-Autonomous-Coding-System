@@ -111,6 +111,58 @@ const overview = {
   factSources: ["projects", "features", "task_graph_tasks", "runs", "runner_heartbeats", "review_items", "metric_samples"],
 } satisfies ConsoleData["overview"];
 
+const returnsAudit = {
+  summary: {
+    totalEvents: 1248,
+    acceptedCommands: 892,
+    blockedCommands: 128,
+    stateTransitions: 186,
+    evidenceCount: 204,
+    pendingApprovals: 42,
+  },
+  timeline: [
+    { id: "AUD-709-APPROVAL", occurredAt: "2026-04-29T14:32:18.000Z", status: "approval", eventType: "approval_recorded", action: "approve_continue", entityType: "review_item", entityId: "REV-318", reason: "auto-approve policy accepted.", requestedBy: "operator", runId: "RUN-709", jobId: "JOB-709", featureId: "FEAT-204", taskId: "T-230", reviewId: "REV-318", blockedReasons: [] },
+    { id: "AUD-709-BLOCKED", occurredAt: "2026-04-29T14:31:47.000Z", status: "blocked", eventType: "console_command_run_board_tasks", action: "console_command_run_board_tasks", entityType: "feature", entityId: "FEAT-204", reason: "Command receipt was blocked.", requestedBy: "operator", runId: "RUN-709", jobId: "JOB-709", featureId: "FEAT-204", taskId: "T-230", evidenceId: "EV-318", blockedReasons: ["依赖服务不可用: board-service timeout"] },
+    { id: "AUD-709-REASON", occurredAt: "2026-04-29T14:31:45.000Z", status: "blocked", eventType: "blocked_reason", action: "依赖服务不可用: board-service timeout", entityType: "task", entityId: "T-230", reason: "Dependency gate blocked execution.", requestedBy: "operator", runId: "RUN-709", jobId: "JOB-709", featureId: "FEAT-204", taskId: "T-230", blockedReasons: ["board-service timeout"] },
+    { id: "AUD-709-TRANSITION", occurredAt: "2026-04-29T14:31:10.000Z", status: "transition", eventType: "state_transition", action: "TASK-READY -> TASK-RUNNING", entityType: "task", entityId: "T-230", reason: "Move approved task into running.", requestedBy: "operator", runId: "RUN-709", jobId: "JOB-709", featureId: "FEAT-204", taskId: "T-230", blockedReasons: [], payload: { fromStatus: "TASK-READY", toStatus: "TASK-RUNNING" } },
+    { id: "AUD-709-EVIDENCE", occurredAt: "2026-04-29T14:29:58.000Z", status: "evidence", eventType: "evidence_recorded", action: "exec_log", entityType: "evidence", entityId: "EV-318", reason: "构建日志已上传", requestedBy: "system", runId: "RUN-709", jobId: "JOB-709", featureId: "FEAT-204", taskId: "T-230", evidenceId: "EV-318", blockedReasons: [] },
+  ],
+  selectedEvent: {
+    id: "AUD-709-BLOCKED",
+    occurredAt: "2026-04-29T14:31:47.000Z",
+    status: "blocked",
+    eventType: "console_command_run_board_tasks",
+    action: "console_command_run_board_tasks",
+    entityType: "feature",
+    entityId: "FEAT-204",
+    reason: "Command receipt was blocked.",
+    requestedBy: "operator",
+    runId: "RUN-709",
+    jobId: "JOB-709",
+    featureId: "FEAT-204",
+    taskId: "T-230",
+    evidenceId: "EV-318",
+    blockedReasons: ["依赖服务不可用: board-service timeout"],
+    previousStatus: "TASK-READY",
+    currentStatus: "TASK-RUNNING",
+    environment: "prod",
+  },
+  linkedEvidence: [
+    { id: "run-709-exec-log.txt", kind: "日志", summary: "CLI execution log", path: ".autobuild/evidence/run-709-exec-log.txt", runId: "RUN-709", createdAt: "2026-04-29T14:31:46.000Z" },
+    { id: "run-709-stderr.txt", kind: "日志", summary: "stderr output", path: ".autobuild/evidence/run-709-stderr.txt", runId: "RUN-709", createdAt: "2026-04-29T14:31:46.000Z" },
+  ],
+  approvals: [
+    { id: "APP-709-AUTO", reviewItemId: "REV-318", actor: "operator", decision: "accepted", reason: "策略: auto-approve", decidedAt: "2026-04-29T14:32:18.000Z" },
+    { id: "APP-709-SYSTEM", reviewItemId: "REV-319", actor: "system", decision: "accepted", reason: "依赖检查通过", decidedAt: "2026-04-29T14:30:02.000Z" },
+  ],
+  filters: {
+    eventTypes: ["approval_recorded", "blocked_reason", "console_command_run_board_tasks", "evidence_recorded", "state_transition"],
+    entityTypes: ["evidence", "feature", "review_item", "task"],
+    statuses: ["approval", "blocked", "evidence", "transition"],
+  },
+  factSources: ["audit_timeline_events", "state_transitions", "evidence_packs", "approval_records", "scheduler_job_records", "runs"],
+} satisfies ConsoleData["audit"];
+
 const returnsPortalData: ConsoleProjectData = {
   overview,
   dashboard: {
@@ -391,6 +443,7 @@ const returnsPortalData: ConsoleProjectData = {
       { id: "REV-319", featureId: "FEAT-204", taskId: "T-229", status: "review_needed", severity: "medium", body: "Carrier label fixture replaces external sandbox for demo stability.", evidence: [{ id: "EV-319", summary: "Fixture decision recorded in contracts.", path: ".autobuild/evidence/REV-319.json" }], approvals: [], createdAt: "2026-04-29T03:28:00.000Z" },
     ],
   },
+  audit: returnsAudit,
 };
 
 const supplyPlannerData: ConsoleProjectData = {
@@ -445,6 +498,11 @@ const supplyPlannerData: ConsoleProjectData = {
       { id: "REV-402", featureId: "FEAT-311", taskId: "T-403", status: "review_needed", severity: "medium", body: "Forecast override policy needs operations approval.", evidence: [{ id: "EV-402", summary: "Override policy diff attached.", path: ".autobuild/evidence/REV-402.json" }], approvals: [], createdAt: "2026-04-29T02:18:00.000Z" },
     ],
   },
+  audit: {
+    ...returnsAudit,
+    summary: { ...returnsAudit.summary, totalEvents: 418, acceptedCommands: 301, blockedCommands: 37, pendingApprovals: 9 },
+    timeline: returnsAudit.timeline.map((event) => ({ ...event, featureId: "FEAT-311", taskId: "T-403", entityId: event.entityType === "feature" ? "FEAT-311" : event.entityId })),
+  },
 };
 
 const emptyProjectData: ConsoleProjectData = {
@@ -455,6 +513,7 @@ const emptyProjectData: ConsoleProjectData = {
   runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, schedulerJobs: [], lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], adapterSummary: returnsPortalData.runner.adapterSummary, runners: [] },
   settings,
   reviews: { items: [], riskFilters: [] },
+  audit: { summary: { totalEvents: 0, acceptedCommands: 0, blockedCommands: 0, stateTransitions: 0, evidenceCount: 0, pendingApprovals: 0 }, timeline: [], linkedEvidence: [], approvals: [], filters: { eventTypes: [], entityTypes: [], statuses: [] }, factSources: [] },
 };
 
 const projectData: Record<string, ConsoleProjectData> = {

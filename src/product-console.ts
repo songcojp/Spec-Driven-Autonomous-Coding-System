@@ -416,6 +416,49 @@ export type ReviewCenterViewModel = {
   commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
 };
 
+export type AuditCenterViewModel = {
+  summary: {
+    totalEvents: number;
+    acceptedCommands: number;
+    blockedCommands: number;
+    stateTransitions: number;
+    evidenceCount: number;
+    pendingApprovals: number;
+  };
+  timeline: Array<{
+    id: string;
+    occurredAt: string;
+    status: "accepted" | "blocked" | "transition" | "evidence" | "approval" | "recorded";
+    eventType: string;
+    action: string;
+    entityType: string;
+    entityId: string;
+    reason: string;
+    requestedBy?: string;
+    runId?: string;
+    jobId?: string;
+    featureId?: string;
+    taskId?: string;
+    evidenceId?: string;
+    reviewId?: string;
+    blockedReasons: string[];
+    payload?: Record<string, unknown>;
+  }>;
+  selectedEvent?: AuditCenterViewModel["timeline"][number] & {
+    previousStatus?: string;
+    currentStatus?: string;
+    environment?: string;
+  };
+  linkedEvidence: Array<{ id: string; kind: string; summary: string; path?: string; runId?: string; createdAt: string }>;
+  approvals: Array<{ id: string; reviewItemId: string; actor: string; decision: string; reason: string; decidedAt: string }>;
+  filters: {
+    eventTypes: string[];
+    entityTypes: string[];
+    statuses: string[];
+  };
+  factSources: string[];
+};
+
 const BOARD_COLUMNS = new Set([
   "backlog",
   "ready",
@@ -1523,6 +1566,250 @@ export function buildReviewCenterView(dbPath: string, projectId?: string): Revie
       { action: "mark_review_complete", entityType: "review_item" },
       { action: "write_project_rule", entityType: "rule" },
       { action: "write_spec_evolution", entityType: "spec" },
+    ],
+  };
+}
+
+export function buildAuditCenterView(dbPath: string, projectId?: string): AuditCenterViewModel {
+  const featureFilter = projectId ? "WHERE project_id = ?" : "";
+  const result = runSqlite(dbPath, [], [
+    { name: "features", sql: `SELECT id, project_id FROM features ${featureFilter}`, params: projectId ? [projectId] : [] },
+    { name: "tasks", sql: "SELECT id, feature_id FROM tasks" },
+    { name: "graphTasks", sql: "SELECT id, feature_id FROM task_graph_tasks" },
+    { name: "runs", sql: "SELECT id, task_id, feature_id, project_id, status, metadata_json, started_at, completed_at FROM runs ORDER BY COALESCE(completed_at, started_at, '') DESC, id" },
+    { name: "reviews", sql: "SELECT id, project_id, feature_id, task_id, status, severity, body, created_at FROM review_items ORDER BY created_at DESC, rowid DESC" },
+    {
+      name: "audit",
+      sql: `SELECT rowid AS rowid, id, entity_type, entity_id, event_type, source, reason, payload_json, created_at
+        FROM audit_timeline_events
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 200`,
+    },
+    {
+      name: "transitions",
+      sql: `SELECT id, entity_type, entity_id, from_status, to_status, reason, evidence, triggered_by, occurred_at
+        FROM state_transitions
+        ORDER BY occurred_at DESC, rowid DESC
+        LIMIT 120`,
+    },
+    {
+      name: "evidence",
+      sql: `SELECT id, run_id, task_id, feature_id, kind, summary, path, metadata_json, created_at
+        FROM evidence_packs
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 80`,
+    },
+    {
+      name: "approvals",
+      sql: `SELECT ar.id, ar.review_item_id, ar.decision, ar.actor, ar.reason, ar.decided_at, ar.created_at, ri.project_id, ri.feature_id, ri.task_id
+        FROM approval_records ar
+        JOIN review_items ri ON ri.id = ar.review_item_id
+        ORDER BY COALESCE(ar.decided_at, ar.created_at) DESC, ar.rowid DESC
+        LIMIT 80`,
+    },
+    {
+      name: "schedulerJobs",
+      sql: `SELECT id, bullmq_job_id, queue_name, job_type, target_type, target_id, status, payload_json, error, updated_at
+        FROM scheduler_job_records
+        ORDER BY updated_at DESC, rowid DESC
+        LIMIT 80`,
+    },
+  ]);
+
+  const scopedFeatureIds = new Set(result.queries.features.map((row) => String(row.id)));
+  const taskRows = [...result.queries.tasks, ...result.queries.graphTasks];
+  const taskFeatureById = new Map(taskRows.map((row) => [String(row.id), optionalString(row.feature_id)]));
+  const scopedTaskIds = new Set(taskRows
+    .filter((row) => !projectId || scopedFeatureIds.has(String(row.feature_id)))
+    .map((row) => String(row.id)));
+  const scopedRunIds = new Set(result.queries.runs
+    .filter((row) => auditRowBelongsToProject({
+      entityType: "run",
+      entityId: String(row.id),
+      projectId,
+      payload: parseJsonObject(row.metadata_json),
+      featureIds: scopedFeatureIds,
+      taskIds: scopedTaskIds,
+      runRows: result.queries.runs,
+      reviewRows: result.queries.reviews,
+      taskFeatureById,
+    }))
+    .map((row) => String(row.id)));
+
+  const scope = {
+    projectId,
+    featureIds: scopedFeatureIds,
+    taskIds: scopedTaskIds,
+    runRows: result.queries.runs,
+    reviewRows: result.queries.reviews,
+    taskFeatureById,
+  };
+  const auditRows = result.queries.audit.filter((row) => auditRowBelongsToProject({
+    ...scope,
+    entityType: String(row.entity_type),
+    entityId: String(row.entity_id),
+    payload: parseJsonObject(row.payload_json),
+  }));
+  const transitionRows = result.queries.transitions.filter((row) => auditRowBelongsToProject({
+    ...scope,
+    entityType: String(row.entity_type),
+    entityId: String(row.entity_id),
+    payload: {},
+  }));
+  const evidenceRows = result.queries.evidence.filter((row) =>
+    (!projectId && true)
+    || scopedFeatureIds.has(String(row.feature_id))
+    || scopedTaskIds.has(String(row.task_id))
+    || scopedRunIds.has(String(row.run_id))
+  );
+  const approvalRows = result.queries.approvals.filter((row) =>
+    (!projectId && true)
+    || optionalString(row.project_id) === projectId
+    || scopedFeatureIds.has(String(row.feature_id))
+    || scopedTaskIds.has(String(row.task_id))
+  );
+  const schedulerRows = result.queries.schedulerJobs.filter((row) => auditRowBelongsToProject({
+    ...scope,
+    entityType: String(row.target_type),
+    entityId: String(row.target_id ?? ""),
+    payload: parseJsonObject(row.payload_json),
+  }));
+
+  const commandEvents = auditRows.map((row) => auditEventToTimeline(row));
+  const transitionEvents = transitionRows.map((row) => ({
+    id: String(row.id),
+    occurredAt: String(row.occurred_at),
+    status: "transition" as const,
+    eventType: "state_transition",
+    action: `${String(row.from_status)} -> ${String(row.to_status)}`,
+    entityType: String(row.entity_type),
+    entityId: String(row.entity_id),
+    reason: String(row.reason),
+    requestedBy: optionalString(row.triggered_by),
+    runId: String(row.evidence).startsWith("RUN-") ? String(row.evidence) : undefined,
+    jobId: undefined,
+    featureId: String(row.entity_type) === "feature" ? String(row.entity_id) : taskFeatureById.get(String(row.entity_id)),
+    taskId: String(row.entity_type) === "task" ? String(row.entity_id) : undefined,
+    evidenceId: optionalString(row.evidence),
+    reviewId: undefined,
+    blockedReasons: [],
+    payload: { fromStatus: row.from_status, toStatus: row.to_status, evidence: row.evidence },
+  }));
+  const evidenceEvents = evidenceRows.map((row) => ({
+    id: String(row.id),
+    occurredAt: String(row.created_at),
+    status: "evidence" as const,
+    eventType: "evidence_recorded",
+    action: String(row.kind),
+    entityType: "evidence",
+    entityId: String(row.id),
+    reason: String(row.summary ?? ""),
+    requestedBy: undefined,
+    runId: optionalString(row.run_id),
+    jobId: undefined,
+    featureId: optionalString(row.feature_id),
+    taskId: optionalString(row.task_id),
+    evidenceId: String(row.id),
+    reviewId: undefined,
+    blockedReasons: [],
+    payload: parseJsonObject(row.metadata_json),
+  }));
+  const approvalEvents = approvalRows.map((row) => ({
+    id: String(row.id),
+    occurredAt: String(row.decided_at ?? row.created_at),
+    status: "approval" as const,
+    eventType: "approval_recorded",
+    action: String(row.decision),
+    entityType: "review_item",
+    entityId: String(row.review_item_id),
+    reason: String(row.reason ?? ""),
+    requestedBy: optionalString(row.actor),
+    runId: undefined,
+    jobId: undefined,
+    featureId: optionalString(row.feature_id),
+    taskId: optionalString(row.task_id),
+    evidenceId: undefined,
+    reviewId: String(row.review_item_id),
+    blockedReasons: [],
+    payload: { decision: row.decision },
+  }));
+  const schedulerEvents = schedulerRows.map((row) => ({
+    id: String(row.id),
+    occurredAt: String(row.updated_at),
+    status: String(row.status) === "failed" || optionalString(row.error) ? "blocked" as const : "recorded" as const,
+    eventType: "scheduler_job",
+    action: String(row.job_type),
+    entityType: String(row.target_type),
+    entityId: String(row.target_id ?? ""),
+    reason: optionalString(row.error) ?? String(row.status),
+    requestedBy: undefined,
+    runId: optionalString(parseJsonObject(row.payload_json).runId),
+    jobId: String(row.id),
+    featureId: optionalString(parseJsonObject(row.payload_json).featureId),
+    taskId: optionalString(parseJsonObject(row.payload_json).taskId),
+    evidenceId: undefined,
+    reviewId: undefined,
+    blockedReasons: optionalString(row.error) ? [String(row.error)] : [],
+    payload: parseJsonObject(row.payload_json),
+  }));
+
+  const timeline = [...commandEvents, ...transitionEvents, ...evidenceEvents, ...approvalEvents, ...schedulerEvents]
+    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id))
+    .slice(0, 80);
+  const selectedEvent = timeline.find((event) => event.status === "blocked") ?? timeline[0];
+
+  return {
+    summary: {
+      totalEvents: timeline.length,
+      acceptedCommands: commandEvents.filter((event) => event.status === "accepted").length,
+      blockedCommands: commandEvents.filter((event) => event.status === "blocked").length,
+      stateTransitions: transitionEvents.length,
+      evidenceCount: evidenceRows.length,
+      pendingApprovals: result.queries.reviews.filter((row) =>
+        String(row.status) === "review_needed"
+        && auditRowBelongsToProject({
+          ...scope,
+          entityType: "review_item",
+          entityId: String(row.id),
+          payload: {},
+        })
+      ).length,
+    },
+    timeline,
+    selectedEvent: selectedEvent ? {
+      ...selectedEvent,
+      previousStatus: optionalString(selectedEvent.payload?.fromStatus),
+      currentStatus: optionalString(selectedEvent.payload?.toStatus),
+      environment: optionalString(selectedEvent.payload?.environment) ?? "local",
+    } : undefined,
+    linkedEvidence: evidenceRows.slice(0, 12).map((row) => ({
+      id: String(row.id),
+      kind: String(row.kind),
+      summary: String(row.summary ?? ""),
+      path: optionalString(row.path),
+      runId: optionalString(row.run_id),
+      createdAt: String(row.created_at),
+    })),
+    approvals: approvalRows.slice(0, 12).map((row) => ({
+      id: String(row.id),
+      reviewItemId: String(row.review_item_id),
+      actor: String(row.actor ?? "system"),
+      decision: String(row.decision),
+      reason: String(row.reason ?? ""),
+      decidedAt: String(row.decided_at ?? row.created_at),
+    })),
+    filters: {
+      eventTypes: [...new Set(timeline.map((event) => event.eventType))].sort(),
+      entityTypes: [...new Set(timeline.map((event) => event.entityType))].sort(),
+      statuses: [...new Set(timeline.map((event) => event.status))].sort(),
+    },
+    factSources: [
+      "audit_timeline_events",
+      "state_transitions",
+      "evidence_packs",
+      "approval_records",
+      "scheduler_job_records",
+      "runs",
     ],
   };
 }
@@ -2850,6 +3137,119 @@ function filterRunnerAuditEvents(
       || (projectId !== undefined && optionalString(payload.projectId) === projectId)
     );
   });
+}
+
+function auditEventToTimeline(row: Record<string, unknown>): AuditCenterViewModel["timeline"][number] {
+  const payload = parseJsonObject(row.payload_json);
+  const boardValidation = parseJsonObject(payload.boardValidation);
+  const boardResult = parseJsonObject(payload.boardResult);
+  const status = auditStatusFromPayload(payload, boardValidation);
+  const commandPayload = parseJsonObject(payload.payload);
+  return {
+    id: String(row.id),
+    occurredAt: String(row.created_at),
+    status,
+    eventType: String(row.event_type),
+    action: String(row.event_type).replace(/^console_command_/, ""),
+    entityType: String(row.entity_type),
+    entityId: String(row.entity_id),
+    reason: String(row.reason ?? ""),
+    requestedBy: optionalString(payload.requestedBy),
+    runId: optionalString(payload.runId) ?? arrayValue(boardResult.runIds)[0]?.toString() ?? optionalString(commandPayload.runId),
+    jobId: optionalString(payload.schedulerJobId) ?? arrayValue(payload.schedulerJobIds)[0]?.toString() ?? arrayValue(boardResult.schedulerJobIds)[0]?.toString(),
+    featureId: optionalString(payload.featureId) ?? optionalString(commandPayload.featureId),
+    taskId: arrayValue(commandPayload.taskIds)[0]?.toString() ?? optionalString(commandPayload.taskId),
+    evidenceId: optionalString(payload.evidenceId) ?? optionalString(commandPayload.evidenceId),
+    reviewId: optionalString(payload.approvalRecordId) ?? optionalString(commandPayload.reviewItemId),
+    blockedReasons: [
+      ...arrayValue(boardValidation.blockedReasons).map(String),
+      ...arrayValue(boardResult.blockedReasons).map(String),
+    ],
+    payload,
+  };
+}
+
+function auditStatusFromPayload(
+  payload: Record<string, unknown>,
+  boardValidation: Record<string, unknown>,
+): AuditCenterViewModel["timeline"][number]["status"] {
+  const explicit = optionalString(payload.status);
+  if (explicit === "accepted" || explicit === "blocked") {
+    return explicit;
+  }
+  const blockedReasons = [
+    ...arrayValue(boardValidation.blockedReasons),
+    ...arrayValue(parseJsonObject(payload.boardResult).blockedReasons),
+    ...arrayValue(parseJsonObject(payload.specIntake).blockedReasons),
+    ...arrayValue(parseJsonObject(payload.projectInitialization).blockedReasons),
+  ];
+  if (blockedReasons.length > 0) {
+    return "blocked";
+  }
+  return String(payload.eventType ?? "").includes("approval") ? "approval" : "accepted";
+}
+
+function auditRowBelongsToProject(input: {
+  entityType: string;
+  entityId: string;
+  projectId?: string;
+  payload: Record<string, unknown>;
+  featureIds: Set<string>;
+  taskIds: Set<string>;
+  runRows: Record<string, unknown>[];
+  reviewRows: Record<string, unknown>[];
+  taskFeatureById: Map<string, string | undefined>;
+}): boolean {
+  if (!input.projectId) {
+    return true;
+  }
+  if (input.entityType === "project") {
+    return input.entityId === input.projectId;
+  }
+  if (optionalString(input.payload.projectId) === input.projectId) {
+    return true;
+  }
+  const payloadFeatureId = optionalString(input.payload.featureId);
+  if (payloadFeatureId && input.featureIds.has(payloadFeatureId)) {
+    return true;
+  }
+  const payloadTaskId = optionalString(input.payload.taskId) ?? arrayValue(input.payload.taskIds)[0]?.toString();
+  if (payloadTaskId && input.taskIds.has(payloadTaskId)) {
+    return true;
+  }
+  const payloadRunId = optionalString(input.payload.runId) ?? arrayValue(input.payload.runIds)[0]?.toString();
+  if (payloadRunId && runBelongsToProject(input.runRows, payloadRunId, input.projectId, input.featureIds, input.taskIds)) {
+    return true;
+  }
+  if (input.entityType === "feature") {
+    return input.featureIds.has(input.entityId);
+  }
+  if (input.entityType === "task") {
+    return input.taskIds.has(input.entityId) || input.featureIds.has(input.taskFeatureById.get(input.entityId) ?? "");
+  }
+  if (input.entityType === "run") {
+    return runBelongsToProject(input.runRows, input.entityId, input.projectId, input.featureIds, input.taskIds);
+  }
+  if (input.entityType === "review_item") {
+    const review = input.reviewRows.find((row) => String(row.id) === input.entityId);
+    return optionalString(review?.project_id) === input.projectId
+      || input.featureIds.has(String(review?.feature_id ?? ""))
+      || input.taskIds.has(String(review?.task_id ?? ""));
+  }
+  return false;
+}
+
+function runBelongsToProject(
+  rows: Record<string, unknown>[],
+  runId: string,
+  projectId: string,
+  featureIds: Set<string>,
+  taskIds: Set<string>,
+): boolean {
+  const row = rows.find((entry) => String(entry.id) === runId);
+  return optionalString(row?.project_id) === projectId
+    || featureIds.has(String(row?.feature_id ?? ""))
+    || taskIds.has(String(row?.task_id ?? ""));
 }
 
 function latestRunnerStatuses(rows: Record<string, unknown>[]): Record<string, unknown>[] {

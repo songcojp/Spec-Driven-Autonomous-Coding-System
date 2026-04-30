@@ -334,6 +334,49 @@ export type ReviewModel = {
   riskFilters: string[];
 };
 
+export type AuditModel = {
+  summary: {
+    totalEvents: number;
+    acceptedCommands: number;
+    blockedCommands: number;
+    stateTransitions: number;
+    evidenceCount: number;
+    pendingApprovals: number;
+  };
+  timeline: Array<{
+    id: string;
+    occurredAt: string;
+    status: "accepted" | "blocked" | "transition" | "evidence" | "approval" | "recorded";
+    eventType: string;
+    action: string;
+    entityType: string;
+    entityId: string;
+    reason: string;
+    requestedBy?: string;
+    runId?: string;
+    jobId?: string;
+    featureId?: string;
+    taskId?: string;
+    evidenceId?: string;
+    reviewId?: string;
+    blockedReasons: string[];
+    payload?: Record<string, unknown>;
+  }>;
+  selectedEvent?: AuditModel["timeline"][number] & {
+    previousStatus?: string;
+    currentStatus?: string;
+    environment?: string;
+  };
+  linkedEvidence: Array<{ id: string; kind: string; summary: string; path?: string; runId?: string; createdAt: string }>;
+  approvals: Array<{ id: string; reviewItemId: string; actor: string; decision: string; reason: string; decidedAt: string }>;
+  filters: {
+    eventTypes: string[];
+    entityTypes: string[];
+    statuses: string[];
+  };
+  factSources: string[];
+};
+
 export type ConsoleData = {
   projects: {
     currentProjectId: string;
@@ -346,4 +389,5 @@ export type ConsoleData = {
   runner: RunnerModel;
   settings: SystemSettingsModel;
   reviews: ReviewModel;
+  audit: AuditModel;
 };

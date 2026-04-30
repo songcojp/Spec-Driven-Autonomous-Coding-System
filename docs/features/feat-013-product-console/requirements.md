@@ -43,6 +43,7 @@ Spec Evolution:
 - System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
 - Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler/Run、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
+- Audit Center 页面展示审计摘要、Audit Timeline、命令回执、阻塞原因、状态转换、Evidence、Run、Job 和 Approval 关联记录，并使用 `docs/ui/audit-center-concept.png` 作为实现基线。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。
 - Product Console 必须默认使用中文界面，并提供可见语言切换入口；切换范围覆盖导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息。
 
@@ -109,6 +110,7 @@ Spec Evolution:
 - [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
 - [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
 - [ ] Runner Console 浏览器级验证覆盖调度流水线、`specdrive:feature-scheduler`、`specdrive:cli-runner`、任务队列表格、scheduler job inspector、workspace、Runner heartbeat、blocked reason 或 Evidence 摘要。
+- [ ] Audit Center 浏览器级验证覆盖审计摘要、Audit Timeline、事件详情、阻塞原因、Evidence / Approval 关联记录和英文 `Audit Center` 文案。
 - [ ] CLI Adapter 表单编辑和原始 JSON 编辑共享同一份配置事实源，切换编辑模式不得丢失未保存修改。
 - [ ] 浏览器级验证覆盖 CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存和无效配置不影响 running Run 的反馈。
 - [ ] 浏览器级验证覆盖 Spec Workspace / Task Board 执行动作返回 scheduler job、run id、workspace、skill phase、blocked reason 和 Evidence 摘要。

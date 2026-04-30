@@ -40,3 +40,4 @@
 - [x] TASK-037: 保存 Runner / Task Scheduler UI 概念图到 `docs/ui/task-scheduler-console-concept.png`，并在 FEAT-013 设计中登记为实现基线。
 - [x] TASK-038: 按概念图升级 Runner Console，展示 scheduler pipeline、BullMQ queue、任务队列表格、scheduler job inspector、recent triggers、Evidence 和日志。
 - [x] TASK-039: 更新 Product Console 浏览器验证，覆盖 scheduler pipeline、queue、job inspector、workspace、blocked reason / Evidence 摘要和 command receipt。
+- [x] TASK-040: 保存 Audit Center UI 概念图到 `docs/ui/audit-center-concept.png`，并按概念图升级审计中心，展示审计摘要、筛选工具栏、时间线、事件详情、Evidence 和 Approval 关联记录。

@@ -21,11 +21,11 @@ test("renders the console first screen and navigates across all pages", async ({
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
   await expect(page.getByRole("row", { name: /Northwind Supply Planner/ })).toBeVisible();
 
-  for (const label of ["项目主页", "Spec 工作台", "Runner", "审查", "全局概况"]) {
+  for (const label of ["项目主页", "Spec 工作台", "任务调度", "审计中心", "全局概况"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
-    const heading = label === "审查" ? /审查 \d+/ : label === "Spec 工作台" ? "Feature Spec" : label;
+    const heading = label === "审计中心" ? "审计中心" : label === "Spec 工作台" ? "Feature Spec" : label;
     await expect(page.getByRole("heading", { name: heading, exact: typeof heading === "string" })).toBeVisible();
-    if (label === "Runner") {
+    if (label === "任务调度") {
       await expect(page.getByText("任务调度中心")).toBeVisible();
       await expect(page.getByRole("heading", { name: "调度流水线" })).toBeVisible();
       await expect(page.getByText("feature.select").first()).toBeVisible();
@@ -49,6 +49,17 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByText("Project workspace is missing readable AGENTS.md")).toBeVisible();
       await page.getByRole("button", { name: "运行 T-229" }).first().click();
       await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
+    }
+    if (label === "审计中心") {
+      await expect(page.getByText("Audit Timeline")).toBeVisible();
+      await expect(page.getByText("命令回执")).toBeVisible();
+      await expect(page.getByText("阻塞命令")).toBeVisible();
+      await expect(page.getByText("console_command_run_board_tasks").first()).toBeVisible();
+      await expect(page.getByText("RUN-709").first()).toBeVisible();
+      await expect(page.getByText("JOB-709").first()).toBeVisible();
+      await expect(page.getByText("依赖服务不可用: board-service timeout").first()).toBeVisible();
+      await expect(page.getByText("关联 Evidence")).toBeVisible();
+      await expect(page.getByText("Approval 记录")).toBeVisible();
     }
   }
 });
@@ -75,7 +86,7 @@ test("supports collapsible navigation and keeps the content header fixed", async
 test("omits the project metric summary strip from workbench pages", async ({ page }) => {
   await page.goto("/");
 
-  for (const label of ["Spec 工作台", "Runner", "审查"]) {
+  for (const label of ["Spec 工作台", "任务调度", "审计中心"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     await expect(page.getByText("项目健康")).toHaveCount(0);
     await expect(page.getByText("本月成本")).toHaveCount(0);
@@ -88,12 +99,16 @@ test("defaults to Chinese and persists language switching", async ({ page }) => 
   await expect(page.getByLabel("语言")).toHaveValue("zh-CN");
   await expect(page.getByRole("button", { name: "全局概况", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "项目主页", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "任务调度", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "审计中心", exact: true })).toBeVisible();
   await expect(page.getByText("项目总数")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
   await page.getByLabel("语言").selectOption("en");
   await expect(page.getByRole("button", { name: "Dashboard", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Project Home", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Task Scheduler", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Audit Center", exact: true })).toBeVisible();
   await expect(page.getByText("Total Projects")).toBeVisible();
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
 
@@ -297,11 +312,13 @@ async function installConsoleRoutes(page: Page) {
   await page.route("**/console/spec-workspace?projectId=project-1", async (route) => route.fulfill({ json: demoData.spec }));
   await page.route("**/console/runner?projectId=project-1", async (route) => route.fulfill({ json: demoData.runner }));
   await page.route("**/console/reviews?projectId=project-1", async (route) => route.fulfill({ json: demoData.reviews }));
+  await page.route("**/console/audit?projectId=project-1", async (route) => route.fulfill({ json: demoData.audit }));
   await page.route("**/console/dashboard?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.dashboard }));
   await page.route("**/console/dashboard-board?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.board }));
   await page.route("**/console/spec-workspace?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.spec }));
   await page.route("**/console/runner?projectId=project-2", async (route) => route.fulfill({ json: demoData.runner }));
   await page.route("**/console/reviews?projectId=project-2", async (route) => route.fulfill({ json: demoData.reviews }));
+  await page.route("**/console/audit?projectId=project-2", async (route) => route.fulfill({ json: demoData.audit }));
   await page.route("**/projects/scan", async (route) => {
     const body = route.request().postDataJSON() as { targetRepoPath?: string };
     await route.fulfill({
