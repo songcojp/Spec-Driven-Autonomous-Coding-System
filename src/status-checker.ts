@@ -120,6 +120,7 @@ export type StatusCheckerInput = {
   taskId?: string;
   featureId?: string;
   projectId?: string;
+  /** Current project's repository directory. Spec-flow artifacts must not fall back to the AutoBuild runtime cwd. */
   workspaceRoot?: string;
   artifactRoot?: string;
   dbPath?: string;
@@ -905,7 +906,7 @@ function evidenceWriteFailureStatus(status: StatusDecision): StatusDecision {
 function resolveArtifactRoot(input: StatusCheckerInput): string {
   if (input.artifactRoot) return input.artifactRoot;
   if (input.workspaceRoot) return join(input.workspaceRoot, ".autobuild");
-  return join(process.cwd(), ".autobuild");
+  throw new Error("Status checker requires current project directory (workspaceRoot) or explicit artifactRoot.");
 }
 
 function resolveAttachmentPath(input: StatusCheckerInput, path: string): string {
@@ -917,7 +918,7 @@ function resolveAttachmentPath(input: StatusCheckerInput, path: string): string 
     }
   }
   if (input.workspaceRoot) return join(input.workspaceRoot, path);
-  return join(process.cwd(), path);
+  throw new Error("Attachment paths require current project directory (workspaceRoot) or explicit artifactRoot.");
 }
 
 function resolveAttachmentRefs(input: StatusCheckerInput): EvidenceAttachmentRef[] {

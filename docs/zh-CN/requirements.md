@@ -732,7 +732,7 @@ THE SYSTEM SHALL 默认使用中文界面，并提供可见的语言切换入口
 优先级：Must
 
 WHEN 用户在 Product Console 创建、导入、查看或切换 AutoBuild 项目
-THE SYSTEM SHALL 维护项目目录和当前项目上下文，并自动完成项目记录、仓库探测或连接、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文初始化，确保所有项目级查询、受控命令、Project Memory 投影、调度入口、审计事件和反馈提示都绑定到当前项目。
+THE SYSTEM SHALL 维护项目目录和当前项目上下文，并自动完成项目记录、仓库探测或连接、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文初始化，确保所有项目级查询、受控命令、Project Memory 投影、调度入口、审计事件和反馈提示都绑定到当前项目；Spec 流程产生的扫描、上传、生成、调度、状态检查和 Evidence / Memory 写入必须以当前项目目录作为根目录，不得退回到 AutoBuild 自身运行目录。
 
 验收：
 - [ ] 用户可以通过项目创建表单创建新项目，新项目目录必须位于统一 `workspace/` 目录下。
@@ -740,6 +740,7 @@ THE SYSTEM SHALL 维护项目目录和当前项目上下文，并自动完成项
 - [ ] 用户可以创建或导入多个项目，并在项目列表中看到每个项目的名称、项目目录、仓库摘要、健康状态和最近活动时间。
 - [ ] 用户切换项目后，Dashboard、Spec Workspace、Runner Console、Review Center 和 Board 都只展示当前项目的数据。
 - [ ] 项目级受控命令必须携带当前 `project_id`；缺少或不匹配时不得执行，并返回可观察的阻塞原因。
+- [ ] Spec 流程所有文件读写、命令执行和证据路径解析必须使用当前项目目录或其 `.autobuild/`，不得使用 Product Console / AutoBuild 进程的运行目录作为兜底。
 - [ ] Project Memory 注入、Feature 选择、调度运行和 Evidence 查询不得跨项目复用状态。
 - [ ] 阶段 1 自动初始化失败时，系统返回具体阻塞原因，不要求用户在 Product Console 中逐步手动执行初始化子步骤。
 

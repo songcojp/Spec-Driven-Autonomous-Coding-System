@@ -22,7 +22,7 @@ Spec Evolution:
 ## Scope
 
 - Dashboard 展示项目健康度、当前活跃 Feature、看板任务数量、活跃外部运行、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
-- Product Console App Shell 提供导入现有项目入口、新建项目表单、项目列表和当前项目切换控件；当前项目上下文驱动所有页面查询和受控命令。
+- Product Console App Shell 提供导入现有项目入口、新建项目表单、项目列表和当前项目切换控件；当前项目上下文驱动所有页面查询和受控命令，Spec 流程的文件读写、命令执行、状态检查、Evidence 和 Project Memory 操作必须解析到当前项目目录，而不是 Product Console / AutoBuild 进程运行目录。
 - Project Home 是当前单个项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并在页面内提供 Task Board 分区。
 - Task Board 分区支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。

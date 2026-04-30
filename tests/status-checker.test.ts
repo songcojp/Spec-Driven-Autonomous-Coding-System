@@ -725,6 +725,25 @@ test("artifact-root evidence paths can be reused as later attachment references"
   assert.equal(rows[0].checksum, createHash("sha256").update(readFileSync(join(root, first.evidencePath ?? ""))).digest("hex"));
 });
 
+test("status checks require the current project root instead of falling back to runtime cwd", () => {
+  const runtimeRoot = mkdtempSync(join(tmpdir(), "feat-009-runtime-cwd-"));
+  const previousCwd = process.cwd();
+  try {
+    process.chdir(runtimeRoot);
+    const result = runStatusCheck({
+      ...baseInput(runtimeRoot),
+      workspaceRoot: undefined,
+      artifactRoot: undefined,
+    });
+
+    assert.equal(result.status, "blocked");
+    assert.match(result.evidenceWriteError ?? "", /current project directory/);
+    assert.equal(existsSync(join(runtimeRoot, ".autobuild")), false);
+  } finally {
+    process.chdir(previousCwd);
+  }
+});
+
 test("attachments prefer artifact root for generated evidence when workspace root is also set", () => {
   const root = mkdtempSync(join(tmpdir(), "feat-009-mixed-roots-"));
   const artifactRoot = join(root, "external-artifacts", ".autobuild");
