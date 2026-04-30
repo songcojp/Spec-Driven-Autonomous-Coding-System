@@ -6,9 +6,18 @@ export type CommandResult = {
   status: number | null;
   stdout: string;
   stderr: string;
+  error?: string;
 };
 
 export type CommandRunner = (command: string, args: string[], cwd: string) => CommandResult;
+
+export type RepositoryCommandWarning = {
+  source: "git" | "gh";
+  command: string;
+  args: string[];
+  code: string;
+  message: string;
+};
 
 export type RepositorySummary = {
   localPath: string;
@@ -34,6 +43,7 @@ export type RepositorySummary = {
   hasAgentsFile: boolean;
   hasSpecProtocolDirectory: boolean;
   sensitiveFileRisks: string[];
+  commandWarnings: RepositoryCommandWarning[];
   errors: string[];
 };
 
@@ -54,6 +64,7 @@ export function readRepositorySummary(localPath: string, runner: CommandRunner =
     hasAgentsFile: false,
     hasSpecProtocolDirectory: false,
     sensitiveFileRisks: [],
+    commandWarnings: [],
     errors: [],
   };
 
@@ -83,8 +94,13 @@ export function readRepositorySummary(localPath: string, runner: CommandRunner =
       (branch) => TASK_BRANCH_PREFIXES.some((prefix) => branch.startsWith(prefix)),
     );
     summary.worktrees = parseWorktrees(git(["worktree", "list", "--porcelain"], localPath, runner).stdout);
-    summary.pullRequests = readGhLines(["pr", "list", "--limit", "20", "--json", "number,title,state"], localPath, runner);
-    summary.ciRuns = readGhLines(["run", "list", "--limit", "10", "--json", "name,status,conclusion"], localPath, runner);
+    const pullRequests = readGhLines(["pr", "list", "--limit", "20", "--json", "number,title,state"], localPath, runner);
+    summary.pullRequests = pullRequests.lines;
+    summary.commandWarnings.push(...pullRequests.warnings);
+
+    const ciRuns = readGhLines(["run", "list", "--limit", "10", "--json", "name,status,conclusion"], localPath, runner);
+    summary.ciRuns = ciRuns.lines;
+    summary.commandWarnings.push(...ciRuns.warnings);
   } catch {
     summary.errors.push("repository_scan_failed");
   }
@@ -118,6 +134,7 @@ function runCommand(command: string, args: string[], cwd: string): CommandResult
     status: result.status,
     stdout: result.stdout ?? "",
     stderr: result.stderr ?? "",
+    error: result.error?.message,
   };
 }
 
@@ -125,12 +142,41 @@ function git(args: string[], cwd: string, runner: CommandRunner): CommandResult 
   return runner("git", args, cwd);
 }
 
-function readGhLines(args: string[], cwd: string, runner: CommandRunner): string[] {
+function readGhLines(
+  args: string[],
+  cwd: string,
+  runner: CommandRunner,
+): { lines: string[]; warnings: RepositoryCommandWarning[] } {
   const result = runner("gh", args, cwd);
   if (result.status !== 0) {
-    return [];
+    return {
+      lines: [],
+      warnings: [
+        {
+          source: "gh",
+          command: "gh",
+          args,
+          code: classifyGhFailure(result),
+          message: result.stderr.trim() || result.error || "GitHub CLI command failed; GitHub facts are unavailable.",
+        },
+      ],
+    };
   }
-  return lines(result.stdout);
+  return { lines: lines(result.stdout), warnings: [] };
+}
+
+function classifyGhFailure(result: CommandResult): string {
+  const details = `${result.stderr}\n${result.error ?? ""}`.toLowerCase();
+  if (result.status === null || details.includes("enoent") || details.includes("not found")) {
+    return "github_cli_unavailable";
+  }
+  if (details.includes("auth") || details.includes("login") || details.includes("not logged")) {
+    return "github_cli_unauthenticated";
+  }
+  if (details.includes("not a github repository") || details.includes("no github remotes")) {
+    return "github_remote_unavailable";
+  }
+  return "github_cli_failed";
 }
 
 function readDefaultBranch(localPath: string, runner: CommandRunner): string | undefined {

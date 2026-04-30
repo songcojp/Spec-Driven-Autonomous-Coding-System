@@ -138,6 +138,7 @@ export type ProjectHealthCheck = {
   projectId: string;
   status: ProjectHealthStatus;
   reasons: string[];
+  repositorySummaryKind: "snapshot";
   repositorySummary: RepositorySummary;
 };
 
@@ -645,7 +646,7 @@ export function runProjectHealthCheck(
     },
   ]);
 
-  return { id, projectId, status, reasons, repositorySummary };
+  return { id, projectId, status, reasons, repositorySummaryKind: "snapshot", repositorySummary };
 }
 
 function upsertRepositoryConnection(dbPath: string, connection: RepositoryConnectionRecord): void {
@@ -694,6 +695,7 @@ function emptyRepositorySummary(project: ProjectRecord): RepositorySummary {
     hasAgentsFile: false,
     hasSpecProtocolDirectory: false,
     sensitiveFileRisks: [],
+    commandWarnings: [],
     errors: ["git_repository_missing"],
   };
 }

@@ -6,10 +6,12 @@ import { mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initializeSchema } from "../src/schema.ts";
+import { runSqlite } from "../src/sqlite.ts";
 import {
   assertProjectExists,
   createProject,
   getCurrentProjectSelection,
+  readProjectRepository,
   initializeProjectPhase1,
   listProjects,
   ProjectNotFoundError,
@@ -232,3 +234,98 @@ test("initializeProjectPhase1 returns success:false on duplicate targetRepoPath"
   assert.equal(result.project.status, "failed", "Duplicate path project should have failed status");
   assert.equal(result.success, false);
 });
+
+test("readProjectRepository reads realtime git facts and only updates last_read_at", () => {
+  const root = mkdtempSync(join(tmpdir(), "proj-realtime-git-"));
+  const dbPath = freshDb();
+  const project = createProject(dbPath, baseInput({ targetRepoPath: root, creationMode: "import_existing" }));
+
+  const first = readProjectRepository(dbPath, project.id, (command, args) => {
+    const key = `${command} ${args.join(" ")}`;
+    if (key === "git rev-parse --show-toplevel") return { status: 0, stdout: `${root}\n`, stderr: "" };
+    if (key === "git config --get remote.origin.url") return { status: 0, stdout: "git@example.com:repo.git\n", stderr: "" };
+    if (key === "git symbolic-ref --short refs/remotes/origin/HEAD") return { status: 0, stdout: "origin/main\n", stderr: "" };
+    if (key === "git branch --show-current") return { status: 0, stdout: "feature/one\n", stderr: "" };
+    if (key === "git rev-parse HEAD") return { status: 0, stdout: "1111111\n", stderr: "" };
+    if (key === "git status --short") return { status: 0, stdout: " M src/one.ts\n", stderr: "" };
+    if (key === "git branch --format=%(refname:short)") return { status: 0, stdout: "main\nfeature/one\n", stderr: "" };
+    if (key === "git worktree list --porcelain") return { status: 0, stdout: `worktree ${root}\nHEAD 1111111\nbranch refs/heads/feature/one\n`, stderr: "" };
+    if (command === "gh") return { status: 1, stdout: "", stderr: "authentication required" };
+    return { status: 1, stdout: "", stderr: `unexpected command: ${key}` };
+  });
+  const second = readProjectRepository(dbPath, project.id, (command, args) => {
+    const key = `${command} ${args.join(" ")}`;
+    if (key === "git rev-parse --show-toplevel") return { status: 0, stdout: `${root}\n`, stderr: "" };
+    if (key === "git config --get remote.origin.url") return { status: 0, stdout: "git@example.com:repo.git\n", stderr: "" };
+    if (key === "git symbolic-ref --short refs/remotes/origin/HEAD") return { status: 0, stdout: "origin/main\n", stderr: "" };
+    if (key === "git branch --show-current") return { status: 0, stdout: "feature/two\n", stderr: "" };
+    if (key === "git rev-parse HEAD") return { status: 0, stdout: "2222222\n", stderr: "" };
+    if (key === "git status --short") return { status: 0, stdout: "", stderr: "" };
+    if (key === "git branch --format=%(refname:short)") return { status: 0, stdout: "main\nfeature/two\n", stderr: "" };
+    if (key === "git worktree list --porcelain") return { status: 0, stdout: `worktree ${root}\nHEAD 2222222\nbranch refs/heads/feature/two\n`, stderr: "" };
+    if (command === "gh") return { status: 1, stdout: "", stderr: "authentication required" };
+    return { status: 1, stdout: "", stderr: `unexpected command: ${key}` };
+  });
+
+  assert.equal(first?.currentBranch, "feature/one");
+  assert.equal(first?.latestCommit, "1111111");
+  assert.equal(second?.currentBranch, "feature/two");
+  assert.equal(second?.latestCommit, "2222222");
+
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "connection",
+      sql: `SELECT remote_url, local_path, default_branch, last_read_at
+        FROM repository_connections
+        WHERE project_id = ?`,
+      params: [project.id],
+    },
+  ]);
+  assert.equal(result.queries.connection.length, 1);
+  assert.equal(result.queries.connection[0].local_path, root);
+  assert.equal(result.queries.connection[0].default_branch, "main");
+  assert.ok(result.queries.connection[0].last_read_at, "last_read_at should be refreshed by realtime reads");
+  assert.equal(Object.hasOwn(result.queries.connection[0], "current_branch"), false);
+  assert.equal(Object.hasOwn(result.queries.connection[0], "latest_commit"), false);
+});
+
+test("health check stores repository summary as a snapshot and realtime reads do not use it", () => {
+  const root = mkdtempSync(join(tmpdir(), "proj-health-snapshot-"));
+  const dbPath = freshDb();
+  const project = createProject(dbPath, baseInput({ targetRepoPath: root, creationMode: "import_existing" }));
+  const firstRunner = fixedRepositoryRunner(root, "feature/snapshot", "aaaaaaa");
+  const secondRunner = fixedRepositoryRunner(root, "feature/live", "bbbbbbb");
+
+  const healthCheck = runProjectHealthCheck(dbPath, project.id, firstRunner);
+  const realtime = readProjectRepository(dbPath, project.id, secondRunner);
+  const stored = runSqlite(dbPath, [], [
+    {
+      name: "health",
+      sql: "SELECT repository_summary_json FROM project_health_checks WHERE id = ?",
+      params: [healthCheck.id],
+    },
+  ]).queries.health[0];
+  const snapshot = JSON.parse(String(stored.repository_summary_json));
+
+  assert.equal(healthCheck.repositorySummaryKind, "snapshot");
+  assert.equal(snapshot.currentBranch, "feature/snapshot");
+  assert.equal(snapshot.latestCommit, "aaaaaaa");
+  assert.equal(realtime?.currentBranch, "feature/live");
+  assert.equal(realtime?.latestCommit, "bbbbbbb");
+});
+
+function fixedRepositoryRunner(root: string, branch: string, commit: string) {
+  return (command: string, args: string[]) => {
+    const key = `${command} ${args.join(" ")}`;
+    if (key === "git rev-parse --show-toplevel") return { status: 0, stdout: `${root}\n`, stderr: "" };
+    if (key === "git config --get remote.origin.url") return { status: 0, stdout: "git@example.com:repo.git\n", stderr: "" };
+    if (key === "git symbolic-ref --short refs/remotes/origin/HEAD") return { status: 0, stdout: "origin/main\n", stderr: "" };
+    if (key === "git branch --show-current") return { status: 0, stdout: `${branch}\n`, stderr: "" };
+    if (key === "git rev-parse HEAD") return { status: 0, stdout: `${commit}\n`, stderr: "" };
+    if (key === "git status --short") return { status: 0, stdout: "", stderr: "" };
+    if (key === "git branch --format=%(refname:short)") return { status: 0, stdout: `main\n${branch}\n`, stderr: "" };
+    if (key === "git worktree list --porcelain") return { status: 0, stdout: `worktree ${root}\nHEAD ${commit}\nbranch refs/heads/${branch}\n`, stderr: "" };
+    if (command === "gh") return { status: 1, stdout: "", stderr: "authentication required" };
+    return { status: 1, stdout: "", stderr: `unexpected command: ${key}` };
+  };
+}

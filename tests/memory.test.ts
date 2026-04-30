@@ -245,6 +245,7 @@ test("recovery bootstrap resumes unfinished work and treats DB, Git, and filesys
       hasAgentsFile: false,
       hasSpecProtocolDirectory: false,
       sensitiveFileRisks: [],
+      commandWarnings: [],
       errors: ["repository_path_missing"],
     },
     filesystemChecks: [{ label: "worktree", path: join(root, "missing-worktree"), exists: false }],
