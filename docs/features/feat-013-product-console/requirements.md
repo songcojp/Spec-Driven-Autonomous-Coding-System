@@ -19,6 +19,7 @@ Spec Evolution:
 - CHG-013：2026-04-29 平台边界收缩为调度和状态维护，移除 Skill Center、Subagent Console 和规划流水线入口；Runner 页面仅展示外部执行状态、心跳、日志、证据和状态检测。
 - ADD-006：用户要求优化 CLI 调用并升级为 adapter；CLI 配置通过 JSON 管理，支持 JSON 表单并可通过 UI 直接编辑修改。Product Console 必须提供系统设置，并将 CLI Adapter 配置管理放到系统设置下；Runner Console 只展示配置健康摘要和跳转入口。
 - CHG-016：用户要求 Spec/UI 操作转换为完整 CLI Skill 调用流程，且 Codex 支持 workspace 时必须传入项目路径。Product Console 必须把 Spec Workspace 和 Task Board 操作转换为受控命令回执，并展示 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
+- ADD-007：用户确认采用 `docs/ui/task-scheduler-console-concept.png` 作为 Runner / Scheduler UI 实现基线。Runner Console 必须展示调度流水线、BullMQ queue、任务队列表格、scheduler job inspector、workspace、heartbeat、blocked reason、Evidence 摘要和受控命令回执。
 
 ## Scope
 
@@ -35,6 +36,9 @@ Spec Evolution:
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
 - Runner Console 的队列状态必须来自 `scheduler_job_records` 与 Runner heartbeat/session/log，而不是静态 recent logs。
+- Runner Console 必须把 `feature.select -> feature.plan -> cli.run` 作为调度流水线展示，并显示 `specdrive:feature-scheduler` 与 `specdrive:cli-runner` queue 的 job 数量、状态和当前活跃 job。
+- Runner Console 必须以任务队列表格或 lane-table hybrid 展示任务、Feature、依赖门禁、审批、风险、scheduler job、run id、workspace、状态和动作。
+- Runner Console 必须提供右侧 scheduler job inspector，展示选中任务或 job 的 scheduler job id、BullMQ job id、queue、job type、target、workspace、CLI Adapter 健康、Runner heartbeat、blocked reason、Evidence 摘要和最近日志。
 - Spec Workspace 和 Runner Console 必须展示 workspace-aware skill invocation 反馈，包括 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
 - System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
 - Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler/Run、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
@@ -104,9 +108,11 @@ Spec Evolution:
 - [ ] Product Console 提供系统设置入口，系统设置至少包含 CLI 配置页。
 - [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
 - [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
+- [ ] Runner Console 浏览器级验证覆盖调度流水线、`specdrive:feature-scheduler`、`specdrive:cli-runner`、任务队列表格、scheduler job inspector、workspace、Runner heartbeat、blocked reason 或 Evidence 摘要。
 - [ ] CLI Adapter 表单编辑和原始 JSON 编辑共享同一份配置事实源，切换编辑模式不得丢失未保存修改。
 - [ ] 浏览器级验证覆盖 CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存和无效配置不影响 running Run 的反馈。
 - [ ] 浏览器级验证覆盖 Spec Workspace / Task Board 执行动作返回 scheduler job、run id、workspace、skill phase、blocked reason 和 Evidence 摘要。
+- [ ] 浏览器级验证覆盖 Runner Console 调度/运行按钮仍返回 command receipt，且不会绕过 Console Command Gateway。
 
 ## Risks and Open Questions
 

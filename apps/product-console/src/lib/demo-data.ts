@@ -320,6 +320,11 @@ const returnsPortalData: ConsoleProjectData = {
   },
   runner: {
     summary: { onlineRunners: 1, runningTasks: 1, readyTasks: 1, blockedTasks: 2, successRate: 0.957, failureRate: 0.043 },
+    schedulerJobs: [
+      { id: "JOB-710", bullmqJobId: "BULL-710", queueName: "specdrive:feature-scheduler", jobType: "feature.select", targetType: "project", targetId: "project-1", status: "completed", updatedAt: "2026-04-29T03:41:00.000Z", projectId: "project-1", featureId: "FEAT-204" },
+      { id: "JOB-711", bullmqJobId: "BULL-711", queueName: "specdrive:feature-scheduler", jobType: "feature.plan", targetType: "feature", targetId: "FEAT-204", status: "blocked", error: "Project workspace is missing readable AGENTS.md", updatedAt: "2026-04-29T03:41:30.000Z", projectId: "project-1", featureId: "FEAT-204", workspaceRoot: "workspace/acme-returns-portal" },
+      { id: "JOB-709", bullmqJobId: "BULL-709", queueName: "specdrive:cli-runner", jobType: "cli.run", targetType: "task", targetId: "T-229", status: "queued", updatedAt: "2026-04-29T03:42:00.000Z", runId: "RUN-709", taskId: "T-229", featureId: "FEAT-204", projectId: "project-1", workspaceRoot: "workspace/acme-returns-portal" },
+    ],
     lanes: {
       ready: [
         { id: "T-231", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Run mobile browser acceptance", status: "ready", risk: "low", dependencies: [{ id: "T-228", status: "running", satisfied: false }, { id: "T-230", status: "review_needed", satisfied: false }], approvalStatus: "not_required", action: "schedule", blockedReasons: [], recentLog: "npm run console:test -- returns-mobile" },
@@ -362,7 +367,7 @@ const returnsPortalData: ConsoleProjectData = {
         updatedAt: "2026-04-29T03:41:00.000Z",
       },
     ],
-    factSources: ["task_graph_tasks", "runs", "runner_heartbeats", "runner_policies", "raw_execution_logs", "review_items", "audit_timeline_events"],
+    factSources: ["task_graph_tasks", "runs", "runner_heartbeats", "runner_policies", "scheduler_job_records", "raw_execution_logs", "review_items", "audit_timeline_events"],
     adapterSummary: {
       id: cliAdapterConfig.id,
       displayName: cliAdapterConfig.displayName,
@@ -447,7 +452,7 @@ const emptyProjectData: ConsoleProjectData = {
   dashboard: { ...returnsPortalData.dashboard, activeFeatures: [], failedTasks: [], pendingApprovals: 0, activeRuns: 0, risks: [], recentPullRequests: [], boardCounts: {} },
   board: { tasks: [], commands: returnsPortalData.board.commands, factSources: returnsPortalData.board.factSources },
   spec: { features: [], selectedFeature: undefined },
-  runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], adapterSummary: returnsPortalData.runner.adapterSummary, runners: [] },
+  runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, schedulerJobs: [], lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], adapterSummary: returnsPortalData.runner.adapterSummary, runners: [] },
   settings,
   reviews: { items: [], riskFilters: [] },
 };

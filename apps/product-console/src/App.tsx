@@ -38,7 +38,7 @@ import {
 import { type ReactNode, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { createConsoleProject, deleteConsoleProject, fetchConsoleData, fetchProjectOverview, fetchProjectSummaries, scanProjectDirectory, submitCommand } from "./lib/api";
 import { demoData, getDemoDataForProject } from "./lib/demo-data";
-import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "./types";
+import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary, RunnerSchedulerJob } from "./types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
 
 type Locale = "zh-CN" | "en";
@@ -60,9 +60,11 @@ const navItems: Array<{ key: ViewKey; icon: typeof Home }> = [
 const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | "blue"> = {
   approved: "green",
   done: "green",
+  completed: "green",
   ready: "green",
   running: "blue",
   scheduled: "blue",
+  queued: "blue",
   pending: "amber",
   review_needed: "amber",
   blocked: "red",
@@ -218,6 +220,16 @@ const copy = {
     recentTriggers: "最近调度",
     recentLogs: "最近日志",
     skillInvocations: "Skill 调用",
+    schedulerPipeline: "调度流水线",
+    taskQueue: "任务队列",
+    jobInspector: "Job 详情",
+    schedulerJob: "Scheduler Job",
+    bullmqJob: "BullMQ Job",
+    jobType: "Job Type",
+    queueName: "Queue",
+    target: "目标",
+    activeJob: "活跃 Job",
+    noSchedulerJob: "暂无调度 Job",
     workspace: "Workspace",
     skillPhase: "阶段",
     model: "模型",
@@ -521,6 +533,16 @@ const copy = {
     recentTriggers: "Recent Triggers",
     recentLogs: "Recent Logs",
     skillInvocations: "Skill Invocations",
+    schedulerPipeline: "Scheduler Pipeline",
+    taskQueue: "Task Queue",
+    jobInspector: "Job Inspector",
+    schedulerJob: "Scheduler Job",
+    bullmqJob: "BullMQ Job",
+    jobType: "Job Type",
+    queueName: "Queue",
+    target: "Target",
+    activeJob: "Active Job",
+    noSchedulerJob: "No scheduler job",
     workspace: "Workspace",
     skillPhase: "Phase",
     model: "Model",
@@ -1692,6 +1714,18 @@ function RunnerPanel({ data, text, onCommand, busy, onOpenSettings }: { data: Co
     failureRate: data.dashboard.runner.failureRate,
   };
   const firstRunnable = lanes.scheduled[0] ?? lanes.ready[0] ?? lanes.blocked[0];
+  const schedulerJobs = data.runner.schedulerJobs ?? [];
+  const queueGroups = [
+    { type: "feature.select", queue: "specdrive:feature-scheduler" },
+    { type: "feature.plan", queue: "specdrive:feature-scheduler" },
+    { type: "cli.run", queue: "specdrive:cli-runner" },
+  ];
+  const allTasks = [...lanes.ready, ...lanes.scheduled, ...lanes.running, ...lanes.blocked];
+  const [selectedTaskId, setSelectedTaskId] = useState(() => firstRunnable?.id ?? allTasks[0]?.id);
+  const selectedTask = allTasks.find((task) => task.id === selectedTaskId) ?? firstRunnable ?? allTasks[0];
+  const selectedJob = findSchedulerJobForTask(schedulerJobs, selectedTask) ?? schedulerJobs[0];
+  const selectedInvocation = data.runner.skillInvocations?.find((item) => item.runId === selectedTask?.runId || item.schedulerJobId === selectedJob?.id) ?? data.runner.skillInvocations?.[0];
+  const selectedRecentLog = selectedTask?.recentLog ?? runner?.recentLogs?.[0]?.stderr ?? runner?.recentLogs?.[0]?.stdout;
   return (
   <div className="space-y-4">
     <Panel className="overflow-hidden">
@@ -1721,8 +1755,42 @@ function RunnerPanel({ data, text, onCommand, busy, onOpenSettings }: { data: Co
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_330px] gap-0 max-xl:grid-cols-1">
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-0 max-xl:grid-cols-1">
         <div className="min-w-0 p-4">
+          <div className="mb-4">
+            <SectionTitle title={text.schedulerPipeline} action={<Chip tone="blue">BullMQ</Chip>} />
+            <div className="mt-3 grid grid-cols-3 gap-3 max-lg:grid-cols-1">
+              {queueGroups.map((stage) => {
+                const jobs = schedulerJobs.filter((job) => job.jobType === stage.type);
+                const activeJob = jobs.find((job) => ["queued", "running", "blocked", "failed"].includes(job.status)) ?? jobs[0];
+                return (
+                  <button
+                    key={stage.type}
+                    type="button"
+                    onClick={() => {
+                      const taskForJob = activeJob ? allTasks.find((task) => task.id === activeJob.taskId || task.runId === activeJob.runId || task.featureId === activeJob.featureId) : undefined;
+                      if (taskForJob) setSelectedTaskId(taskForJob.id);
+                    }}
+                    className="min-h-[118px] rounded-lg border border-line bg-white p-3 text-left transition hover:border-action"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-mono text-[13px] font-semibold text-ink">{stage.type}</div>
+                      <Chip tone={statusTone[activeJob?.status ?? "queued"] ?? "neutral"}>{jobs.length}</Chip>
+                    </div>
+                    <div className="mt-2 truncate font-mono text-[11px] text-muted">{stage.queue}</div>
+                    <div className="mt-3 rounded-md bg-slate-50 px-3 py-2">
+                      <div className="text-[11px] text-muted">{text.activeJob}</div>
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <span className="truncate font-mono text-[12px] text-ink">{activeJob?.id ?? text.noSchedulerJob}</span>
+                        <Chip tone={statusTone[activeJob?.status ?? ""] ?? "neutral"}>{activeJob?.status ?? text.none}</Chip>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
               <Chip tone="green">{text.readyLane} {lanes.ready.length}</Chip>
@@ -1739,16 +1807,107 @@ function RunnerPanel({ data, text, onCommand, busy, onOpenSettings }: { data: Co
               {firstRunnable ? `${firstRunnable.action === "run" ? text.run : text.schedule} ${firstRunnable.id}` : text.schedule}
             </Button>
           </div>
-          <div className="grid grid-cols-4 gap-3 max-2xl:grid-cols-2 max-md:grid-cols-1">
-            <RunnerLane title={text.readyLane} tone="green" tasks={lanes.ready} text={text} onCommand={onCommand} busy={busy} />
-            <RunnerLane title={text.scheduledLane} tone="blue" tasks={lanes.scheduled} text={text} onCommand={onCommand} busy={busy} />
-            <RunnerLane title={text.runningLane} tone="amber" tasks={lanes.running} text={text} onCommand={onCommand} busy={busy} />
-            <RunnerLane title={text.blockedLane} tone="red" tasks={lanes.blocked} text={text} onCommand={onCommand} busy={busy} />
+          <div className="overflow-hidden rounded-lg border border-line bg-white">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h3 className="text-[15px] font-semibold text-ink">{text.taskQueue}</h3>
+              <div className="flex items-center gap-2 rounded-md border border-line bg-slate-50 px-3 py-2 text-[12px] text-muted">
+                <Search size={14} />
+                <span>{text.searchTasks}</span>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-[980px] w-full text-left text-[12px]">
+                <thead className="bg-slate-50 text-muted">
+                  <tr>
+                    <th className="px-4 py-3">{text.idTask}</th>
+                    <th className="px-3 py-3">Feature</th>
+                    <th className="px-3 py-3">{text.dependencies}</th>
+                    <th className="px-3 py-3">{text.approval}</th>
+                    <th className="px-3 py-3">Risk</th>
+                    <th className="px-3 py-3">{text.schedulerJob}</th>
+                    <th className="px-3 py-3">{text.currentRun}</th>
+                    <th className="px-3 py-3">{text.workspace}</th>
+                    <th className="px-4 py-3">{text.actions}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {allTasks.map((task) => {
+                    const job = findSchedulerJobForTask(schedulerJobs, task);
+                    const dependencyBlocked = task.dependencies.some((dependency) => !dependency.satisfied);
+                    const selected = selectedTask?.id === task.id;
+                    return (
+                      <tr key={task.id} className={selected ? "bg-blue-50/70" : "bg-white"}>
+                        <td className="px-4 py-3 align-top">
+                          <button type="button" onClick={() => setSelectedTaskId(task.id)} className="text-left">
+                            <div className="font-mono text-[12px] font-semibold text-ink">{task.id}</div>
+                            <div className="mt-1 max-w-[260px] truncate text-[13px] text-ink">{task.title}</div>
+                            <div className="mt-1"><Chip tone={statusTone[task.status] ?? "neutral"}>{task.status}</Chip></div>
+                          </button>
+                        </td>
+                        <td className="px-3 py-3 align-top">
+                          <div className="font-mono text-[12px] text-ink">{task.featureId ?? text.none}</div>
+                          <div className="mt-1 max-w-[160px] truncate text-muted">{task.featureTitle ?? text.none}</div>
+                        </td>
+                        <td className="px-3 py-3 align-top">
+                          <Chip tone={dependencyBlocked ? "amber" : "green"}>{dependencyBlocked ? text.dependencyBlocked : text.dependencyOk}</Chip>
+                        </td>
+                        <td className="px-3 py-3 align-top"><Chip tone={task.approvalStatus === "approved" || task.approvalStatus === "not_required" ? "green" : "amber"}>{task.approvalStatus}</Chip></td>
+                        <td className="px-3 py-3 align-top"><Chip tone={task.risk === "high" ? "red" : task.risk === "medium" ? "amber" : "neutral"}>{task.risk}</Chip></td>
+                        <td className="px-3 py-3 align-top font-mono text-[11px] text-muted">{job?.id ?? text.none}</td>
+                        <td className="px-3 py-3 align-top font-mono text-[11px] text-muted">{task.runId ?? job?.runId ?? text.none}</td>
+                        <td className="px-3 py-3 align-top text-[11px] text-muted">{job?.workspaceRoot ?? selectedInvocation?.workspaceRoot ?? text.none}</td>
+                        <td className="px-4 py-3 align-top">
+                          <Button
+                            disabled={busy || task.action === "observe" || task.action === "review"}
+                            onClick={() => onCommand(task.action === "run" ? "run_board_tasks" : "schedule_board_tasks", "feature", task.featureId ?? "feature", { taskIds: [task.id] })}
+                          >
+                            {task.action === "run" ? <Play size={14} /> : <CalendarCheck size={14} />}
+                            {task.action === "run" ? text.run : task.action === "schedule" ? text.schedule : text.observe}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {allTasks.length === 0 ? <EmptyState title={text.noRunnerTasks} /> : null}
           </div>
         </div>
 
         <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
           <div className="space-y-4">
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle title={text.jobInspector} action={<Chip tone={statusTone[selectedJob?.status ?? ""] ?? "neutral"}>{selectedJob?.status ?? text.none}</Chip>} />
+              <div className="space-y-3 p-4 text-[12px]">
+                <FactList rows={[
+                  [text.schedulerJob, selectedJob?.id ?? text.none],
+                  [text.bullmqJob, selectedJob?.bullmqJobId ?? text.none],
+                  [text.queueName, selectedJob?.queueName ?? text.none],
+                  [text.jobType, selectedJob?.jobType ?? text.none],
+                  [text.target, selectedJob ? `${selectedJob.targetType}:${selectedJob.targetId ?? ""}` : text.none],
+                  [text.currentRun, selectedJob?.runId ?? selectedTask?.runId ?? text.none],
+                  [text.workspace, selectedJob?.workspaceRoot ?? selectedInvocation?.workspaceRoot ?? text.none],
+                ]} />
+                {selectedJob?.error || selectedInvocation?.blockedReason || selectedTask?.blockedReasons?.[0] ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+                    {selectedJob?.error ?? selectedInvocation?.blockedReason ?? selectedTask?.blockedReasons?.[0]}
+                  </div>
+                ) : null}
+                {selectedInvocation?.evidenceSummary ? (
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800">
+                    <div className="font-medium">{text.evidence}</div>
+                    <div className="mt-1">{selectedInvocation.evidenceSummary}</div>
+                  </div>
+                ) : null}
+                {selectedRecentLog ? (
+                  <div className="rounded-md bg-slate-950 px-3 py-2 font-mono text-[11px] leading-5 text-slate-100">
+                    {selectedRecentLog}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
             <div className="rounded-lg border border-line bg-white">
               <SectionTitle title={text.runnerResources} action={<Chip tone={runner?.online ? "green" : "red"}>{runner?.online ? text.online : text.offline}</Chip>} />
               {runner ? (
@@ -1878,6 +2037,17 @@ function RunnerMetric({ icon: Icon, label, value, tone, subValue }: { icon: type
       </div>
     </div>
   );
+}
+
+type RunnerTaskRow = NonNullable<ConsoleData["runner"]["lanes"]>["ready"][number];
+
+function findSchedulerJobForTask(jobs: RunnerSchedulerJob[], task: RunnerTaskRow | undefined) {
+  if (!task) return undefined;
+  return jobs.find((job) => job.taskId === task.id)
+    ?? jobs.find((job) => job.runId && job.runId === task.runId)
+    ?? jobs.find((job) => job.targetId === task.id)
+    ?? jobs.find((job) => job.featureId && job.featureId === task.featureId)
+    ?? jobs.find((job) => job.targetId && job.targetId === task.featureId);
 }
 
 function SystemSettingsPanel({ data, text, onCommand, busy }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean }) {

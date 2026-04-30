@@ -211,6 +211,7 @@ export type RunnerModel = {
     running: RunnerScheduleTask[];
     blocked: RunnerScheduleTask[];
   };
+  schedulerJobs?: RunnerSchedulerJob[];
   recentTriggers?: Array<{
     id: string;
     action: string;
@@ -242,6 +243,23 @@ export type RunnerModel = {
     lastHeartbeatAt?: string;
     heartbeatStale: boolean;
   }>;
+};
+
+export type RunnerSchedulerJob = {
+  id: string;
+  bullmqJobId?: string;
+  queueName: string;
+  jobType: string;
+  targetType: string;
+  targetId?: string;
+  status: string;
+  error?: string;
+  updatedAt: string;
+  runId?: string;
+  taskId?: string;
+  featureId?: string;
+  projectId?: string;
+  workspaceRoot?: string;
 };
 
 export type CliAdapterConfigModel = {

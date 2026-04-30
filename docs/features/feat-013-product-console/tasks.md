@@ -37,3 +37,6 @@
 - [x] TASK-034: 将 Runner Queue 视图接入 `scheduler_job_records` + Runner heartbeat/log，并把 `run_board_tasks` 改为 enqueue `cli.run`。
 - [x] TASK-035: 在 Spec Workspace、Task Board 和 Runner Console 展示 workspace-aware CLI skill invocation 反馈，包括 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
 - [x] TASK-036: 更新 Product Console 单测和浏览器验证，覆盖 Spec/UI 执行动作转换为 CLI skill invocation 后的回执、项目 workspace 阻塞反馈和 Evidence 摘要。
+- [x] TASK-037: 保存 Runner / Task Scheduler UI 概念图到 `docs/ui/task-scheduler-console-concept.png`，并在 FEAT-013 设计中登记为实现基线。
+- [x] TASK-038: 按概念图升级 Runner Console，展示 scheduler pipeline、BullMQ queue、任务队列表格、scheduler job inspector、recent triggers、Evidence 和日志。
+- [x] TASK-039: 更新 Product Console 浏览器验证，覆盖 scheduler pipeline、queue、job inspector、workspace、blocked reason / Evidence 摘要和 command receipt。

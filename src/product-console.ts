@@ -296,6 +296,22 @@ export type RunnerConsoleViewModel = {
     running: RunnerScheduleTaskViewModel[];
     blocked: RunnerScheduleTaskViewModel[];
   };
+  schedulerJobs: Array<{
+    id: string;
+    bullmqJobId?: string;
+    queueName: string;
+    jobType: string;
+    targetType: string;
+    targetId?: string;
+    status: string;
+    error?: string;
+    updatedAt: string;
+    runId?: string;
+    taskId?: string;
+    featureId?: string;
+    projectId?: string;
+    workspaceRoot?: string;
+  }>;
   recentTriggers: Array<{
     id: string;
     action: string;
@@ -1333,7 +1349,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     },
     {
       name: "schedulerJobs",
-      sql: `SELECT id, bullmq_job_id, queue_name, job_type, target_type, target_id, status, error, updated_at
+      sql: `SELECT id, bullmq_job_id, queue_name, job_type, target_type, target_id, status, error, payload_json, updated_at
         FROM scheduler_job_records ${schedulerProjectFilter}
         ORDER BY updated_at DESC, rowid DESC LIMIT 12`,
       params: schedulerProjectParams,
@@ -1392,6 +1408,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       failureRate: latestMetric(result.queries.metrics, "failure_rate"),
     },
     lanes: laneTasks,
+    schedulerJobs: buildRunnerSchedulerJobs(result.queries.schedulerJobs, result.queries.runs),
     recentTriggers: [
       ...result.queries.schedulerJobs.map((row) => ({
         id: String(row.id),
@@ -2778,6 +2795,37 @@ function buildSkillInvocationFeedback(
     })
     .filter((entry): entry is RunnerConsoleViewModel["skillInvocations"][number] => Boolean(entry))
     .slice(0, 12);
+}
+
+function buildRunnerSchedulerJobs(
+  schedulerRows: Record<string, unknown>[],
+  runRows: Record<string, unknown>[],
+): RunnerConsoleViewModel["schedulerJobs"] {
+  const runMetadata = new Map<string, Record<string, unknown>>();
+  for (const run of runRows) {
+    runMetadata.set(String(run.id), parseJsonObject(run.metadata_json));
+  }
+  return schedulerRows.map((row) => {
+    const payload = parseJsonObject(row.payload_json);
+    const runId = optionalString(payload.runId);
+    const metadata = runId ? runMetadata.get(runId) : undefined;
+    return {
+      id: String(row.id),
+      bullmqJobId: optionalString(row.bullmq_job_id),
+      queueName: String(row.queue_name),
+      jobType: String(row.job_type),
+      targetType: String(row.target_type),
+      targetId: optionalString(row.target_id),
+      status: String(row.status),
+      error: optionalString(row.error),
+      updatedAt: String(row.updated_at),
+      runId,
+      taskId: optionalString(payload.taskId),
+      featureId: optionalString(payload.featureId),
+      projectId: optionalString(payload.projectId),
+      workspaceRoot: optionalString(metadata?.workspaceRoot),
+    };
+  });
 }
 
 function filterRunnerAuditEvents(

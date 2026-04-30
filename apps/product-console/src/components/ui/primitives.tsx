@@ -38,7 +38,7 @@ export function Chip({
     red: "border-red-200 bg-red-50 text-red-700",
     blue: "border-blue-200 bg-blue-50 text-blue-700",
   }[tone];
-  return <span className={`inline-flex items-center rounded-md border px-2 py-1 text-[12px] font-medium ${classes}`}>{children}</span>;
+  return <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-2 py-1 text-[12px] font-medium ${classes}`}>{children}</span>;
 }
 
 export function SectionTitle({ title, action }: { title: string; action?: ReactNode }) {

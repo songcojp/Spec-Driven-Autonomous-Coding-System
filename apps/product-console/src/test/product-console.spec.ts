@@ -27,6 +27,16 @@ test("renders the console first screen and navigates across all pages", async ({
     await expect(page.getByRole("heading", { name: heading, exact: typeof heading === "string" })).toBeVisible();
     if (label === "Runner") {
       await expect(page.getByText("任务调度中心")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "调度流水线" })).toBeVisible();
+      await expect(page.getByText("feature.select").first()).toBeVisible();
+      await expect(page.getByText("feature.plan").first()).toBeVisible();
+      await expect(page.getByText("cli.run").first()).toBeVisible();
+      await expect(page.getByText("specdrive:feature-scheduler").first()).toBeVisible();
+      await expect(page.getByText("specdrive:cli-runner").first()).toBeVisible();
+      await expect(page.getByRole("heading", { name: "任务队列" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Job 详情" })).toBeVisible();
+      await expect(page.getByText("JOB-709").first()).toBeVisible();
+      await expect(page.getByText("BULL-709")).toBeVisible();
       await expect(page.getByText("Ready 1")).toBeVisible();
       await expect(page.getByText("Scheduled 1")).toBeVisible();
       await expect(page.getByRole("button", { name: "运行 T-229" }).first()).toBeVisible();
@@ -37,6 +47,8 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByText("codex-coding-skill")).toBeVisible();
       await expect(page.getByText("workspace/acme-returns-portal").first()).toBeVisible();
       await expect(page.getByText("Project workspace is missing readable AGENTS.md")).toBeVisible();
+      await page.getByRole("button", { name: "运行 T-229" }).first().click();
+      await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
     }
   }
 });
@@ -350,6 +362,8 @@ async function installConsoleRoutes(page: Page) {
         projectId: body.projectId,
         auditEventId: "audit-1",
         acceptedAt: "2026-04-29T03:40:00.000Z",
+        schedulerJobId: body.action === "run_board_tasks" || body.action === "schedule_board_tasks" ? "JOB-709" : undefined,
+        runId: body.action === "run_board_tasks" ? "RUN-709" : undefined,
         blockedReasons: accepted ? [] : ["Product approval is required for customer-facing refund decision copy."],
       },
     });

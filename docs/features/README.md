@@ -20,6 +20,8 @@
 | FEAT-013 | Product Console | `feat-013-product-console` | in-progress | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066 至 REQ-068 | M2-M7 | FEAT-001、FEAT-004、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 
+FEAT-013 当前补充 Runner / Scheduler UI refinement：`docs/ui/task-scheduler-console-concept.png` 是任务调度中心的实现基线，覆盖 scheduler pipeline、BullMQ queue、任务队列表格、job inspector、Evidence 和日志反馈。
+
 ## Dependency Tree
 
 依赖树以主解锁路径为主线，每个 Feature 只出现一次；存在多上游依赖的 Feature 在节点后标出额外前置项。

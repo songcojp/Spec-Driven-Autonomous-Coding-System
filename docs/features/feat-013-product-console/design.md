@@ -8,6 +8,8 @@ CHG-009 修正：FEAT-013 必须交付真实前端应用入口、页面路由、
 
 Implementation update：Product Console UI 采用 Vite React，前端入口位于 `apps/product-console`。UI 通过 Tailwind CSS、Radix UI primitives 和 repo-owned shadcn-style primitives 实现，消费现有 `/console/*` Control Plane API/ViewModel，并保留 `docs/features/feat-013-product-console/assets/product-console-concept.png` 作为视觉概念验收基线。
 
+ADD-007 update：Runner / Task Scheduler 页面采用 `docs/ui/task-scheduler-console-concept.png` 作为新的视觉与交互基线。该页面从 Runner 状态面板升级为任务调度中心，必须展示 `feature.select -> feature.plan -> cli.run` 调度流水线、`specdrive:feature-scheduler` / `specdrive:cli-runner` queue、任务队列表格、右侧 scheduler job inspector、recent triggers、Evidence 摘要和 Runner 日志。该 UI 不恢复 Skill Center 或 Subagent Console，只展示 scheduler job、run、workspace、skill phase、blocked reason 和 Evidence 等执行反馈事实。
+
 ADD-004 update：Product Console 首次打开默认中文，App Shell 提供语言切换控件并持久化用户选择。语言资源只覆盖界面文案；Evidence、diff、日志、文件路径、命令输出和用户输入内容作为事实数据保持原文。
 
 ADD-005 update：App Shell 提供导入现有项目、新建项目表单、项目列表和当前项目切换控件。导入和新建是两个不同表单：导入表单只收集已有项目目录，并通过 `/projects/scan` 自动识别项目名称、默认分支、仓库来源和技术栈；新建表单收集项目名称、目标、类型、技术偏好、workspace 目录名、默认分支和自动化开关。当前项目上下文来自 FEAT-001 的 ProjectSelectionContext；所有页面查询和受控命令都必须携带 `project_id`，并在缺失或不匹配时展示 blocked 反馈。Spec 流程执行扫描、上传、生成、调度、状态检查和 Evidence / Project Memory 写入时，路径根必须来自当前项目的 `target_repo_path` / repository `local_path`，不得使用 Product Console / AutoBuild 进程的运行目录作为兜底。新建项目表单统一提交 `workspace/<project-slug>` 作为项目目录；导入现有项目保留用户填写的已有目录。
@@ -34,6 +36,8 @@ CHG-016 update：Spec Workspace、Task Board 和 Runner Console 必须展示 wor
 | Task Board Section | 展示任务依赖、diff、测试结果、审批状态和失败恢复历史，并发起受控拖拽、批量排期和批量运行命令。 |
 | Spec Workspace View | 展示阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 扫描、Feature Spec、澄清、Checklist、计划、数据模型、契约、任务图和版本 diff。 |
 | Runner Console View | 展示 Runner 在线、Codex 版本、安全配置、queue、日志、心跳、CLI Adapter 配置健康摘要和系统设置跳转入口。 |
+| Scheduler Pipeline View | 展示 `feature.select`、`feature.plan` 和 `cli.run` 三段调度流水线、queue 名称、job 数量、最近状态和当前活跃 job。 |
+| Scheduler Job Inspector | 展示选中任务或 job 的 scheduler job id、BullMQ job id、queue、job type、target、workspace、CLI Adapter、heartbeat、blocked reason 和 Evidence 摘要。 |
 | Skill Invocation Feedback | 在 Spec Workspace、Task Board 和 Runner Console 展示 scheduler job、run id、workspace、skill phase、blocked reason 和 Evidence 摘要。 |
 | System Settings View | 承载跨页面、跨 Run 的系统级配置，MVP 至少包含 CLI 配置页。 |
 | CLI Adapter Config Panel | 位于 System Settings，展示 active adapter、原始 JSON、JSON Schema 表单、dry-run 结果、字段级错误、保存草稿和启用/禁用操作。 |
@@ -72,6 +76,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 11. 用户从 App Shell 打开 System Settings，或从 Runner Console 的配置健康摘要跳转到系统设置中的 CLI 配置页；Console 加载 active/draft JSON 配置、JSON Schema 和 form schema，并在原始 JSON 编辑器与表单之间保持同一份待保存配置状态。
 12. 用户执行 dry-run 或保存配置时，Console 调用 Control Plane 受控命令；校验失败展示字段级错误和命令模板错误，校验通过后允许保存草稿或启用配置。
 13. 用户从 Spec Workspace 或 Task Board 发起执行类操作时，Console 展示 Control Plane 返回的 command receipt，并在后续刷新中显示 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence；workspace 缺失或 Skill 文件缺失时展示 blocked 反馈而不是静默失败。
+14. 用户进入 Runner Console 时，Console 先展示调度流水线和 queue 健康，再展示可执行任务队列表格；用户选择任务后，右侧 inspector 显示该任务关联的 scheduler job、run、workspace、CLI Adapter、Runner heartbeat、阻塞原因、Evidence 和日志，所有调度/运行动作仍通过受控命令提交。
 
 ## Dependencies
 
@@ -91,5 +96,6 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 - UI Spec Sources 验收必须覆盖阶段 2 自动扫描状态、PRD / EARS / HLD / Feature Spec / tasks 等来源类型、缺失项、冲突项、扫描与上传合并为一个步骤且显示两个按钮，以及阶段 2 不展示阶段 3 生成/拆分/规划入口。
 - UI CLI Adapter 验收必须覆盖系统设置入口、Runner Console 跳转、active adapter 展示、原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验失败、成功保存草稿、启用配置和无效配置不影响 running Run 的反馈。
 - UI skill invocation 验收必须覆盖 Spec Workspace / Task Board 执行动作的 scheduler job、run id、workspace、skill phase、blocked reason 和 Evidence 摘要展示。
+- UI scheduler refinement 验收必须覆盖 Runner Console 中 `feature.select`、`feature.plan`、`cli.run`、`specdrive:feature-scheduler`、`specdrive:cli-runner`、scheduler job inspector、workspace、blocked reason 或 Evidence 摘要，以及调度/运行 command receipt。
 - API 单元测试、ViewModel 快照或 HTTP JSON 响应只能证明后端契约，不能单独作为 Product Console 完成证据。
 - 浏览器验收命令：`npm run console:test`。构建验收命令：`npm run console:build`。
