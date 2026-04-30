@@ -124,8 +124,9 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("button", { name: /阶段 3 调度状态/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("创建/导入项目")).toHaveCount(0);
   await expect(page.getByText("推入 Feature Spec Pool")).toBeVisible();
-  await expect(page.getByRole("button", { name: "扫描 Spec" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "上传 Spec", exact: true })).toBeVisible();
+  await expect(page.getByText("Spec 扫描与上传")).toBeVisible();
+  await expect(page.getByRole("button", { name: "扫描", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "上传", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 EARS" })).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 HLD" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "拆分 Feature Spec" })).toHaveCount(0);
@@ -165,7 +166,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
 
   await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
-  await page.getByRole("button", { name: "扫描 Spec" }).click();
+  await page.getByRole("button", { name: "扫描", exact: true }).click();
   await expect(page.getByLabel("Notifications (F8)").getByText("scan_prd_source recorded")).toBeVisible();
   await page.getByLabel("上传 Spec 文件").setInputFiles({
     name: "uploaded-prd.md",
@@ -183,6 +184,14 @@ test("creates projects and switches project-scoped console data", async ({ page 
 
   await expect(page.getByLabel("项目列表")).toHaveValue("project-1");
   await expect(page.getByText("Mobile Returns Portal")).toBeVisible();
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Acme Returns Portal");
+    await dialog.accept();
+  });
+  await page.getByLabel("删除项目").click();
+  await expect(page.getByLabel("项目列表")).not.toHaveValue("project-1");
+  await expect(page.getByLabel("Notifications (F8)").getByText("项目已删除: Acme Returns Portal")).toBeVisible();
 
   await page.getByLabel("项目列表").selectOption("project-2");
   await expect(page.getByText("Demand Forecast Review")).toBeVisible();
@@ -305,6 +314,12 @@ async function installConsoleRoutes(page: Page) {
         defaultBranch: "main",
         status: "created",
       },
+    });
+  });
+  await page.route("**/projects/project-1", async (route) => {
+    await route.fulfill({
+      status: 404,
+      json: { error: "not_found" },
     });
   });
   await page.route("**/console/commands", async (route) => {

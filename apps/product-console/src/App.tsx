@@ -36,7 +36,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { createConsoleProject, deleteConsoleProject, fetchProjectSummaries, scanProjectDirectory, submitCommand } from "./lib/api";
+import { createConsoleProject, deleteConsoleProject, fetchConsoleData, fetchProjectOverview, fetchProjectSummaries, scanProjectDirectory, submitCommand } from "./lib/api";
 import { demoData, getDemoDataForProject } from "./lib/demo-data";
 import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectDirectoryScan, ProjectSummary } from "./types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "./components/ui/primitives";
@@ -127,6 +127,8 @@ const copy = {
     detectedDefaultBranch: "识别分支",
     detectedPackageManager: "包管理器",
     detectedRepository: "仓库来源",
+    repositoryUrl: "远端仓库 URL",
+    repositoryUrlPlaceholder: "https://github.com/org/repo.git",
     noScanYet: "设置目录后自动扫描项目名称、分支、仓库来源和技术栈。",
     projectDirectory: "项目目录",
     repository: "仓库",
@@ -294,8 +296,9 @@ const copy = {
     runRequirementQualityCheck: "执行需求质量检查",
     featureSpecPool: "推入 Feature Spec Pool",
     fixProjectInitialization: "请先完成项目初始化或修复仓库状态。",
-    scanPrd: "扫描 Spec",
-    uploadPrd: "上传 Spec",
+    specSourceIntake: "Spec 扫描与上传",
+    scanPrd: "扫描",
+    uploadPrd: "上传",
     uploadPrdFileInput: "上传 Spec 文件",
     generateEars: "生成 EARS",
     generateHld: "生成 HLD",
@@ -365,8 +368,7 @@ const copy = {
     autoRefresh: "自动刷新",
     git: "Git",
     commit: "Commit",
-    runnerFooter: "Runner：在线",
-    lastSync: "上次同步：2 分钟前",
+    lastSync: "上次同步",
   },
   en: {
     nav: {
@@ -425,6 +427,8 @@ const copy = {
     detectedDefaultBranch: "Detected branch",
     detectedPackageManager: "Package manager",
     detectedRepository: "Repository source",
+    repositoryUrl: "Remote repository URL",
+    repositoryUrlPlaceholder: "https://github.com/org/repo.git",
     noScanYet: "Set a directory to scan the project name, branch, repository source, and stack.",
     projectDirectory: "Project directory",
     repository: "Repository",
@@ -592,8 +596,9 @@ const copy = {
     runRequirementQualityCheck: "Run Requirement Quality Check",
     featureSpecPool: "Push to Feature Spec Pool",
     fixProjectInitialization: "Complete project initialization or fix repository status first.",
-    scanPrd: "Scan Spec",
-    uploadPrd: "Upload Spec",
+    specSourceIntake: "Spec Scan and Upload",
+    scanPrd: "Scan",
+    uploadPrd: "Upload",
     uploadPrdFileInput: "Upload Spec File",
     generateEars: "Generate EARS",
     generateHld: "Generate HLD",
@@ -663,8 +668,7 @@ const copy = {
     autoRefresh: "Auto-refresh",
     git: "Git",
     commit: "Commit",
-    runnerFooter: "Runner: online",
-    lastSync: "Last sync: 2m ago",
+    lastSync: "Last sync",
   },
 } satisfies Record<Locale, Record<string, unknown> & { nav: Record<ViewKey, string>; ofTasks: (start: number, end: number, total: number) => string; reviewsTitle: (count: number) => string; itemsTotal: (total: number) => string }>;
 
@@ -730,13 +734,19 @@ export function App() {
   const [locale, setLocale] = useState<Locale>(readInitialLocale);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>(demoData.projects.projects);
+  const [overviewData, setOverviewData] = useState(demoData.overview);
   const [currentProjectId, setCurrentProjectId] = useState(readInitialProjectId);
+  const [projectDataCache, setProjectDataCache] = useState<Record<string, Omit<ConsoleData, "projects">>>({});
   const [selectedTaskId, setSelectedTaskId] = useState("T-230");
   const [receipt, setReceipt] = useState<CommandReceipt | undefined>();
   const [isPending, startTransition] = useTransition();
   const text = copy[locale];
   const currentProject = projects.find((project) => project.id === currentProjectId) ?? projects[0] ?? demoData.projects.projects[0];
-  const currentData = bindProjects(getDemoDataForProject(currentProject.id), projects, currentProject.id);
+  const currentData = bindProjects(
+    { ...(projectDataCache[currentProject.id] ?? getDemoDataForProject(currentProject.id)), overview: overviewData },
+    projects,
+    currentProject.id,
+  );
   const selectedTask = useMemo(
     () => currentData.board.tasks.find((task) => task.id === selectedTaskId) ?? currentData.board.tasks[0],
     [currentData.board.tasks, selectedTaskId],
@@ -744,9 +754,22 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchProjectSummaries()
-      .then((loadedProjects) => {
-        if (cancelled || loadedProjects.length === 0) {
+    fetchProjectOverview()
+      .then((overview) => {
+        if (cancelled) {
+          return;
+        }
+        setOverviewData(overview);
+        const loadedProjects = overview.projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          repository: project.repository,
+          projectDirectory: project.projectDirectory,
+          defaultBranch: project.defaultBranch,
+          health: project.health,
+          lastActivityAt: project.lastActivityAt,
+        }));
+        if (loadedProjects.length === 0) {
           return;
         }
         setProjects((previousProjects) => {
@@ -771,6 +794,26 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (demoProjectIds.has(currentProject.id)) {
+      return;
+    }
+    let cancelled = false;
+    fetchConsoleData(currentProject.id)
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+        setProjectDataCache((previous) => ({ ...previous, [currentProject.id]: data }));
+      })
+      .catch(() => {
+        // Fall back to bundled demo data when the API is unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject.id]);
+
+  useEffect(() => {
     if (currentData.board.tasks.length === 0 || currentData.board.tasks.some((task) => task.id === selectedTaskId)) {
       return;
     }
@@ -789,6 +832,28 @@ export function App() {
           payload: { projectId: commandProjectId, ...payload },
         });
         setReceipt(nextReceipt);
+        try {
+          const [nextProjectData, nextOverviewData] = await Promise.all([
+            fetchConsoleData(commandProjectId),
+            fetchProjectOverview(),
+          ]);
+          setProjectDataCache((previous) => ({ ...previous, [commandProjectId]: nextProjectData }));
+          setOverviewData(nextOverviewData);
+          const loadedProjects = nextOverviewData.projects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            repository: project.repository,
+            projectDirectory: project.projectDirectory,
+            defaultBranch: project.defaultBranch,
+            health: project.health,
+            lastActivityAt: project.lastActivityAt,
+          }));
+          if (loadedProjects.length > 0) {
+            setProjects(loadedProjects);
+          }
+        } catch {
+          // Keep the accepted command receipt visible when a follow-up refresh fails.
+        }
       } catch (nextError) {
         setReceipt({
           id: "local-error",
@@ -812,7 +877,11 @@ export function App() {
   function switchProject(nextProjectId: string) {
     setCurrentProjectId(nextProjectId);
     window.localStorage.setItem(projectStorageKey, nextProjectId);
-    setSelectedTaskId(getDemoDataForProject(nextProjectId).board.tasks[0]?.id ?? "");
+    setSelectedTaskId(
+      demoProjectIds.has(nextProjectId)
+        ? (getDemoDataForProject(nextProjectId).board.tasks[0]?.id ?? "")
+        : "",
+    );
     setReceipt(undefined);
   }
 
@@ -828,6 +897,7 @@ export function App() {
       projectType: form.projectType.trim() || "autobuild-project",
       workspaceSlug: slugifyProjectName(form.workspaceSlug || projectName),
       defaultBranch: form.defaultBranch.trim() || "main",
+      repositoryUrl: form.repositoryUrl.trim(),
     };
     startTransition(async () => {
       let nextProject: ProjectSummary;
@@ -1049,10 +1119,15 @@ export function App() {
           </div>
           <footer className="hidden h-10 items-center justify-between border-t border-line bg-white px-6 text-[12px] text-muted lg:flex">
             <div className="flex items-center gap-8">
-              <span>{text.git}: main <span className="text-emerald-600">✓</span></span>
-              <span>{text.commit}: a1b2c3d</span>
-              <span><span className="mr-2 inline-block size-2 rounded-full bg-emerald-500" />{text.runnerFooter}</span>
-              <span>{text.lastSync}</span>
+              <span>{text.git}: {currentProject.defaultBranch} <span className="text-emerald-600">✓</span></span>
+              <span>
+                <span className={`mr-2 inline-block size-2 rounded-full ${overviewData.summary.onlineRunners > 0 ? "bg-emerald-500" : "bg-slate-400"}`} />
+                {text.runner}: {overviewData.summary.onlineRunners > 0 ? text.online : text.offline}
+              </span>
+              <span>{text.lastSync}: {formatRelativeTime(
+                overviewData.projects.map((p) => p.lastActivityAt).filter(Boolean).sort().at(-1),
+                locale,
+              )}</span>
             </div>
             <div className="flex items-center gap-3">
               <span>{text.autoRefresh}</span>
@@ -1990,6 +2065,27 @@ function formatPrecisePercent(value: number): string {
   return `${Math.round(value * 1000) / 10}%`;
 }
 
+function formatRelativeTime(isoString: string | undefined, locale: Locale): string {
+  if (!isoString) {
+    return locale === "zh-CN" ? "未知" : "unknown";
+  }
+  const diffMs = Date.now() - new Date(isoString).getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  if (diffSeconds < 60) {
+    return locale === "zh-CN" ? "刚刚" : "just now";
+  }
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) {
+    return locale === "zh-CN" ? `${diffMinutes} 分钟前` : `${diffMinutes}m ago`;
+  }
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return locale === "zh-CN" ? `${diffHours} 小时前` : `${diffHours}h ago`;
+  }
+  const diffDays = Math.floor(diffHours / 24);
+  return locale === "zh-CN" ? `${diffDays} 天前` : `${diffDays}d ago`;
+}
+
 function ReviewsPanel({ data, text, onCommand, busy, compact = false }: { data: ConsoleData; text: ConsoleCopy; onCommand: (action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>) => void; busy: boolean; compact?: boolean }) {
   return (
     <Panel>
@@ -2358,10 +2454,9 @@ function SpecWorkspace({
 }
 
 const workflowStageFallbacks = [
-  { key: "scan_prd", action: "scan_prd_source", status: "pending" as const },
-  { key: "upload_prd", action: "upload_prd_source", status: "pending" as const },
+  { key: "spec_source_intake", status: "pending" as const },
   { key: "generate_ears", action: "generate_ears", status: "pending" as const },
-] satisfies NonNullable<ConsoleData["spec"]["prdWorkflow"]>["stages"];
+] satisfies NonNullable<ConsoleData["spec"]["prdWorkflow"]>["phases"][number]["stages"];
 
 const workflowStageIcons: Record<string, typeof Home> = {
   create_or_import_project: Plus,
@@ -2369,6 +2464,7 @@ const workflowStageIcons: Record<string, typeof Home> = {
   initialize_spec_protocol: Boxes,
   import_or_create_constitution: FileText,
   initialize_project_memory: ShieldCheck,
+  spec_source_intake: Search,
   scan_prd: Search,
   upload_prd: Upload,
   recognize_requirement_format: FileText,
@@ -2389,6 +2485,7 @@ function workflowStageLabel(key: string, text: ConsoleCopy): string {
     initialize_spec_protocol: text.initializeSpecProtocol,
     import_or_create_constitution: text.importOrCreateConstitution,
     initialize_project_memory: text.initializeProjectMemory,
+    spec_source_intake: text.specSourceIntake,
     scan_prd: text.scanPrd,
     upload_prd: text.uploadPrd,
     recognize_requirement_format: text.recognizeRequirementFormat,
@@ -2469,11 +2566,13 @@ function SpecPrdWorkflowPanel({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploadName, setUploadName] = useState(workflow?.sourceName ?? "");
+  const [repositoryUrlInput, setRepositoryUrlInput] = useState("");
   const [expandedPhaseKey, setExpandedPhaseKey] = useState<WorkflowPhaseKey | null>(null);
   useEffect(() => {
     setUploadName(workflow?.sourceName ?? "");
+    setRepositoryUrlInput(currentProject.repository.startsWith("/") ? "" : currentProject.repository);
     setExpandedPhaseKey(null);
-  }, [currentProject.id, workflow?.sourceName]);
+  }, [currentProject.id, currentProject.repository, workflow?.sourceName]);
   const stages = workflow?.stages?.length ? workflow.stages : workflowStageFallbacks.map((stage) => ({ ...stage, status: "pending" as const }));
   const targetRepoPath = workflow?.targetRepoPath ?? currentProject.projectDirectory;
   const relativeSourcePath = workflow?.sourcePath ?? "docs/zh-CN/PRD.md";
@@ -2567,6 +2666,7 @@ function SpecPrdWorkflowPanel({
     onCommand(action, entityType, entityId, {
       stage: key,
       targetRepoPath,
+      repositoryUrl: action === "connect_git_repository" ? repositoryUrlInput.trim() : undefined,
       sourcePath: relativeSourcePath,
       resolvedSourcePath,
       sourceVersion: workflow?.sourceVersion ?? "v1.3.0",
@@ -2664,6 +2764,7 @@ function SpecPrdWorkflowPanel({
                 const canRun = Boolean(stageAction)
                   && (phase.key !== "feature_planning" || Boolean(selectedFeatureId));
                 const isCreateOrImport = phase.key === "project_initialization" && stage.key === "create_or_import_project";
+                const isSpecSourceIntake = phase.key === "requirement_intake" && stage.key === "spec_source_intake";
                 return (
                   <div key={`${phase.key}-${stage.key}`} className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-white p-3">
                     <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">{index + 1}</div>
@@ -2677,13 +2778,39 @@ function SpecPrdWorkflowPanel({
                     </div>
                     {isCreateOrImport ? (
                       <CreateProjectDialog text={text} onCreate={onCreateProject} />
+                    ) : isSpecSourceIntake ? (
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          className="h-8"
+                          onClick={() => runWorkflowAction("scan_prd_source", "scan_prd", phase.key)}
+                        >
+                          <Search size={14} />{text.scanPrd}
+                        </Button>
+                        <Button
+                          className="h-8"
+                          onClick={() => inputRef.current?.click()}
+                        >
+                          <Upload size={14} />{text.uploadPrd}
+                        </Button>
+                      </div>
                     ) : canRun ? (
-                      <Button
-                        className="h-8 shrink-0"
-                        onClick={() => stage.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(stageAction!, stage.key, phase.key)}
-                      >
-                        {workflowStageLabel(stage.key, text)}
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {stage.key === "connect_git_repository" && stage.status !== "completed" ? (
+                          <input
+                            className="h-8 w-56 rounded-md border border-line px-2 text-[12px]"
+                            value={repositoryUrlInput}
+                            onChange={(event) => setRepositoryUrlInput(event.target.value)}
+                            placeholder={text.repositoryUrlPlaceholder}
+                            aria-label={text.repositoryUrl}
+                          />
+                        ) : null}
+                        <Button
+                          className="h-8 shrink-0"
+                          onClick={() => stage.key === "upload_prd" ? inputRef.current?.click() : runWorkflowAction(stageAction!, stage.key, phase.key)}
+                        >
+                          {workflowStageLabel(stage.key, text)}
+                        </Button>
+                      </div>
                     ) : null}
                   </div>
                 );
@@ -2873,6 +3000,7 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
     techPreferences: "",
     existingProjectPath: "",
     workspaceSlug: "",
+    repositoryUrl: "",
     defaultBranch: "main",
     automationEnabled: false,
   });
@@ -2880,6 +3008,17 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
   const [scanError, setScanError] = useState<string | undefined>();
   const [isScanning, setIsScanning] = useState(false);
   const updateForm = (patch: Partial<ProjectCreateForm>) => setForm((previous) => ({ ...previous, ...patch }));
+  const remoteRepositoryField = (
+    <label className="block text-[13px] font-medium">
+      {text.repositoryUrl}
+      <input
+        className="mt-2 h-10 w-full rounded-md border border-line px-3 text-[13px]"
+        value={form.repositoryUrl}
+        onChange={(event) => updateForm({ repositoryUrl: event.target.value })}
+        placeholder={text.repositoryUrlPlaceholder}
+      />
+    </label>
+  );
 
   useEffect(() => {
     if (form.mode !== "import_existing") {
@@ -2910,6 +3049,7 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
             defaultBranch: nextScan.defaultBranch,
             projectType: nextScan.projectType,
             techPreferences: nextScan.techPreferences.join(", "),
+            repositoryUrl: nextScan.repository && nextScan.repository !== nextScan.targetRepoPath ? nextScan.repository : previous.repositoryUrl,
           }));
         })
         .catch((error: Error) => {
@@ -3012,6 +3152,7 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
                     placeholder="/home/john/Projects/existing-app"
                   />
                 </label>
+                {remoteRepositoryField}
                 <div className="rounded-md border border-line bg-slate-50 p-3 text-[13px]">
                   <div className="mb-2 flex items-center gap-2 font-medium">
                     {isScanning ? <Loader2 className="animate-spin" size={14} /> : <Search size={14} />}
@@ -3076,6 +3217,7 @@ function CreateProjectDialog({ text, onCreate }: { text: ConsoleCopy; onCreate: 
                     placeholder="TypeScript, React, Node.js"
                   />
                 </label>
+                {remoteRepositoryField}
               </>
             )}
             <div className="sticky bottom-0 -mx-5 -mb-5 flex justify-end border-t border-line bg-white p-5">

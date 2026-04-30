@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
+import { createFeatureSpec, projectSpecArtifact, scanSpecSources, type FeatureSpec, type SpecSourceScanSummary } from "./spec-protocol.ts";
 import {
   createScheduleTrigger,
   persistSelectionDecision,
@@ -25,6 +28,15 @@ import {
   type RunnerSandboxMode,
 } from "./codex-runner.ts";
 import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
+import {
+  connectProjectRepository,
+  createDefaultProjectConstitution,
+  getCurrentProjectConstitution,
+  getProject,
+  initializeProjectMemoryForProject,
+  initializeProjectSpecProtocol,
+  saveProjectConstitution,
+} from "./projects.ts";
 
 export type ConsoleCommandAction =
   | "create_feature"
@@ -806,6 +818,10 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       sql: `SELECT id, entity_type, entity_id, event_type, reason, payload_json, created_at
         FROM audit_timeline_events
         WHERE event_type IN (
+          'console_command_connect_git_repository',
+          'console_command_initialize_spec_protocol',
+          'console_command_import_or_create_constitution',
+          'console_command_initialize_project_memory',
           'console_command_scan_prd_source',
           'console_command_upload_prd_source',
           'console_command_generate_ears',
@@ -948,16 +964,38 @@ function buildPrdWorkflow(input: {
   const healthCheck = input.healthCheck;
   const projectStatus = optionalString(project?.status);
   const projectPath = optionalString(repositoryConnection?.local_path) ?? optionalString(project?.target_repo_path);
+  const repositoryRemoteUrl = optionalString(repositoryConnection?.remote_url);
   const healthReasons = parseJsonArray(healthCheck?.reasons_json).map(String);
   const isSpecProtocolMissing = healthReasons.includes("spec_protocol_directory_missing");
   const projectBlockedReasons = [
     ...healthReasons,
     ...(!project ? ["Create or import a project before Spec intake."] : []),
-    ...(project && !repositoryConnection ? ["Connect a Git repository before Spec intake."] : []),
+    ...(project && !repositoryRemoteUrl ? ["Connect a Git repository remote before Spec intake."] : []),
   ];
-  const projectStageStatus = (done: boolean, blockedReason?: string): "pending" | "accepted" | "blocked" | "completed" => {
+  const commandStatus = (action: ConsoleCommandAction): "accepted" | "blocked" | undefined => {
+    const row = latestByAction.get(action);
+    if (!row) {
+      return undefined;
+    }
+    const payload = parseJsonObject(row.payload_json);
+    const boardValidation = parseJsonObject(payload.boardValidation);
+    const blockedReasons = arrayValue(boardValidation.blockedReasons);
+    return blockedReasons.length > 0 ? "blocked" : "accepted";
+  };
+  const commandUpdatedAt = (action: ConsoleCommandAction): string | undefined => optionalString(latestByAction.get(action)?.created_at);
+  const projectStageStatus = (
+    done: boolean,
+    blockedReason?: string,
+    action?: ConsoleCommandAction,
+  ): "pending" | "accepted" | "blocked" | "completed" => {
     if (done) {
       return "completed";
+    }
+    if (action) {
+      const status = commandStatus(action);
+      if (status) {
+        return status;
+      }
     }
     return blockedReason ? "blocked" : "pending";
   };
@@ -976,38 +1014,54 @@ function buildPrdWorkflow(input: {
     {
       key: "connect_git_repository",
       action: "connect_git_repository",
-      status: projectStageStatus(Boolean(repositoryConnection), project ? "Connect a Git repository before Spec intake." : undefined),
-      updatedAt: optionalString(repositoryConnection?.connected_at),
-      blockedReason: project && !repositoryConnection ? "Connect a Git repository before Spec intake." : undefined,
+      status: projectStageStatus(Boolean(repositoryRemoteUrl), project ? "Connect a Git repository remote before Spec intake." : undefined, "connect_git_repository"),
+      updatedAt: optionalString(repositoryConnection?.connected_at) ?? commandUpdatedAt("connect_git_repository"),
+      blockedReason: project && !repositoryRemoteUrl ? "Connect a Git repository remote before Spec intake." : undefined,
     },
     {
       key: "initialize_spec_protocol",
       action: "initialize_spec_protocol",
-      status: projectStageStatus(Boolean(projectPath) && !isSpecProtocolMissing, project ? "Initialize .autobuild / Spec Protocol before Spec intake." : undefined),
-      updatedAt: optionalString(healthCheck?.checked_at),
+      status: projectStageStatus(Boolean(projectPath) && !isSpecProtocolMissing, project ? "Initialize .autobuild / Spec Protocol before Spec intake." : undefined, "initialize_spec_protocol"),
+      updatedAt: optionalString(healthCheck?.checked_at) ?? commandUpdatedAt("initialize_spec_protocol"),
       blockedReason: project && (!projectPath || isSpecProtocolMissing) ? "Initialize .autobuild / Spec Protocol before Spec intake." : undefined,
     },
     {
       key: "import_or_create_constitution",
       action: "import_or_create_constitution",
-      status: projectStageStatus(Boolean(constitution), undefined),
-      updatedAt: optionalString(constitution?.created_at),
+      status: projectStageStatus(Boolean(constitution), undefined, "import_or_create_constitution"),
+      updatedAt: optionalString(constitution?.created_at) ?? commandUpdatedAt("import_or_create_constitution"),
     },
     {
       key: "initialize_project_memory",
       action: "initialize_project_memory",
-      status: projectStageStatus(Boolean(memoryVersion), undefined),
-      updatedAt: optionalString(memoryVersion?.created_at),
+      status: projectStageStatus(Boolean(memoryVersion), undefined, "initialize_project_memory"),
+      updatedAt: optionalString(memoryVersion?.created_at) ?? commandUpdatedAt("initialize_project_memory"),
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
   const stageStatusByKey = new Map(decoratedStages.map((stage) => [stage.key, stage.status]));
+  const scanStage = decoratedStages.find((stage) => stage.key === "scan_prd");
+  const uploadStage = decoratedStages.find((stage) => stage.key === "upload_prd");
+  const specSourceIntakeStatus = [scanStage?.status, uploadStage?.status].includes("blocked")
+    ? "blocked"
+    : [scanStage?.status, uploadStage?.status].some((status) => status === "accepted" || status === "completed")
+      ? "accepted"
+      : "pending";
+  const specSourceIntakeUpdatedAt = [scanStage?.updatedAt, uploadStage?.updatedAt]
+    .filter(Boolean)
+    .sort()
+    .at(-1);
   const requirementIntakeStages = [
-    ...decoratedStages,
+    {
+      key: "spec_source_intake",
+      status: specSourceIntakeStatus,
+      updatedAt: specSourceIntakeUpdatedAt,
+    },
     {
       key: "recognize_requirement_format",
       status: stageStatusByKey.get("scan_prd") === "completed" || stageStatusByKey.get("scan_prd") === "accepted" ? "completed" as const : "pending" as const,
-      updatedAt: decoratedStages.find((stage) => stage.key === "scan_prd")?.updatedAt,
+      updatedAt: scanStage?.updatedAt,
     },
+    ...decoratedStages.filter((stage) => stage.key !== "scan_prd" && stage.key !== "upload_prd"),
     {
       key: "complete_clarifications",
       status: input.features.length > 0 ? "completed" as const : "pending" as const,
@@ -1021,7 +1075,7 @@ function buildPrdWorkflow(input: {
       status: input.features.some((feature) => feature.status === "ready") ? "completed" as const : input.features.length > 0 ? "accepted" as const : "pending" as const,
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
-  const projectPhaseStatus = projectStages.some((stage) => stage.status === "blocked")
+  const projectPhaseStatus = projectBlockedReasons.length > 0 || projectStages.some((stage) => stage.status === "blocked")
     ? "blocked"
     : projectStages.every((stage) => stage.status === "completed")
       ? "completed"
@@ -1350,7 +1404,14 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
-  const blockedReasons = [...boardValidation.blockedReasons, ...(settingsValidation?.blockedReasons ?? [])];
+  const projectInitializationResult = executeProjectInitializationCommand(dbPath, input);
+  const specIntakeResult = executeSpecIntakeCommand(dbPath, input, acceptedAt);
+  const blockedReasons = [
+    ...boardValidation.blockedReasons,
+    ...(settingsValidation?.blockedReasons ?? []),
+    ...(projectInitializationResult?.blockedReasons ?? []),
+    ...(specIntakeResult?.blockedReasons ?? []),
+  ];
   const auditEventId = recordAuditEvent(dbPath, {
     entityType,
     entityId,
@@ -1362,6 +1423,8 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
       requestedBy,
       acceptedAt,
       writeArtifactId,
+      projectInitialization: projectInitializationResult,
+      specIntake: specIntakeResult,
       scheduleTriggerId: scheduleResult?.triggerId,
       selectionDecisionId: scheduleResult?.selectionDecisionId,
       boardValidation,
@@ -1383,6 +1446,153 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput)
     selectionDecisionId: scheduleResult?.selectionDecisionId,
     blockedReasons: blockedReasons.length > 0 ? blockedReasons : undefined,
   };
+}
+
+function executeProjectInitializationCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+): ({ blockedReasons: string[] } & Record<string, unknown>) | undefined {
+  if (!["connect_git_repository", "initialize_spec_protocol", "import_or_create_constitution", "initialize_project_memory"].includes(input.action)) {
+    return undefined;
+  }
+  if (input.entityType !== "project") {
+    return { blockedReasons: ["Project initialization commands require a project entity."] };
+  }
+
+  const project = getProject(dbPath, input.entityId);
+  if (!project) {
+    return { blockedReasons: [`Project not found: ${input.entityId}`] };
+  }
+
+  try {
+    if (input.action === "connect_git_repository") {
+      const payload = parseJsonObject(input.payload);
+      const connection = connectProjectRepository(dbPath, project.id, {
+        repositoryUrl: optionalString(payload.repositoryUrl),
+      });
+      return { repositoryConnectionId: connection.id, repositoryUrl: connection.remoteUrl, blockedReasons: [] };
+    }
+
+    if (input.action === "initialize_spec_protocol") {
+      return { ...initializeProjectSpecProtocol(dbPath, project.id), blockedReasons: [] };
+    }
+
+    if (input.action === "initialize_project_memory") {
+      const memory = initializeProjectMemoryForProject(dbPath, project.id);
+      return { projectMemoryId: memory.id, path: memory.path, blockedReasons: [] };
+    }
+
+    const existing = getCurrentProjectConstitution(dbPath, project.id);
+    if (existing) {
+      return { constitutionId: existing.id, blockedReasons: [] };
+    }
+
+    const constitution = saveProjectConstitution(dbPath, project.id, createDefaultProjectConstitution(project));
+    return { constitutionId: constitution.id, blockedReasons: [] };
+  } catch (error) {
+    return { blockedReasons: [error instanceof Error ? error.message : String(error)] };
+  }
+}
+
+function executeSpecIntakeCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+): ({ blockedReasons: string[] } & Record<string, unknown>) | undefined {
+  if (!["scan_prd_source", "upload_prd_source", "generate_ears"].includes(input.action)) {
+    return undefined;
+  }
+  if (input.entityType !== "project") {
+    return { blockedReasons: ["Spec intake commands require a project entity."] };
+  }
+
+  const project = getProject(dbPath, input.entityId);
+  if (!project) {
+    return { blockedReasons: [`Project not found: ${input.entityId}`] };
+  }
+  if (!project.targetRepoPath) {
+    return { blockedReasons: ["Project repository path is required before Spec intake."] };
+  }
+
+  try {
+    const payload = parseJsonObject(input.payload);
+    if (input.action === "scan_prd_source") {
+      const scan = scanSpecSources(project.targetRepoPath, new Date(acceptedAt));
+      const evidencePath = writeSpecIntakeArtifact(project.targetRepoPath, "reports", `spec-source-scan-${Date.parse(acceptedAt)}.json`, scan);
+      const evidenceId = recordSpecIntakeEvidence(dbPath, {
+        path: evidencePath,
+        kind: "spec_source_scan",
+        summary: `Scanned ${scan.sources.length} Spec Sources; ${scan.missingItems.length} missing items; ${scan.conflicts.length} conflicts.`,
+        metadata: scan,
+      });
+      return {
+        evidenceId,
+        evidencePath,
+        sourceCount: scan.sources.length,
+        missingCount: scan.missingItems.length,
+        conflictCount: scan.conflicts.length,
+        clarificationCount: scan.clarificationItems.length,
+        blockedReasons: [],
+      };
+    }
+
+    if (input.action === "upload_prd_source") {
+      const fileName = sanitizeArtifactName(optionalString(payload.fileName) ?? basename(optionalString(payload.sourcePath) ?? "uploaded-spec.md"));
+      const content = optionalString(payload.contentPreview) ?? "";
+      const uploadPath = writeSpecTextArtifact(project.targetRepoPath, "specs/uploads", fileName, content);
+      const evidenceId = recordSpecIntakeEvidence(dbPath, {
+        path: uploadPath,
+        kind: "spec_source_upload",
+        summary: `Uploaded Spec source ${fileName}.`,
+        metadata: {
+          fileName,
+          contentLength: Number(payload.contentLength ?? content.length),
+          sourcePath: optionalString(payload.sourcePath),
+          uploadPath,
+        },
+      });
+      return { evidenceId, evidencePath: uploadPath, uploadedPath: uploadPath, blockedReasons: [] };
+    }
+
+    const scan = scanSpecSources(project.targetRepoPath, new Date(acceptedAt));
+    const rawInput = resolveSpecInput(project.targetRepoPath, payload, scan);
+    if (!rawInput.trim()) {
+      return { blockedReasons: ["No readable Spec source content was found for EARS generation."] };
+    }
+    const featureId = nextGeneratedFeatureId(dbPath);
+    const spec = createFeatureSpec({
+      featureId,
+      rawInput,
+      sourceType: detectSpecSourceType(optionalString(payload.sourcePath)),
+      scanSummary: scan,
+      now: new Date(acceptedAt),
+    });
+    persistGeneratedFeatureSpec(dbPath, input.entityId, spec);
+    const specArtifactPath = projectSpecArtifact(spec, join(project.targetRepoPath, ".autobuild"));
+    const evidenceId = recordSpecIntakeEvidence(dbPath, {
+      featureId: spec.id,
+      path: specArtifactPath,
+      kind: "ears_generation",
+      summary: `Generated ${spec.requirements.length} EARS requirements for ${spec.id}.`,
+      metadata: {
+        featureId: spec.id,
+        status: spec.status,
+        requirementIds: spec.requirements.map((requirement) => `${spec.id}-${requirement.id}`),
+        clarificationCount: spec.clarificationLog.length,
+        checklistStatus: spec.checklist.status,
+      },
+    });
+    return {
+      featureId: spec.id,
+      evidenceId,
+      evidencePath: specArtifactPath,
+      requirementCount: spec.requirements.length,
+      status: spec.status,
+      blockedReasons: [],
+    };
+  } catch (error) {
+    return { blockedReasons: [error instanceof Error ? error.message : String(error)] };
+  }
 }
 
 function executeScheduleCommand(
@@ -1426,6 +1636,137 @@ function executeScheduleCommand(
     trigger.projectId,
   );
   return { triggerId: trigger.id, selectionDecisionId: decision.id };
+}
+
+function writeSpecIntakeArtifact(projectPath: string, directory: string, fileName: string, value: unknown): string {
+  return writeSpecTextArtifact(projectPath, directory, fileName, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function writeSpecTextArtifact(projectPath: string, directory: string, fileName: string, content: string): string {
+  const relativePath = join(".autobuild", directory, sanitizeArtifactName(fileName));
+  const fullPath = join(projectPath, relativePath);
+  mkdirSync(join(projectPath, ".autobuild", directory), { recursive: true, mode: 0o700 });
+  writeFileSync(fullPath, content, { encoding: "utf8", mode: 0o600 });
+  return relativePath;
+}
+
+function recordSpecIntakeEvidence(
+  dbPath: string,
+  input: { featureId?: string; path: string; kind: string; summary: string; metadata: unknown },
+): string {
+  const id = randomUUID();
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO evidence_packs (id, feature_id, path, kind, summary, metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      params: [
+        id,
+        input.featureId ?? null,
+        input.path,
+        input.kind,
+        input.summary,
+        JSON.stringify(input.metadata),
+      ],
+    },
+  ]);
+  return id;
+}
+
+function resolveSpecInput(projectPath: string, payload: Record<string, unknown>, scan: SpecSourceScanSummary): string {
+  const uploadedContent = optionalString(payload.contentPreview);
+  if (uploadedContent) {
+    return uploadedContent;
+  }
+
+  const requestedSourcePath = optionalString(payload.sourcePath);
+  const candidates = [
+    requestedSourcePath,
+    scan.sources.find((source) => source.fileType === "PRD")?.relativePath,
+    scan.sources.find((source) => source.fileType === "EARS")?.relativePath,
+    scan.sources[0]?.relativePath,
+  ].filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    try {
+      return readFileSync(join(projectPath, candidate), "utf8");
+    } catch {
+      continue;
+    }
+  }
+  return "";
+}
+
+function persistGeneratedFeatureSpec(dbPath: string, projectId: string, spec: FeatureSpec): void {
+  const requirementIds = spec.requirements.map((requirement) => `${spec.id}-${requirement.id}`);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO features (id, project_id, title, folder, primary_requirements_json, status, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(id) DO UPDATE SET
+          project_id = excluded.project_id,
+          title = excluded.title,
+          folder = excluded.folder,
+          primary_requirements_json = excluded.primary_requirements_json,
+          status = excluded.status,
+          updated_at = excluded.updated_at`,
+      params: [
+        spec.id,
+        projectId,
+        spec.name,
+        spec.id.toLowerCase(),
+        JSON.stringify(requirementIds),
+        spec.status,
+      ],
+    },
+    ...spec.requirements.map((requirement, index) => {
+      const id = `${spec.id}-${requirement.id}`;
+      const criteria = spec.acceptanceCriteria.find((item) => item.requirementId === requirement.id);
+      return {
+        sql: `INSERT INTO requirements (id, feature_id, source_id, body, acceptance_criteria, priority, status, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
+          ON CONFLICT(id) DO UPDATE SET
+            feature_id = excluded.feature_id,
+            source_id = excluded.source_id,
+            body = excluded.body,
+            acceptance_criteria = excluded.acceptance_criteria,
+            priority = excluded.priority,
+            status = excluded.status,
+            updated_at = excluded.updated_at`,
+        params: [
+          id,
+          spec.id,
+          `${requirement.source.label}${requirement.source.lineNumber ? `:${requirement.source.lineNumber}` : ""}`,
+          requirement.statement,
+          criteria?.description ?? "",
+          index === 0 ? "must" : "should",
+        ],
+      };
+    }),
+  ]);
+}
+
+function nextGeneratedFeatureId(dbPath: string): string {
+  const result = runSqlite(dbPath, [], [
+    { name: "features", sql: "SELECT id FROM features WHERE id LIKE 'FEAT-INTAKE-%' ORDER BY id DESC LIMIT 1" },
+  ]);
+  const latest = optionalString(result.queries.features[0]?.id);
+  const nextNumber = latest ? Number(latest.replace(/^FEAT-INTAKE-/, "")) + 1 : 1;
+  return `FEAT-INTAKE-${String(Number.isFinite(nextNumber) ? nextNumber : 1).padStart(3, "0")}`;
+}
+
+function detectSpecSourceType(sourcePath?: string): "PRD" | "EARS" | "mixed" {
+  const normalized = sourcePath?.toLowerCase() ?? "";
+  if (normalized.includes("requirements") || normalized.includes("ears")) {
+    return "EARS";
+  }
+  if (normalized.includes("prd") || normalized.includes("pr.md") || normalized.includes("rp.md")) {
+    return "PRD";
+  }
+  return "mixed";
+}
+
+function sanitizeArtifactName(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "spec-source.md";
 }
 
 function loadScheduleCandidates(

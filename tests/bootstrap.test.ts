@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, existsSync, chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { get, request as httpRequest } from "node:http";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { loadConfig } from "../src/config.ts";
 import { ARTIFACT_DIRECTORIES } from "../src/artifacts.ts";
@@ -344,11 +344,12 @@ test("project constitution versions are auditable and mark downstream revalidati
     defaultConstraints: ["Run targeted tests"],
   });
 
-  assert.equal(first.version, 1);
-  assert.equal(second.version, 2);
+  assert.equal(first.version, 2);
+  assert.equal(second.version, 3);
   assert.equal(getCurrentProjectConstitution(config.dbPath, project.id)?.id, second.id);
   assert.deepEqual(listProjectConstitutions(config.dbPath, project.id).map((item) => item.status), [
     "active",
+    "superseded",
     "superseded",
   ]);
 
@@ -432,7 +433,7 @@ test("project API exposes project creation, repository summary, and health check
       approvalRules: ["Route high risk changes to Review Center"],
       defaultConstraints: ["Run targeted tests"],
     });
-    assert.equal(constitution.version, 1);
+    assert.equal(constitution.version, 2);
 
     const mark = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/constitution/revalidations`, {
       constitutionId: constitution.id,
@@ -548,6 +549,7 @@ function createReadyGitRepo(path: string): string {
   mkdirSync(join(path, "src"));
   writeFileSync(join(path, "src", "index.js"), "console.log('ready');\n");
   execFileSync("git", ["init", "-b", "main"], { cwd: path });
+  execFileSync("git", ["remote", "add", "origin", `https://github.com/example/${basename(path)}.git`], { cwd: path });
   execFileSync("git", ["add", "."], { cwd: path });
   execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"], {
     cwd: path,

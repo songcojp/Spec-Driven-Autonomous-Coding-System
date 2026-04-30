@@ -268,8 +268,7 @@ const returnsPortalData: ConsoleProjectData = {
             { label: "Requirements", value: "3" },
           ],
           stages: [
-            { key: "scan_prd", action: "scan_prd_source", status: "completed", updatedAt: "05-19 09:12", auditEventId: "AUD-PRD-001", evidencePath: "reports/FEAT-013-scan.md" },
-            { key: "upload_prd", action: "upload_prd_source", status: "completed", updatedAt: "05-19 09:14", auditEventId: "AUD-PRD-002", evidencePath: "reports/FEAT-013-upload.md" },
+            { key: "spec_source_intake", status: "completed", updatedAt: "05-19 09:14" },
             { key: "recognize_requirement_format", status: "completed", updatedAt: "05-19 09:15" },
             { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", evidencePath: "ears/FEAT-013.md" },
             { key: "complete_clarifications", status: "completed", updatedAt: "05-19 09:17" },

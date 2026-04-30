@@ -86,6 +86,7 @@ export async function createConsoleProject(input: ProjectCreateForm): Promise<Pr
       automationEnabled: input.automationEnabled,
       defaultBranch: input.defaultBranch,
       targetRepoPath,
+      repositoryUrl: input.repositoryUrl.trim() || undefined,
       creationMode: input.mode,
     }),
   });
@@ -117,7 +118,7 @@ export async function deleteConsoleProject(projectId: string): Promise<void> {
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => undefined) as { error?: string } | undefined;
-    if (response.status === 404 && detail?.error === "project_not_found") {
+    if (response.status === 404) {
       return;
     }
     throw new Error(detail?.error ?? `/projects/${projectId} returned ${response.status}`);

@@ -55,6 +55,7 @@ export type ProjectCreateForm = {
   techPreferences: string;
   existingProjectPath: string;
   workspaceSlug: string;
+  repositoryUrl: string;
   defaultBranch: string;
   automationEnabled: boolean;
 };

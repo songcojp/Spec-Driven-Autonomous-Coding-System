@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { ensureArtifactDirectories } from "./artifacts.ts";
@@ -208,35 +209,29 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
     mkdirSync(targetRepoPath, { recursive: true });
   }
 
-  if (targetRepoPath) {
-    upsertRepositoryConnection(dbPath, {
-      id: randomUUID(),
-      projectId: id,
-      provider: detectProvider(repositoryUrl),
-      remoteUrl: repositoryUrl,
-      localPath: targetRepoPath,
-      defaultBranch,
-    });
-    if (existsSync(targetRepoPath)) {
-      try {
-        ensureArtifactDirectories(join(targetRepoPath, ".autobuild"));
-        initializeProjectMemory({
-          dbPath,
-          artifactRoot: join(targetRepoPath, ".autobuild"),
-          projectId: id,
-          projectName: input.name,
-          goal: input.goal,
-          defaultBranch,
-        });
-      } catch {
-        // Memory init is best-effort; project record is already persisted.
-      }
+  if (targetRepoPath && existsSync(targetRepoPath)) {
+    try {
+      connectProjectRepository(dbPath, id, { repositoryUrl });
+    } catch {
+      const summary = readRepositorySummary(targetRepoPath);
+      upsertRepositoryConnection(dbPath, {
+        id: randomUUID(),
+        projectId: id,
+        provider: detectProvider(repositoryUrl ?? summary.remoteUrl),
+        remoteUrl: repositoryUrl ?? summary.remoteUrl,
+        localPath: targetRepoPath,
+        defaultBranch: summary.defaultBranch ?? summary.currentBranch ?? defaultBranch,
+      });
+    }
+    try {
+      initializeProjectSpecProtocol(dbPath, id);
+      initializeProjectMemoryForProject(dbPath, id);
+    } catch {
+      // Memory init is best-effort; project record is already persisted.
     }
   }
 
-  if (input.constitution) {
-    saveProjectConstitution(dbPath, id, input.constitution);
-  }
+  saveProjectConstitution(dbPath, id, input.constitution ?? createDefaultProjectConstitution(input));
 
   return {
     id,
@@ -454,6 +449,19 @@ export function readProjectRepository(
   }
 
   const summary = readRepositorySummary(connection.localPath, runner);
+  if (summary.remoteUrl && summary.remoteUrl !== connection.remoteUrl) {
+    runSqlite(dbPath, [
+      {
+        sql: "UPDATE repository_connections SET provider = ?, remote_url = ?, default_branch = ? WHERE id = ?",
+        params: [
+          detectProvider(summary.remoteUrl),
+          summary.remoteUrl,
+          summary.defaultBranch ?? summary.currentBranch ?? connection.defaultBranch,
+          connection.id,
+        ],
+      },
+    ]);
+  }
   runSqlite(dbPath, [
     {
       sql: "UPDATE repository_connections SET last_read_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -461,6 +469,78 @@ export function readProjectRepository(
     },
   ]);
   return summary;
+}
+
+export function connectProjectRepository(
+  dbPath: string,
+  projectId: string,
+  input: { repositoryUrl?: string } = {},
+): RepositoryConnectionRecord {
+  const project = assertProjectExists(dbPath, projectId);
+  if (!project.targetRepoPath) {
+    throw new Error("Project repository path is required before Git binding.");
+  }
+  if (!existsSync(project.targetRepoPath)) {
+    throw new Error(`Project repository path does not exist: ${project.targetRepoPath}`);
+  }
+
+  const requestedRemoteUrl = normalizeOptionalString(input.repositoryUrl);
+  let summary = readRepositorySummary(project.targetRepoPath);
+  if (!summary.isGitRepository) {
+    if (!requestedRemoteUrl) {
+      throw new Error("Git repository is missing; provide a repository URL to initialize and bind origin.");
+    }
+    runGit(project.targetRepoPath, ["init"]);
+    if (project.defaultBranch) {
+      runGit(project.targetRepoPath, ["checkout", "-B", project.defaultBranch]);
+    }
+    summary = readRepositorySummary(project.targetRepoPath);
+  }
+
+  const remoteUrl = requestedRemoteUrl ?? summary.remoteUrl;
+  if (!remoteUrl) {
+    throw new Error("Repository URL is required to bind remote origin.");
+  }
+
+  if (requestedRemoteUrl) {
+    const existingRemote = gitOptional(project.targetRepoPath, ["config", "--get", "remote.origin.url"]);
+    runGit(project.targetRepoPath, existingRemote ? ["remote", "set-url", "origin", remoteUrl] : ["remote", "add", "origin", remoteUrl]);
+    summary = readRepositorySummary(project.targetRepoPath);
+  }
+
+  const connection = {
+    id: randomUUID(),
+    projectId,
+    provider: detectProvider(remoteUrl),
+    remoteUrl,
+    localPath: project.targetRepoPath,
+    defaultBranch: summary.defaultBranch ?? summary.currentBranch ?? project.defaultBranch,
+  };
+  upsertRepositoryConnection(dbPath, connection);
+  return connection;
+}
+
+export function initializeProjectSpecProtocol(dbPath: string, projectId: string): { artifactRoot: string } {
+  const project = assertProjectExists(dbPath, projectId);
+  if (!project.targetRepoPath) {
+    throw new Error("Project repository path is required before Spec Protocol initialization.");
+  }
+  const artifactRoot = join(project.targetRepoPath, ".autobuild");
+  ensureArtifactDirectories(artifactRoot);
+  return { artifactRoot };
+}
+
+export function initializeProjectMemoryForProject(dbPath: string, projectId: string) {
+  const project = assertProjectExists(dbPath, projectId);
+  const { artifactRoot } = initializeProjectSpecProtocol(dbPath, projectId);
+  return initializeProjectMemory({
+    dbPath,
+    artifactRoot,
+    projectId,
+    projectName: project.name,
+    goal: project.goal,
+    defaultBranch: project.defaultBranch,
+  });
 }
 
 export function saveProjectConstitution(
@@ -624,7 +704,8 @@ export function runProjectHealthCheck(
     throw new Error(`Project not found: ${projectId}`);
   }
 
-  const repositorySummary = readProjectRepository(dbPath, projectId, runner) ?? emptyRepositorySummary(project);
+  const repositorySummary = readProjectRepository(dbPath, projectId, runner)
+    ?? (project.targetRepoPath ? readRepositorySummary(project.targetRepoPath, runner) : emptyRepositorySummary(project));
   const reasons = classifyReasons(repositorySummary);
   const status: ProjectHealthStatus =
     repositorySummary.errors.includes("repository_path_missing") && !repositorySummary.isGitRepository
@@ -670,6 +751,7 @@ function upsertRepositoryConnection(dbPath: string, connection: RepositoryConnec
 function classifyReasons(summary: RepositorySummary): string[] {
   const reasons: string[] = [];
   if (!summary.isGitRepository) reasons.push("git_repository_missing");
+  if (summary.isGitRepository && !summary.remoteUrl) reasons.push("repository_url_missing");
   if (!summary.packageManager) reasons.push("package_manager_missing");
   if (!summary.testCommand) reasons.push("test_command_missing");
   if (!summary.buildCommand) reasons.push("build_command_missing");
@@ -783,6 +865,34 @@ function detectProvider(repositoryUrl?: string): string {
   if (repositoryUrl.includes("github.com")) return "github";
   if (repositoryUrl.includes("gitlab.com")) return "gitlab";
   return "private";
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function runGit(cwd: string, args: string[]): string {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || result.error?.message || "git_command_failed";
+    throw new Error(`git ${args.join(" ")} failed: ${detail}`);
+  }
+  return result.stdout.trim();
+}
+
+function gitOptional(cwd: string, args: string[]): string | undefined {
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 1024 * 1024,
+  });
+  return result.status === 0 && result.stdout.trim() ? result.stdout.trim() : undefined;
 }
 
 function inferProjectName(targetRepoPath: string, summary: RepositorySummary): string {
@@ -928,7 +1038,7 @@ export function initializeProjectPhase1(
   const repositoryConnected = Boolean(project.targetRepoPath);
 
   // Constitution
-  const constitutionCreated = Boolean(resolvedInput.constitution);
+  const constitutionCreated = Boolean(getCurrentProjectConstitution(dbPath, project.id));
 
   // Project memory — check if initialization succeeded
   let memoryInitialized = false;
@@ -980,6 +1090,32 @@ function mapProjectSummary(row: Record<string, unknown>): ProjectSummary {
     recentHealthStatus: row.health_status
       ? (String(row.health_status) as ProjectHealthStatus)
       : undefined,
+  };
+}
+
+export function createDefaultProjectConstitution(input: Pick<ProjectInput, "name" | "goal" | "defaultBranch" | "trustLevel" | "environment">): ProjectConstitutionInput {
+  const defaultBranch = input.defaultBranch ?? "main";
+  const trustLevel = input.trustLevel ?? "standard";
+  return {
+    source: "created",
+    title: `${input.name} Project Constitution`,
+    projectGoal: input.goal,
+    engineeringPrinciples: [
+      "Keep implementation traceable to approved specs.",
+      "Prefer the repository's existing patterns before introducing new abstractions.",
+    ],
+    boundaryRules: [
+      "Keep changes scoped to the active project.",
+      "Preserve unrelated user changes.",
+    ],
+    approvalRules: [
+      "Require review for high-risk, security, permission, architecture, or constitution changes.",
+    ],
+    defaultConstraints: [
+      `Default branch: ${defaultBranch}`,
+      `Trust level: ${trustLevel}`,
+      `Environment: ${input.environment}`,
+    ],
   };
 }
 

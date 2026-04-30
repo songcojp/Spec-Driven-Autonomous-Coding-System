@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
@@ -313,6 +313,9 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(specWorkspace.prdWorkflow.sourcePath, "docs/zh-CN/PRD.md");
   assert.deepEqual(specWorkspace.prdWorkflow.phases.map((phase) => phase.key), ["project_initialization", "requirement_intake", "feature_planning"]);
   assert.equal(specWorkspace.prdWorkflow.phases[0].stages.some((stage) => stage.key === "initialize_project_memory"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "spec_source_intake"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "scan_prd"), false);
+  assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "upload_prd"), false);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "generate_ears"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "feature_spec_pool"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "status_check"), true);
@@ -334,17 +337,26 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
     initializationStages.find((stage) => stage.key === "initialize_project_memory")?.status,
     "pending",
   );
+  submitConsoleCommand(dbPath, {
+    action: "import_or_create_constitution",
+    entityType: "project",
+    entityId: "project-1",
+    projectId: "project-1",
+    requestedBy: "operator",
+    reason: "Operator requested import_or_create_constitution.",
+    payload: {
+      stage: "import_or_create_constitution",
+      targetRepoPath: "/workspace/specdrive",
+    },
+    now: new Date("2026-04-28T07:06:30.000Z"),
+  });
+  const acceptedInitializationWorkspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+  assert.equal(
+    acceptedInitializationWorkspace.prdWorkflow.phases[0].stages.find((stage) => stage.key === "import_or_create_constitution")?.status,
+    "completed",
+  );
 
   runSqlite(dbPath, [
-    {
-      sql: `INSERT INTO project_constitutions (
-          id, project_id, version, source, title, project_goal,
-          engineering_principles_json, boundary_rules_json, approval_rules_json, default_constraints_json, status, created_at
-        ) VALUES (
-          'CONST-1', 'project-1', 1, 'manual', 'SpecDrive Constitution', 'Automate specs',
-          '[]', '[]', '[]', '[]', 'active', '2026-04-28T07:06:00.000Z'
-        )`,
-    },
     {
       sql: `INSERT INTO memory_version_records (id, project_memory_id, version, run_id, summary, checksum, content, created_at)
         VALUES ('MEM-1', 'memory-project-1', 1, NULL, 'Initial project memory.', 'checksum', '{"projectId":"project-1"}', '2026-04-28T07:07:00.000Z')`,
@@ -358,6 +370,7 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
     },
   ]);
   const dirtyWorkspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+  assert.equal(dirtyWorkspace.prdWorkflow.phases[0].status, "blocked");
   assert.equal(
     dirtyWorkspace.prdWorkflow.phases[0].stages.find((stage) => stage.key === "initialize_spec_protocol")?.status,
     "completed",
@@ -532,7 +545,7 @@ test("console command gateway audits controlled writes without mutating worktree
   ]);
 
   assert.equal(receipt.status, "accepted");
-  assert.equal(workflowReceipt.status, "accepted");
+  assert.equal(workflowReceipt.status, "blocked");
   assert.equal(stringTimeReceipt.acceptedAt, "2026-04-28T12:00:00.000Z");
   assert.deepEqual(after.queries.worktrees, before);
   assert.equal(after.queries.audit[0].event_type, "console_command_pause_runner");
@@ -540,6 +553,70 @@ test("console command gateway audits controlled writes without mutating worktree
   assert.match(String(after.queries.audit[0].payload_json), /operator/);
   assert.equal(after.queries.workflowAudit[0].event_type, "console_command_scan_prd_source");
   assert.equal(String(after.queries.workflowAudit[0].payload_json).includes("workspace/acme-returns-portal/docs/zh-CN/PRD.md"), true);
+});
+
+test("spec intake commands scan sources, upload specs, and generate persisted Feature Specs", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-intake-"));
+  mkdirSync(join(projectPath, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(projectPath, ".autobuild", "reports"), { recursive: true });
+  writeFileSync(
+    join(projectPath, "docs", "zh-CN", "PRD.md"),
+    "Feature: Intake Portal\nGoal: Capture requirements.\nPRD: The system shall scan spec sources. The system shall generate EARS requirements.",
+    "utf8",
+  );
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+  ]);
+
+  const scanReceipt = submitConsoleCommand(dbPath, {
+    action: "scan_prd_source",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Scan project specs.",
+    payload: { sourcePath: "docs/zh-CN/PRD.md" },
+    now: stableDate,
+  });
+  const uploadReceipt = submitConsoleCommand(dbPath, {
+    action: "upload_prd_source",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Upload spec.",
+    payload: {
+      fileName: "uploaded-prd.md",
+      sourcePath: "uploaded-prd.md",
+      contentPreview: "PRD: The system shall accept uploaded specs.",
+      contentLength: 45,
+    },
+    now: stableDate,
+  });
+  const generateReceipt = submitConsoleCommand(dbPath, {
+    action: "generate_ears",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Generate EARS.",
+    payload: { sourcePath: "docs/zh-CN/PRD.md" },
+    now: stableDate,
+  });
+  const result = runSqlite(dbPath, [], [
+    { name: "features", sql: "SELECT id, project_id, title, status FROM features WHERE id LIKE 'FEAT-INTAKE-%'" },
+    { name: "requirements", sql: "SELECT id, feature_id, body FROM requirements WHERE feature_id LIKE 'FEAT-INTAKE-%' ORDER BY id" },
+    { name: "evidence", sql: "SELECT kind, feature_id, path, summary FROM evidence_packs WHERE kind IN ('spec_source_scan','spec_source_upload','ears_generation') ORDER BY created_at, rowid" },
+  ]);
+
+  assert.equal(scanReceipt.status, "accepted");
+  assert.equal(uploadReceipt.status, "accepted");
+  assert.equal(generateReceipt.status, "accepted");
+  assert.equal(result.queries.features.length, 1);
+  assert.equal(result.queries.features[0].project_id, "project-1");
+  assert.ok(result.queries.requirements.length >= 2);
+  assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["spec_source_scan", "spec_source_upload", "ears_generation"]);
+  assert.equal(String(result.queries.evidence[2].feature_id).startsWith("FEAT-INTAKE-"), true);
 });
 
 test("console write commands persist rule and spec evolution evidence", () => {
