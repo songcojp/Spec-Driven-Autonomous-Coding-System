@@ -562,9 +562,10 @@ test("console command gateway audits controlled writes without mutating worktree
   assert.equal(String(after.queries.workflowAudit[0].payload_json).includes("workspace/acme-returns-portal/docs/zh-CN/PRD.md"), true);
 });
 
-test("spec intake commands scan sources, upload specs, and generate persisted Feature Specs", () => {
+test("spec intake commands scan, upload, and enqueue EARS skill invocation", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
   const projectPath = mkdtempSync(join(tmpdir(), "spec-intake-"));
   mkdirSync(join(projectPath, "docs", "zh-CN"), { recursive: true });
   mkdirSync(join(projectPath, ".autobuild", "reports"), { recursive: true });
@@ -609,26 +610,30 @@ test("spec intake commands scan sources, upload specs, and generate persisted Fe
     reason: "Generate EARS.",
     payload: { sourcePath: "docs/zh-CN/PRD.md" },
     now: stableDate,
-  });
+  }, { scheduler });
   const result = runSqlite(dbPath, [], [
     { name: "features", sql: "SELECT id, project_id, title, status FROM features WHERE id LIKE 'FEAT-INTAKE-%'" },
     { name: "requirements", sql: "SELECT id, feature_id, body FROM requirements WHERE feature_id LIKE 'FEAT-INTAKE-%' ORDER BY id" },
     { name: "evidence", sql: "SELECT kind, feature_id, path, summary FROM evidence_packs WHERE kind IN ('spec_source_scan','spec_source_upload','ears_generation') ORDER BY created_at, rowid" },
+    { name: "runs", sql: "SELECT id, project_id, status, metadata_json FROM runs WHERE project_id = 'project-1' ORDER BY rowid DESC LIMIT 1" },
+    { name: "jobs", sql: "SELECT job_type, target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
   ]);
 
   assert.equal(scanReceipt.status, "accepted");
   assert.equal(uploadReceipt.status, "accepted");
   assert.equal(generateReceipt.status, "accepted");
-  assert.equal(result.queries.features.length, 1);
-  assert.equal(result.queries.features[0].project_id, "project-1");
-  assert.ok(result.queries.requirements.length >= 2);
-  assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["spec_source_scan", "spec_source_upload", "ears_generation"]);
-  assert.equal(String(result.queries.evidence[2].feature_id).startsWith("FEAT-INTAKE-"), true);
+  assert.equal(result.queries.features.length, 0);
+  assert.equal(result.queries.requirements.length, 0);
+  assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["spec_source_scan", "spec_source_upload"]);
+  assert.equal(generateReceipt.runId, result.queries.runs[0].id);
+  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "requirement-intake-skill");
+  assert.equal(JSON.parse(String(result.queries.jobs[0].payload_json)).skillSlug, "requirement-intake-skill");
 });
 
-test("spec workspace selects the generated EARS feature when no feature id is pinned", () => {
+test("spec workspace records EARS generation as a CLI skill run instead of direct Feature creation", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
   const projectPath = mkdtempSync(join(tmpdir(), "spec-intake-selected-"));
   mkdirSync(join(projectPath, "docs", "zh-CN"), { recursive: true });
   writeFileSync(
@@ -654,14 +659,15 @@ test("spec workspace selects the generated EARS feature when no feature id is pi
     reason: "Generate EARS from real PRD.",
     payload: { sourcePath: "docs/zh-CN/PRD.md" },
     now: new Date("2026-04-28T12:03:00.000Z"),
-  });
+  }, { scheduler });
   const workspace = buildSpecWorkspaceView(dbPath, undefined, "project-1");
+  const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:03:01.000Z"), "project-1");
 
   assert.equal(receipt.status, "accepted");
-  assert.equal(workspace.selectedFeature?.id, receipt.featureId);
-  assert.equal(workspace.selectedFeature?.title, "Real Intake Flow");
-  assert.ok(workspace.selectedFeature?.requirements.some((requirement) => requirement.body.includes("selected source file")));
-  assert.equal(workspace.prdWorkflow.phases[1].facts.find((fact) => fact.label === "Requirements")?.value, String(workspace.selectedFeature?.requirements.length));
+  assert.equal(receipt.featureId, undefined);
+  assert.equal(receipt.runId, runner.skillInvocations[0].runId);
+  assert.equal(runner.skillInvocations[0].skillSlug, "requirement-intake-skill");
+  assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
 });
 
 test("spec intake workflow displays the actual discovered source instead of a default PRD path", () => {

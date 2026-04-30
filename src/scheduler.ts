@@ -17,20 +17,24 @@ import {
 } from "./orchestration.ts";
 import {
   buildEvidencePackInput,
+  buildSkillInvocationPrompt,
   DEFAULT_CLI_ADAPTER_CONFIG,
   normalizeCliAdapterConfig,
   persistCodexRunnerArtifacts,
   processRunnerQueueItem,
   recordRunnerHeartbeat,
   resolveRunnerPolicy,
+  validateWorkspaceRoot,
   type CliAdapterConfig,
   type CodexCommandRunner,
   type RunnerQueueStatus,
+  type SkillInvocationContract,
 } from "./codex-runner.ts";
 
 export const FEATURE_SCHEDULER_QUEUE = "specdrive:feature-scheduler";
 export const CLI_RUNNER_QUEUE = "specdrive:cli-runner";
 export const PLANNING_BRIDGE_NOT_IMPLEMENTED = "Planning skill execution bridge is not implemented";
+export const PLANNING_BRIDGE_WORKSPACE_BLOCKED = "Planning skill execution bridge is blocked because the project workspace is unavailable";
 
 export type SchedulerJobType = "feature.select" | "feature.plan" | "cli.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "blocked" | "failed";
@@ -68,8 +72,16 @@ export type FeaturePlanJobPayload = {
 export type CliRunJobPayload = {
   projectId?: string;
   featureId?: string;
-  taskId: string;
+  taskId?: string;
   runId: string;
+  skillSlug?: string;
+  requestedAction?: string;
+  sourcePaths?: string[];
+  expectedArtifacts?: string[];
+  traceability?: {
+    requirementIds?: string[];
+    changeIds?: string[];
+  };
 };
 
 export type SchedulerClient = {
@@ -125,8 +137,8 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
       const result = createQueuedJobRecord(dbPath, {
         queueName: CLI_RUNNER_QUEUE,
         jobType: "cli.run",
-        targetType: "task",
-        targetId: payload.taskId,
+        targetType: payload.taskId ? "task" : payload.featureId ? "feature" : "project",
+        targetId: payload.taskId ?? payload.featureId ?? payload.projectId,
         payload,
       });
       void cliQueue.add("cli.run", { ...payload, schedulerJobId: result.schedulerJobId }, { jobId: result.bullmqJobId, attempts: 1 })
@@ -158,7 +170,7 @@ export function createUnavailableScheduler(dbPath: string, reason: string): Sche
       return enqueue("feature.plan", FEATURE_SCHEDULER_QUEUE, "feature", payload.featureId, payload);
     },
     enqueueCliRun(payload) {
-      return enqueue("cli.run", CLI_RUNNER_QUEUE, "task", payload.taskId, payload);
+      return enqueue("cli.run", CLI_RUNNER_QUEUE, payload.taskId ? "task" : payload.featureId ? "feature" : "project", payload.taskId ?? payload.featureId ?? payload.projectId, payload);
     },
     health() {
       return { status: "blocked", reason };
@@ -182,7 +194,7 @@ export function createMemoryScheduler(dbPath: string): SchedulerClient & { jobs:
       return enqueue("feature.plan", FEATURE_SCHEDULER_QUEUE, "feature", payload.featureId, payload);
     },
     enqueueCliRun(payload) {
-      return enqueue("cli.run", CLI_RUNNER_QUEUE, "task", payload.taskId, payload);
+      return enqueue("cli.run", CLI_RUNNER_QUEUE, payload.taskId ? "task" : payload.featureId ? "feature" : "project", payload.taskId ?? payload.featureId ?? payload.projectId, payload);
     },
     health() {
       return { status: "ready" };
@@ -258,18 +270,92 @@ export function runFeatureSelectJob(dbPath: string, scheduler: Pick<SchedulerCli
   return { decisionId: decision.id, selectedFeatureId: decision.selectedFeatureId };
 }
 
-export function runFeaturePlanJob(dbPath: string, payload: FeaturePlanJobPayload): void {
+export function runFeaturePlanJob(dbPath: string, payload: FeaturePlanJobPayload, scheduler?: Pick<SchedulerClient, "enqueueCliRun">): { runId?: string; blockedReason?: string } {
   const now = new Date().toISOString();
   const row = runSqlite(dbPath, [], [
-    { name: "feature", sql: "SELECT id, status FROM features WHERE id = ? LIMIT 1", params: [payload.featureId] },
+    {
+      name: "feature",
+      sql: `SELECT f.id, f.status, f.project_id, f.primary_requirements_json, p.target_repo_path,
+          rc.local_path AS repository_local_path
+        FROM features f
+        LEFT JOIN projects p ON p.id = f.project_id
+        LEFT JOIN repository_connections rc ON rc.project_id = f.project_id
+          AND rc.connected_at = (
+            SELECT MAX(connected_at) FROM repository_connections latest WHERE latest.project_id = f.project_id
+          )
+        WHERE f.id = ? LIMIT 1`,
+      params: [payload.featureId],
+    },
   ]).queries.feature[0];
   if (!row) {
     throw new Error(`Feature not found: ${payload.featureId}`);
   }
+  const projectId = payload.projectId ?? optionalString(row.project_id);
+  const workspace = validateWorkspaceRoot(resolveWorkspaceRoot(row));
+  if (scheduler && projectId && workspace.valid && workspace.workspaceRoot) {
+    const runId = randomUUID();
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
+          VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+        params: [
+          runId,
+          payload.featureId,
+          projectId,
+          "queued",
+          now,
+          JSON.stringify({
+            scheduler: "bullmq",
+            jobType: "feature.plan",
+            skillSlug: "technical-context-skill",
+            workspaceRoot: workspace.workspaceRoot,
+            skillPhase: "feature_planning",
+          }),
+        ],
+      },
+    ]);
+    scheduler.enqueueCliRun({
+      projectId,
+      featureId: payload.featureId,
+      runId,
+      skillSlug: "technical-context-skill",
+      requestedAction: "feature_planning",
+      sourcePaths: [
+        "docs/zh-CN/PRD.md",
+        "docs/zh-CN/requirements.md",
+        "docs/zh-CN/hld.md",
+        `docs/features/${payload.featureId}/requirements.md`,
+        `docs/features/${payload.featureId}/design.md`,
+        `docs/features/${payload.featureId}/tasks.md`,
+      ],
+      expectedArtifacts: [
+        `docs/features/${payload.featureId}/design.md`,
+        `docs/features/${payload.featureId}/tasks.md`,
+        ".autobuild/evidence/planning-run.json",
+      ],
+      traceability: {
+        requirementIds: parseJsonArray(row.primary_requirements_json).map(String),
+        changeIds: ["CHG-016"],
+      },
+    });
+    recordAuditEvent(dbPath, {
+      entityType: "feature",
+      entityId: payload.featureId,
+      eventType: "scheduler_job_dispatched",
+      source: "feature_scheduler",
+      reason: "Feature planning bridge dispatched a workspace-aware Codex skill run.",
+      payload: { ...payload, runId, workspaceRoot: workspace.workspaceRoot, skillSlug: "technical-context-skill" },
+    });
+    return { runId };
+  }
+
   const from = normalizeFeatureStatus(row.status);
+  const blockedReason = workspace.blockedReasons.length > 0
+    ? `${PLANNING_BRIDGE_WORKSPACE_BLOCKED}: ${workspace.blockedReasons.join("; ")}`
+    : PLANNING_BRIDGE_NOT_IMPLEMENTED;
   if (from !== "blocked") {
     persistStateTransition(dbPath, transitionFeature(payload.featureId, from, "blocked", {
-      reason: PLANNING_BRIDGE_NOT_IMPLEMENTED,
+      reason: blockedReason,
       evidence: "feature.plan",
       triggeredBy: "feature_scheduler",
       occurredAt: now,
@@ -283,13 +369,51 @@ export function runFeaturePlanJob(dbPath: string, payload: FeaturePlanJobPayload
     entityId: payload.featureId,
     eventType: "scheduler_job_blocked",
     source: "feature_scheduler",
-    reason: PLANNING_BRIDGE_NOT_IMPLEMENTED,
+    reason: blockedReason,
     payload,
   });
+  return { blockedReason };
 }
 
 export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, runner?: CodexCommandRunner): Promise<{ runId: string; status: RunnerQueueStatus }> {
-  const loaded = loadRunnerTaskContext(dbPath, payload);
+  let loaded: ReturnType<typeof loadRunnerTaskContext>;
+  try {
+    loaded = loadRunnerTaskContext(dbPath, payload);
+  } catch (error) {
+    const reason = errorMessage(error);
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, completed_at, summary, metadata_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json`,
+        params: [
+          payload.runId,
+          payload.taskId ?? null,
+          payload.featureId ?? null,
+          payload.projectId ?? null,
+          "blocked",
+          new Date().toISOString(),
+          reason,
+          JSON.stringify({
+            scheduler: "bullmq",
+            jobType: "cli.run",
+            skillSlug: payload.skillSlug,
+            skillPhase: payload.requestedAction,
+            blockedReason: reason,
+          }),
+        ],
+      },
+    ]);
+    recordAuditEvent(dbPath, {
+      entityType: payload.taskId ? "task" : payload.featureId ? "feature" : "project",
+      entityId: payload.taskId ?? payload.featureId ?? payload.projectId ?? payload.runId,
+      eventType: "cli_run_blocked",
+      source: "cli_runner",
+      reason,
+      payload,
+    });
+    return { runId: payload.runId, status: "blocked" };
+  }
   const now = new Date();
   const policy = resolveRunnerPolicy({
     runId: payload.runId,
@@ -310,13 +434,29 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     now,
   });
   persistCodexRunnerArtifacts(dbPath, { policy, heartbeat });
-  transitionTaskIfAllowed(dbPath, payload.taskId, loaded.taskStatus, "running", "cli.run job started", "cli.run");
+  if (payload.taskId && loaded.taskStatus) {
+    transitionTaskIfAllowed(dbPath, payload.taskId, loaded.taskStatus, "running", "cli.run job started", "cli.run");
+  }
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET status = excluded.status, started_at = COALESCE(runs.started_at, excluded.started_at), metadata_json = excluded.metadata_json`,
-      params: [payload.runId, payload.taskId, loaded.featureId, loaded.projectId ?? null, "running", now.toISOString(), JSON.stringify({ scheduler: "bullmq", jobType: "cli.run" })],
+      params: [
+        payload.runId,
+        payload.taskId ?? null,
+        loaded.featureId,
+        loaded.projectId ?? null,
+        "running",
+        now.toISOString(),
+        JSON.stringify({
+          scheduler: "bullmq",
+          jobType: "cli.run",
+          workspaceRoot: loaded.workspaceRoot,
+          skillSlug: loaded.skillInvocation?.skillSlug,
+          skillPhase: loaded.skillInvocation?.requestedAction,
+        }),
+      ],
     },
   ]);
 
@@ -329,6 +469,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     files: loaded.allowedFiles,
     taskText: loaded.description,
     adapterConfig: loaded.adapter,
+    skillInvocation: loaded.skillInvocation,
   }, runner);
 
   if (result.adapterResult) {
@@ -364,7 +505,9 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
   }
 
   const taskStatus = taskStatusFromRunnerStatus(result.status);
-  transitionTaskIfAllowed(dbPath, payload.taskId, "running", taskStatus, result.evidence, "cli.run");
+  if (payload.taskId) {
+    transitionTaskIfAllowed(dbPath, payload.taskId, "running", taskStatus, result.evidence, "cli.run");
+  }
   runSqlite(dbPath, [
     { sql: "UPDATE runs SET status = ?, completed_at = ?, summary = ? WHERE id = ?", params: [result.status, new Date().toISOString(), result.evidence, payload.runId] },
   ]);
@@ -420,9 +563,11 @@ async function dispatchFeatureJob(dbPath: string, scheduler: SchedulerClient, jo
     if (job.name === "feature.select") {
       runFeatureSelectJob(dbPath, scheduler, job.data as FeatureSelectJobPayload);
     } else if (job.name === "feature.plan") {
-      runFeaturePlanJob(dbPath, job.data as FeaturePlanJobPayload);
-      updateSchedulerJobRecord(dbPath, String(job.id), "blocked", PLANNING_BRIDGE_NOT_IMPLEMENTED, job.attemptsMade);
-      return;
+      const result = runFeaturePlanJob(dbPath, job.data as FeaturePlanJobPayload, scheduler);
+      if (result.blockedReason) {
+        updateSchedulerJobRecord(dbPath, String(job.id), "blocked", result.blockedReason, job.attemptsMade);
+        return;
+      }
     } else {
       throw new Error(`Unsupported feature scheduler job: ${job.name}`);
     }
@@ -436,8 +581,8 @@ async function dispatchFeatureJob(dbPath: string, scheduler: SchedulerClient, jo
 async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRunner): Promise<void> {
   updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
   try {
-    await runCliRunJob(dbPath, job.data as CliRunJobPayload, runner);
-    updateSchedulerJobRecord(dbPath, String(job.id), "completed", undefined, job.attemptsMade);
+    const result = await runCliRunJob(dbPath, job.data as CliRunJobPayload, runner);
+    updateSchedulerJobRecord(dbPath, String(job.id), result.status === "blocked" ? "blocked" : "completed", undefined, job.attemptsMade);
   } catch (error) {
     updateSchedulerJobRecord(dbPath, String(job.id), "failed", error, job.attemptsMade);
     throw error;
@@ -497,7 +642,7 @@ function loadLiveScheduleCandidates(dbPath: string, projectId?: string, featureI
 }
 
 function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
-  taskStatus: BoardColumn;
+  taskStatus?: BoardColumn;
   featureId?: string;
   projectId?: string;
   title: string;
@@ -507,6 +652,7 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
   workspaceRoot: string;
   adapter: CliAdapterConfig;
   prompt: string;
+  skillInvocation?: SkillInvocationContract;
 } {
   const result = runSqlite(dbPath, [], [
     {
@@ -514,7 +660,7 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
       sql: `SELECT t.id, t.feature_id, f.project_id, t.title, '' AS description, t.status, t.risk, t.allowed_files_json
         FROM task_graph_tasks t LEFT JOIN features f ON f.id = t.feature_id
         WHERE t.id = ? LIMIT 1`,
-      params: [payload.taskId],
+      params: [payload.taskId ?? ""],
     },
     {
       name: "task",
@@ -522,37 +668,66 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
           'medium' AS risk, COALESCE(t.allowed_files_json, '[]') AS allowed_files_json
         FROM tasks t LEFT JOIN features f ON f.id = t.feature_id
         WHERE t.id = ? LIMIT 1`,
-      params: [payload.taskId],
+      params: [payload.taskId ?? ""],
     },
     {
       name: "project",
-      sql: "SELECT id, target_repo_path FROM projects WHERE id = ? OR id = (SELECT project_id FROM features WHERE id = ?) LIMIT 1",
+      sql: `SELECT p.id, p.target_repo_path, rc.local_path AS repository_local_path
+        FROM projects p
+        LEFT JOIN repository_connections rc ON rc.project_id = p.id
+          AND rc.connected_at = (
+            SELECT MAX(connected_at) FROM repository_connections latest WHERE latest.project_id = p.id
+          )
+        WHERE p.id = ? OR p.id = (SELECT project_id FROM features WHERE id = ?) LIMIT 1`,
       params: [payload.projectId ?? "", payload.featureId ?? ""],
+    },
+    {
+      name: "feature",
+      sql: `SELECT id, project_id, title, status, COALESCE(primary_requirements_json, '[]') AS primary_requirements_json
+        FROM features WHERE id = ? LIMIT 1`,
+      params: [payload.featureId ?? ""],
     },
     { name: "adapter", sql: "SELECT * FROM cli_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
   ]);
   const row = result.queries.graphTask[0] ?? result.queries.task[0];
-  if (!row) {
+  const featureRow = result.queries.feature[0];
+  if (!row && !featureRow && payload.taskId) {
     throw new Error(`Task not found: ${payload.taskId}`);
   }
-  const projectId = payload.projectId ?? optionalString(row.project_id);
+  if (!row && !featureRow && !payload.projectId) {
+    throw new Error("CLI run requires a task, feature, or project context.");
+  }
+  const projectId = payload.projectId ?? optionalString(row?.project_id) ?? optionalString(featureRow?.project_id);
   const projectRow = result.queries.project.find((entry) => !projectId || entry.id === projectId) ?? result.queries.project[0];
-  const workspaceRoot = optionalString(projectRow?.target_repo_path) ?? process.cwd();
+  const workspace = validateWorkspaceRoot(resolveWorkspaceRoot(projectRow));
+  if (!workspace.valid || !workspace.workspaceRoot) {
+    throw new Error(workspace.blockedReasons.join("; "));
+  }
   const adapter = adapterFromRow(result.queries.adapter[0]);
-  const featureId = payload.featureId ?? optionalString(row.feature_id);
-  const title = String(row.title);
-  const description = optionalString(row.description) ?? title;
+  const featureId = payload.featureId ?? optionalString(row?.feature_id) ?? optionalString(featureRow?.id);
+  const title = optionalString(row?.title) ?? optionalString(featureRow?.title) ?? `Project ${projectId}`;
+  const description = optionalString(row?.description) ?? title;
+  const skillInvocation = buildCliSkillInvocation({
+    payload,
+    projectId,
+    workspaceRoot: workspace.workspaceRoot,
+    featureId,
+    taskId: payload.taskId,
+    requirementIds: parseJsonArray(featureRow?.primary_requirements_json).map(String),
+  });
+  const context = `Run ${payload.runId}${payload.taskId ? ` for task ${payload.taskId}` : ""}${featureId ? ` in feature ${featureId}` : ""}: ${title}\n\n${description}`;
   return {
-    taskStatus: normalizeBoardStatus(row.status),
+    taskStatus: row ? normalizeBoardStatus(row.status) : undefined,
     featureId,
     projectId,
     title,
     description,
-    risk: normalizeRisk(row.risk),
-    allowedFiles: parseJsonArray(row.allowed_files_json).map(String),
-    workspaceRoot,
+    risk: normalizeRisk(row?.risk),
+    allowedFiles: parseJsonArray(row?.allowed_files_json).map(String),
+    workspaceRoot: workspace.workspaceRoot,
     adapter,
-    prompt: `Execute SpecDrive task ${payload.taskId}${featureId ? ` for ${featureId}` : ""}: ${title}\n\n${description}`,
+    prompt: buildSkillInvocationPrompt(skillInvocation, context),
+    skillInvocation,
   };
 }
 
@@ -600,6 +775,54 @@ function adapterFromRow(row?: Record<string, unknown>): CliAdapterConfig {
     status: String(row.status),
     updatedAt: String(row.updated_at),
   });
+}
+
+function resolveWorkspaceRoot(row?: Record<string, unknown>): string | undefined {
+  return optionalString(row?.repository_local_path) ?? optionalString(row?.target_repo_path);
+}
+
+function buildCliSkillInvocation(input: {
+  payload: CliRunJobPayload;
+  projectId?: string;
+  workspaceRoot: string;
+  featureId?: string;
+  taskId?: string;
+  requirementIds?: string[];
+}): SkillInvocationContract {
+  const skillSlug = input.payload.skillSlug ?? (input.taskId ? "codex-coding-skill" : "technical-context-skill");
+  const requestedAction = input.payload.requestedAction ?? (input.taskId ? "task_execution" : "feature_planning");
+  const sourcePaths = input.payload.sourcePaths?.length
+    ? input.payload.sourcePaths
+    : [
+        "AGENTS.md",
+        ".agents/skills",
+        ...(input.featureId ? [
+          `docs/features/${input.featureId}/requirements.md`,
+          `docs/features/${input.featureId}/design.md`,
+          `docs/features/${input.featureId}/tasks.md`,
+        ] : []),
+      ];
+  const expectedArtifacts = input.payload.expectedArtifacts?.length
+    ? input.payload.expectedArtifacts
+    : input.taskId
+      ? [".autobuild/evidence/codex-runner.json"]
+      : input.featureId
+        ? [`docs/features/${input.featureId}/design.md`, `docs/features/${input.featureId}/tasks.md`]
+        : [".autobuild/evidence/spec-intake.json"];
+  return {
+    projectId: input.projectId ?? "unknown-project",
+    workspaceRoot: input.workspaceRoot,
+    skillSlug,
+    sourcePaths,
+    expectedArtifacts,
+    traceability: {
+      featureId: input.featureId,
+      taskId: input.taskId,
+      requirementIds: input.payload.traceability?.requirementIds ?? input.requirementIds ?? [],
+      changeIds: input.payload.traceability?.changeIds ?? ["CHG-016"],
+    },
+    requestedAction,
+  };
 }
 
 function normalizeFeatureStatus(value: unknown): FeatureLifecycleStatus {

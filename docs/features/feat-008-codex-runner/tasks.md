@@ -13,3 +13,6 @@
 - [ ] TASK-011: 将 Runner Queue Worker 接入 active CLI Adapter，确保无 active adapter 或配置无效时新 Run blocked，且不影响 running Run。
 - [ ] TASK-012: 添加 CLI Adapter 配置、dry-run、active 配置回退、Codex 等价命令生成和无效配置阻塞测试。
 - [x] TASK-013: 将 Runner Queue Worker 接入 BullMQ `specdrive:cli-runner` / `cli.run`，由 Worker 调用现有 Codex runner 并持久化 heartbeat、session、raw log、Evidence 和 task/run 状态。
+- [x] TASK-014: 实现 workspace-aware Codex 调用，确保 Runner 从当前项目 repository `local_path` / `target_repo_path` 解析 workspace root，并在路径缺失、不可读或缺少所需 Skill 文件时 blocked。
+- [x] TASK-015: 实现 CLI skill invocation prompt builder，支持 Stage 2 需求录入、Stage 3 planning pipeline 和 `codex-coding-skill` 任务运行的 `skillSlug`、`sourcePaths`、`expectedArtifacts` 与 traceability。
+- [x] TASK-016: 添加 workspace root、skill invocation contract、blocked path cases、mock Codex cwd 和 Evidence metadata 测试。

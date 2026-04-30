@@ -217,6 +217,9 @@ const copy = {
     runnerResources: "资源池",
     recentTriggers: "最近调度",
     recentLogs: "最近日志",
+    skillInvocations: "Skill 调用",
+    workspace: "Workspace",
+    skillPhase: "阶段",
     model: "模型",
     sandbox: "Sandbox",
     approvalPolicy: "审批策略",
@@ -517,6 +520,9 @@ const copy = {
     runnerResources: "Resources",
     recentTriggers: "Recent Triggers",
     recentLogs: "Recent Logs",
+    skillInvocations: "Skill Invocations",
+    workspace: "Workspace",
+    skillPhase: "Phase",
     model: "Model",
     sandbox: "Sandbox",
     approvalPolicy: "Approval Policy",
@@ -1817,6 +1823,28 @@ function RunnerPanel({ data, text, onCommand, busy, onOpenSettings }: { data: Co
                   </div>
                 ))}
                 {(data.runner.recentTriggers ?? []).length === 0 ? <div className="text-[13px] text-muted">{text.none}</div> : null}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle title={text.skillInvocations} />
+              <div className="space-y-2 p-4">
+                {(data.runner.skillInvocations ?? []).slice(0, 5).map((item) => (
+                  <div key={item.runId} className="rounded-md border border-line px-3 py-2 text-[12px]">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-ink">{item.skillSlug ?? item.skillPhase ?? item.runId}</span>
+                      <Chip tone={statusTone[item.status] ?? "neutral"}>{item.status}</Chip>
+                    </div>
+                    <div className="mt-1 text-muted">{item.runId}{item.schedulerJobId ? ` · ${item.schedulerJobId}` : ""}</div>
+                    <FactList rows={[
+                      [text.workspace, item.workspaceRoot ?? text.none],
+                      [text.skillPhase, item.skillPhase ?? text.none],
+                    ]} />
+                    {item.blockedReason ? <div className="mt-2 rounded-md bg-red-50 px-2 py-1 text-red-700">{item.blockedReason}</div> : null}
+                    {item.evidenceSummary ? <div className="mt-2 text-muted">{item.evidenceSummary}</div> : null}
+                  </div>
+                ))}
+                {(data.runner.skillInvocations ?? []).length === 0 ? <div className="text-[13px] text-muted">{text.none}</div> : null}
               </div>
             </div>
           </div>

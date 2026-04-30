@@ -693,7 +693,7 @@ Feature Scheduler
 
 Project Scheduler 负责 Feature 选择、Feature 级并行控制、Feature 生命周期推进和跨 Feature 资源分配。Feature Scheduler 负责 Feature 内任务排序、任务并行、Runner 分配和任务状态推进。
 
-Project Scheduler 的调度 job 类型为 `feature.select` 和 `feature.plan`。`feature.select` 必须从当前 Feature Spec Pool 读取 live `ready` Feature 并写入选择决策；`feature.plan` 在 Codex Skill planning bridge 未实现前必须把 Feature 标记为 blocked，原因固定为 `Planning skill execution bridge is not implemented`，不得生成假任务图或伪造 Skill 输出。
+Project Scheduler 的调度 job 类型为 `feature.select` 和 `feature.plan`。`feature.select` 必须从当前 Feature Spec Pool 读取 live `ready` Feature 并写入选择决策；`feature.plan` 在 Codex Skill planning bridge 未实现或项目 workspace 不可用时必须把 Feature 标记为 blocked，原因固定为 `Planning skill execution bridge is not implemented` 或 workspace 阻塞原因。bridge 可用时只能入队 planning CLI run，等待 Runner Evidence 回写，不得生成假任务图或伪造 Skill 输出。
 
 CLI 执行调度 job 类型为 `cli.run`。Task Board 的运行动作只允许把已排期任务入队，由 Runner Worker 执行 CLI、写 heartbeat/session/log/evidence/status check，并回写 Run 与 Task 状态。
 
@@ -737,9 +737,19 @@ Console 中的 `schedule_run` 返回调度触发 ID 与 scheduler job ID；Featu
 
 系统通过 Runner CLI Adapter 调用 Codex CLI。Codex 是 MVP 默认 adapter，但 Runner 不得把命令模板、参数映射、输出解析和 session resume 逻辑硬编码到调度状态机中。
 
+Codex CLI 调用必须以当前项目 workspace 启动。workspace root 的来源优先级为当前项目 repository `local_path`、项目 `target_repo_path`；不得回退到 SpecDrive Control Plane 进程运行目录。缺少项目路径、路径不可读、不是可用 workspace，或 workspace 中缺少所需 `.agents/skills/*` / `AGENTS.md` 时，新 Run 必须进入 blocked 并给出可观察原因。
+
 ```bash
 codex exec --cd <workspace> --json --output-schema evidence.schema.json "<prompt>"
 ```
+
+Product Console 和 Spec Workspace 的用户操作不直接执行生成、规划或编码逻辑，而是转换为 CLI skill invocation prompt 后进入 Runner：
+
+* Stage 2 需求录入操作生成 `repo-probe-skill`、`pr-ears-requirement-decomposition-skill`、`requirement-intake-skill` 或 `requirements-checklist-skill` 的调用提示，并通过 CLI Adapter 在项目 workspace 中执行。
+* Stage 3 planning 操作通过 Codex Skill Planning Bridge 调用 `technical-context-skill`、`research-decision-skill`、`architecture-plan-skill`、`data-model-skill`、`contract-design-skill`、`quickstart-validation-skill`、`task-slicing-skill` 和 `spec-consistency-analysis-skill`。
+* Task Board 的运行操作通过 `codex-coding-skill` 执行已排期任务。
+
+平台只记录 Console command、scheduler job、Run、Evidence、Status、Review 和 Audit，不恢复 Skill Registry、Skill Center、Skill schema 校验或平台级 SkillRun 表；Skill 发现和执行属于 CLI workspace 内部行为。
 
 每个 CLI Adapter 必须声明：
 

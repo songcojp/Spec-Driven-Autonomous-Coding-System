@@ -237,7 +237,7 @@ Responsibilities:
 - Project Scheduler 从 Feature Spec Pool 动态选择 `ready` Feature。
 - Project Scheduler 接收立即执行、指定时间、周期巡检、依赖完成、CI 失败和审批通过等触发模式。
 - Feature Scheduler 在 Feature 内根据依赖、风险、文件范围、Runner 可用性、预算和审批状态调度任务。
-- `feature.select` Worker 执行 live Feature 选择；`feature.plan` 在 Codex Skill bridge 缺失时 blocked，不生成假 Task Graph。
+- `feature.select` Worker 执行 live Feature 选择；`feature.plan` 在 Codex Skill bridge 可用时入队 planning CLI run，在 bridge 未实现或 workspace 不可用时 blocked，不生成假 Task Graph。
 - Feature Aggregator 根据任务状态、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
 - 维护 Feature 与 Task 的内部状态机。
 
@@ -713,6 +713,12 @@ Decomposition rules:
 | Spec Evolution | **Skill** | `spec-evolution-skill` |
 | 回到 Feature Selector | **Code** | 调度器循环闭合 |
 
+### CLI Skill Invocation Bridge
+
+Console command 到 CLI Skill 的执行链路为：Console command → scheduler job → Run → active CLI Adapter → Codex workspace → skill prompt → Evidence / Status。Control Plane 只生成可审计 invocation contract 和运行事实，不注册、不发现、不校验 Skill schema，也不恢复平台级 SkillRun 表。
+
+invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability` 和 `requestedAction`。workspace root 必须来自当前项目 repository `local_path`，其次使用项目 `target_repo_path`；不得回退到 SpecDrive Control Plane 进程 cwd。项目路径缺失、不可读、不是可用 Git workspace，或缺少执行所需 `.agents/skills/*` / `AGENTS.md` 时，Run 必须 blocked 并把原因写入 Evidence、Runner Console 和 Spec Workspace 回执。
+
 ### 汇总：Code 与 Skill 的职责边界
 
 **Code 负责（7 类）：**
@@ -757,6 +763,7 @@ Decomposition rules:
 | Agent 偏离需求 | Status Checker 执行 Spec Alignment，无法映射需求的 diff 不得 Done。 |
 | 自动恢复反复失败 | 使用失败指纹、禁止重复策略、最大 3 次重试和人工 Review 路由。 |
 | Codex 权限过高 | 默认安全策略禁止危险权限，高风险任务只读或进入审批。 |
+| Codex workspace 错误 | CLI Adapter 必须使用当前项目 repository `local_path` / `target_repo_path` 作为 workspace root；缺失、不可读或缺少所需 Skill 文件时 blocked。 |
 | Evidence 不完整导致不可审计 | Run、Status、Review、Recovery 和 Delivery 都必须引用 Evidence Pack。 |
 
 ### Tradeoffs

@@ -5,7 +5,7 @@
 | Source | IDs / Sections |
 |---|---|
 | PRD | 2026-04-29 boundary update; Scheduler, State Machine, Audit, Runner observation |
-| Requirements | REQ-024 至 REQ-029、REQ-031 至 REQ-036、REQ-060 |
+| Requirements | REQ-024 至 REQ-029、REQ-031 至 REQ-036、REQ-060、REQ-068 |
 | HLD | Scheduler and State Maintenance |
 
 ## Scope
@@ -22,7 +22,7 @@
 ## Non-Scope
 
 - 不执行 Codex CLI；执行归属 Runner 外部运行观测能力。
-- 不调用 Skill、Subagent 或 Planning Pipeline。
+- 不直接调用 Skill、Subagent 或 Planning Pipeline；只在 bridge 可用时把 `feature.plan` 转换为可审计 CLI skill invocation 并交给 Runner。
 - 不维护 Agent Run Contract、Subagent event 或 Skill schema。
 - 不进行状态检测实现；检测归属 FEAT-009。
 - 不提供 UI 拖拽或展示实现；展示归属 FEAT-013。
@@ -37,7 +37,7 @@
 - Feature 选择必须记录候选摘要、选择原因和 Memory 摘要。
 - 每次调度运行必须记录触发模式、触发时间、触发来源、触发对象、BullMQ job id、queue、job type、attempts、payload 和调度结果。
 - `schedule_run` 不得同步产生 FeatureSelectionDecision；`selectionDecisionId` 只能由 `feature.select` Worker 写入后出现。
-- `feature.plan` 在 Codex Skill planning bridge 缺失时必须 blocked，原因固定为 `Planning skill execution bridge is not implemented`，不得生成假任务图。
+- `feature.plan` 在 Codex Skill planning bridge 缺失时必须 blocked，原因固定为 `Planning skill execution bridge is not implemented`；bridge 可用时必须入队 planning CLI run，不得同步生成或伪造任务图。
 - 手动和时间类触发可进入候选选择；CI 失败、审批通过和依赖完成触发在 MVP 中必须先记录为 `recorded` 或 `blocked`，等待上游 Evidence/Review/Dependency 子系统确认后再进入候选选择。
 - 任务图不得包含平台 Skill 或 Subagent 字段。
 - Feature done 判定必须同时满足任务 Done、Feature 验收、Spec Alignment Check 和必要测试通过。
@@ -59,4 +59,4 @@
 - Project Scheduler 的固定规则需要保持可解释，避免引入不可审计的评分黑盒。
 - Dashboard Board 的拖拽或批量操作只产生状态机允许的状态变更或调度请求。
 - 事件类触发的上游接入仍依赖 CI、Review Center 和依赖检测事件源；当前实现只保留受控记录和边界保护。
-- Planning Skill bridge 未实现前，Feature 会停在 blocked；后续接入 Codex Skill bridge 时需重新打开本 Feature 的 planning 子流程。
+- Planning Skill bridge 未实现前，Feature 会停在 blocked；接入 Codex Skill bridge 后，`feature.plan` 应入队 planning CLI run，并在 Evidence/status 回写后推进 Feature。

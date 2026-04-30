@@ -325,7 +325,7 @@ Responsibilities:
 - Project Scheduler 从 Feature Spec Pool 动态读取 `ready` Feature 并选择下一个 Feature。
 - Feature Scheduler 在 Feature 内部根据任务依赖、风险、文件范围、Runner 可用性、成本预算、执行窗口和审批要求推进任务。
 - BullMQ + Redis 承担 `feature.select`、`feature.plan` 和 `cli.run` job 的延迟、周期和 Worker 执行；SQLite 记录调度事实和审计。
-- Planning Skill bridge 未实现前，`feature.plan` 必须 blocked，不生成假任务图或 Skill 输出。
+- Planning Skill bridge 未实现或项目 workspace 不可用时，`feature.plan` 必须 blocked；bridge 可用时只入队 planning CLI run，不生成假任务图或伪造 Skill 输出。
 - Task Graph Builder 生成可追踪任务图。
 - Feature Aggregator 根据任务状态、验收、Spec Alignment 和测试结果判断 Feature 状态。
 
@@ -1052,6 +1052,8 @@ Codex CLI command template:
 codex exec --cd <workspace> --json --output-schema evidence.schema.json "<prompt>"
 ```
 
+`<workspace>` 必须解析为当前项目 repository `local_path`，其次为项目 `target_repo_path`。Runner 不允许使用 SpecDrive Control Plane 进程 cwd 作为兜底 workspace。Spec Workspace 和 Task Board 的受控命令在进入 Runner 前转换为 CLI skill invocation contract，最小字段为 `projectId`、`workspaceRoot`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability` 和 `requestedAction`；Codex 在该 workspace 内自行读取 `.agents/skills/*/SKILL.md` 和 `AGENTS.md`。
+
 Runner policy resolution:
 
 | Risk | sandbox | approval | Execution |
@@ -1174,10 +1176,10 @@ sequenceDiagram
   Q->>SM: ready -> planning
   Q->>M: write selection snapshot
   Q->>Q: enqueue feature.plan
-  alt planning bridge missing
+  alt planning bridge missing or workspace unavailable
     Q->>SM: planning -> blocked
-  else future bridge available
-    Q->>Plan: execute planning skills through Codex
+  else bridge available
+    Q->>Plan: execute planning skills through active CLI Adapter in project workspace
     Plan-->>Q: TaskGraph
     Q->>SM: planning -> tasked
   end
@@ -1215,7 +1217,7 @@ sequenceDiagram
   participant SC as Status Checker
 
   Q->>M: get memory injection block
-  Q->>C: codex exec through active CLI Adapter
+  Q->>C: codex exec through active CLI Adapter with project workspace root
   loop heartbeat
     C->>E: runner heartbeat/event
   end
@@ -1418,7 +1420,7 @@ Task state rules:
 - Project Scheduler 不读取 Project Memory 的静态候选队列作为调度真实来源。
 - Redis/BullMQ 不保存业务事实；`scheduler_job_records`、ScheduleTrigger、FeatureSelectionDecision、Run、heartbeat、log 和 Evidence 都写入 SQLite。
 - `schedule_run` 的同步响应只能证明 trigger/job 已登记；Feature selection decision 必须等 `feature.select` Worker 执行后出现。
-- `feature.plan` 在 Codex Skill planning bridge 缺失时固定进入 blocked，避免 fake planning 或 fake task graph。
+- `feature.plan` 在 Codex Skill planning bridge 未实现或项目 workspace 不可用时进入 blocked；bridge 可用时只入队 planning CLI run，避免 fake planning 或 fake task graph。
 - Feature Scheduler 不调度依赖未满足、文件边界冲突、Runner 不可用、成本预算超限或审批未完成的任务。
 - 崩溃恢复时先从 Persistent Store 恢复 Run、任务和状态，再核查 Git/worktree 和 Project Memory，最后修正投影状态。
 - 如果 Project Memory、Dashboard 和 Git 事实冲突，以仓库代码、Git 状态和文件系统检查为准。
@@ -1432,6 +1434,7 @@ Task state rules:
 | Input validation | 无效项目配置、无效 Skill schema、缺少必填字段 | 拒绝请求，写入 Evidence 或 validation error。 |
 | Requirement ambiguity | 验收不可测、目标冲突、边界不清 | 创建 Clarification Log，Feature 保持 draft 或 review_needed。 |
 | Repository unavailable | 非 Git 仓库、无法读取分支、`gh` 不可用 | Project blocked，提示修复仓库连接。 |
+| Workspace unavailable | 项目 `repository.local_path` / `target_repo_path` 缺失、不可读或缺少所需 `.agents/skills` / `AGENTS.md` | Run blocked，Runner Console 和 Spec Workspace 展示 workspace/skill 阻塞原因。 |
 | Workspace conflict | 同文件写入、锁文件、DB schema、公共配置冲突 | 串行执行或 Review Needed。 |
 | Shared runtime pollution | 数据库、缓存、消息队列、外部 API 共享状态 | 要求 mock、命名空间、临时实例或串行。 |
 | Runner failure | Codex CLI 失败、测试失败、心跳丢失 | Status Checker 分类，Recovery Manager 或 Review Center 处理。 |

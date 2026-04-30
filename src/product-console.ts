@@ -128,6 +128,8 @@ export type ConsoleCommandReceipt = {
   scheduleTriggerId?: string;
   schedulerJobId?: string;
   schedulerJobIds?: string[];
+  runId?: string;
+  runIds?: string[];
   selectionDecisionId?: string;
   blockedReasons?: string[];
 };
@@ -300,6 +302,17 @@ export type RunnerConsoleViewModel = {
     target: string;
     result: string;
     createdAt: string;
+  }>;
+  skillInvocations: Array<{
+    runId: string;
+    schedulerJobId?: string;
+    workspaceRoot?: string;
+    skillSlug?: string;
+    skillPhase?: string;
+    blockedReason?: string;
+    status: string;
+    evidenceSummary?: string;
+    updatedAt?: string;
   }>;
   factSources: string[];
   runners: Array<{
@@ -1299,8 +1312,13 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     },
     {
       name: "runs",
-      sql: `SELECT id, task_id, feature_id, status, started_at FROM runs ${projectId ? "WHERE project_id = ?" : ""} ORDER BY COALESCE(started_at, '') DESC, id`,
+      sql: `SELECT id, task_id, feature_id, project_id, status, started_at, completed_at, summary, metadata_json FROM runs ${projectId ? "WHERE project_id = ?" : ""} ORDER BY COALESCE(started_at, '') DESC, id`,
       params: projectParams,
+    },
+    {
+      name: "evidence",
+      sql: `SELECT id, run_id, summary, metadata_json, created_at FROM evidence_packs ${runProjectFilter} ORDER BY created_at DESC LIMIT 25`,
+      params: runProjectParams,
     },
     { name: "reviews", sql: `SELECT id, task_id, feature_id, status, severity FROM review_items ${reviewProjectFilter} ORDER BY created_at DESC`, params: reviewParams },
     {
@@ -1419,6 +1437,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       { action: "schedule_board_tasks", entityType: "feature" },
       { action: "run_board_tasks", entityType: "feature" },
     ],
+    skillInvocations: buildSkillInvocationFeedback(result.queries.runs, result.queries.schedulerJobs, result.queries.evidence),
   };
 }
 
@@ -1512,6 +1531,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
   const projectInitializationResult = executeProjectInitializationCommand(dbPath, input);
   const specIntakeResult = executeSpecIntakeCommand(dbPath, input, acceptedAt);
+  const specSkillResult = executeSpecSkillCommand(dbPath, input, acceptedAt, scheduler, specIntakeResult);
   const blockedReasons = [
     ...boardValidation.blockedReasons,
     ...(settingsValidation?.blockedReasons ?? []),
@@ -1532,6 +1552,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
       writeArtifactId,
       projectInitialization: projectInitializationResult,
       specIntake: specIntakeResult,
+      specSkill: specSkillResult,
       scheduleTriggerId: scheduleResult?.triggerId,
       schedulerJobId: scheduleResult?.schedulerJobId,
       schedulerJobIds: boardResult?.schedulerJobIds,
@@ -1553,8 +1574,10 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     approvalRecordId: approvalRecord?.id,
     featureId: optionalString(specIntakeResult?.featureId),
     scheduleTriggerId: scheduleResult?.triggerId,
-    schedulerJobId: scheduleResult?.schedulerJobId,
+    schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId,
     schedulerJobIds: boardResult?.schedulerJobIds,
+    runId: specSkillResult?.runId,
+    runIds: boardResult?.runIds,
     blockedReasons: blockedReasons.length > 0 ? blockedReasons : undefined,
   };
 }
@@ -1610,7 +1633,7 @@ function executeSpecIntakeCommand(
   input: ConsoleCommandInput,
   acceptedAt: string,
 ): ({ blockedReasons: string[] } & Record<string, unknown>) | undefined {
-  if (!["scan_prd_source", "upload_prd_source", "generate_ears"].includes(input.action)) {
+  if (!["scan_prd_source", "upload_prd_source"].includes(input.action)) {
     return undefined;
   }
   if (input.entityType !== "project") {
@@ -1676,44 +1699,6 @@ function executeSpecIntakeCommand(
       };
     }
 
-    const scan = scanSpecSources(project.targetRepoPath, new Date(acceptedAt));
-    const resolvedInput = resolveSpecInput(project.targetRepoPath, payload, scan);
-    if (!resolvedInput.content.trim()) {
-      return { blockedReasons: ["No readable Spec source content was found for EARS generation."] };
-    }
-    const featureId = nextGeneratedFeatureId(dbPath);
-    const spec = createFeatureSpec({
-      featureId,
-      rawInput: resolvedInput.content,
-      sourceType: detectSpecSourceType(resolvedInput.sourcePath),
-      scanSummary: scan,
-      now: new Date(acceptedAt),
-    });
-    persistGeneratedFeatureSpec(dbPath, input.entityId, spec);
-    const specArtifactPath = projectSpecArtifact(spec, join(project.targetRepoPath, ".autobuild"));
-    const evidenceId = recordSpecIntakeEvidence(dbPath, {
-      featureId: spec.id,
-      path: specArtifactPath,
-      kind: "ears_generation",
-      summary: `Generated ${spec.requirements.length} EARS requirements for ${spec.id}.`,
-      metadata: {
-        featureId: spec.id,
-        status: spec.status,
-        requirementIds: spec.requirements.map((requirement) => `${spec.id}-${requirement.id}`),
-        clarificationCount: spec.clarificationLog.length,
-        checklistStatus: spec.checklist.status,
-      },
-    });
-    return {
-      featureId: spec.id,
-      evidenceId,
-      evidencePath: specArtifactPath,
-      sourcePath: resolvedInput.sourcePath,
-      resolvedSourcePath: resolvedInput.resolvedSourcePath,
-      requirementCount: spec.requirements.length,
-      status: spec.status,
-      blockedReasons: [],
-    };
   } catch (error) {
     return { blockedReasons: [error instanceof Error ? error.message : String(error)] };
   }
@@ -1763,6 +1748,100 @@ function executeScheduleCommand(
     createdAt: acceptedAt,
   });
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId };
+}
+
+function executeSpecSkillCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+  scheduler: SchedulerClient,
+  specIntakeResult?: ({ blockedReasons: string[] } & Record<string, unknown>),
+): { runId: string; schedulerJobId: string; skillSlug: string; workspaceRoot?: string } | undefined {
+  if (!["generate_ears", "generate_hld", "split_feature_specs"].includes(input.action)) {
+    return undefined;
+  }
+  const payload = parseJsonObject(input.payload);
+  const projectId = input.entityType === "project"
+    ? input.entityId
+    : optionalString(payload.projectId);
+  if (!projectId) {
+    return undefined;
+  }
+  const project = getProject(dbPath, projectId);
+  if (!project) {
+    return undefined;
+  }
+  const featureId = optionalString(specIntakeResult?.featureId)
+    ?? optionalString(payload.featureId)
+    ?? (input.entityType === "feature" ? input.entityId : undefined);
+  const runId = randomUUID();
+  const skillSlug = skillSlugForSpecAction(input.action);
+  const sourcePaths = sourcePathsForSpecAction(input.action, payload, featureId);
+  const expectedArtifacts = expectedArtifactsForSpecAction(input.action, featureId);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
+        VALUES (?, NULL, ?, ?, ?, ?, ?)`,
+      params: [
+        runId,
+        featureId ?? null,
+        projectId,
+        "queued",
+        acceptedAt,
+        JSON.stringify({
+          commandAction: input.action,
+          scheduler: "bullmq",
+          workspaceRoot: project.targetRepoPath,
+          skillSlug,
+          skillPhase: input.action,
+        }),
+      ],
+    },
+  ]);
+  const job = scheduler.enqueueCliRun({
+    projectId,
+    featureId,
+    runId,
+    skillSlug,
+    requestedAction: input.action,
+    sourcePaths,
+    expectedArtifacts,
+    traceability: {
+      requirementIds: optionalStringArray(payload.requirementIds),
+      changeIds: ["CHG-016"],
+    },
+  });
+  return { runId, schedulerJobId: job.schedulerJobId, skillSlug, workspaceRoot: project.targetRepoPath };
+}
+
+function skillSlugForSpecAction(action: ConsoleCommandAction): string {
+  if (action === "generate_ears") return "requirement-intake-skill";
+  if (action === "generate_hld") return "architecture-plan-skill";
+  return "task-slicing-skill";
+}
+
+function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<string, unknown>, featureId?: string): string[] {
+  const requested = optionalStringArray(payload.sourcePaths);
+  if (requested.length > 0) return requested;
+  if (action === "generate_ears") {
+    return [optionalString(payload.sourcePath) ?? "docs/zh-CN/PRD.md"];
+  }
+  return [
+    "docs/zh-CN/PRD.md",
+    "docs/zh-CN/requirements.md",
+    "docs/zh-CN/hld.md",
+    ...(featureId ? [`docs/features/${featureId}/requirements.md`] : []),
+  ];
+}
+
+function expectedArtifactsForSpecAction(action: ConsoleCommandAction, featureId?: string): string[] {
+  if (action === "generate_ears") {
+    return ["docs/zh-CN/requirements.md", "docs/features/"];
+  }
+  if (action === "generate_hld") {
+    return featureId ? [`docs/features/${featureId}/design.md`] : ["docs/zh-CN/design.md"];
+  }
+  return featureId ? [`docs/features/${featureId}/tasks.md`] : ["docs/features/README.md"];
 }
 
 function writeSpecIntakeArtifact(projectPath: string, directory: string, fileName: string, value: unknown): string {
@@ -2657,6 +2736,48 @@ function runnerTaskAction(status: BoardColumn | "unknown", blockedReasons: strin
     return "run";
   }
   return "observe";
+}
+
+function buildSkillInvocationFeedback(
+  runRows: Record<string, unknown>[],
+  schedulerRows: Record<string, unknown>[],
+  evidenceRows: Record<string, unknown>[],
+): RunnerConsoleViewModel["skillInvocations"] {
+  const evidenceByRun = new Map<string, Record<string, unknown>>();
+  for (const row of evidenceRows) {
+    const runId = optionalString(row.run_id);
+    if (runId && !evidenceByRun.has(runId)) {
+      evidenceByRun.set(runId, row);
+    }
+  }
+  return runRows
+    .map((run) => {
+      const metadata = parseJsonObject(run.metadata_json);
+      const skillSlug = optionalString(metadata.skillSlug);
+      const skillPhase = optionalString(metadata.skillPhase) ?? optionalString(metadata.commandAction);
+      if (!skillSlug && !skillPhase) {
+        return undefined;
+      }
+      const runId = String(run.id);
+      const schedulerJob = schedulerRows.find((row) => {
+        const payload = parseJsonObject(row.payload_json);
+        return optionalString(payload.runId) === runId;
+      });
+      const evidence = evidenceByRun.get(runId);
+      return {
+        runId,
+        schedulerJobId: optionalString(schedulerJob?.id),
+        workspaceRoot: optionalString(metadata.workspaceRoot),
+        skillSlug,
+        skillPhase,
+        blockedReason: optionalString(metadata.blockedReason) ?? (String(run.status) === "blocked" ? optionalString(run.summary) : undefined),
+        status: String(run.status),
+        evidenceSummary: optionalString(evidence?.summary),
+        updatedAt: optionalString(run.completed_at) ?? optionalString(run.started_at),
+      };
+    })
+    .filter((entry): entry is RunnerConsoleViewModel["skillInvocations"][number] => Boolean(entry))
+    .slice(0, 12);
 }
 
 function filterRunnerAuditEvents(

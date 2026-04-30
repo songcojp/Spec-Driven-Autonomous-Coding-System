@@ -340,6 +340,28 @@ const returnsPortalData: ConsoleProjectData = {
       { id: "AUD-204-011", action: "schedule_board_tasks", target: "feature:FEAT-204", result: "blocked", createdAt: "2026-04-29T03:38:00.000Z" },
       { id: "AUD-204-010", action: "run_board_tasks", target: "feature:FEAT-204", result: "accepted", createdAt: "2026-04-29T03:12:00.000Z" },
     ],
+    skillInvocations: [
+      {
+        runId: "RUN-709",
+        schedulerJobId: "JOB-709",
+        workspaceRoot: "workspace/acme-returns-portal",
+        skillSlug: "codex-coding-skill",
+        skillPhase: "task_execution",
+        status: "queued",
+        evidenceSummary: "Codex skill invocation contract queued for workspace execution.",
+        updatedAt: "2026-04-29T03:42:00.000Z",
+      },
+      {
+        runId: "RUN-710",
+        schedulerJobId: "JOB-710",
+        workspaceRoot: "workspace/acme-returns-portal",
+        skillSlug: "technical-context-skill",
+        skillPhase: "feature_planning",
+        blockedReason: "Project workspace is missing readable AGENTS.md",
+        status: "blocked",
+        updatedAt: "2026-04-29T03:41:00.000Z",
+      },
+    ],
     factSources: ["task_graph_tasks", "runs", "runner_heartbeats", "runner_policies", "raw_execution_logs", "review_items", "audit_timeline_events"],
     adapterSummary: {
       id: cliAdapterConfig.id,

@@ -35,3 +35,5 @@
 - [ ] TASK-032: 将 CLI Adapter dry-run、保存草稿、启用/禁用暴露为系统设置受控命令，并展示字段级错误、命令模板错误、安全策略错误和成功反馈。
 - [ ] TASK-033: 更新 Product Console 单测和浏览器验证，覆盖系统设置入口、Runner Console 跳转、CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存、启用配置和无效配置不影响 running Run 的反馈。
 - [x] TASK-034: 将 Runner Queue 视图接入 `scheduler_job_records` + Runner heartbeat/log，并把 `run_board_tasks` 改为 enqueue `cli.run`。
+- [x] TASK-035: 在 Spec Workspace、Task Board 和 Runner Console 展示 workspace-aware CLI skill invocation 反馈，包括 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
+- [x] TASK-036: 更新 Product Console 单测和浏览器验证，覆盖 Spec/UI 执行动作转换为 CLI skill invocation 后的回执、项目 workspace 阻塞反馈和 Evidence 摘要。

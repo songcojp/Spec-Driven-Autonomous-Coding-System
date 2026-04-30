@@ -16,3 +16,4 @@
 - [x] TASK-014: 将调度入口重构为 BullMQ + Redis job，固定 queue 为 `specdrive:feature-scheduler` / `specdrive:cli-runner`，并新增 `scheduler_job_records` SQLite 审计事实。
 - [x] TASK-015: 将 `schedule_run` 改为只登记 trigger 并 enqueue `feature.select`；Feature selection decision 由 Worker 从 live Feature Pool 选择后产生。
 - [x] TASK-016: 实现 `feature.plan` bridge-missing blocked 语义，固定原因 `Planning skill execution bridge is not implemented`，且不生成假 TaskGraph。
+- [x] TASK-017: 将 `feature.plan` 接入 Workspace-aware Codex Skill Bridge：bridge 可用时创建 planning Run 并入队 CLI Adapter；项目 workspace 缺失、不可读或缺少所需 Skill 文件时 blocked，且不生成假 TaskGraph。

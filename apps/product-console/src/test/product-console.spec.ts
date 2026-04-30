@@ -33,6 +33,10 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByRole("button", { name: "暂停 Runner" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "资源池" })).toBeVisible();
       await expect(page.getByText("schedule_board_tasks")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Skill 调用" })).toBeVisible();
+      await expect(page.getByText("codex-coding-skill")).toBeVisible();
+      await expect(page.getByText("workspace/acme-returns-portal").first()).toBeVisible();
+      await expect(page.getByText("Project workspace is missing readable AGENTS.md")).toBeVisible();
     }
   }
 });

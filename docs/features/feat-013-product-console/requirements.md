@@ -5,7 +5,7 @@
 | Source | IDs / Sections |
 |---|---|
 | PRD | 第 8.1 至 8.9 节页面需求 |
-| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067, NFR-006, NFR-007, NFR-008, NFR-010 |
+| Requirements | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-057, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067, REQ-068, NFR-006, NFR-007, NFR-008, NFR-010 |
 | HLD | 7.11 Product Console and Dashboard, 12 Observability and Operability |
 
 Spec Evolution:
@@ -18,6 +18,7 @@ Spec Evolution:
 - CHG-014：用户确认阶段 2 的 Spec 扫描和上传必须合并为一个步骤；Product Console 在该步骤内显示“扫描”和“上传”两个按钮，不再把扫描和上传渲染为两个独立阶段步骤。
 - CHG-013：2026-04-29 平台边界收缩为调度和状态维护，移除 Skill Center、Subagent Console 和规划流水线入口；Runner 页面仅展示外部执行状态、心跳、日志、证据和状态检测。
 - ADD-006：用户要求优化 CLI 调用并升级为 adapter；CLI 配置通过 JSON 管理，支持 JSON 表单并可通过 UI 直接编辑修改。Product Console 必须提供系统设置，并将 CLI Adapter 配置管理放到系统设置下；Runner Console 只展示配置健康摘要和跳转入口。
+- CHG-016：用户要求 Spec/UI 操作转换为完整 CLI Skill 调用流程，且 Codex 支持 workspace 时必须传入项目路径。Product Console 必须把 Spec Workspace 和 Task Board 操作转换为受控命令回执，并展示 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
 
 ## Scope
 
@@ -34,6 +35,7 @@ Spec Evolution:
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
 - Runner Console 的队列状态必须来自 `scheduler_job_records` 与 Runner heartbeat/session/log，而不是静态 recent logs。
+- Spec Workspace 和 Runner Console 必须展示 workspace-aware skill invocation 反馈，包括 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
 - System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
 - Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler/Run、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
@@ -71,16 +73,17 @@ Spec Evolution:
 - 每个页面必须有加载态、空态、错误态和真实数据态；页面文案不能替代状态数据、Evidence、diff、日志或命令结果。
 - 用户动作必须通过可见控件发起，且控件调用 Control Plane 受控命令后展示成功、阻塞或失败反馈。
 - 所有项目级受控命令必须携带当前 `project_id`；缺少或不匹配时展示阻塞反馈，不得静默使用上一个项目。
-- 用户可以切换界面语言并保留选择；Evidence、diff、日志、文件路径、命令输出和用户输入内容保持原文，不被界面翻译层改写。
 - 受控命令必须记录 action、entity、requestedBy、reason、payload、accepted/blocked 状态和 audit event；查询接口不得隐藏写入副作用或直接修改 Git、worktree、artifact、数据库状态或 CLI 执行状态。
+- Spec Workspace 和 Task Board 的执行类动作必须展示转换后的 CLI skill invocation 状态；项目 workspace 缺失、不可读或缺少所需 Skill 文件时，用户必须看到 blocked reason。
+- 用户可以切换界面语言并保留选择；Evidence、diff、日志、文件路径、命令输出和用户输入内容保持原文，不被界面翻译层改写。
 
 ## Acceptance Criteria
 
 - [ ] Console 所有写操作都通过 Control Plane 命令发起。
+- [ ] Dashboard、Project Home、Spec Workspace、Runner Console、Review Center 和 System Settings 的普通接口只提供查询、schema 或只读预览；会落库、调度、执行、审批、配置生效或写 Evidence 的动作均有 command receipt 和审计事件。
 - [ ] 批量排期和批量运行保留审计记录，并对高风险、依赖未满足或审批缺失任务给出阻塞原因。
 - [ ] 看板加载和状态刷新耗时被记录为性能基线。
 - [ ] Runner 心跳、成本、成功率和失败率可展示。
-- [ ] Dashboard、Project Home、Spec Workspace、Runner Console、Review Center 和 System Settings 的普通接口只提供查询、schema 或只读预览；会落库、调度、执行、审批、配置生效或写 Evidence 的动作均有 command receipt 和审计事件。
 - [ ] Dashboard 不覆盖 Persistent Store、Project Memory 或 Git 事实。
 - [ ] 仓库包含可运行的前端应用入口、路由和页面组件，至少覆盖 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center。
 - [ ] Product Console 接入 HLD 指定的 React + Next.js 或 Vite React，以及 shadcn/ui + Tailwind CSS + Radix UI primitives，若因宿主框架调整必须在设计中记录替代方案。
@@ -103,8 +106,10 @@ Spec Evolution:
 - [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
 - [ ] CLI Adapter 表单编辑和原始 JSON 编辑共享同一份配置事实源，切换编辑模式不得丢失未保存修改。
 - [ ] 浏览器级验证覆盖 CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存和无效配置不影响 running Run 的反馈。
+- [ ] 浏览器级验证覆盖 Spec Workspace / Task Board 执行动作返回 scheduler job、run id、workspace、skill phase、blocked reason 和 Evidence 摘要。
 
 ## Risks and Open Questions
 
 - Product Console 需要避免把说明性文本做成替代真实状态的静态页面。
 - JSON 表单需要避免产生与 adapter JSON 分离的第二套配置事实源。
+- workspace-aware skill invocation 需要避免把平台 Skill Registry 语义重新带回 Console；UI 只展示 CLI 运行状态和证据。

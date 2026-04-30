@@ -33,6 +33,10 @@ export type CommandReceipt = {
   projectId?: string;
   acceptedAt: string;
   featureId?: string;
+  schedulerJobId?: string;
+  schedulerJobIds?: string[];
+  runId?: string;
+  runIds?: string[];
   blockedReasons?: string[];
 };
 
@@ -213,6 +217,17 @@ export type RunnerModel = {
     target: string;
     result: string;
     createdAt: string;
+  }>;
+  skillInvocations?: Array<{
+    runId: string;
+    schedulerJobId?: string;
+    workspaceRoot?: string;
+    skillSlug?: string;
+    skillPhase?: string;
+    blockedReason?: string;
+    status: string;
+    evidenceSummary?: string;
+    updatedAt?: string;
   }>;
   factSources?: string[];
   adapterSummary?: CliAdapterSummary;

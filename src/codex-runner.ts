@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, constants, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ORDINARY_LOG_SECRET_PATTERNS } from "./persistence.ts";
@@ -136,6 +136,7 @@ export type EvidenceInput = {
   stdout: string;
   stderr: string;
   testEnvironmentIsolation?: TestRunnerIsolationInput;
+  skillInvocation?: SkillInvocationContract;
 };
 
 export type RunnerPolicyInput = {
@@ -210,6 +211,28 @@ export type RunnerQueueItem = {
   statusCheck?: RunnerStatusCheckInput;
   adapterConfig?: CliAdapterConfig;
   recoveryDispatcher?: (dispatch: RecoveryDispatch) => void | Promise<void>;
+  skillInvocation?: SkillInvocationContract;
+};
+
+export type SkillInvocationContract = {
+  projectId: string;
+  workspaceRoot: string;
+  skillSlug: string;
+  sourcePaths: string[];
+  expectedArtifacts: string[];
+  traceability: {
+    featureId?: string;
+    taskId?: string;
+    requirementIds: string[];
+    changeIds: string[];
+  };
+  requestedAction: string;
+};
+
+export type WorkspaceValidationResult = {
+  valid: boolean;
+  workspaceRoot?: string;
+  blockedReasons: string[];
 };
 
 export type RecoveryDispatch = {
@@ -565,6 +588,65 @@ export function renderCliAdapterCommand(input: {
   return { command: config.executable, args };
 }
 
+export function validateWorkspaceRoot(workspaceRoot: string | undefined): WorkspaceValidationResult {
+  const blockedReasons: string[] = [];
+  const trimmed = workspaceRoot?.trim();
+  if (!trimmed) {
+    return { valid: false, blockedReasons: ["Project workspace root is required."] };
+  }
+  try {
+    const stat = statSync(trimmed);
+    if (!stat.isDirectory()) {
+      blockedReasons.push(`Project workspace root is not a directory: ${trimmed}`);
+    }
+    accessSync(trimmed, constants.R_OK | constants.X_OK);
+  } catch {
+    blockedReasons.push(`Project workspace root is missing or unreadable: ${trimmed}`);
+  }
+
+  const skillsPath = join(trimmed, ".agents", "skills");
+  try {
+    const stat = statSync(skillsPath);
+    if (!stat.isDirectory()) {
+      blockedReasons.push(`Project workspace skills directory is not a directory: ${skillsPath}`);
+    }
+    accessSync(skillsPath, constants.R_OK | constants.X_OK);
+  } catch {
+    blockedReasons.push(`Project workspace is missing readable .agents/skills: ${skillsPath}`);
+  }
+
+  const agentsPath = join(trimmed, "AGENTS.md");
+  try {
+    const stat = statSync(agentsPath);
+    if (!stat.isFile()) {
+      blockedReasons.push(`Project workspace AGENTS.md is not a file: ${agentsPath}`);
+    }
+    accessSync(agentsPath, constants.R_OK);
+  } catch {
+    blockedReasons.push(`Project workspace is missing readable AGENTS.md: ${agentsPath}`);
+  }
+
+  return { valid: blockedReasons.length === 0, workspaceRoot: trimmed, blockedReasons };
+}
+
+export function buildSkillInvocationPrompt(contract: SkillInvocationContract, context: string): string {
+  return [
+    "Execute this SpecDrive CLI skill invocation inside the current workspace.",
+    "",
+    "Skill Invocation Contract:",
+    JSON.stringify(contract, null, 2),
+    "",
+    "Rules:",
+    "- Use only skills discovered from this workspace's .agents/skills directory.",
+    "- Treat AGENTS.md and the referenced source paths as governing context.",
+    "- Produce the expected artifacts and include traceability in the final evidence.",
+    "- Do not assume a platform Skill Registry or Skill Center exists.",
+    "",
+    "Context:",
+    context,
+  ].join("\n");
+}
+
 export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapterResult> {
   const now = input.now ?? new Date();
   const shouldCleanupOutputSchema = !input.outputSchemaPath;
@@ -616,6 +698,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       stdout: rawLog.stdout,
       stderr: rawLog.stderr,
       testEnvironmentIsolation: input.policy.testEnvironmentIsolation,
+      skillInvocation: input.skillInvocation,
     };
 
     return { session, rawLog, evidence };
@@ -647,6 +730,7 @@ export async function processRunnerQueueItem(
     taskId: input.taskId,
     featureId: input.featureId,
     adapterConfig: input.adapterConfig,
+    skillInvocation: input.skillInvocation,
     runner,
     onHeartbeat,
   });
@@ -1249,6 +1333,7 @@ export function buildEvidencePackInput(input: EvidenceInput): {
       eventTypes: input.events.map((event) => event.type).filter(Boolean),
       stdout: input.stdout,
       stderr: input.stderr,
+      skillInvocation: input.skillInvocation,
     },
   };
 }
