@@ -801,6 +801,8 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       createdAt: completedAt,
     };
     materializeArtifactEvidence(input.policy.workspaceRoot, input.skillInvocation, events);
+    const completedEvent = events.find((e) => e.type === "turn.completed" && e.usage);
+    const usage = completedEvent?.usage as Record<string, number> | undefined;
     writeCliOutputLog(logFiles, {
       status: result.status,
       stdout,
@@ -809,6 +811,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       completedAt,
       eventCount: redactedEvents.length,
       sessionId,
+      usage,
     });
     const evidence: EvidenceInput = {
       runId: input.policy.runId,
@@ -1343,6 +1346,7 @@ function writeCliOutputLog(
     completedAt: string;
     eventCount?: number;
     sessionId?: string;
+    usage?: Record<string, number>;
   },
 ): void {
   writeFileSync(files.stdout, redactLog(output.stdout), { encoding: "utf8", mode: 0o600 });
@@ -1357,6 +1361,7 @@ function writeCliOutputLog(
         status: output.status,
         sessionId: output.sessionId,
         eventCount: output.eventCount ?? 0,
+        usage: output.usage,
         error: output.error
           ? {
               name: output.error.name,
