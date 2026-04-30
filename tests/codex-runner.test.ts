@@ -208,11 +208,12 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
 });
 
 test("Codex CLI adapter captures JSON events, session id, output, and redacts logs", async () => {
+  const workspaceRoot = makeWorkspacePath();
   const policy = resolveRunnerPolicy({
     runId: "RUN-004",
     risk: "low",
-    workspaceRoot: "/workspace/project",
-    model: "gpt-5.3-codex",
+    workspaceRoot,
+    model: "gpt-5.3-codex-spark",
     profile: "automation",
     resumeSessionId: "SESSION-OLD",
     now: stableDate,
@@ -248,12 +249,12 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
     "resume",
     "--json",
     "-m",
-    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
     "SESSION-OLD",
   ]);
   assert.match(calls[0].args[12], /Implement bounded task token=abc123/);
   assert.match(calls[0].args[12], /matching this schema/);
-  assert.equal(calls[0].cwd, "/workspace/project");
+  assert.equal(calls[0].cwd, workspaceRoot);
   assert.doesNotMatch(result.session.args.join(" "), /abc123/);
   assert.match(result.session.args.join(" "), /token=\[REDACTED\]/);
   assert.equal(result.session.sessionId, "SESSION-NEW");
@@ -263,17 +264,44 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.match(result.rawLog.stdout, /token=\[REDACTED\]/);
   assert.match(result.rawLog.stderr, /password=\[REDACTED\]/);
 
+  const expectedLogFiles = {
+    input: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "cli-input.json"),
+    output: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "cli-output.json"),
+    stdout: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "stdout.log"),
+    stderr: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "stderr.log"),
+  };
+  assert.deepEqual(result.rawLog.files, expectedLogFiles);
+  assert.equal(existsSync(expectedLogFiles.input), true);
+  assert.equal(existsSync(expectedLogFiles.output), true);
+  assert.equal(existsSync(expectedLogFiles.stdout), true);
+  assert.equal(existsSync(expectedLogFiles.stderr), true);
+
+  const inputLog = JSON.parse(readFileSync(expectedLogFiles.input, "utf8"));
+  assert.equal(inputLog.runId, "RUN-004");
+  assert.equal(inputLog.workspaceRoot, workspaceRoot);
+  assert.match(inputLog.prompt, /token=\[REDACTED\]/);
+  assert.match(inputLog.args.join(" "), /token=\[REDACTED\]/);
+  assert.doesNotMatch(readFileSync(expectedLogFiles.stdout, "utf8"), /abc123/);
+  assert.match(readFileSync(expectedLogFiles.stdout, "utf8"), /token=\[REDACTED\]/);
+  assert.match(readFileSync(expectedLogFiles.stderr, "utf8"), /password=\[REDACTED\]/);
+
+  const outputLog = JSON.parse(readFileSync(expectedLogFiles.output, "utf8"));
+  assert.equal(outputLog.status, 0);
+  assert.equal(outputLog.sessionId, "SESSION-NEW");
+  assert.equal(outputLog.eventCount, 2);
+
   const evidence = buildEvidencePackInput(result.evidence);
   assert.equal(evidence.kind, "codex_runner");
   assert.equal(evidence.featureId, "FEAT-008");
   assert.match(evidence.summary, /exit=0/);
+  assert.deepEqual(evidence.metadata.logFiles, expectedLogFiles);
 });
 
 test("Codex CLI adapter passes output schema for new exec runs", async () => {
   const policy = resolveRunnerPolicy({
     runId: "RUN-004B",
     risk: "low",
-    workspaceRoot: "/workspace/project",
+    workspaceRoot: makeWorkspacePath(),
     now: stableDate,
   });
   const calls: Array<{ args: string[] }> = [];
@@ -296,7 +324,7 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
     "--sandbox",
     "workspace-write",
     "--model",
-    "gpt-5-codex",
+    "gpt-5.3-codex-spark",
     "--output-schema",
     "/tmp/runner-output.schema.json",
   ]);
@@ -306,7 +334,7 @@ test("Codex CLI adapter removes generated output schema files after execution", 
   const policy = resolveRunnerPolicy({
     runId: "RUN-004C",
     risk: "low",
-    workspaceRoot: "/workspace/project",
+    workspaceRoot: makeWorkspacePath(),
     now: stableDate,
   });
   let generatedSchemaPath = "";
@@ -345,7 +373,7 @@ test("runner queue worker routes blocked work to review and executes allowed wor
   const allowedPolicy = resolveRunnerPolicy({
     runId: "RUN-006",
     risk: "low",
-    workspaceRoot: "/workspace/project",
+    workspaceRoot: makeWorkspacePath(),
     now: stableDate,
   });
   const executed = await processRunnerQueueItem(
@@ -385,7 +413,7 @@ test("runner queue worker routes blocked work to review and executes allowed wor
   const resumedPolicy = resolveRunnerPolicy({
     runId: "RUN-006B",
     risk: "low",
-    workspaceRoot: "/workspace/project",
+    workspaceRoot: makeWorkspacePath(),
     resumeSessionId: "SESSION-OLD",
     now: stableDate,
   });
@@ -1511,7 +1539,7 @@ test("Codex adapter records spawn failures as failed evidence instead of throwin
   const policy = resolveRunnerPolicy({
     runId: "RUN-009",
     risk: "low",
-    workspaceRoot: "/workspace/project",
+    workspaceRoot: makeWorkspacePath(),
     now: stableDate,
   });
   const result = await processRunnerQueueItem(
@@ -1566,7 +1594,7 @@ test("runner artifacts persist for audit and console lookup", async () => {
   const policy = resolveRunnerPolicy({
     runId: "RUN-008",
     risk: "low",
-    workspaceRoot: "/workspace/project",
+    workspaceRoot: makeWorkspacePath(),
     now: stableDate,
   });
   const heartbeat = recordRunnerHeartbeat({
@@ -1612,4 +1640,8 @@ test("log redaction covers common secret formats", () => {
 
 function makeDbPath(): string {
   return join(mkdtempSync(join(tmpdir(), "specdrive-codex-runner-")), "control-plane.sqlite");
+}
+
+function makeWorkspacePath(): string {
+  return mkdtempSync(join(tmpdir(), "specdrive-codex-workspace-"));
 }

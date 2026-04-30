@@ -38,6 +38,7 @@
 | CHG-009 | Product Console 完成标准修正：API/ViewModel 不能替代用户 UI | 用户审查；实现证据 `src/product-console.ts`、`src/server.ts`、`tests/product-console.test.ts` | 已同步 FEAT-013 和技能契约 | 重新打开 FEAT-013；补真实前端应用、页面组件、浏览器级验收，并修复拆分/执行技能避免再次漏 UI。 |
 | CHG-015 | Runner 重构为 BullMQ + Redis 调度系统 | 用户指令；实现证据 `src/scheduler.ts`、`src/index.ts`、`src/product-console.ts`、`tests/scheduler.test.ts` | 已写入 PRD、requirements、HLD / Feature Spec design、FEAT-004、FEAT-008、FEAT-013、FEAT-014 | 作为 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 联合 patch：`schedule_run` 只入队，`feature.plan` bridge 缺失时 blocked，`cli.run` 由 Worker 执行，SQLite 保存 scheduler job record。 |
 | CHG-016 | Workspace-aware Codex Skill Bridge | 用户指令：“完善 CLI 调用实现”“Spec/UI 操作转换成 skill 调用完整流程”“Codex 支持 workspace，需要传入项目路径” | 已写入 PRD、requirements、HLD / Feature Spec design、FEAT-004、FEAT-008、FEAT-013 | 作为 FEAT-004 / FEAT-008 / FEAT-013 联合 patch：Console/Spec 操作转换为 CLI skill invocation contract，经 CLI Adapter 在当前项目 workspace 中调用 Codex；平台不恢复 Skill Registry 或 Skill Center。 |
+| CHG-017 | CLI Adapter 逐步阻断与系统设置禁用按鈕补充 | 实现发现：ADD-006 任务执行期间发现 Runner Worker 在 `cli_adapter_configs` 表有记录但无 active 行时未阶断新 Run，且 SettingsPage 缺少 `disable_cli_adapter_config` 受控命令按鈕 | FEAT-008 全部 16 项任务已完成（TASK-001 至 TASK-016）；FEAT-013 TASK-029–032 已完成，TASK-026–028、033 待执行 | 已将 FEAT-008 标记为 done；已更新 Feature Index ADD-006 follow-up；巻 FEAT-013 TASK-029–032 认知为已完成。 |
 
 ## 人工处置顺序建议
 
@@ -78,6 +79,7 @@
 | CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `task-slicing-skill` / `codex-coding-skill` 技能契约。 | 需同步实现 |
 | CHG-015 | 进入 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 patch；调度需求由 BullMQ + Redis 承载，SQLite 继续作为业务事实和审计源。 | 已同步 PRD、requirements、HLD / Feature Spec design、Feature Index、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks、FEAT-013 requirements/tasks 和 FEAT-014 requirements/design；实现和测试已覆盖。 | 已同步实现 |
 | CHG-016 | 进入 FEAT-004 / FEAT-008 / FEAT-013 patch；Spec Workspace、Stage 3 planning 和 Task Board 运行动作必须转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中启动 Codex。 | 已同步 PRD、REQ-037、REQ-065、新增 REQ-068、HLD / Feature Spec design、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks 和 FEAT-013 requirements/design/tasks；实现已覆盖 workspace root 校验、planning CLI run、Skill invocation prompt、UI 回执、单测和浏览器级验证。 | 已同步实现 |
+| CHG-017 | 在 `src/scheduler.ts` `loadRunnerTaskContext` 补充 adapter 数龐查询：若表有记录但无 active row，抛出阶断错误；若表为空，回退到 DEFAULT_CLI_ADAPTER_CONFIG。在 SettingsPage 添加禁用按鈕，调用 `disable_cli_adapter_config` 受控命令。新增 CLI Adapter 校验、normalize 和阶断单测。 | 已同步 FEAT-008 tasks.md（TASK-009–012 全部 ☑）、FEAT-013 tasks.md（TASK-029–032 ☑）、Feature Index（FEAT-008 done，ADD-006 follow-up 更新）；全部 298 项测试通过。 | 已同步实现 |
 
 ## Feature Spec Execute 评估
 
@@ -87,6 +89,7 @@
 | P1 | FEAT-004 Orchestration and State Machine | CHG-003 | 执行后续 `codex-coding-skill` patch | ADD-002 已完成；计划流水线强制阶段仍需后续处理。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 Scheduler Integration | CHG-015 | 已执行 patch | BullMQ + Redis 调度、scheduler job record、`feature.select` / `feature.plan` / `cli.run` Worker 和 Console 队列状态已实现；后续只剩 Codex Skill planning bridge。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 Workspace-aware Codex Skill Bridge | CHG-016 | 已执行 patch | Console command → scheduler job → run → active CLI Adapter → Codex workspace → skill prompt → Evidence/status 已接通，并已完成单测与浏览器验证。 |
+| P1 | FEAT-008 Codex Runner / FEAT-013 System Settings | CHG-017 | 已执行 patch | FEAT-008 全部 16 项任务完成，FEAT-008 标记为 done；FEAT-013 TASK-029–032 完成（System Settings 框架、CLI 配置页、JSON 编辑器、受控命令 disable）；298 项单测全部通过。 |
 | P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `codex-coding-skill` patch | 并行写入和测试资源隔离属于执行安全边界。 |
 | P2 | FEAT-013 Product Console | ADD-003、ADD-005、CHG-005、CHG-009 | 执行 `codex-coding-skill` patch | 必须交付真实浏览器 UI、页面路由、组件系统、项目切换入口和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |
 | - | FEAT-010 Failure Recovery | CHG-007 | 不执行 | 已实现且测试覆盖。 |

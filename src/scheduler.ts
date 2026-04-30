@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Queue, Worker, type JobsOptions, type Job } from "bullmq";
+import { Queue, Worker, type JobsOptions, type Job, type WorkerOptions } from "bullmq";
 import IORedis from "ioredis";
 import { runSqlite } from "./sqlite.ts";
 import { recordAuditEvent } from "./persistence.ts";
@@ -35,6 +35,8 @@ export const FEATURE_SCHEDULER_QUEUE = "specdrive:feature-scheduler";
 export const CLI_RUNNER_QUEUE = "specdrive:cli-runner";
 export const BULLMQ_FEATURE_SCHEDULER_QUEUE = "specdrive-feature-scheduler";
 export const BULLMQ_CLI_RUNNER_QUEUE = "specdrive-cli-runner";
+export const FEATURE_WORKER_LOCK_DURATION_MS = 5 * 60 * 1000;
+export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
 export const PLANNING_BRIDGE_NOT_IMPLEMENTED = "Planning skill execution bridge is not implemented";
 export const PLANNING_BRIDGE_WORKSPACE_BLOCKED = "Planning skill execution bridge is blocked because the project workspace is unavailable";
 
@@ -79,6 +81,7 @@ export type CliRunJobPayload = {
   skillSlug?: string;
   requestedAction?: string;
   sourcePaths?: string[];
+  imagePaths?: string[];
   expectedArtifacts?: string[];
   traceability?: {
     requirementIds?: string[];
@@ -213,15 +216,17 @@ export async function createSchedulerWorkers(input: {
   const connection = new IORedis(input.redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
   connection.on("error", () => undefined);
   const scheduler = input.scheduler ?? createBullMqScheduler(input.dbPath, input.redisUrl);
+  const featureWorkerOptions = workerOptions(connection, FEATURE_WORKER_LOCK_DURATION_MS);
+  const cliWorkerOptions = workerOptions(connection, CLI_WORKER_LOCK_DURATION_MS);
   const featureWorker = new Worker(
     BULLMQ_FEATURE_SCHEDULER_QUEUE,
     async (job) => dispatchFeatureJob(input.dbPath, scheduler, job),
-    { connection },
+    featureWorkerOptions,
   );
   const cliWorker = new Worker(
     BULLMQ_CLI_RUNNER_QUEUE,
     async (job) => dispatchCliJob(input.dbPath, job, input.runner),
-    { connection },
+    cliWorkerOptions,
   );
   return {
     async close() {
@@ -232,6 +237,16 @@ export async function createSchedulerWorkers(input: {
         connection.quit().catch(() => undefined),
       ]);
     },
+  };
+}
+
+function workerOptions(connection: IORedis, lockDuration: number): WorkerOptions {
+  return {
+    connection,
+    lockDuration,
+    lockRenewTime: Math.floor(lockDuration / 2),
+    stalledInterval: Math.min(60_000, Math.floor(lockDuration / 4)),
+    maxStalledCount: 1,
   };
 }
 
@@ -822,6 +837,7 @@ function buildCliSkillInvocation(input: {
     workspaceRoot: input.workspaceRoot,
     skillSlug,
     sourcePaths,
+    imagePaths: input.payload.imagePaths,
     expectedArtifacts,
     traceability: {
       featureId: input.featureId,

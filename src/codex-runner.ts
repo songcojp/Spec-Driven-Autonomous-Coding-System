@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { accessSync, constants, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { ORDINARY_LOG_SECRET_PATTERNS } from "./persistence.ts";
@@ -83,6 +83,7 @@ export type RawExecutionLog = {
   stdout: string;
   stderr: string;
   events: CodexJsonEvent[];
+  files?: CliInvocationLogFiles;
   createdAt: string;
 };
 
@@ -137,6 +138,14 @@ export type EvidenceInput = {
   stderr: string;
   testEnvironmentIsolation?: TestRunnerIsolationInput;
   skillInvocation?: SkillInvocationContract;
+  logFiles?: CliInvocationLogFiles;
+};
+
+export type CliInvocationLogFiles = {
+  input: string;
+  output: string;
+  stdout: string;
+  stderr: string;
 };
 
 export type RunnerPolicyInput = {
@@ -186,6 +195,7 @@ export type CodexAdapterInput = {
   taskId?: string;
   featureId?: string;
   outputSchemaPath?: string;
+  imagePaths?: string[];
   adapterConfig?: CliAdapterConfig;
   runner?: CodexCommandRunner;
   asyncRunner?: AsyncCodexCommandRunner;
@@ -219,6 +229,7 @@ export type SkillInvocationContract = {
   workspaceRoot: string;
   skillSlug: string;
   sourcePaths: string[];
+  imagePaths?: string[];
   expectedArtifacts: string[];
   traceability: {
     featureId?: string;
@@ -292,7 +303,7 @@ export type RunnerConsoleSnapshot = {
   heartbeatStale: boolean;
 };
 
-const DEFAULT_MODEL = "gpt-5-codex";
+const DEFAULT_MODEL = "gpt-5.3-codex-spark";
 export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "codex-cli",
   displayName: "Codex CLI",
@@ -558,6 +569,7 @@ export function renderCliAdapterCommand(input: {
   policy: RunnerPolicy;
   prompt: string;
   outputSchemaPath: string;
+  imagePaths?: string[];
 }): { command: string; args: string[] } {
   const config = input.config ?? DEFAULT_CLI_ADAPTER_CONFIG;
   const validation = validateCliAdapterConfig(config);
@@ -579,12 +591,17 @@ export function renderCliAdapterCommand(input: {
     resume_session_id: input.policy.resumeSessionId ?? "",
     resume_prompt: buildResumePrompt(input.policy, input.prompt, input.outputSchemaPath),
   };
-  const args = template
+  const rendered = template
     .map((entry) => renderTemplateEntry(entry, values))
     .filter((entry) => entry.length > 0);
-  if (args.some((arg) => /{{[^}]+}}/.test(arg))) {
+  if (rendered.some((arg) => /{{[^}]+}}/.test(arg))) {
     throw new Error("CLI Adapter command contains unresolved template variables");
   }
+  // Inject -i <path> flags before the prompt (last positional argument) for image model support.
+  const imageFlags: string[] = (input.imagePaths ?? []).flatMap((p) => ["-i", p]);
+  const args = imageFlags.length
+    ? [...rendered.slice(0, -1), ...imageFlags, rendered[rendered.length - 1]]
+    : rendered;
   return { command: config.executable, args };
 }
 
@@ -630,6 +647,13 @@ export function validateWorkspaceRoot(workspaceRoot: string | undefined): Worksp
 }
 
 export function buildSkillInvocationPrompt(contract: SkillInvocationContract, context: string): string {
+  const taskSlicingRules = contract.skillSlug === "task-slicing-skill"
+    ? [
+        "- For split_feature_specs, decompose PRD, EARS requirements, and HLD into implementation-ready Feature Spec package directories.",
+        "- Do not treat .autobuild/specs/FEAT-INTAKE-*.json as a Feature Spec package; it is only an intake artifact.",
+        "- Write Feature Spec packages under docs/features/<feature-id>/ with requirements.md, design.md, tasks.md, and update docs/features/README.md.",
+      ]
+    : [];
   return [
     "Execute this SpecDrive CLI skill invocation inside the current workspace.",
     "",
@@ -641,6 +665,7 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- Treat AGENTS.md and the referenced source paths as governing context.",
     "- Produce the expected artifacts and include traceability in the final evidence.",
     "- Do not assume a platform Skill Registry or Skill Center exists.",
+    ...taskSlicingRules,
     "",
     "Context:",
     context,
@@ -656,13 +681,38 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
     policy: input.policy,
     prompt: input.prompt,
     outputSchemaPath,
+    imagePaths: input.imagePaths,
+  });
+  const logFiles = writeCliInputLog({
+    policy: input.policy,
+    prompt: input.prompt,
+    taskId: input.taskId,
+    featureId: input.featureId,
+    command: rendered.command,
+    args: rendered.args,
+    outputSchemaPath,
+    imagePaths: input.imagePaths,
+    skillInvocation: input.skillInvocation,
+    createdAt: now.toISOString(),
   });
   try {
-    const result = input.asyncRunner
-      ? await input.asyncRunner(rendered.command, rendered.args, input.policy.workspaceRoot)
-      : input.runner
-        ? input.runner(rendered.command, rendered.args, input.policy.workspaceRoot)
-        : await runCommand(rendered.command, rendered.args, input.policy.workspaceRoot, input.policy.heartbeatIntervalSeconds, input.onHeartbeat);
+    let result: CodexCommandResult;
+    try {
+      result = input.asyncRunner
+        ? await input.asyncRunner(rendered.command, rendered.args, input.policy.workspaceRoot)
+        : input.runner
+          ? input.runner(rendered.command, rendered.args, input.policy.workspaceRoot)
+          : await runCommand(rendered.command, rendered.args, input.policy.workspaceRoot, input.policy.heartbeatIntervalSeconds, input.onHeartbeat);
+    } catch (error) {
+      writeCliOutputLog(logFiles, {
+        status: null,
+        stdout: "",
+        stderr: "",
+        error: error instanceof Error ? error : new Error(String(error)),
+        completedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
     const stdout = result.stdout ?? "";
     const stderr = [result.stderr, result.error?.message].filter(Boolean).join("\n");
     const events = parseJsonEvents(stdout);
@@ -686,8 +736,18 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       stdout: redactLog(stdout),
       stderr: redactLog(stderr),
       events: redactedEvents,
+      files: logFiles,
       createdAt: completedAt,
     };
+    writeCliOutputLog(logFiles, {
+      status: result.status,
+      stdout,
+      stderr,
+      error: result.error,
+      completedAt,
+      eventCount: redactedEvents.length,
+      sessionId,
+    });
     const evidence: EvidenceInput = {
       runId: input.policy.runId,
       taskId: input.taskId,
@@ -699,6 +759,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       stderr: rawLog.stderr,
       testEnvironmentIsolation: input.policy.testEnvironmentIsolation,
       skillInvocation: input.skillInvocation,
+      logFiles,
     };
 
     return { session, rawLog, evidence };
@@ -729,6 +790,7 @@ export async function processRunnerQueueItem(
     prompt: input.prompt,
     taskId: input.taskId,
     featureId: input.featureId,
+    imagePaths: input.skillInvocation?.imagePaths,
     adapterConfig: input.adapterConfig,
     skillInvocation: input.skillInvocation,
     runner,
@@ -1114,6 +1176,112 @@ function buildSafetyBlockedRecoveryAttempt(recoveryTask: RecoveryTask, safety: S
   };
 }
 
+function writeCliInputLog(input: {
+  policy: RunnerPolicy;
+  prompt: string;
+  taskId?: string;
+  featureId?: string;
+  command: string;
+  args: string[];
+  outputSchemaPath: string;
+  imagePaths?: string[];
+  skillInvocation?: SkillInvocationContract;
+  createdAt: string;
+}): CliInvocationLogFiles {
+  const dir = cliRunLogDir(input.policy.workspaceRoot, input.policy.runId);
+  const files = cliInvocationLogFiles(input.policy.workspaceRoot, input.policy.runId);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    files.input,
+    `${JSON.stringify(
+      {
+        runId: input.policy.runId,
+        taskId: input.taskId,
+        featureId: input.featureId,
+        workspaceRoot: input.policy.workspaceRoot,
+        command: input.command,
+        args: input.args.map(redactLog),
+        prompt: redactLog(input.prompt),
+        outputSchemaPath: input.outputSchemaPath,
+        imagePaths: input.imagePaths,
+        policy: {
+          sandboxMode: input.policy.sandboxMode,
+          approvalPolicy: input.policy.approvalPolicy,
+          model: input.policy.model,
+          profile: input.policy.profile,
+          heartbeatIntervalSeconds: input.policy.heartbeatIntervalSeconds,
+        },
+        skillInvocation: input.skillInvocation,
+        createdAt: input.createdAt,
+      },
+      null,
+      2,
+    )}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+  return files;
+}
+
+function writeCliOutputLog(
+  files: CliInvocationLogFiles,
+  output: {
+    status: number | null;
+    stdout: string;
+    stderr: string;
+    error?: Error;
+    completedAt: string;
+    eventCount?: number;
+    sessionId?: string;
+  },
+): void {
+  writeFileSync(files.stdout, redactLog(output.stdout), { encoding: "utf8", mode: 0o600 });
+  writeFileSync(files.stderr, redactLog([output.stderr, output.error?.message].filter(Boolean).join("\n")), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  writeFileSync(
+    files.output,
+    `${JSON.stringify(
+      {
+        status: output.status,
+        sessionId: output.sessionId,
+        eventCount: output.eventCount ?? 0,
+        error: output.error
+          ? {
+              name: output.error.name,
+              message: redactLog(output.error.message),
+              stack: output.error.stack ? redactLog(output.error.stack) : undefined,
+            }
+          : undefined,
+        stdoutPath: files.stdout,
+        stderrPath: files.stderr,
+        completedAt: output.completedAt,
+      },
+      null,
+      2,
+    )}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
+}
+
+function cliInvocationLogFiles(workspaceRoot: string, runId: string): CliInvocationLogFiles {
+  const dir = cliRunLogDir(workspaceRoot, runId);
+  return {
+    input: join(dir, "cli-input.json"),
+    output: join(dir, "cli-output.json"),
+    stdout: join(dir, "stdout.log"),
+    stderr: join(dir, "stderr.log"),
+  };
+}
+
+function cliRunLogDir(workspaceRoot: string, runId: string): string {
+  return join(workspaceRoot, ".autobuild", "runs", sanitizePathSegment(runId));
+}
+
+function sanitizePathSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/g, "-") || "run";
+}
+
 function buildDispatchBlockedRecoveryAttempt(recoveryTask: RecoveryTask, error: unknown): RecoveryAttempt {
   const message = error instanceof Error ? error.message : String(error);
   return {
@@ -1334,6 +1502,7 @@ export function buildEvidencePackInput(input: EvidenceInput): {
       stdout: input.stdout,
       stderr: input.stderr,
       skillInvocation: input.skillInvocation,
+      logFiles: input.logFiles,
     },
   };
 }

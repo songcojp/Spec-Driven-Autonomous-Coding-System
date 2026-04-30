@@ -22,6 +22,7 @@ export type CommandAction =
   | "save_cli_adapter_config"
   | "activate_cli_adapter_config"
   | "disable_cli_adapter_config"
+  | "generate_ui_spec"
   | "write_spec_evolution";
 
 export type CommandReceipt = {
@@ -145,11 +146,20 @@ export type BoardModel = {
   factSources: string[];
 };
 
+export type SpecSourceItem = {
+  type: "prd" | "ears" | "requirements" | "hld" | "design" | "feature_spec" | "tasks" | "readme" | string;
+  label: string;
+  path?: string;
+  status: "found" | "missing" | "conflict" | "clarification";
+  detail?: string;
+};
+
 export type SpecWorkspaceModel = {
   features: Array<{ id: string; title: string; folder?: string; status: string; primaryRequirements: string[] }>;
   prdWorkflow?: {
     targetRepoPath?: string;
     sourcePath: string;
+    specSources?: SpecSourceItem[];
     resolvedSourcePath?: string;
     sourceName?: string;
     sourceVersion?: string;
@@ -158,7 +168,7 @@ export type SpecWorkspaceModel = {
     runtime?: string;
     blockedReasons: string[];
     phases: Array<{
-      key: "project_initialization" | "requirement_intake" | "feature_planning";
+      key: "project_initialization" | "requirement_intake" | "feature_planning" | "ui_spec";
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       blockedReasons: string[];

@@ -8,8 +8,10 @@ import { runSqlite } from "../src/sqlite.ts";
 import {
   BULLMQ_CLI_RUNNER_QUEUE,
   BULLMQ_FEATURE_SCHEDULER_QUEUE,
+  CLI_WORKER_LOCK_DURATION_MS,
   CLI_RUNNER_QUEUE,
   createMemoryScheduler,
+  FEATURE_WORKER_LOCK_DURATION_MS,
   FEATURE_SCHEDULER_QUEUE,
   PLANNING_BRIDGE_NOT_IMPLEMENTED,
   runCliRunJob,
@@ -22,6 +24,11 @@ test("BullMQ queue names avoid reserved colon separator while logical queue name
   assert.equal(CLI_RUNNER_QUEUE, "specdrive:cli-runner");
   assert.equal(BULLMQ_FEATURE_SCHEDULER_QUEUE.includes(":"), false);
   assert.equal(BULLMQ_CLI_RUNNER_QUEUE.includes(":"), false);
+});
+
+test("CLI worker lock is long enough for skill invocations", () => {
+  assert.equal(FEATURE_WORKER_LOCK_DURATION_MS >= 5 * 60 * 1000, true);
+  assert.equal(CLI_WORKER_LOCK_DURATION_MS >= 60 * 60 * 1000, true);
 });
 
 test("scheduler schema records BullMQ job metadata", () => {

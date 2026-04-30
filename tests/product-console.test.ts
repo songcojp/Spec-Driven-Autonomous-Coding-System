@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
@@ -319,8 +319,11 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "scan_prd"), false);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "upload_prd"), false);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "generate_ears"), true);
-  assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "feature_spec_pool"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "feature_spec_pool"), false);
+  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "generate_hld"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "generate_ui_spec"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "status_check"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "feature_spec_pool"), true);
   assert.equal(specWorkspace.prdWorkflow.stages.some((stage) => stage.key === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "schedule_run"), true);
@@ -570,6 +573,32 @@ test("console command gateway audits controlled writes without mutating worktree
   assert.equal(String(after.queries.workflowAudit[0].payload_json).includes("workspace/acme-returns-portal/docs/zh-CN/PRD.md"), true);
 });
 
+test("project initialization provisions AGENTS and workspace skills for CLI runs", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-agent-runtime-"));
+  mkdirSync(join(projectPath, "docs"), { recursive: true });
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "initialize_spec_protocol",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Prepare project workspace.",
+    payload: {},
+    now: stableDate,
+  });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(existsSync(join(projectPath, "AGENTS.md")), true);
+  assert.equal(existsSync(join(projectPath, ".agents", "skills", "task-slicing-skill", "SKILL.md")), true);
+  assert.equal(existsSync(join(projectPath, ".agents", "skills", "requirement-intake-skill", "SKILL.md")), true);
+});
+
 test("spec intake commands scan, upload, and enqueue EARS skill invocation", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -676,6 +705,110 @@ test("spec workspace records EARS generation as a CLI skill run instead of direc
   assert.equal(receipt.runId, runner.skillInvocations[0].runId);
   assert.equal(runner.skillInvocations[0].skillSlug, "requirement-intake-skill");
   assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
+});
+
+test("spec workspace does not treat intake artifacts as Feature Specs", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-intake-artifact-only-"));
+  mkdirSync(join(projectPath, "docs"), { recursive: true });
+  mkdirSync(join(projectPath, ".autobuild", "specs"), { recursive: true });
+  writeFileSync(join(projectPath, "docs", "PRD.md"), "# Lottery PRD\n\nThe system shall capture lottery tickets.", "utf8");
+  writeFileSync(join(projectPath, ".autobuild", "specs", "FEAT-INTAKE-001.json"), '{"id":"FEAT-INTAKE-001"}\n', "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, folder, primary_requirements_json)
+        VALUES ('FEAT-INTAKE-001', 'project-1', 'FEAT-INTAKE-001', 'draft', 'feat-intake-001', '[]')`,
+    },
+  ]);
+
+  const workspace = buildSpecWorkspaceView(dbPath, undefined, "project-1");
+
+  assert.deepEqual(workspace.features, []);
+  assert.equal(workspace.selectedFeature, undefined);
+  assert.equal(workspace.prdWorkflow.phases[1].facts.find((fact) => fact.label === "Features")?.value, "0");
+});
+
+test("spec workspace builds Feature Spec List from docs features packages", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-docs-features-"));
+  mkdirSync(join(projectPath, "docs", "features", "feat-001-ticket-capture"), { recursive: true });
+  mkdirSync(join(projectPath, ".autobuild", "specs"), { recursive: true });
+  writeFileSync(join(projectPath, ".autobuild", "specs", "FEAT-INTAKE-001.json"), '{"id":"FEAT-INTAKE-001"}\n', "utf8");
+  writeFileSync(
+    join(projectPath, "docs", "features", "feat-001-ticket-capture", "requirements.md"),
+    "# Feature Spec: FEAT-001 Ticket Capture\n\n- REQ-001: The system shall save lottery ticket records.\n- REQ-002: The system shall scan ticket images.",
+    "utf8",
+  );
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "tasks.md"), "# Tasks\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, folder, primary_requirements_json)
+        VALUES ('FEAT-INTAKE-001', 'project-1', 'FEAT-INTAKE-001', 'draft', 'feat-intake-001', '[]')`,
+    },
+  ]);
+
+  const workspace = buildSpecWorkspaceView(dbPath, undefined, "project-1");
+
+  assert.deepEqual(workspace.features.map((feature) => feature.id), ["FEAT-001"]);
+  assert.equal(workspace.features[0].title, "Ticket Capture");
+  assert.equal(workspace.features[0].folder, "feat-001-ticket-capture");
+  assert.deepEqual(workspace.features[0].primaryRequirements, ["REQ-001", "REQ-002"]);
+  assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
+});
+
+test("split Feature Specs dispatches task-slicing skill with PRD EARS HLD inputs", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-split-feature-packages-"));
+  mkdirSync(join(projectPath, "docs"), { recursive: true });
+  writeFileSync(join(projectPath, "docs", "PRD.md"), "# Lottery PRD\n\nThe system shall manage lottery tickets.", "utf8");
+  writeFileSync(join(projectPath, "docs", "requirements.md"), "# Requirements\n\nREQ-001: The system shall save tickets.", "utf8");
+  writeFileSync(join(projectPath, "docs", "hld.md"), "# HLD\n\nUse local-first storage.", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "split_feature_specs",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Split PRD/EARS/HLD into Feature Spec packages.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+    { name: "runs", sql: "SELECT feature_id, project_id, metadata_json FROM runs WHERE id = ?", params: [receipt.runId ?? ""] },
+  ]);
+  const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.featureId, undefined);
+  assert.equal(result.queries.jobs[0].target_type, "project");
+  assert.equal(result.queries.jobs[0].target_id, "project-1");
+  assert.equal(payload.skillSlug, "task-slicing-skill");
+  assert.equal(payload.requestedAction, "split_feature_specs");
+  assert.equal(payload.sourcePaths.includes("docs/PRD.md"), true);
+  assert.equal(payload.sourcePaths.includes("docs/requirements.md"), true);
+  assert.equal(payload.sourcePaths.includes("docs/hld.md"), true);
+  assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/requirements.md"), true);
+  assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/design.md"), true);
+  assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/tasks.md"), true);
+  assert.equal(result.queries.runs[0].feature_id, null);
+  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "task-slicing-skill");
 });
 
 test("spec intake workflow displays the actual discovered source instead of a default PRD path", () => {

@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FileText,
   GitBranch,
+  Layers,
   MessageSquare,
   Plus,
   RefreshCw,
@@ -55,6 +56,7 @@ const workflowStageIcons: Record<string, typeof Search> = {
   run_requirement_quality_check: CheckCircle2,
   feature_spec_pool: GitBranch,
   generate_hld: FileText,
+  generate_ui_spec: Layers,
   split_feature_specs: Workflow,
   status_scheduling: Workflow,
   status_check: ShieldCheck,
@@ -76,6 +78,7 @@ function workflowStageLabel(key: string, text: UiStrings): string {
     run_requirement_quality_check: text.runRequirementQualityCheck,
     feature_spec_pool: text.featureSpecPool,
     generate_hld: text.generateHld,
+    generate_ui_spec: text.generateUiSpec,
     split_feature_specs: text.splitFeatureSpecs,
     status_scheduling: text.scheduleRun,
     status_check: text.runStatusChecks,
@@ -101,7 +104,9 @@ function workflowPhaseTitle(key: WorkflowPhaseKey, text: UiStrings): string {
     ? text.projectInitialization
     : key === "requirement_intake"
       ? text.requirementIntake
-      : text.featurePlanning;
+      : key === "ui_spec"
+        ? text.uiSpecFlow
+        : text.featurePlanning;
 }
 
 function workflowStageAction(
@@ -121,16 +126,47 @@ function workflowStageAction(
             ? "initialize_project_memory"
             : undefined;
   }
+  if (phaseKey === "ui_spec") {
+    return stageKey === "generate_ui_spec" ? "generate_ui_spec" : undefined;
+  }
   if (phaseKey === "feature_planning") {
     return stageKey === "generate_hld"
       ? "generate_hld"
-      : stageKey === "split_feature_specs"
-        ? "split_feature_specs"
-        : stageKey === "status_scheduling" || stageKey === "status_check"
-          ? "schedule_run"
-          : undefined;
+      : stageKey === "generate_ui_spec"
+        ? "generate_ui_spec"
+        : stageKey === "split_feature_specs"
+          ? "split_feature_specs"
+          : stageKey === "status_scheduling" || stageKey === "status_check"
+            ? "schedule_run"
+            : undefined;
   }
   return undefined;
+}
+
+function mergeUiSpecIntoFeaturePlanning(phases: WorkflowPhase[]): WorkflowPhase[] {
+  const uiSpecPhase = phases.find((phase) => phase.key === "ui_spec");
+  const visiblePhases = phases.filter((phase) => phase.key !== "ui_spec");
+  if (!uiSpecPhase) return visiblePhases;
+
+  return visiblePhases.map((phase) => {
+    if (phase.key !== "feature_planning") return phase;
+    const uiSpecStages = uiSpecPhase.stages.filter(
+      (stage) => stage.key === "generate_ui_spec" && !phase.stages.some((existing) => existing.key === stage.key),
+    );
+    if (!uiSpecStages.length) return phase;
+    const hldIndex = phase.stages.findIndex((stage) => stage.key === "generate_hld");
+    const insertAt = hldIndex >= 0 ? hldIndex + 1 : 0;
+    return {
+      ...phase,
+      updatedAt: phase.updatedAt ?? uiSpecPhase.updatedAt,
+      facts: [...phase.facts, ...uiSpecPhase.facts.filter((fact) => fact.label === "Concept")],
+      stages: [
+        ...phase.stages.slice(0, insertAt),
+        ...uiSpecStages,
+        ...phase.stages.slice(insertAt),
+      ],
+    };
+  });
 }
 
 function SpecPrdWorkflowPanel({
@@ -152,6 +188,7 @@ function SpecPrdWorkflowPanel({
   const [uploadName, setUploadName] = useState(workflow?.sourceName ?? "");
   const [repositoryUrlInput, setRepositoryUrlInput] = useState("");
   const [expandedPhaseKey, setExpandedPhaseKey] = useState<WorkflowPhaseKey | null>(null);
+  const [uiSpecLightboxOpen, setUiSpecLightboxOpen] = useState(false);
 
   useEffect(() => {
     setUploadName(workflow?.sourceName ?? "");
@@ -170,7 +207,7 @@ function SpecPrdWorkflowPanel({
   const hasProjectDirectory = Boolean(currentProject.projectDirectory);
 
   const baseWorkflowPhases: WorkflowPhase[] = workflow?.phases?.length
-    ? workflow.phases
+    ? mergeUiSpecIntoFeaturePlanning(workflow.phases)
     : [
         {
           key: "project_initialization" as const,
@@ -228,6 +265,7 @@ function SpecPrdWorkflowPanel({
     ],
     stages: [
       { key: "generate_hld", action: "generate_hld", status: "pending" as const },
+      { key: "generate_ui_spec", action: "generate_ui_spec", status: "pending" as const },
       { key: "split_feature_specs", action: "split_feature_specs", status: "pending" as const },
       { key: "status_check", action: "schedule_run", status: "pending" as const },
     ],
@@ -257,7 +295,7 @@ function SpecPrdWorkflowPanel({
   ];
 
   function runWorkflowAction(action: CommandReceipt["action"], key: string, phaseKey: WorkflowPhaseKey) {
-    const entityType = phaseKey === "feature_planning" && selectedFeatureId ? "feature" : "project";
+    const entityType = phaseKey === "feature_planning" && selectedFeatureId && action !== "split_feature_specs" ? "feature" : "project";
     const entityId = entityType === "feature" && selectedFeatureId ? selectedFeatureId : currentProject.id;
     const schedulePayload =
       action === "schedule_run"
@@ -374,90 +412,215 @@ function SpecPrdWorkflowPanel({
                 </div>
               ))}
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2 max-xl:grid-cols-1">
-              {phase.stages.map((stage, index) => {
-                const Icon = workflowStageIcons[stage.key] ?? FileText;
-                const isBlocked = stage.status === "blocked";
-                const stageAction = workflowStageAction(phase.key, stage.key, stage.action);
-                const canRun =
-                  Boolean(stageAction) && (phase.key !== "feature_planning" || Boolean(selectedFeatureId));
-                const isCreateOrImport =
-                  phase.key === "project_initialization" && stage.key === "create_or_import_project";
-                const isSpecSourceIntake =
-                  phase.key === "requirement_intake" && stage.key === "spec_source_intake";
-                return (
-                  <div
-                    key={`${phase.key}-${stage.key}`}
-                    className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-white p-3"
-                  >
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">
-                      {index + 1}
-                    </div>
-                    <Icon size={17} className={isBlocked ? "text-red-600" : "text-action"} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold text-ink">
-                        {workflowStageLabel(stage.key, text)}
+            {/* TASK-026: Stage 1 shows auto-init status only — no manual sub-step buttons */}
+            {phase.key === "project_initialization" ? (
+              <div className="mt-4 grid grid-cols-3 gap-2 max-xl:grid-cols-2 max-md:grid-cols-1">
+                {phase.stages.map((stage, index) => {
+                  const Icon = workflowStageIcons[stage.key] ?? FileText;
+                  const isBlocked = stage.status === "blocked";
+                  const tone = isBlocked
+                    ? "red"
+                    : stage.status === "completed"
+                      ? "green"
+                      : stage.status === "accepted"
+                        ? "blue"
+                        : "amber";
+                  return (
+                    <div
+                      key={`${phase.key}-${stage.key}`}
+                      className="flex min-w-0 items-start gap-2 rounded-md border border-line bg-white p-3"
+                    >
+                      <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-muted">
+                        {index + 1}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <Chip
-                          tone={
-                            isBlocked
-                              ? "red"
-                              : stage.status === "completed"
-                                ? "green"
-                                : stage.status === "accepted"
-                                  ? "blue"
-                                  : "amber"
-                          }
-                        >
-                          {workflowStatusLabel(stage.status, text)}
-                        </Chip>
-                        <span className="text-[12px] text-muted">{stage.updatedAt ?? stage.blockedReason ?? "--"}</span>
-                      </div>
-                    </div>
-                    {isCreateOrImport ? (
-                      <CreateProjectDialog text={text} onCreate={onCreateProject} />
-                    ) : isSpecSourceIntake ? (
-                      <div className="flex shrink-0 items-center gap-2">
-                        <Button
-                          className="h-8"
-                          onClick={() => runWorkflowAction("scan_prd_source", "scan_prd", phase.key)}
-                        >
-                          <Search size={14} />
-                          {text.scanPrd}
-                        </Button>
-                        <Button className="h-8" onClick={() => inputRef.current?.click()}>
-                          <Upload size={14} />
-                          {text.uploadPrd}
-                        </Button>
-                      </div>
-                    ) : canRun ? (
-                      <div className="flex shrink-0 items-center gap-2">
-                        {stage.key === "connect_git_repository" && stage.status !== "completed" ? (
-                          <input
-                            className="h-8 w-56 rounded-md border border-line px-2 text-[12px]"
-                            value={repositoryUrlInput}
-                            onChange={(event) => setRepositoryUrlInput(event.target.value)}
-                            placeholder={text.repositoryUrlPlaceholder}
-                            aria-label={text.repositoryUrl}
-                          />
-                        ) : null}
-                        <Button
-                          className="h-8 shrink-0"
-                          onClick={() =>
-                            stage.key === "upload_prd"
-                              ? inputRef.current?.click()
-                              : runWorkflowAction(stageAction!, stage.key, phase.key)
-                          }
-                        >
+                      <Icon size={15} className={isBlocked ? "mt-0.5 shrink-0 text-red-600" : "mt-0.5 shrink-0 text-action"} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[12px] font-semibold text-ink">
                           {workflowStageLabel(stage.key, text)}
-                        </Button>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <Chip tone={tone}>{workflowStatusLabel(stage.status, text)}</Chip>
+                          <span className="text-[11px] text-muted">{stage.updatedAt ?? stage.blockedReason ?? "--"}</span>
+                        </div>
                       </div>
-                    ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-4 grid grid-cols-2 gap-2 max-xl:grid-cols-1">
+                {phase.stages.map((stage, index) => {
+                  const Icon = workflowStageIcons[stage.key] ?? FileText;
+                  const isBlocked = stage.status === "blocked";
+                  const stageAction = workflowStageAction(phase.key, stage.key, stage.action);
+                  const canRun =
+                    Boolean(stageAction) &&
+                    (phase.key !== "feature_planning" || Boolean(selectedFeatureId) || stageAction === "split_feature_specs");
+                  const isSpecSourceIntake =
+                    phase.key === "requirement_intake" && stage.key === "spec_source_intake";
+                  return (
+                    <div
+                      key={`${phase.key}-${stage.key}`}
+                      className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-white p-3"
+                    >
+                      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-action text-[12px] font-semibold text-white">
+                        {index + 1}
+                      </div>
+                      <Icon size={17} className={isBlocked ? "text-red-600" : "text-action"} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-semibold text-ink">
+                          {workflowStageLabel(stage.key, text)}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <Chip
+                            tone={
+                              isBlocked
+                                ? "red"
+                                : stage.status === "completed"
+                                  ? "green"
+                                  : stage.status === "accepted"
+                                    ? "blue"
+                                    : "amber"
+                            }
+                          >
+                            {workflowStatusLabel(stage.status, text)}
+                          </Chip>
+                          <span className="text-[12px] text-muted">{stage.updatedAt ?? stage.blockedReason ?? "--"}</span>
+                        </div>
+                      </div>
+                      {isSpecSourceIntake ? (
+                        <div className="flex shrink-0 items-center gap-2">
+                          <Button
+                            className="h-8"
+                            onClick={() => runWorkflowAction("scan_prd_source", "scan_prd", phase.key)}
+                          >
+                            <Search size={14} />
+                            {text.scanPrd}
+                          </Button>
+                          <Button className="h-8" onClick={() => inputRef.current?.click()}>
+                            <Upload size={14} />
+                            {text.uploadPrd}
+                          </Button>
+                        </div>
+                      ) : canRun ? (
+                        <div className="flex shrink-0 items-center gap-2">
+                          {stage.key === "connect_git_repository" && stage.status !== "completed" ? (
+                            <input
+                              className="h-8 w-56 rounded-md border border-line px-2 text-[12px]"
+                              value={repositoryUrlInput}
+                              onChange={(event) => setRepositoryUrlInput(event.target.value)}
+                              placeholder={text.repositoryUrlPlaceholder}
+                              aria-label={text.repositoryUrl}
+                            />
+                          ) : null}
+                          <Button
+                            className="h-8 shrink-0"
+                            onClick={() =>
+                              stage.key === "upload_prd"
+                                ? inputRef.current?.click()
+                                : runWorkflowAction(stageAction!, stage.key, phase.key)
+                            }
+                          >
+                            {workflowStageLabel(stage.key, text)}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* TASK-027: Stage 2 Spec Sources Discovery panel */}
+            {phase.key === "requirement_intake" && workflow?.specSources?.length ? (
+              <div className="mt-5">
+                <div className="mb-3 text-[14px] font-semibold text-ink">{text.specSourcesDiscovery}</div>
+                <div className="overflow-auto rounded-md border border-line">
+                  <table className="w-full border-collapse text-left text-[12px]">
+                    <thead className="border-b border-line bg-slate-50 text-[11px] font-medium text-muted">
+                      <tr>
+                        <th className="px-3 py-2">{text.requirementId}</th>
+                        <th className="px-3 py-2">{text.sourcePath}</th>
+                        <th className="px-3 py-2">{text.status}</th>
+                        <th className="px-3 py-2">{text.clarification}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {workflow.specSources.map((src) => {
+                        const statusToneMap = {
+                          found: "green",
+                          missing: "red",
+                          conflict: "amber",
+                          clarification: "blue",
+                        } as const;
+                        const statusLabelMap: Record<string, string> = {
+                          found: text.specSourceFound,
+                          missing: text.specSourceMissing,
+                          conflict: text.specSourceConflict,
+                          clarification: text.specSourceClarification,
+                        };
+                        const tone = statusToneMap[src.status as keyof typeof statusToneMap] ?? "neutral";
+                        return (
+                          <tr key={`src-${src.type}`} className="border-b border-line last:border-0">
+                            <td className="whitespace-nowrap px-3 py-2 font-semibold text-ink">{src.label}</td>
+                            <td className="max-w-[300px] truncate px-3 py-2 font-mono text-[11px] text-muted">
+                              {src.path ?? "--"}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2">
+                              <Chip tone={tone}>{statusLabelMap[src.status] ?? src.status}</Chip>
+                            </td>
+                            <td className="px-3 py-2 text-muted">{src.detail ?? "--"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+            {/* UI Spec concept image — shown after HLD in Stage 3 */}
+            {phase.key === "feature_planning" && phase.stages.some((stage) => stage.key === "generate_ui_spec") ? (
+              <div className="mt-5">
+                <div className="mb-3 text-[14px] font-semibold text-ink">{text.uiSpecConceptTitle}</div>
+                <p className="mb-3 text-[12px] text-muted">{text.uiSpecConceptDescription}</p>
+                <button
+                  type="button"
+                  className="block w-full overflow-hidden rounded-md border border-line bg-slate-50 transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-action/30"
+                  onClick={() => setUiSpecLightboxOpen(true)}
+                  aria-label={text.uiSpecConceptTitle}
+                >
+                  <img
+                    src="/spec-workspace-prd-flow-concept.png"
+                    alt={text.uiSpecConceptAlt}
+                    className="h-40 w-full object-cover object-top"
+                  />
+                </button>
+                {uiSpecLightboxOpen ? (
+                  <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+                    onClick={() => setUiSpecLightboxOpen(false)}
+                  >
+                    <div
+                      className="relative max-h-[90vh] max-w-[90vw]"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        className="absolute -right-3 -top-3 flex size-7 items-center justify-center rounded-full bg-white shadow"
+                        onClick={() => setUiSpecLightboxOpen(false)}
+                        aria-label="关闭"
+                      >
+                        <XCircle size={18} className="text-ink" />
+                      </button>
+                      <img
+                        src="/spec-workspace-prd-flow-concept.png"
+                        alt={text.uiSpecConceptAlt}
+                        className="max-h-[85vh] max-w-[85vw] rounded-md object-contain shadow-xl"
+                      />
+                    </div>
                   </div>
-                );
-              })}
-            </div>
+                ) : null}
+              </div>
+            ) : null}
           </section>
         );
       })}
@@ -835,7 +998,11 @@ export function SpecPage({
       <Panel>
         <SectionTitle title={text.featureSpec} />
         <div className="grid grid-cols-[280px_minmax(0,1fr)_320px] gap-4 p-4 max-xl:grid-cols-1">
-          <aside className="min-w-0 rounded-md border border-line bg-white">
+          <aside className="min-w-0 rounded-md border border-line bg-white" aria-label={text.featureSpecList}>
+            <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
+              <div className="min-w-0 text-[13px] font-semibold text-ink">{text.featureSpecList}</div>
+              <Chip tone="neutral">{text.itemsTotal(filteredFeatures.length)}</Chip>
+            </div>
             <div className="border-b border-line p-3">
               <label className="flex h-9 items-center gap-2 rounded-md border border-line bg-white px-3 text-[13px] text-muted">
                 <Search size={15} />

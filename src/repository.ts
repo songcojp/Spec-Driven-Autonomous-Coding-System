@@ -243,7 +243,11 @@ function readSensitiveFileRisks(localPath: string): string[] {
 
 function isControlPlaneArtifactStatus(line: string): boolean {
   const path = line.replace(/^[ MADRCU?!]{1,2}\s+/, "");
-  return path === ".autobuild" || path === ".autobuild/" || path.startsWith(".autobuild/");
+  if (path === ".autobuild" || path === ".autobuild/" || path.startsWith(".autobuild/")) return true;
+  if (line.startsWith("?? ") && (path === "AGENTS.md" || path === ".agents" || path === ".agents/" || path.startsWith(".agents/"))) {
+    return true;
+  }
+  return false;
 }
 
 function firstNonEmpty(value: string): string | undefined {

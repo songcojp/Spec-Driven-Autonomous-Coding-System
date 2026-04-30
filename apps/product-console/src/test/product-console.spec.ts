@@ -147,24 +147,18 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("heading", { name: "Spec 操作流程" })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /阶段 3 调度状态/ })).toBeVisible();
-  await expect(page.getByText(/当前 Spec 来源:/)).toBeVisible();
-  await expect(page.getByText(/阻塞项:/)).toBeVisible();
-  await expect(page.getByText("创建/导入项目")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /阶段 3 设计规划阶段/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /阶段 4 UI Spec/ })).toHaveCount(0);
   await page.getByRole("button", { name: /阶段 1 项目初始化/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "true");
+  // TASK-026: Stage 1 shows auto-init status items without manual action buttons
   await expect(page.getByText("创建/导入项目")).toBeVisible();
-  await expect(page.getByRole("button", { name: "创建项目" }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "连接 Git 仓库" })).toBeVisible();
-  await page.getByRole("button", { name: "连接 Git 仓库" }).click();
-  await expect(page.getByLabel("Notifications (F8)").getByText("connect_git_repository recorded")).toBeVisible();
   await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("button", { name: /阶段 3 调度状态/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /阶段 3 设计规划阶段/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("创建/导入项目")).toHaveCount(0);
-  await expect(page.getByText("推入 Feature Spec Pool")).toBeVisible();
+  await expect(page.getByText("推入 Feature Spec Pool")).toHaveCount(0);
   await expect(page.getByText("Spec 扫描与上传")).toBeVisible();
   await expect(page.getByRole("button", { name: "扫描", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "上传", exact: true })).toBeVisible();
@@ -172,17 +166,34 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("button", { name: "生成 HLD" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "拆分 Feature Spec" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "进入规划流水线" })).toHaveCount(0);
+  // TASK-027: Stage 2 shows Spec Sources Discovery table
+  await expect(page.getByText("Spec 来源盘点")).toBeVisible();
+  await expect(page.getByText("PRD").first()).toBeVisible();
+  await expect(page.getByText("EARS").first()).toBeVisible();
+  await expect(page.getByText("HLD").first()).toBeVisible();
   await expect(page.getByText("workspace/acme-returns-portal/docs/zh-CN/PRD.md").first()).toBeVisible();
-  await page.getByRole("button", { name: /阶段 3 调度状态/ }).click();
+  await page.getByRole("button", { name: /阶段 3 设计规划阶段/ }).click();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("生成 HLD").first()).toBeVisible();
+  await expect(page.getByText("生成 UI Spec").first()).toBeVisible();
   await expect(page.getByText("拆分 Feature Spec").first()).toBeVisible();
+  await expect(page.getByText("推入 Feature Spec Pool").first()).toBeVisible();
   await expect(page.getByText("调度运行").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 HLD" })).toBeVisible();
   await page.getByRole("button", { name: "生成 HLD" }).click();
   await expect(page.getByLabel("Notifications (F8)").getByText("generate_hld recorded")).toBeVisible();
+  // UI Spec is part of Stage 3 after HLD.
+  await expect(page.getByText("UI Spec 概念图")).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成 UI Spec" })).toBeVisible();
+  await page.getByRole("button", { name: "生成 UI Spec" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("generate_ui_spec recorded")).toBeVisible();
+  await expect(page.getByAltText(/Spec 工作台 UI 概念图/)).toBeVisible();
   await expect(page.getByText("Feature Spec", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Feature Spec List" })).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Feature Spec List" }).getByText("共 3 项")).toBeVisible();
   await expect(page.getByText("FEAT-204 Mobile Returns Portal")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Feature Spec List" }).getByText("FEAT-202")).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Feature Spec List" }).getByText("Customer Notification Timeline")).toBeVisible();
   await expect(page.getByText("需求列表")).toBeVisible();
   await expect(page.getByRole("cell", { name: "REQ-204-001" }).first()).toBeVisible();
   await expect(page.getByText("需求 - 任务可追溯性")).toBeVisible();
@@ -201,7 +212,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("当前分区暂无可用 Spec 数据。").first()).toBeVisible();
 
   await page.getByText("受控操作").click();
-  await page.getByRole("button", { name: /阶段 3 调度状态/ }).click();
+  await page.getByRole("button", { name: /阶段 3 设计规划阶段/ }).click();
   await page.locator("aside").filter({ hasText: "受控操作" }).getByRole("button", { name: "调度运行", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
@@ -308,7 +319,11 @@ async function installConsoleRoutes(page: Page) {
     },
     spec: {
       ...demoData.spec,
-      features: [{ id: "FEAT-007", title: "Workspace Isolation", folder: "feat-007-workspace-isolation", status: "done", primaryRequirements: ["REQ-017", "REQ-035"] }],
+      features: [
+        { id: "FEAT-007", title: "Workspace Isolation", folder: "feat-007-workspace-isolation", status: "done", primaryRequirements: ["REQ-017", "REQ-035"] },
+        { id: "FEAT-006", title: "Project Memory Projection", folder: "feat-006-project-memory-projection", status: "ready", primaryRequirements: ["REQ-016", "REQ-034"] },
+        { id: "FEAT-005", title: "Subagent Runtime Context", folder: "feat-005-subagent-runtime-context", status: "done", primaryRequirements: ["REQ-015"] },
+      ],
       selectedFeature: {
         ...demoData.spec.selectedFeature!,
         id: "FEAT-007",
@@ -376,6 +391,7 @@ async function installConsoleRoutes(page: Page) {
       "upload_prd_source",
       "generate_ears",
       "generate_hld",
+      "generate_ui_spec",
       "split_feature_specs",
     ]);
     const accepted = body.action === "create_project" || workflowActions.has(body.action);

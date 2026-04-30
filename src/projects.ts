@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, basename, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ensureArtifactDirectories } from "./artifacts.ts";
 import { initializeProjectMemory } from "./memory.ts";
 import { recordAuditEvent } from "./persistence.ts";
@@ -520,7 +521,37 @@ export function initializeProjectSpecProtocol(dbPath: string, projectId: string)
   }
   const artifactRoot = join(project.targetRepoPath, ".autobuild");
   ensureArtifactDirectories(artifactRoot);
+  ensureProjectAgentRuntime(project.targetRepoPath);
   return { artifactRoot };
+}
+
+function ensureProjectAgentRuntime(projectPath: string): void {
+  const agentsFile = join(projectPath, "AGENTS.md");
+  if (!existsSync(agentsFile)) {
+    writeFileSync(agentsFile, [
+      "# Agent Guidelines",
+      "",
+      "This project is managed by SpecDrive AutoBuild.",
+      "",
+      "- Treat PRD, EARS requirements, HLD, and docs/features as the source of truth.",
+      "- Feature Specs live under docs/features/<feature-id>/ and include requirements.md, design.md, and tasks.md.",
+      "- Do not treat .autobuild/specs/FEAT-INTAKE-*.json as Feature Spec packages; those files are intake artifacts.",
+      "- Preserve unrelated user changes and keep implementation traceable to requirements and Feature Specs.",
+      "",
+    ].join("\n"));
+  }
+
+  const sourceSkills = join(dirname(fileURLToPath(import.meta.url)), "..", ".agents", "skills");
+  const targetSkills = join(projectPath, ".agents", "skills");
+  mkdirSync(targetSkills, { recursive: true });
+  if (!existsSync(sourceSkills)) return;
+
+  for (const entry of readdirSync(sourceSkills, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const target = join(targetSkills, entry.name);
+    if (existsSync(target)) continue;
+    cpSync(join(sourceSkills, entry.name), target, { recursive: true });
+  }
 }
 
 export function initializeProjectMemoryForProject(dbPath: string, projectId: string) {

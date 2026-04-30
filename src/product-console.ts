@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
@@ -50,6 +50,7 @@ export type ConsoleCommandAction =
   | "upload_prd_source"
   | "generate_ears"
   | "generate_hld"
+  | "generate_ui_spec"
   | "split_feature_specs"
   | "pause_runner"
   | "resume_runner"
@@ -81,6 +82,7 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "upload_prd_source",
   "generate_ears",
   "generate_hld",
+  "generate_ui_spec",
   "split_feature_specs",
   "pause_runner",
   "resume_runner",
@@ -242,7 +244,7 @@ export type SpecWorkspaceViewModel = {
     runtime?: string;
     blockedReasons: string[];
     phases: Array<{
-      key: "project_initialization" | "requirement_intake" | "feature_planning";
+      key: "project_initialization" | "requirement_intake" | "feature_planning" | "ui_spec";
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       blockedReasons: string[];
@@ -280,6 +282,73 @@ export type SpecWorkspaceViewModel = {
   };
   commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
 };
+
+type SpecWorkspaceFeatureListItem = SpecWorkspaceViewModel["features"][number];
+
+function listFeatureSpecsFromDocs(
+  projectPath: string,
+  dbFeatures: SpecWorkspaceFeatureListItem[] = [],
+): SpecWorkspaceFeatureListItem[] {
+  const featuresDir = join(projectPath, "docs", "features");
+  if (!existsSync(featuresDir)) return [];
+
+  const dbById = new Map(dbFeatures.map((feature) => [feature.id, feature]));
+  return readdirSync(featuresDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^feat-\d+/i.test(entry.name))
+    .map((entry) => {
+      const folder = entry.name;
+      const id = featureIdFromFolder(folder);
+      const requirementsPath = join(featuresDir, folder, "requirements.md");
+      const requirementsContent = existsSync(requirementsPath) ? readFileSync(requirementsPath, "utf8") : "";
+      const dbFeature = dbById.get(id);
+      return {
+        id,
+        title: featureTitleFromRequirements(requirementsContent, id, folder) ?? dbFeature?.title ?? humanizeFeatureFolder(folder),
+        folder,
+        status: dbFeature?.status ?? featureStatusFromDocs(projectPath, folder),
+        primaryRequirements: dbFeature?.primaryRequirements?.length
+          ? dbFeature.primaryRequirements
+          : requirementIdsFromText(requirementsContent),
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id, undefined, { numeric: true }));
+}
+
+function featureIdFromFolder(folder: string): string {
+  const match = folder.match(/^feat-(\d+)/i);
+  return match ? `FEAT-${match[1]}` : folder.toUpperCase();
+}
+
+function featureTitleFromRequirements(content: string, id: string, folder: string): string | undefined {
+  const firstHeading = content.split(/\r?\n/).find((line) => line.trim().startsWith("#"));
+  if (!firstHeading) return undefined;
+  const title = firstHeading
+    .replace(/^#+\s*/, "")
+    .replace(/^Feature Spec:\s*/i, "")
+    .replace(new RegExp(`^${id}\\s*[-:]?\\s*`, "i"), "")
+    .trim();
+  return title || humanizeFeatureFolder(folder);
+}
+
+function humanizeFeatureFolder(folder: string): string {
+  return folder
+    .replace(/^feat-\d+-?/i, "")
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ") || folder;
+}
+
+function requirementIdsFromText(content: string): string[] {
+  return [...new Set(content.match(/\b(?:REQ|NFR|EDGE)-\d+(?:-\d+)?\b/g) ?? [])].slice(0, 8);
+}
+
+function featureStatusFromDocs(projectPath: string, folder: string): string {
+  const featureDir = join(projectPath, "docs", "features", folder);
+  if (existsSync(join(featureDir, "tasks.md"))) return "ready";
+  if (existsSync(join(featureDir, "design.md"))) return "planning";
+  return "draft";
+}
 
 export type RunnerConsoleViewModel = {
   summary: {
@@ -841,12 +910,13 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
 }
 
 export function buildSpecWorkspaceView(dbPath: string, featureId?: string, projectId?: string): SpecWorkspaceViewModel {
-  const featureFilter = projectId ? "WHERE project_id = ?" : "";
+  const eligibleFeatureWhere = "id NOT LIKE 'FEAT-INTAKE-%'";
+  const featureFilter = projectId ? `WHERE project_id = ? AND ${eligibleFeatureWhere}` : `WHERE ${eligibleFeatureWhere}`;
   const featureParams = projectId ? [projectId] : [];
   const featureOrder = "datetime(COALESCE(updated_at, created_at)) DESC, datetime(created_at) DESC, id DESC";
   const selectedFeatureSql = projectId
-    ? `(SELECT id FROM features WHERE project_id = ? ORDER BY ${featureOrder} LIMIT 1)`
-    : `(SELECT id FROM features ORDER BY ${featureOrder} LIMIT 1)`;
+    ? `(SELECT id FROM features WHERE project_id = ? AND ${eligibleFeatureWhere} ORDER BY ${featureOrder} LIMIT 1)`
+    : `(SELECT id FROM features WHERE ${eligibleFeatureWhere} ORDER BY ${featureOrder} LIMIT 1)`;
   const selectedFeatureExpr = `COALESCE(NULLIF(?, ''), ${selectedFeatureSql})`;
   const selectedFeatureParams = projectId ? [featureId ?? "", projectId] : [featureId ?? ""];
   const result = runSqlite(dbPath, [], [
@@ -909,6 +979,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
           'console_command_upload_prd_source',
           'console_command_generate_ears',
           'console_command_generate_hld',
+          'console_command_generate_ui_spec',
           'console_command_split_feature_specs',
           'console_command_schedule_run'
         )
@@ -922,13 +993,17 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       params: [projectId ?? "", featureId ?? "", featureId ?? ""],
     },
   ]);
-  const features = result.queries.features.map((row) => ({
+  const dbFeatures = result.queries.features.map((row) => ({
     id: String(row.id),
     title: String(row.title),
     folder: optionalString(row.folder),
     status: String(row.status),
     primaryRequirements: parseJsonArray(row.primary_requirements_json),
   }));
+  const projectPath = optionalString(result.queries.repositoryConnections[0]?.local_path)
+    ?? optionalString(result.queries.projects[0]?.target_repo_path);
+  const docsFeatures = projectPath ? listFeatureSpecsFromDocs(projectPath, dbFeatures) : [];
+  const features = docsFeatures.length > 0 ? docsFeatures : dbFeatures;
   const selectedFeatureId = featureId && features.some((entry) => entry.id === featureId)
     ? featureId
     : features[0]?.id;
@@ -1159,10 +1234,6 @@ function buildPrdWorkflow(input: {
       key: "run_requirement_quality_check",
       status: input.selectedRequirementCount > 0 ? "completed" as const : "pending" as const,
     },
-    {
-      key: "feature_spec_pool",
-      status: input.features.some((feature) => feature.status === "ready") ? "completed" as const : input.features.length > 0 ? "accepted" as const : "pending" as const,
-    },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
   const projectPhaseStatus = projectStageBlockedReasons.length > 0 || projectStages.some((stage) => stage.status === "blocked")
     ? "blocked"
@@ -1183,6 +1254,12 @@ function buildPrdWorkflow(input: {
       updatedAt: optionalString(latestByAction.get("generate_hld")?.created_at),
     },
     {
+      key: "generate_ui_spec",
+      action: "generate_ui_spec",
+      status: latestByAction.has("generate_ui_spec") ? "accepted" as const : "pending" as const,
+      updatedAt: optionalString(latestByAction.get("generate_ui_spec")?.created_at),
+    },
+    {
       key: "split_feature_specs",
       action: "split_feature_specs",
       status: latestByAction.has("split_feature_specs") ? "accepted" as const : "pending" as const,
@@ -1192,6 +1269,10 @@ function buildPrdWorkflow(input: {
       key: "status_check",
       action: "schedule_run",
       status: "pending" as const,
+    },
+    {
+      key: "feature_spec_pool",
+      status: input.features.some((feature) => feature.status === "ready") ? "completed" as const : input.features.length > 0 ? "accepted" as const : "pending" as const,
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
   const planningBlockedReasons = intakePhaseStatus === "blocked"
@@ -1247,6 +1328,7 @@ function buildPrdWorkflow(input: {
           { label: "Feature", value: input.selectedFeatureId ?? "Not selected" },
           { label: "Status", value: input.selectedFeatureStatus ?? "unknown" },
           { label: "Command", value: "schedule_run" },
+          { label: "Concept", value: "docs/ui/spec-workspace-prd-flow-concept.png" },
         ],
         stages: planningActionStages,
       },
@@ -2081,6 +2163,7 @@ function executeSpecSkillCommand(
   const runId = randomUUID();
   const skillSlug = skillSlugForSpecAction(input.action);
   const sourcePaths = sourcePathsForSpecAction(input.action, payload, featureId);
+  const imagePaths = imagePathsForSpecAction(input.action, payload);
   const expectedArtifacts = expectedArtifactsForSpecAction(input.action, featureId);
   runSqlite(dbPath, [
     {
@@ -2109,6 +2192,7 @@ function executeSpecSkillCommand(
     skillSlug,
     requestedAction: input.action,
     sourcePaths,
+    imagePaths,
     expectedArtifacts,
     traceability: {
       requirementIds: optionalStringArray(payload.requirementIds),
@@ -2121,6 +2205,7 @@ function executeSpecSkillCommand(
 function skillSlugForSpecAction(action: ConsoleCommandAction): string {
   if (action === "generate_ears") return "requirement-intake-skill";
   if (action === "generate_hld") return "architecture-plan-skill";
+  if (action === "generate_ui_spec") return "ui-spec-skill";
   return "task-slicing-skill";
 }
 
@@ -2130,6 +2215,28 @@ function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<
   if (action === "generate_ears") {
     return [optionalString(payload.sourcePath) ?? "docs/zh-CN/PRD.md"];
   }
+  if (action === "split_feature_specs") {
+    return [
+      "docs/PRD.md",
+      "docs/zh-CN/PRD.md",
+      "docs/en/PRD.md",
+      "docs/requirements.md",
+      "docs/zh-CN/requirements.md",
+      "docs/en/requirements.md",
+      "docs/hld.md",
+      "docs/zh-CN/hld.md",
+      "docs/en/hld.md",
+      "docs/features/README.md",
+    ];
+  }
+  if (action === "generate_ui_spec") {
+    return [
+      "docs/zh-CN/PRD.md",
+      "docs/zh-CN/hld.md",
+      "docs/features/README.md",
+      ...(featureId ? [`docs/features/${featureId}/requirements.md`] : []),
+    ];
+  }
   return [
     "docs/zh-CN/PRD.md",
     "docs/zh-CN/requirements.md",
@@ -2138,12 +2245,32 @@ function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<
   ];
 }
 
+function imagePathsForSpecAction(action: ConsoleCommandAction, payload: Record<string, unknown>): string[] | undefined {
+  const requested = optionalStringArray(payload.imagePaths);
+  if (requested.length > 0) return requested;
+  if (action === "generate_ui_spec") {
+    return ["docs/ui/spec-workspace-prd-flow-concept.png"];
+  }
+  return undefined;
+}
+
 function expectedArtifactsForSpecAction(action: ConsoleCommandAction, featureId?: string): string[] {
   if (action === "generate_ears") {
     return ["docs/zh-CN/requirements.md", "docs/features/"];
   }
+  if (action === "split_feature_specs") {
+    return [
+      "docs/features/README.md",
+      "docs/features/<feature-id>/requirements.md",
+      "docs/features/<feature-id>/design.md",
+      "docs/features/<feature-id>/tasks.md",
+    ];
+  }
   if (action === "generate_hld") {
     return featureId ? [`docs/features/${featureId}/design.md`] : ["docs/zh-CN/design.md"];
+  }
+  if (action === "generate_ui_spec") {
+    return featureId ? [`docs/features/${featureId}/ui-spec.md`] : ["docs/ui/ui-spec.md"];
   }
   return featureId ? [`docs/features/${featureId}/tasks.md`] : ["docs/features/README.md"];
 }
