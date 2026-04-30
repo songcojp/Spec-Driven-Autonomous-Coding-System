@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize as normalizeFilePath } from "node:path";
 import { ORDINARY_LOG_SECRET_PATTERNS } from "./persistence.ts";
 import {
   buildFailureFingerprint,
@@ -471,9 +471,9 @@ export function buildRunnerPolicyFromContract(input: {
 
 export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
   const reasons: string[] = [];
-  const directWriteDocsSkill = isTrustedDocsDirectWriteInvocation(input.skillInvocation);
-  if (input.policy.sandboxMode === "danger-full-access" && !directWriteDocsSkill) {
-    reasons.push("danger-full-access sandbox is not allowed for automatic runner execution");
+  const directWrite = isTrustedDirectWriteInvocation(input.skillInvocation, input.files);
+  if (input.policy.sandboxMode === "danger-full-access" && !directWrite) {
+    reasons.push("danger-full-access sandbox requires a trusted project skill with bounded write scope");
   }
   if (input.policy.approvalPolicy === "bypass") {
     reasons.push("approval bypass is not allowed for automatic runner execution");
@@ -515,11 +515,20 @@ export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
 }
 
 export function isTrustedDocsDirectWriteInvocation(invocation?: SkillInvocationContract): boolean {
+  return isTrustedDirectWriteInvocation(invocation);
+}
+
+export function isTrustedDirectWriteInvocation(invocation?: SkillInvocationContract, allowedFiles: string[] = []): boolean {
   if (!invocation) return false;
-  return invocation.skillSlug === "pr-ears-requirement-decomposition-skill"
-    && invocation.requestedAction === "generate_ears"
-    && invocation.expectedArtifacts.length > 0
-    && invocation.expectedArtifacts.every((artifact) => artifact.startsWith("docs/") && artifact.endsWith(".md") && !artifact.includes("..") && !artifact.startsWith("/"));
+  if (!isSafeSkillSlug(invocation.skillSlug)) return false;
+
+  const safeAllowedFiles = allowedFiles.filter(isSafeWorkspaceWritePath);
+  if (invocation.skillSlug === "codex-coding-skill") {
+    return safeAllowedFiles.length > 0 && safeAllowedFiles.length === allowedFiles.length;
+  }
+
+  const safeArtifacts = invocation.expectedArtifacts.filter(isSafeExpectedArtifactPath);
+  return safeArtifacts.length > 0 && safeArtifacts.length === invocation.expectedArtifacts.length;
 }
 
 function stripWorkspaceContextBundle(prompt: string): string {
@@ -1920,6 +1929,27 @@ function clampCommandTimeout(value: number): number {
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function isSafeSkillSlug(value: string): boolean {
+  return /^[a-z0-9][a-z0-9-]*$/.test(value);
+}
+
+function isSafeWorkspaceWritePath(value: string): boolean {
+  const normalized = normalizePath(normalizeFilePath(value.trim()));
+  return normalized.length > 0 &&
+    normalized !== "." &&
+    normalized !== ".." &&
+    !normalized.startsWith("/") &&
+    !normalized.startsWith("../") &&
+    !normalized.includes("/../") &&
+    !FORBIDDEN_FILE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function isSafeExpectedArtifactPath(value: string): boolean {
+  const normalized = normalizePath(value.trim());
+  return isSafeWorkspaceWritePath(normalized) &&
+    (normalized.startsWith("docs/") || normalized.startsWith(".autobuild/evidence/"));
 }
 
 function runCommand(

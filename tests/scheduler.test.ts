@@ -159,6 +159,7 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
     { name: "sessions", sql: "SELECT session_id, exit_code FROM codex_session_records WHERE run_id = 'RUN-CLI'" },
     { name: "logs", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-CLI'" },
     { name: "evidence", sql: "SELECT kind, summary, metadata_json FROM evidence_packs WHERE run_id = 'RUN-CLI-SPY'" },
+    { name: "policy", sql: "SELECT sandbox_mode FROM runner_policies WHERE run_id = 'RUN-CLI-SPY'" },
   ]).queries;
 
   assert.equal(result.status, "completed");
@@ -171,6 +172,8 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   assert.match(calls[0].args.join("\n"), /# Test workspace/);
   assert.match(calls[0].args.join("\n"), /### \.agents\/skills\/codex-coding-skill\/SKILL.md/);
   assert.match(calls[0].args.join("\n"), /# Codex coding skill/);
+  assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
+  assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
   assert.equal(rows.runs[0].status, "completed");
   assert.equal(rows.task[0].status, "checking");
   assert.deepEqual(rows.sessions.map((row) => [row.session_id, row.exit_code]), [["SESSION-CLI", 0]]);
@@ -179,7 +182,7 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   assert.equal(JSON.parse(String(rows.evidence[0].metadata_json)).skillInvocation.skillSlug, "codex-coding-skill");
 });
 
-test("cli.run uses danger-full-access only for trusted docs direct-write EARS runs", async () => {
+test("cli.run uses danger-full-access for trusted direct-write runs with bounded scope", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
   prepareSkillWorkspace(root);
   mkdirSync(join(root, ".agents", "skills", "pr-ears-requirement-decomposition-skill"), { recursive: true });
@@ -217,6 +220,37 @@ test("cli.run uses danger-full-access only for trusted docs direct-write EARS ru
   assert.equal(result.status, "completed");
   assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
   assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
+});
+
+test("cli.run keeps coding skills sandboxed when allowed file scope is missing", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  runSqlite(dbPath, [
+    { sql: "UPDATE task_graph_tasks SET allowed_files_json = '[]' WHERE id = 'TASK-CLI'" },
+  ]);
+  const calls: Array<{ args: string[] }> = [];
+
+  const result = await runCliRunJob(
+    dbPath,
+    { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-CODING-UNBOUNDED" },
+    (_command, args) => {
+      calls.push({ args });
+      return {
+        status: 0,
+        stdout: '{"type":"session","session_id":"SESSION-CODING"}\n{"type":"result","status":"completed"}',
+        stderr: "",
+      };
+    },
+  );
+  const rows = runSqlite(dbPath, [], [
+    { name: "policy", sql: "SELECT sandbox_mode FROM runner_policies WHERE run_id = 'RUN-CODING-UNBOUNDED'" },
+  ]).queries;
+
+  assert.equal(result.status, "completed");
+  assert.equal(rows.policy[0].sandbox_mode, "workspace-write");
+  assert.match(calls[0].args.join("\n"), /--sandbox\nworkspace-write/);
 });
 
 test("cli.run blocks when target project workspace is missing or lacks workspace skills", async () => {

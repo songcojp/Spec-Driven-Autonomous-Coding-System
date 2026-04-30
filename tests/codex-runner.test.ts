@@ -233,6 +233,55 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   assert.equal(docsDirectWrite.allowed, true);
   assert.equal(docsDirectWrite.reviewNeeded, false);
 
+  const codingDirectWrite = evaluateRunnerSafety({
+    policy: docsDirectWritePolicy,
+    prompt: "Implement the bounded task.",
+    files: ["src/index.ts", "tests/index.test.ts"],
+    skillInvocation: {
+      projectId: "project-1",
+      workspaceRoot: "/workspace/project",
+      skillSlug: "codex-coding-skill",
+      sourcePaths: ["docs/features/FEAT-001/tasks.md"],
+      expectedArtifacts: [".autobuild/evidence/codex-runner.json"],
+      traceability: { requirementIds: ["REQ-001"], changeIds: ["CHG-016"] },
+      requestedAction: "task_execution",
+    },
+  });
+  assert.equal(codingDirectWrite.allowed, true);
+  assert.equal(codingDirectWrite.reviewNeeded, false);
+
+  const unboundedCodingDirectWrite = evaluateRunnerSafety({
+    policy: docsDirectWritePolicy,
+    prompt: "Implement the task without file scope.",
+    skillInvocation: {
+      projectId: "project-1",
+      workspaceRoot: "/workspace/project",
+      skillSlug: "codex-coding-skill",
+      sourcePaths: ["docs/features/FEAT-001/tasks.md"],
+      expectedArtifacts: [".autobuild/evidence/codex-runner.json"],
+      traceability: { requirementIds: ["REQ-001"], changeIds: ["CHG-016"] },
+      requestedAction: "task_execution",
+    },
+  });
+  assert.equal(unboundedCodingDirectWrite.allowed, false);
+  assert.equal(unboundedCodingDirectWrite.reasons.some((reason) => reason.includes("bounded write scope")), true);
+
+  const unsafeArtifactDirectWrite = evaluateRunnerSafety({
+    policy: docsDirectWritePolicy,
+    prompt: "Generate a risky artifact.",
+    skillInvocation: {
+      projectId: "project-1",
+      workspaceRoot: "/workspace/project",
+      skillSlug: "technical-context-skill",
+      sourcePaths: ["docs/PRD.md"],
+      expectedArtifacts: ["../outside.md"],
+      traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+      requestedAction: "feature_planning",
+    },
+  });
+  assert.equal(unsafeArtifactDirectWrite.allowed, false);
+  assert.equal(unsafeArtifactDirectWrite.reasons.some((reason) => reason.includes("bounded write scope")), true);
+
   const unscopedDanger = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Run a normal task.",
