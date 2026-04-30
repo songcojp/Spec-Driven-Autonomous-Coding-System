@@ -25,8 +25,9 @@ This is the design-named PRD-to-EARS conversion entry point.
 6. Keep each requirement atomic, observable, testable, and free of implementation choices unless the source states a hard constraint.
 7. Add traceability back to PRD sections or source bullets when possible.
 8. Surface gaps as open questions instead of inventing product intent.
-9. Write only the EARS requirements output to the requested file. If the user does not specify a target, create or update `requirements.md` near the PRD or inside the relevant feature spec folder.
+9. Write only the EARS requirements output directly to the requested file using normal file-edit/write tools. If the user does not specify a target, create or update `requirements.md` near the PRD or inside the relevant feature spec folder.
 10. Do not split product scope into Feature Specs, create `docs/features/<feature-id>/` packages, update `docs/features/README.md`, or push anything into the Feature Spec Pool. Feature splitting belongs to `task-slicing-skill`.
+11. Treat `ARTIFACT: <relative-path>` evidence as a last-resort fallback only when direct file writes fail; do not use ARTIFACT evidence as the normal output path.
 
 ## EARS Patterns
 
@@ -62,6 +63,7 @@ THE SYSTEM SHALL [safe handling, error message, rollback, retry, or blocked acti
 
 - Every requirement has exactly one primary behavior.
 - Every requirement can become a test case without interpretation.
+- Defined `US-*`, `REQ-*`, `NFR-*`, and `EDGE-*` IDs are unique and monotonically increasing within their section; update traceability references if an ID changes.
 - Error, empty, permission, duplicate, timeout, and recovery paths are covered when relevant.
 - Design, data model, framework, database, and algorithm choices stay out of requirements unless explicitly required by the source.
 - Ambiguity is captured in `Open Questions` with the smallest useful question.

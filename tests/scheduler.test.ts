@@ -179,6 +179,46 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   assert.equal(JSON.parse(String(rows.evidence[0].metadata_json)).skillInvocation.skillSlug, "codex-coding-skill");
 });
 
+test("cli.run uses danger-full-access only for trusted docs direct-write EARS runs", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
+  prepareSkillWorkspace(root);
+  mkdirSync(join(root, ".agents", "skills", "pr-ears-requirement-decomposition-skill"), { recursive: true });
+  writeFileSync(join(root, ".agents", "skills", "pr-ears-requirement-decomposition-skill", "SKILL.md"), "# PR EARS skill\n");
+  mkdirSync(join(root, "docs"), { recursive: true });
+  writeFileSync(join(root, "docs", "PRD.md"), "# PRD\n");
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const calls: Array<{ args: string[] }> = [];
+
+  const result = await runCliRunJob(
+    dbPath,
+    {
+      projectId: "project-1",
+      runId: "RUN-EARS-DIRECT",
+      skillSlug: "pr-ears-requirement-decomposition-skill",
+      requestedAction: "generate_ears",
+      sourcePaths: ["docs/PRD.md"],
+      expectedArtifacts: ["docs/requirements.md"],
+    },
+    (_command, args) => {
+      calls.push({ args });
+      writeFileSync(join(root, "docs", "requirements.md"), "# Requirements\n");
+      return {
+        status: 0,
+        stdout: '{"type":"session","session_id":"SESSION-EARS"}\n{"type":"result","status":"completed"}',
+        stderr: "",
+      };
+    },
+  );
+  const rows = runSqlite(dbPath, [], [
+    { name: "policy", sql: "SELECT sandbox_mode FROM runner_policies WHERE run_id = 'RUN-EARS-DIRECT'" },
+  ]).queries;
+
+  assert.equal(result.status, "completed");
+  assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
+  assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
+});
+
 test("cli.run blocks when target project workspace is missing or lacks workspace skills", async () => {
   const dbPath = makeDbPath();
   runSqlite(dbPath, [

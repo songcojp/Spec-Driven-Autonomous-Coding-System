@@ -21,6 +21,7 @@ import {
   buildEvidencePackInput,
   buildSkillInvocationPrompt,
   DEFAULT_CLI_ADAPTER_CONFIG,
+  isTrustedDocsDirectWriteInvocation,
   normalizeCliAdapterConfig,
   persistCodexRunnerArtifacts,
   processRunnerQueueItem,
@@ -443,7 +444,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     model: loaded.adapter.defaults.model,
     reasoningEffort: loaded.adapter.defaults.reasoningEffort,
     profile: loaded.adapter.defaults.profile,
-    requestedSandboxMode: loaded.adapter.defaults.sandbox,
+    requestedSandboxMode: isTrustedDocsDirectWriteInvocation(loaded.skillInvocation) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
     requestedApprovalPolicy: loaded.adapter.defaults.approval,
     now,
   });

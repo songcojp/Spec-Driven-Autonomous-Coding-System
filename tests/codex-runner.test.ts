@@ -209,6 +209,36 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   assert.equal(dangerousPrompt.allowed, false);
   assert.equal(dangerousPrompt.reviewNeeded, true);
   assert.equal(dangerousPrompt.reasons.some((reason) => reason.includes("dangerous command")), true);
+
+  const docsDirectWritePolicy = resolveRunnerPolicy({
+    runId: "RUN-DOCS-DIRECT",
+    risk: "low",
+    workspaceRoot: "/workspace/project",
+    requestedSandboxMode: "danger-full-access",
+    now: stableDate,
+  });
+  const docsDirectWrite = evaluateRunnerSafety({
+    policy: docsDirectWritePolicy,
+    prompt: "Generate EARS requirements.",
+    skillInvocation: {
+      projectId: "project-1",
+      workspaceRoot: "/workspace/project",
+      skillSlug: "pr-ears-requirement-decomposition-skill",
+      sourcePaths: ["docs/PRD.md"],
+      expectedArtifacts: ["docs/requirements.md"],
+      traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+      requestedAction: "generate_ears",
+    },
+  });
+  assert.equal(docsDirectWrite.allowed, true);
+  assert.equal(docsDirectWrite.reviewNeeded, false);
+
+  const unscopedDanger = evaluateRunnerSafety({
+    policy: docsDirectWritePolicy,
+    prompt: "Run a normal task.",
+  });
+  assert.equal(unscopedDanger.allowed, false);
+  assert.equal(unscopedDanger.reasons.some((reason) => reason.includes("danger-full-access")), true);
 });
 
 test("safety gate ignores high-risk words inside bundled source context", () => {
@@ -248,10 +278,10 @@ test("skill invocation prompt asks child CLI to return docs artifacts as evidenc
     "Context",
   );
 
-  assert.match(prompt, /do not use file write tools/);
+  assert.match(prompt, /Prefer writing expected artifacts directly/);
   assert.match(prompt, /ARTIFACT: <relative-path>/);
-  assert.match(prompt, /parent scheduler will materialize/);
-  assert.match(prompt, /IDs in the artifact must be unique/);
+  assert.doesNotMatch(prompt, /do not use file write tools/);
+  assert.doesNotMatch(prompt, /parent scheduler will materialize/);
 });
 
 test("Codex CLI adapter captures JSON events, session id, output, and redacts logs", async () => {

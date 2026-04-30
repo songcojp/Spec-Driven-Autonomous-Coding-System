@@ -177,6 +177,7 @@ export type SafetyGateInput = {
   files?: string[];
   commands?: string[];
   taskText?: string;
+  skillInvocation?: SkillInvocationContract;
 };
 
 export type SafetyGateResult = {
@@ -470,7 +471,8 @@ export function buildRunnerPolicyFromContract(input: {
 
 export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
   const reasons: string[] = [];
-  if (input.policy.sandboxMode === "danger-full-access") {
+  const directWriteDocsSkill = isTrustedDocsDirectWriteInvocation(input.skillInvocation);
+  if (input.policy.sandboxMode === "danger-full-access" && !directWriteDocsSkill) {
     reasons.push("danger-full-access sandbox is not allowed for automatic runner execution");
   }
   if (input.policy.approvalPolicy === "bypass") {
@@ -510,6 +512,14 @@ export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
     reasons,
     evidence: reviewNeeded ? `Runner safety gate blocked execution: ${reasons.join("; ")}.` : "Runner safety gate passed.",
   };
+}
+
+export function isTrustedDocsDirectWriteInvocation(invocation?: SkillInvocationContract): boolean {
+  if (!invocation) return false;
+  return invocation.skillSlug === "pr-ears-requirement-decomposition-skill"
+    && invocation.requestedAction === "generate_ears"
+    && invocation.expectedArtifacts.length > 0
+    && invocation.expectedArtifacts.every((artifact) => artifact.startsWith("docs/") && artifact.endsWith(".md") && !artifact.includes("..") && !artifact.startsWith("/"));
 }
 
 function stripWorkspaceContextBundle(prompt: string): string {
@@ -679,16 +689,6 @@ export function validateWorkspaceRoot(workspaceRoot: string | undefined): Worksp
 }
 
 export function buildSkillInvocationPrompt(contract: SkillInvocationContract, context: string): string {
-  const expectedDocsArtifacts = contract.expectedArtifacts.filter(isMaterializedSpecArtifact);
-  const artifactEvidenceRules = expectedDocsArtifacts.length > 0
-    ? [
-        "- For expected docs artifacts, do not use file write tools in the child CLI session.",
-        "- Return each complete expected docs artifact as one evidence string using exactly: ARTIFACT: <relative-path> followed by a markdown fenced block containing the full file content.",
-        "- The parent scheduler will materialize those ARTIFACT evidence strings into workspace files after the CLI exits.",
-        "- Defined US, REQ, NFR, and EDGE IDs in the artifact must be unique and monotonically increasing; do not reuse an ID in definitions.",
-        "- If an ID changes during generation, update traceability references to match the final defined ID.",
-      ]
-    : [];
   const taskSlicingRules = contract.skillSlug === "task-slicing-skill"
     ? [
         "- For split_feature_specs, decompose PRD, EARS requirements, and HLD into implementation-ready Feature Spec package directories.",
@@ -707,8 +707,8 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- Treat AGENTS.md and the referenced source paths as governing context.",
     "- If the prompt includes a Workspace Context Bundle, use it as already-read workspace evidence; do not block solely because shell-based file reads fail.",
     "- Produce the expected artifacts and include traceability in the final evidence.",
+    "- Prefer writing expected artifacts directly to the workspace paths named in the contract.",
     "- If direct file writes fail, return each complete artifact as one evidence string using exactly: ARTIFACT: <relative-path> followed by a markdown fenced block containing the full file content.",
-    ...artifactEvidenceRules,
     "- Do not assume a platform Skill Registry or Skill Center exists.",
     ...taskSlicingRules,
     "",
