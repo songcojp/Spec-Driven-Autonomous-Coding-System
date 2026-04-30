@@ -8,10 +8,10 @@
 - [x] TASK-006: 实现 Safety Gate Adapter，阻止高风险文件、危险命令、敏感配置和权限提升。
 - [x] TASK-007: 实现 Runner 心跳，每 10 至 30 秒更新状态。
 - [x] TASK-008: 添加 Runner Policy、安全阻断、心跳和输出采集测试。
-- [ ] TASK-009: 将 Codex CLI 调用升级为 Runner CLI Adapter，定义 `CliAdapterConfig` JSON schema、默认 `codex-cli` 配置和 active/draft/invalid 状态。
-- [ ] TASK-010: 实现 CLI Adapter 配置校验和 dry-run，覆盖命令模板变量、必填字段、workspace root、安全策略、output mapping 和 session resume 映射。
-- [ ] TASK-011: 将 Runner Queue Worker 接入 active CLI Adapter，确保无 active adapter 或配置无效时新 Run blocked，且不影响 running Run。
-- [ ] TASK-012: 添加 CLI Adapter 配置、dry-run、active 配置回退、Codex 等价命令生成和无效配置阻塞测试。
+- [x] TASK-009: 将 Codex CLI 调用升级为 Runner CLI Adapter，定义 `CliAdapterConfig` JSON schema、默认 `codex-cli` 配置和 active/draft/invalid 状态。
+- [x] TASK-010: 实现 CLI Adapter 配置校验和 dry-run，覆盖命令模板变量、必填字段、workspace root、安全策略、output mapping 和 session resume 映射。
+- [x] TASK-011: 将 Runner Queue Worker 接入 active CLI Adapter，确保无 active adapter 或配置无效时新 Run blocked，且不影响 running Run。
+- [x] TASK-012: 添加 CLI Adapter 配置、dry-run、active 配置回退、Codex 等价命令生成和无效配置阻塞测试。
 - [x] TASK-013: 将 Runner Queue Worker 接入 BullMQ `specdrive:cli-runner` / `cli.run`，由 Worker 调用现有 Codex runner 并持久化 heartbeat、session、raw log、Evidence 和 task/run 状态。
 - [x] TASK-014: 实现 workspace-aware Codex 调用，确保 Runner 从当前项目 repository `local_path` / `target_repo_path` 解析 workspace root，并在路径缺失、不可读或缺少所需 Skill 文件时 blocked。
 - [x] TASK-015: 实现 CLI skill invocation prompt builder，支持 Stage 2 需求录入、Stage 3 planning pipeline 和 `codex-coding-skill` 任务运行的 `skillSlug`、`sourcePaths`、`expectedArtifacts` 与 traceability。

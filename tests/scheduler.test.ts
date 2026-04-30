@@ -192,6 +192,49 @@ test("cli.run blocks when target project workspace is missing or lacks workspace
   assert.match(String(rows[0].summary), /workspace root is missing or unreadable/);
 });
 
+test("cli.run blocks when CLI adapters exist in DB but none is active", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  // Insert a disabled adapter so the table is non-empty with no active row
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO cli_adapter_configs (id, display_name, schema_version, executable, argument_template_json,
+          resume_argument_template_json, config_schema_json, form_schema_json, defaults_json,
+          environment_allowlist_json, output_mapping_json, status, updated_at)
+        VALUES ('adapter-disabled', 'Disabled Adapter', 1, 'codex', '[]', '[]', '{}', '{}', '{}', '[]', '{}', 'disabled', CURRENT_TIMESTAMP)`,
+    },
+  ]);
+
+  const result = await runCliRunJob(dbPath, { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-NO-ADAPTER" }, () => {
+    throw new Error("runner should not be called");
+  });
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status, summary FROM runs WHERE id = 'RUN-NO-ADAPTER'" },
+  ]).queries.run;
+
+  assert.equal(result.status, "blocked");
+  assert.equal(rows[0].status, "blocked");
+  assert.match(String(rows[0].summary), /No active CLI adapter/);
+});
+
+test("cli.run uses default built-in adapter when cli_adapter_configs table is empty", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  // Table is empty (no adapters configured) — should fall back to DEFAULT and succeed
+
+  const result = await runCliRunJob(dbPath, { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-DEFAULT-ADAPTER" }, () => ({
+    status: 0,
+    stdout: '{"type":"session","session_id":"SESSION-DEFAULT"}\n{"type":"result","message":"done"}',
+    stderr: "",
+  }));
+
+  assert.equal(result.status, "completed");
+});
+
 function makeDbPath(): string {
   const root = mkdtempSync(join(tmpdir(), "specdrive-scheduler-"));
   const dbPath = join(root, ".autobuild", "autobuild.db");

@@ -690,6 +690,7 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
       params: [payload.featureId ?? ""],
     },
     { name: "adapter", sql: "SELECT * FROM cli_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM cli_adapter_configs" },
   ]);
   const row = result.queries.graphTask[0] ?? result.queries.task[0];
   const featureRow = result.queries.feature[0];
@@ -705,7 +706,12 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
   if (!workspace.valid || !workspace.workspaceRoot) {
     throw new Error(workspace.blockedReasons.join("; "));
   }
-  const adapter = adapterFromRow(result.queries.adapter[0]);
+  const adapterRow = result.queries.adapter[0];
+  const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
+  if (!adapterRow && adapterCount > 0) {
+    throw new Error("No active CLI adapter configured. Activate an adapter in System Settings before starting new runs.");
+  }
+  const adapter = adapterFromRow(adapterRow);
   const featureId = payload.featureId ?? optionalString(row?.feature_id) ?? optionalString(featureRow?.id);
   const title = optionalString(row?.title) ?? optionalString(featureRow?.title) ?? `Project ${projectId}`;
   const description = optionalString(row?.description) ?? title;

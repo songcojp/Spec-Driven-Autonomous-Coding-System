@@ -1,4 +1,4 @@
-import { CheckCircle2, FileText, Play, Settings } from "lucide-react";
+import { CheckCircle2, FileText, Play, Settings, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { UiStrings } from "../lib/i18n";
 import type { CommandReceipt, ConsoleData } from "../types";
@@ -131,6 +131,15 @@ export function SettingsPage({
                   <Play size={14} />
                   {text.activateConfig}
                 </Button>
+                {data.settings.cliAdapter.draft ? (
+                  <Button
+                    disabled={busy}
+                    onClick={() => submit("disable_cli_adapter_config")}
+                  >
+                    <XCircle size={14} />
+                    {text.disableConfig}
+                  </Button>
+                ) : null}
               </div>
             </div>
             <label className="text-[12px] font-medium text-muted">{text.adapterJson}</label>

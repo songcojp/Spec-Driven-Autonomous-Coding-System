@@ -13,6 +13,7 @@ import {
   dryRunCliAdapterConfig,
   evaluateRunnerSafety,
   listDueRecoveryDispatches,
+  normalizeCliAdapterConfig,
   persistCodexRunnerArtifacts,
   processRunnerQueueItem,
   recordRunnerHeartbeat,
@@ -20,6 +21,7 @@ import {
   resolveRunnerPolicy,
   runCodexCli,
   runDueRecoveryDispatches,
+  validateCliAdapterConfig,
 } from "../src/codex-runner.ts";
 import { listStatusCheckResults } from "../src/status-checker.ts";
 import { handleRecoveryResult, persistRecoveryResultHandling } from "../src/recovery.ts";
@@ -47,6 +49,61 @@ test("CLI adapter dry-run validates JSON-managed command templates", () => {
   assert.equal(result.command, "codex");
   assert.equal(result.args?.includes("--output-schema"), true);
   assert.equal(result.args?.includes("/tmp/runner-output.schema.json"), true);
+});
+
+test("CLI adapter validation rejects configs with missing or empty executable", () => {
+  const missingExec = validateCliAdapterConfig({ ...DEFAULT_CLI_ADAPTER_CONFIG, executable: "" });
+  assert.equal(missingExec.valid, false);
+  assert.ok(missingExec.errors.some((e) => /executable/i.test(e)), "should report missing executable");
+
+  const missingTemplate = validateCliAdapterConfig({ ...DEFAULT_CLI_ADAPTER_CONFIG, argumentTemplate: [] });
+  assert.equal(missingTemplate.valid, false);
+  assert.ok(missingTemplate.errors.some((e) => /argument.*template/i.test(e)), "should report missing argumentTemplate");
+
+  const valid = validateCliAdapterConfig(DEFAULT_CLI_ADAPTER_CONFIG);
+  assert.equal(valid.valid, true);
+  assert.equal(valid.errors.length, 0);
+});
+
+test("CLI adapter dry-run returns errors and invalid command for missing executable", () => {
+  const result = dryRunCliAdapterConfig({
+    config: { ...DEFAULT_CLI_ADAPTER_CONFIG, executable: "" },
+    prompt: "Implement bounded task",
+  });
+
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.length > 0);
+  assert.equal(result.command, undefined);
+  assert.equal(result.args, undefined);
+});
+
+test("CLI adapter normalizes snake_case DB row fields to camelCase config", () => {
+  const normalized = normalizeCliAdapterConfig({
+    id: "custom-adapter",
+    display_name: "Custom CLI",
+    schema_version: 2,
+    executable: "gemini",
+    argument_template: ["exec", "--prompt", "{prompt}"],
+    resume_argument_template: ["resume", "{sessionId}"],
+    config_schema: { type: "object" },
+    form_schema: { fields: [] },
+    defaults: { model: "gemini-pro", sandbox: "workspace-write", approval: "on-request" },
+    environment_allowlist: ["HOME", "PATH"],
+    output_mapping: { event_stream: "json", evidence_schema: "v1", session_id_path: "session_id" },
+    status: "active",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  });
+
+  assert.equal(normalized.id, "custom-adapter");
+  assert.equal(normalized.displayName, "Custom CLI");
+  assert.equal(normalized.schemaVersion, 2);
+  assert.equal(normalized.executable, "gemini");
+  assert.deepEqual(normalized.argumentTemplate, ["exec", "--prompt", "{prompt}"]);
+  assert.deepEqual(normalized.resumeArgumentTemplate, ["resume", "{sessionId}"]);
+  assert.deepEqual(normalized.environmentAllowlist, ["HOME", "PATH"]);
+  assert.equal(normalized.outputMapping.eventStream, "json");
+  assert.equal(normalized.defaults.model, "gemini-pro");
+  assert.equal(normalized.status, "active");
 });
 
 test("runner policy resolves safe defaults and clamps heartbeat cadence", () => {
