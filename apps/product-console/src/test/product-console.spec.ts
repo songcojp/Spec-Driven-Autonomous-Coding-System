@@ -68,6 +68,8 @@ test("supports collapsible navigation and keeps the content header fixed", async
   await page.goto("/");
 
   const shellHeader = page.locator("main > header");
+  const shellFooter = page.locator("main > footer");
+  const contentScroll = page.getByTestId("console-content-scroll");
   await expect(page.getByLabel("收起导航")).toBeVisible();
   await expect(shellHeader).toHaveCSS("position", "sticky");
 
@@ -77,6 +79,14 @@ test("supports collapsible navigation and keeps the content header fixed", async
   const collapsedWidth = await page.locator(".console-sidebar").boundingBox();
   if (page.viewportSize()!.width > 900) {
     expect(collapsedWidth!.width).toBeLessThan(expandedWidth!.width);
+    await expect(shellFooter).toBeVisible();
+    await expect(contentScroll).toHaveCSS("overflow-y", "auto");
+
+    const viewport = page.viewportSize()!;
+    const mainBox = await page.locator("main").boundingBox();
+    const footerBox = await shellFooter.boundingBox();
+    expect(Math.round(mainBox!.height)).toBe(viewport.height);
+    expect(Math.round(footerBox!.y + footerBox!.height)).toBe(viewport.height);
   }
 
   await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();

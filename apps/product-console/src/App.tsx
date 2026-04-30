@@ -1052,7 +1052,7 @@ export function App() {
 
   return (
     <Toast.Provider swipeDirection="right">
-      <div className={`console-shell grid min-h-screen ${sidebarCollapsed ? "grid-cols-[72px_1fr]" : "grid-cols-[220px_1fr]"} bg-canvas text-ink transition-[grid-template-columns] duration-200 max-md:block`}>
+      <div className={`console-shell grid h-screen overflow-hidden ${sidebarCollapsed ? "grid-cols-[72px_1fr]" : "grid-cols-[220px_1fr]"} bg-canvas text-ink transition-[grid-template-columns] duration-200 max-md:block max-md:h-auto max-md:min-h-screen max-md:overflow-visible`}>
         <aside className="console-sidebar sticky top-0 h-screen border-r border-line bg-white transition-[width] max-md:static max-md:h-auto max-md:border-b max-md:border-r-0">
           <div className={`flex h-16 items-center gap-3 border-b border-line ${sidebarCollapsed ? "justify-center px-2 max-md:justify-between max-md:px-4" : "px-5"}`}>
             <div className="grid size-8 place-items-center rounded-md border border-slate-300 text-action">
@@ -1094,7 +1094,7 @@ export function App() {
           </div>
         </aside>
 
-        <main className="min-w-0 max-md:w-full">
+        <main className="flex h-screen min-w-0 flex-col overflow-hidden max-md:h-auto max-md:w-full max-md:overflow-visible">
           <header className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-6 shadow-sm max-md:px-4">
             <div className="flex min-w-0 items-center gap-6 max-md:w-full max-md:flex-wrap max-md:gap-2">
               <div className="min-w-0 max-md:flex-1">
@@ -1147,7 +1147,7 @@ export function App() {
             </div>
           </header>
 
-          <div className="space-y-5 p-5 pb-14">
+          <div data-testid="console-content-scroll" className="scrollbar-thin min-h-0 flex-1 overflow-y-auto space-y-5 p-5 pb-14 max-md:overflow-visible">
             <Tabs.Root value={view} onValueChange={(value) => setView(value as ViewKey)}>
               <Tabs.List className="sr-only" aria-label={text.consoleNavigation}>
                 {navItems.map((item) => <Tabs.Trigger key={item.key} value={item.key}>{text.nav[item.key]}</Tabs.Trigger>)}
