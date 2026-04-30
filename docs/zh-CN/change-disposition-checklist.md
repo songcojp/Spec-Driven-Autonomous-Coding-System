@@ -34,6 +34,7 @@
 | CHG-008 | PRD 明确性能阈值在 MVP 中只作基线记录 | PRD 第 9.4 节 | 已写入 PRD | 人工确认 requirements 中 NFR-007 至 NFR-009 是否已足够表达；当前看起来已覆盖。 |
 | CHG-011 | 阶段 1 项目初始化自动完成 | 用户指令：项目创建或导入流程应自动完成用户流程第一阶段操作；PRD 第 5 节阶段 1；REQ-063 | 已写入 PRD、requirements、HLD/design、FEAT-001、FEAT-013 | 作为 FEAT-001 + FEAT-013 patch：FEAT-001 编排自动初始化闭环；FEAT-013 展示自动状态和阻塞原因。 |
 | CHG-012 | 阶段 2 自动扫描 Spec Sources | 用户指令：阶段 2 自动扫描 PRD、EARS、HLD、Feature Spec 等；PRD 第 5 节阶段 2；REQ-064 | 已写入 PRD、requirements、HLD/design、FEAT-002、FEAT-013 | 作为 FEAT-002 + FEAT-013 patch：FEAT-002 提供扫描模型；FEAT-013 展示扫描状态，且阶段 2 不触发 HLD 生成、Feature Spec 拆分或规划流水线。 |
+| CHG-014 | 阶段 2 扫描和上传合并为一个步骤 | 用户指令：spec流程阶段2，spec扫描和上传合成一个步骤，显示扫描、上传两个按钮；REQ-064；FEAT-013 | 已写入 PRD、requirements、HLD/design、FEAT-013 | 作为 FEAT-013 patch：ViewModel 只暴露一个阶段 2 步骤，UI 在该步骤中保留扫描和上传两个按钮及命令回执。 |
 | CHG-009 | Product Console 完成标准修正：API/ViewModel 不能替代用户 UI | 用户审查；实现证据 `src/product-console.ts`、`src/server.ts`、`tests/product-console.test.ts` | 已同步 FEAT-013 和技能契约 | 重新打开 FEAT-013；补真实前端应用、页面组件、浏览器级验收，并修复拆分/执行技能避免再次漏 UI。 |
 
 ## 人工处置顺序建议
@@ -71,6 +72,7 @@
 | CHG-008 | 仅保留文档一致性；PRD、requirements 和 HLD 已明确性能阈值在 MVP 中作为基线记录，不作为阻塞验收门槛。 | 无需新增 Feature Spec；FEAT-013 继续记录看板加载/状态刷新基线。 | 无需执行 |
 | CHG-011 | 进入 FEAT-001 / FEAT-013 patch；阶段 1 由系统在创建或导入项目后自动完成初始化闭环。 | 已同步 PRD、REQ-063、HLD/design、Feature Index、FEAT-001 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
 | CHG-012 | 进入 FEAT-002 / FEAT-013 patch；阶段 2 自动扫描 Spec Sources，扫描 HLD / Feature Spec 事实源但不生成 HLD 或拆分 Feature Spec。 | 已新增 REQ-064，并同步 PRD、HLD/design、Feature Index、FEAT-002 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
+| CHG-014 | 进入 FEAT-013 patch；阶段 2 将 Spec 扫描和上传合并为一个“Spec 扫描与上传”步骤，并在同一步骤内提供“扫描”和“上传”两个按钮。 | 已同步 PRD、REQ-064、HLD/design、FEAT-013 requirements/design/tasks、Product Console UI 和浏览器级测试。 | 已同步实现 |
 | CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `task-slicing-skill` / `codex-coding-skill` 技能契约。 | 需同步实现 |
 
 ## Feature Spec Execute 评估

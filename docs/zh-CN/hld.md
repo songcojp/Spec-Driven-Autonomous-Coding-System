@@ -660,7 +660,7 @@ Decomposition rules:
 
 | 用户流程步骤 | 实现方式 | 理由 |
 |---|---|---|
-| 扫描或上传 PRD | **Skill** | `repo-probe-skill`；CLI 已提供文件读取机制 |
+| Spec 来源扫描与上传 | **Skill** | `repo-probe-skill`；CLI 已提供文件读取机制。Product Console 在同一个阶段内步骤中显示“扫描”和“上传”两个动作。 |
 | 识别需求格式 | **Skill** | LLM 分类推理，是 `pr-ears-requirement-decomposition-skill` 前置步骤 |
 | 生成 EARS / Feature Spec | **Skill**（内容）+ **Code**（Feature 记录写入） | `pr-ears-requirement-decomposition-skill` + `requirement-intake-skill` 生成内容；SQLite 记录 Feature 存在是 Code |
 | 完成关键澄清 | **Skill** | `ambiguity-clarification-skill` |

@@ -15,6 +15,7 @@ Spec Evolution:
 - CHG-010：用户确认原一级“看板 / Board”页面正式命名为“项目主页 / Project Home”。该页面是单个当前项目的概览入口；任务看板保留为页面内的 Task Board 分区和底层状态机能力。
 - CHG-011：用户确认项目创建或导入后应自动完成阶段 1 初始化操作。Product Console 只展示阶段 1 自动初始化状态、事实来源和阻塞原因，不把这些子步骤设计成用户逐步手动操作。
 - CHG-012：用户确认阶段 2 需要自动扫描 PRD、EARS、HLD、Feature Spec 等。Product Console 必须展示 Spec Sources 自动扫描状态和结果；阶段 2 只扫描已有 HLD / Feature Spec 事实源，不展示 HLD 生成、Feature Spec 拆分或规划流水线入口。
+- CHG-014：用户确认阶段 2 的 Spec 扫描和上传必须合并为一个步骤；Product Console 在该步骤内显示“扫描”和“上传”两个按钮，不再把扫描和上传渲染为两个独立阶段步骤。
 - CHG-013：2026-04-29 平台边界收缩为调度和状态维护，移除 Skill Center、Subagent Console 和规划流水线入口；Runner 页面仅展示外部执行状态、心跳、日志、证据和状态检测。
 - ADD-006：用户要求优化 CLI 调用并升级为 adapter；CLI 配置通过 JSON 管理，支持 JSON 表单并可通过 UI 直接编辑修改。Product Console 必须提供系统设置，并将 CLI Adapter 配置管理放到系统设置下；Runner Console 只展示配置健康摘要和跳转入口。
 
@@ -25,7 +26,7 @@ Spec Evolution:
 - Project Home 是当前单个项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并在页面内提供 Task Board 分区。
 - Task Board 分区支持受状态机约束的看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、任务图和 Spec 版本 diff。
-- Spec Workspace 的 Spec 操作流程必须拆为“阶段 1 项目初始化”、“阶段 2 需求录入”和“阶段 3 调度状态”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 展示 Spec Sources 自动扫描、PRD 上传、PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS / Feature Spec 生成、澄清、质量检查和 Feature Spec Pool 状态；阶段 3 展示任务图、调度、状态检查和状态聚合。
+- Spec Workspace 的 Spec 操作流程必须拆为“阶段 1 项目初始化”、“阶段 2 需求录入”和“阶段 3 调度状态”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 将 Spec Sources 自动扫描和 PRD 上传合并为一个“Spec 扫描与上传”步骤，并在该步骤中显示“扫描”和“上传”两个按钮，同时展示 PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS / Feature Spec 生成、澄清、质量检查和 Feature Spec Pool 状态；阶段 3 展示任务图、调度、状态检查和状态聚合。
 - Spec Workspace 头部的阶段流程必须默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；点击阶段标签后展开阶段事实、阻塞原因和阶段内步骤。
 - Spec Workflow 的来源、版本、扫描模式、最后扫描时间、运行耗时和阻塞数量必须以标签形式显示在流程说明栏；流程后方不得保留独立提示信息栏。
 - 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；阶段 3 只保留调度、任务图、状态检查和状态聚合入口。
@@ -89,7 +90,7 @@ Spec Evolution:
 - [ ] 新建项目表单提交的新项目目录必须为 `workspace/<project-slug>`；导入现有项目提交用户填写的现有项目目录。
 - [ ] 切换项目后 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center 只展示当前项目数据。
 - [ ] 浏览器级验证覆盖创建项目、切换项目、刷新后保持当前项目上下文，以及 `project_id` 缺失/不匹配时的阻塞反馈。
-- [ ] Spec Workspace 浏览器级验证覆盖阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 自动扫描、PRD 上传命令回执、项目切换后的数据隔离，以及阶段 2 不出现 HLD 生成、Feature Spec 拆分或规划流水线入口。
+- [ ] Spec Workspace 浏览器级验证覆盖阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 自动扫描和 PRD 上传合并为一个步骤、该步骤内“扫描”和“上传”两个按钮的命令回执、项目切换后的数据隔离，以及阶段 2 不出现 HLD 生成、Feature Spec 拆分或规划流水线入口。
 - [ ] 阶段 2 扫描结果展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等来源类型，并标记缺失项、冲突项和需要澄清的问题。
 - [ ] Spec Workspace 阶段流程默认不展开阶段内步骤；用户点击阶段状态标签后才展开对应阶段详情，且头部流程只以标签承载状态和提示信息。
 - [ ] Product Console 提供系统设置入口，系统设置至少包含 CLI 配置页。

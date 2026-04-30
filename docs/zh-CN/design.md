@@ -1607,7 +1607,7 @@ Evidence Pack 必须可被以下模块直接引用：
 
 1. 创建项目、连接本地 Git 仓库、健康检查 ready。
 2. 阶段 1 自动完成 Spec Protocol、项目宪章、Project Memory 和当前项目上下文初始化。
-3. 阶段 2 自动扫描 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources。
+3. 阶段 2 在同一个 Spec 来源录入步骤中提供“扫描”和“上传”两个动作；扫描动作读取 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources，上传动作接收用户提供的 Spec 文件。
 4. 提交或复用 PRD 片段，生成 Feature Spec、EARS 需求、Checklist 和 ready 状态。
 5. Scheduler 自动选择 Feature 并完成 planning。
 6. 生成任务图，看板显示 Ready 任务。
