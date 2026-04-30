@@ -776,7 +776,7 @@ THE SYSTEM SHALL 维护项目目录和当前项目上下文，并自动完成项
 优先级：Must
 
 WHEN 项目完成阶段 1 初始化并进入需求录入
-THE SYSTEM SHALL 自动扫描当前项目中的 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources，识别已有需求格式、规格产物、来源追踪、缺失项和冲突，并将扫描结果提供给 EARS / Feature Spec 生成、澄清和需求质量检查。
+THE SYSTEM SHALL 自动扫描当前项目中的 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources，识别已有需求格式、规格产物、来源追踪、缺失项和冲突，并将扫描结果提供给 EARS 生成、澄清和需求质量检查。
 
 验收：
 - [ ] 阶段 2 扫描结果包含已发现的 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引路径及其类型。

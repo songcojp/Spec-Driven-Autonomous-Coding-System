@@ -663,8 +663,10 @@ test("spec intake commands scan, upload, and enqueue EARS skill invocation", () 
   assert.equal(result.queries.requirements.length, 0);
   assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["spec_source_scan", "spec_source_upload"]);
   assert.equal(generateReceipt.runId, result.queries.runs[0].id);
-  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "requirement-intake-skill");
-  assert.equal(JSON.parse(String(result.queries.jobs[0].payload_json)).skillSlug, "requirement-intake-skill");
+  const jobPayload = JSON.parse(String(result.queries.jobs[0].payload_json));
+  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "pr-ears-requirement-decomposition-skill");
+  assert.equal(jobPayload.skillSlug, "pr-ears-requirement-decomposition-skill");
+  assert.deepEqual(jobPayload.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
 });
 
 test("spec workspace records EARS generation as a CLI skill run instead of direct Feature creation", () => {
@@ -703,7 +705,7 @@ test("spec workspace records EARS generation as a CLI skill run instead of direc
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.featureId, undefined);
   assert.equal(receipt.runId, runner.skillInvocations[0].runId);
-  assert.equal(runner.skillInvocations[0].skillSlug, "requirement-intake-skill");
+  assert.equal(runner.skillInvocations[0].skillSlug, "pr-ears-requirement-decomposition-skill");
   assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
 });
 
@@ -741,7 +743,7 @@ test("spec workspace builds Feature Spec List from docs features packages", () =
   writeFileSync(join(projectPath, ".autobuild", "specs", "FEAT-INTAKE-001.json"), '{"id":"FEAT-INTAKE-001"}\n', "utf8");
   writeFileSync(
     join(projectPath, "docs", "features", "feat-001-ticket-capture", "requirements.md"),
-    "# Feature Spec: FEAT-001 Ticket Capture\n\n- REQ-001: The system shall save lottery ticket records.\n- REQ-002: The system shall scan ticket images.",
+    "# Feature Spec: FEAT-001 Ticket Capture\n\n- REQ-001: The system shall save lottery ticket records.\n- REQ-LOT-002: The system shall scan ticket images.",
     "utf8",
   );
   writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "design.md"), "# Design\n", "utf8");
@@ -761,7 +763,7 @@ test("spec workspace builds Feature Spec List from docs features packages", () =
   assert.deepEqual(workspace.features.map((feature) => feature.id), ["FEAT-001"]);
   assert.equal(workspace.features[0].title, "Ticket Capture");
   assert.equal(workspace.features[0].folder, "feat-001-ticket-capture");
-  assert.deepEqual(workspace.features[0].primaryRequirements, ["REQ-001", "REQ-002"]);
+  assert.deepEqual(workspace.features[0].primaryRequirements, ["REQ-001", "REQ-LOT-002"]);
   assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
 });
 

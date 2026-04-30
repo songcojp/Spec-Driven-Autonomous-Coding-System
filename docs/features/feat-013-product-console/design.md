@@ -70,7 +70,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 2. Frontend App Shell 读取持久化语言偏好；没有偏好时默认中文，并加载项目列表、当前项目上下文、导航和默认 Dashboard 页面。
 3. Dashboard Query Service 按当前 `project_id` 聚合状态并通过页面组件展示真实数据、加载态、空态或错误态。
 4. 用户进入具体工作台查看证据、diff、日志、任务图或执行命令。
-5. Spec Workspace 从项目、仓库连接、项目宪章、Project Memory、Feature、Requirement 和审计事件派生 Spec 流程阶段状态；阶段 1 / 阶段 2 / 阶段 3 设计规划阶段在工作台头部默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；流程说明栏用标签显示当前 Spec 来源、版本、扫描模式、最后扫描时间和阻塞数量，不再在流程后方展示独立提示信息栏。用户点击标签后展开自动项目初始化事实、阻塞原因、Spec 扫描与上传（同一步骤内两个按钮）、格式识别、已有 HLD / Feature Spec / tasks 盘点、EARS / Feature Spec 生成、澄清、质量检查、Feature Spec Pool、任务图、调度和状态检查状态。
+5. Spec Workspace 从项目、仓库连接、项目宪章、Project Memory、Feature、Requirement 和审计事件派生 Spec 流程阶段状态；阶段 1 / 阶段 2 / 阶段 3 设计规划阶段在工作台头部默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；流程说明栏用标签显示当前 Spec 来源、版本、扫描模式、最后扫描时间和阻塞数量，不再在流程后方展示独立提示信息栏。用户点击标签后展开自动项目初始化事实、阻塞原因、Spec 扫描与上传（同一步骤内两个按钮）、格式识别、已有 HLD / Feature Spec / tasks 盘点、EARS 文档生成、澄清、质量检查、Feature Spec Pool、任务图、调度和状态检查状态。
 6. Console Command Gateway 将拖拽、批量排期、批量运行、暂停、恢复和 Spec 流程动作连同当前 `project_id` 提交为受控命令；阶段 3 不包含 HLD、Feature 拆分或规划流水线入口。
 7. Control Plane 更新状态，Console 显示成功、阻塞或失败反馈并重新查询。
 8. 用户切换语言后，App Shell 保存偏好并重新渲染界面文案；事实数据保持 API 返回原文。

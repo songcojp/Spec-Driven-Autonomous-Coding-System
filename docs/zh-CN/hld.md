@@ -31,7 +31,7 @@ MVP 采用本地优先的控制面架构：
 使用受控命令的情况包括：
 
 - 创建或导入项目后触发初始化闭环、连接仓库、初始化 Spec Protocol、创建 Project Memory 或项目宪章。
-- Spec Sources 扫描、上传、EARS / Feature Spec 生成、需求质量检查、阶段 3 调度和状态检查等会产生写入或运行副作用的 Spec 操作。
+- Spec Sources 扫描、上传、EARS 生成、Feature Spec 拆分、需求质量检查、阶段 3 调度和状态检查等会产生写入或运行副作用的 Spec 操作。
 - Task Board 拖拽、批量排期、批量运行、Runner 暂停/恢复、Review 审批、规则写入、Spec Evolution 写入和 CLI Adapter 配置 validate/save/activate/disable。
 - 所有执行类命令必须携带当前 `project_id`，并在进入 Runner 前解析为当前项目 repository `local_path` 或 `target_repo_path`；缺失、不匹配或不可读时返回 blocked receipt。
 
@@ -308,7 +308,7 @@ Responsibilities:
 
 - 通过 Runner CLI Adapter 调用 Codex CLI 或后续等价 CLI 执行代码修改、测试或修复。
 - 读取 active CLI Adapter JSON 配置，并将 executable、argument template、workspace policy、output mode、Evidence 映射和 session resume 映射转换为实际执行计划。
-- 按任务风险解析 sandbox、approval policy、model、profile、workspace root、session resume 和 output schema。
+- 按任务风险解析 sandbox、approval policy、model、reasoning effort、profile、workspace root、session resume 和 output schema。
 - 采集命令输出、JSON event stream、Codex session、心跳和原始日志。
 - 生成或转交 Evidence Pack。
 
@@ -778,7 +778,8 @@ Decomposition rules:
 |---|---|---|
 | Spec 来源扫描与上传 | **Skill** | `repo-probe-skill`；CLI 已提供文件读取机制。Product Console 在同一个阶段内步骤中显示“扫描”和“上传”两个动作。 |
 | 识别需求格式 | **Skill** | LLM 分类推理，是 `pr-ears-requirement-decomposition-skill` 前置步骤 |
-| 生成 EARS / Feature Spec | **Skill**（内容）+ **Code**（Feature 记录写入） | `pr-ears-requirement-decomposition-skill` + `requirement-intake-skill` 生成内容；SQLite 记录 Feature 存在是 Code |
+| 生成 EARS | **Skill** | `pr-ears-requirement-decomposition-skill` 只生成 EARS requirements 文档，不拆分 Feature Spec、不写入 Feature Spec Pool |
+| Feature Spec 拆分 | **Skill**（拆解）+ **Code**（Feature 记录写入） | `task-slicing-skill` 负责拆分 Feature Spec；SQLite 记录 Feature 存在是 Code |
 | 完成关键澄清 | **Skill** | `ambiguity-clarification-skill` |
 | 需求质量检查 | **Skill** | `requirements-checklist-skill` |
 | Feature 状态 → `ready` | **Code** | 状态迁移必须强制、持久化、可审计；CLI 无法保证 |
@@ -823,17 +824,18 @@ invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`
 6. Status Checker 命令执行（diff / build / test / lint / security）
 7. 失败指纹、重试限制、交付记录
 
-**Skill 负责（9 类）：**
+**Skill 负责（10 类）：**
 
 1. 项目宪章生成 → `project-constitution-skill`
 2. PRD 扫描 / 格式识别 → `repo-probe-skill`
-3. EARS / Feature Spec 生成 → `pr-ears-requirement-decomposition-skill` + `requirement-intake-skill`
-4. 澄清 → `ambiguity-clarification-skill`
-5. 需求质量检查 → `requirements-checklist-skill`
-6. 全规划流水线 → `technical-context-skill` / `research-decision-skill` / `architecture-plan-skill` / `data-model-skill` / `contract-design-skill` / `quickstart-validation-skill` / `spec-consistency-analysis-skill`
-7. 任务分解 → `task-slicing-skill`
-8. Spec Alignment 语义比对（Status Checker 子步骤）
-9. Review 内容 / 恢复策略 / PR 内容 / Spec 演进 → `review-report-skill` / `failure-recovery-skill` / `pr-generation-skill` / `spec-evolution-skill`
+3. EARS 生成 → `pr-ears-requirement-decomposition-skill`
+4. Feature Spec 拆分 → `task-slicing-skill`
+5. 澄清 → `ambiguity-clarification-skill`
+6. 需求质量检查 → `requirements-checklist-skill`
+7. 全规划流水线 → `technical-context-skill` / `research-decision-skill` / `architecture-plan-skill` / `data-model-skill` / `contract-design-skill` / `quickstart-validation-skill` / `spec-consistency-analysis-skill`
+8. 任务分解 → `task-slicing-skill`
+9. Spec Alignment 语义比对（Status Checker 子步骤）
+10. Review 内容 / 恢复策略 / PR 内容 / Spec 演进 → `review-report-skill` / `failure-recovery-skill` / `pr-generation-skill` / `spec-evolution-skill`
 
 **现有代码中可削减的部分：**
 

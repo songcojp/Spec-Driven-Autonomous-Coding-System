@@ -39,7 +39,7 @@
 ## Acceptance Criteria
 
 - [ ] 每个生成的 Feature Spec 都能追踪到输入来源，并包含可审查验收信息。
-- [ ] 阶段 2 自动扫描结果可以作为 EARS / Feature Spec 生成、澄清和需求质量检查的输入，且不触发 HLD 生成、Feature Spec 拆分或规划流水线。
+- [ ] 阶段 2 自动扫描结果可以作为 EARS 生成、澄清和需求质量检查的输入，且不触发 HLD 生成、Feature Spec 拆分或规划流水线。
 - [ ] 每条需求只描述一个可观察行为，并能追踪到 Feature、验收标准和测试场景。
 - [ ] Coding Agent 默认只能读取当前任务相关的 Spec 切片。
 - [ ] 未通过 checklist 的 Feature 不得自动进入 `ready`。

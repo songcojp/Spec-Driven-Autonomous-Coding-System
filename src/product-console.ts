@@ -340,7 +340,7 @@ function humanizeFeatureFolder(folder: string): string {
 }
 
 function requirementIdsFromText(content: string): string[] {
-  return [...new Set(content.match(/\b(?:REQ|NFR|EDGE)-\d+(?:-\d+)?\b/g) ?? [])].slice(0, 8);
+  return [...new Set(content.match(/\b(?:REQ|NFR|EDGE)(?:-[A-Z0-9]+)+\b/g) ?? [])].slice(0, 8);
 }
 
 function featureStatusFromDocs(projectPath: string, folder: string): string {
@@ -2203,7 +2203,7 @@ function executeSpecSkillCommand(
 }
 
 function skillSlugForSpecAction(action: ConsoleCommandAction): string {
-  if (action === "generate_ears") return "requirement-intake-skill";
+  if (action === "generate_ears") return "pr-ears-requirement-decomposition-skill";
   if (action === "generate_hld") return "architecture-plan-skill";
   if (action === "generate_ui_spec") return "ui-spec-skill";
   return "task-slicing-skill";
@@ -2256,7 +2256,7 @@ function imagePathsForSpecAction(action: ConsoleCommandAction, payload: Record<s
 
 function expectedArtifactsForSpecAction(action: ConsoleCommandAction, featureId?: string): string[] {
   if (action === "generate_ears") {
-    return ["docs/zh-CN/requirements.md", "docs/features/"];
+    return ["docs/zh-CN/requirements.md"];
   }
   if (action === "split_feature_specs") {
     return [
