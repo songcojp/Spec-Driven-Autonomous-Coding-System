@@ -336,7 +336,7 @@ const returnsPortalData: ConsoleProjectData = {
             { label: "Feature", value: "FEAT-204" },
             { label: "Status", value: "implementing" },
             { label: "Command", value: "schedule_run" },
-            { label: "Concept", value: "spec-workspace-prd-flow-concept.png" },
+            { label: "UI outputs", value: "docs/ui/ui-spec.md + docs/ui/concepts/*.svg" },
           ],
           stages: [
             { key: "generate_hld", action: "generate_hld", status: "pending" },

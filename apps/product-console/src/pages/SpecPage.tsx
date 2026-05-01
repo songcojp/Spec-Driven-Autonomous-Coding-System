@@ -161,7 +161,7 @@ function mergeUiSpecIntoFeaturePlanning(phases: WorkflowPhase[]): WorkflowPhase[
     return {
       ...phase,
       updatedAt: phase.updatedAt ?? uiSpecPhase.updatedAt,
-      facts: [...phase.facts, ...uiSpecPhase.facts.filter((fact) => fact.label === "Concept")],
+      facts: [...phase.facts, ...uiSpecPhase.facts.filter((fact) => fact.label === "UI outputs")],
       stages: [
         ...phase.stages.slice(0, insertAt),
         ...uiSpecStages,
@@ -190,7 +190,6 @@ function SpecPrdWorkflowPanel({
   const [uploadName, setUploadName] = useState(workflow?.sourceName ?? "");
   const [repositoryUrlInput, setRepositoryUrlInput] = useState("");
   const [expandedPhaseKey, setExpandedPhaseKey] = useState<WorkflowPhaseKey | null>(null);
-  const [uiSpecLightboxOpen, setUiSpecLightboxOpen] = useState(false);
 
   useEffect(() => {
     setUploadName(workflow?.sourceName ?? "");
@@ -589,48 +588,21 @@ function SpecPrdWorkflowPanel({
                 </div>
               </div>
             ) : null}
-            {/* UI Spec concept image — shown after HLD in Stage 3 */}
+            {/* UI Spec generated outputs — shown after HLD in Stage 3 */}
             {phase.key === "feature_planning" && phase.stages.some((stage) => stage.key === "generate_ui_spec") ? (
               <div className="mt-5">
                 <div className="mb-3 text-[14px] font-semibold text-ink">{text.uiSpecConceptTitle}</div>
                 <p className="mb-3 text-[12px] text-muted">{text.uiSpecConceptDescription}</p>
-                <button
-                  type="button"
-                  className="block w-full overflow-hidden rounded-md border border-line bg-slate-50 transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-action/30"
-                  onClick={() => setUiSpecLightboxOpen(true)}
-                  aria-label={text.uiSpecConceptTitle}
-                >
-                  <img
-                    src="/spec-workspace-prd-flow-concept.png"
-                    alt={text.uiSpecConceptAlt}
-                    className="h-40 w-full object-cover object-top"
-                  />
-                </button>
-                {uiSpecLightboxOpen ? (
-                  <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-                    onClick={() => setUiSpecLightboxOpen(false)}
-                  >
-                    <div
-                      className="relative max-h-[90vh] max-w-[90vw]"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        className="absolute -right-3 -top-3 flex size-7 items-center justify-center rounded-full bg-white shadow"
-                        onClick={() => setUiSpecLightboxOpen(false)}
-                        aria-label="关闭"
-                      >
-                        <XCircle size={18} className="text-ink" />
-                      </button>
-                      <img
-                        src="/spec-workspace-prd-flow-concept.png"
-                        alt={text.uiSpecConceptAlt}
-                        className="max-h-[85vh] max-w-[85vw] rounded-md object-contain shadow-xl"
-                      />
-                    </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-md border border-line bg-slate-50 px-3 py-2 text-[12px] text-ink">
+                    <div className="font-semibold">docs/ui/ui-spec.md</div>
+                    <div className="mt-1 text-muted">{text.uiSpecDocumentOutput}</div>
                   </div>
-                ) : null}
+                  <div className="rounded-md border border-line bg-slate-50 px-3 py-2 text-[12px] text-ink">
+                    <div className="font-semibold">docs/ui/concepts/*.svg</div>
+                    <div className="mt-1 text-muted">{text.uiSpecConceptOutput}</div>
+                  </div>
+                </div>
               </div>
             ) : null}
           </section>
