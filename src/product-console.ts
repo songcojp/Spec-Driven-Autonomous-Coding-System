@@ -2198,7 +2198,7 @@ function executeSpecSkillCommand(
     expectedArtifacts,
     traceability: {
       requirementIds: optionalStringArray(payload.requirementIds),
-      changeIds: ["CHG-016"],
+      changeIds: input.action === "generate_hld" ? [] : ["CHG-016"],
     },
   });
   return { runId, schedulerJobId: job.schedulerJobId, skillSlug, workspaceRoot: project.targetRepoPath };

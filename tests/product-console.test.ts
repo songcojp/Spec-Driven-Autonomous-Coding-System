@@ -737,6 +737,7 @@ test("generate HLD dispatches the project HLD skill and writes hld.md", () => {
   assert.equal(payload.requestedAction, "generate_hld");
   assert.deepEqual(payload.expectedArtifacts, ["docs/zh-CN/hld.md"]);
   assert.equal(payload.expectedArtifacts.includes("docs/zh-CN/design.md"), false);
+  assert.deepEqual(payload.traceability.changeIds, []);
   assert.equal(result.queries.runs[0].feature_id, null);
   assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "create-project-hld");
 });
