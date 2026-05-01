@@ -365,7 +365,7 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   });
 
   assert.equal(calls[0].command, "codex");
-  assert.deepEqual(calls[0].args.slice(0, 12), [
+  assert.deepEqual(calls[0].args.slice(0, 13), [
     "-a",
     "on-request",
     "--sandbox",
@@ -378,13 +378,14 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
     "automation",
     "exec",
     "resume",
+    "--ignore-user-config",
   ]);
-  assert.equal(calls[0].args[12], "--json");
-  assert.equal(calls[0].args[13], "-m");
-  assert.equal(calls[0].args[14], "gpt-5.3-codex-spark");
-  assert.equal(calls[0].args[15], "SESSION-OLD");
-  assert.match(calls[0].args[16], /Implement bounded task token=abc123/);
-  assert.match(calls[0].args[16], /matching this schema/);
+  assert.equal(calls[0].args[13], "--json");
+  assert.equal(calls[0].args[14], "-m");
+  assert.equal(calls[0].args[15], "gpt-5.3-codex-spark");
+  assert.equal(calls[0].args[16], "SESSION-OLD");
+  assert.match(calls[0].args[17], /Implement bounded task token=abc123/);
+  assert.match(calls[0].args[17], /matching this schema/);
   assert.equal(calls[0].cwd, workspaceRoot);
   assert.doesNotMatch(result.session.args.join(" "), /abc123/);
   assert.match(result.session.args.join(" "), /token=\[REDACTED\]/);
@@ -455,14 +456,15 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
     "--cd",
     policy.workspaceRoot,
     "exec",
+    "--ignore-user-config",
     "--json",
     "--sandbox",
     "workspace-write",
     "--model",
     "gpt-5.3-codex-spark",
     "--output-schema",
-    "/tmp/runner-output.schema.json",
   ]);
+  assert.equal(calls[0].args[14], "/tmp/runner-output.schema.json");
 });
 
 test("Codex CLI adapter terminates variadic image arguments before prompt", () => {
