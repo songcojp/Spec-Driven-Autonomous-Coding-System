@@ -2143,7 +2143,7 @@ function executeSpecSkillCommand(
   scheduler: SchedulerClient,
   specIntakeResult?: ({ blockedReasons: string[] } & Record<string, unknown>),
 ): { runId: string; schedulerJobId: string; skillSlug: string; workspaceRoot?: string } | undefined {
-  if (!["generate_ears", "generate_hld", "split_feature_specs"].includes(input.action)) {
+  if (!["generate_ears", "generate_hld", "generate_ui_spec", "split_feature_specs"].includes(input.action)) {
     return undefined;
   }
   const payload = parseJsonObject(input.payload);
@@ -2157,9 +2157,11 @@ function executeSpecSkillCommand(
   if (!project) {
     return undefined;
   }
-  const featureId = optionalString(specIntakeResult?.featureId)
-    ?? optionalString(payload.featureId)
-    ?? (input.entityType === "feature" ? input.entityId : undefined);
+  const featureId = input.action === "generate_hld"
+    ? undefined
+    : optionalString(specIntakeResult?.featureId)
+      ?? optionalString(payload.featureId)
+      ?? (input.entityType === "feature" ? input.entityId : undefined);
   const runId = randomUUID();
   const skillSlug = skillSlugForSpecAction(input.action);
   const sourcePaths = sourcePathsForSpecAction(input.action, payload, featureId);
@@ -2204,7 +2206,7 @@ function executeSpecSkillCommand(
 
 function skillSlugForSpecAction(action: ConsoleCommandAction): string {
   if (action === "generate_ears") return "pr-ears-requirement-decomposition-skill";
-  if (action === "generate_hld") return "architecture-plan-skill";
+  if (action === "generate_hld") return "create-project-hld";
   if (action === "generate_ui_spec") return "ui-spec-skill";
   return "task-slicing-skill";
 }
@@ -2272,7 +2274,7 @@ function expectedArtifactsForSpecAction(
     ];
   }
   if (action === "generate_hld") {
-    return featureId ? [`docs/features/${featureId}/design.md`] : ["docs/zh-CN/design.md"];
+    return ["docs/zh-CN/hld.md"];
   }
   if (action === "generate_ui_spec") {
     return featureId ? [`docs/features/${featureId}/ui-spec.md`] : ["docs/ui/ui-spec.md"];

@@ -177,7 +177,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("生成 HLD").first()).toBeVisible();
   await expect(page.getByText("生成 UI Spec").first()).toBeVisible();
   await expect(page.getByText("拆分 Feature Spec").first()).toBeVisible();
-  await expect(page.getByText("推入 Feature Spec Pool").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "推入 Feature Spec Pool" })).toBeVisible();
   await expect(page.getByText("调度运行").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 HLD" })).toBeVisible();
   await page.getByRole("button", { name: "生成 HLD" }).click();

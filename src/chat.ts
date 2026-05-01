@@ -196,7 +196,7 @@ function buildClassificationPrompt(
     "- approve_review: wants to approve a review item",
     "- reject_review: wants to reject a review item",
     "- generate_ears: wants to generate EARS requirements for a feature",
-    "- generate_hld: wants to generate HLD for a feature",
+    "- generate_hld: wants to generate the project HLD",
     "- confirm: user is confirming a previously proposed action",
     "- cancel: user is cancelling a previously proposed action",
     "- help: user wants to know what the assistant can do",
@@ -364,7 +364,7 @@ function getDefaultResponseText(intent: ChatIntentType): string {
     approve_review: "⚠️ 即将批准审查项，请确认后执行。",
     reject_review: "⚠️ 即将拒绝审查项，请确认后执行。",
     generate_ears: "正在为该 Feature 生成 EARS 需求...",
-    generate_hld: "正在为该 Feature 生成 HLD...",
+    generate_hld: "正在生成项目 HLD...",
     confirm: "正在执行已确认的操作...",
     cancel: "已取消操作。",
     help: "我能帮您：查询任务/Feature 状态、新增或变更需求、调度运行、暂停/恢复 Runner、批准或拒绝审查、生成 EARS 需求和 HLD。",
@@ -668,15 +668,13 @@ function buildCommandInput(
       };
     }
     case "generate_hld": {
-      const featureId = entities.featureId ?? context.features.find((f) => f.status === "ready")?.id ?? context.features[0]?.id;
-      if (!featureId) return undefined;
       return {
         action: "generate_hld",
-        entityType: "feature",
-        entityId: featureId,
+        entityType: "project",
+        entityId: projectId,
         requestedBy: "chat",
         reason: "Generate HLD via chat",
-        payload: { projectId, featureId },
+        payload: { projectId },
       };
     }
     case "add_requirement": {

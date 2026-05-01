@@ -136,6 +136,8 @@ function workflowStageAction(
         ? "generate_ui_spec"
         : stageKey === "split_feature_specs"
           ? "split_feature_specs"
+          : stageKey === "feature_spec_pool"
+            ? "split_feature_specs"
           : stageKey === "status_scheduling" || stageKey === "status_check"
             ? "schedule_run"
             : undefined;
@@ -295,7 +297,13 @@ function SpecPrdWorkflowPanel({
   ];
 
   function runWorkflowAction(action: CommandReceipt["action"], key: string, phaseKey: WorkflowPhaseKey) {
-    const entityType = phaseKey === "feature_planning" && selectedFeatureId && action !== "split_feature_specs" ? "feature" : "project";
+    const entityType =
+      phaseKey === "feature_planning" &&
+      selectedFeatureId &&
+      action !== "generate_hld" &&
+      action !== "split_feature_specs"
+        ? "feature"
+        : "project";
     const entityId = entityType === "feature" && selectedFeatureId ? selectedFeatureId : currentProject.id;
     const schedulePayload =
       action === "schedule_run"
@@ -455,7 +463,11 @@ function SpecPrdWorkflowPanel({
                   const stageAction = workflowStageAction(phase.key, stage.key, stage.action);
                   const canRun =
                     Boolean(stageAction) &&
-                    (phase.key !== "feature_planning" || Boolean(selectedFeatureId) || stageAction === "split_feature_specs");
+                    (phase.key !== "feature_planning" ||
+                      Boolean(selectedFeatureId) ||
+                      stageAction === "generate_hld" ||
+                      stageAction === "generate_ui_spec" ||
+                      stageAction === "split_feature_specs");
                   const isSpecSourceIntake =
                     phase.key === "requirement_intake" && stage.key === "spec_source_intake";
                   return (

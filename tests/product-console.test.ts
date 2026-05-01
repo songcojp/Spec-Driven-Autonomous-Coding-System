@@ -709,6 +709,38 @@ test("spec workspace records EARS generation as a CLI skill run instead of direc
   assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
 });
 
+test("generate HLD dispatches the project HLD skill and writes hld.md", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "generate_hld",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Generate project HLD.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+    { name: "runs", sql: "SELECT feature_id, project_id, metadata_json FROM runs WHERE id = ?", params: [receipt.runId ?? ""] },
+  ]);
+  const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.featureId, undefined);
+  assert.equal(result.queries.jobs[0].target_type, "project");
+  assert.equal(result.queries.jobs[0].target_id, "project-1");
+  assert.equal(payload.skillSlug, "create-project-hld");
+  assert.equal(payload.requestedAction, "generate_hld");
+  assert.deepEqual(payload.expectedArtifacts, ["docs/zh-CN/hld.md"]);
+  assert.equal(payload.expectedArtifacts.includes("docs/zh-CN/design.md"), false);
+  assert.equal(result.queries.runs[0].feature_id, null);
+  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "create-project-hld");
+});
+
 test("spec workspace does not treat intake artifacts as Feature Specs", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -811,6 +843,38 @@ test("split Feature Specs dispatches task-slicing skill with PRD EARS HLD inputs
   assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/tasks.md"), true);
   assert.equal(result.queries.runs[0].feature_id, null);
   assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "task-slicing-skill");
+});
+
+test("generate UI Spec dispatches the UI spec skill from project-level Spec Workspace actions", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "generate_ui_spec",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Generate UI Spec from the Spec Workspace planning flow.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+    { name: "runs", sql: "SELECT feature_id, project_id, metadata_json FROM runs WHERE id = ?", params: [receipt.runId ?? ""] },
+  ]);
+  const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.featureId, undefined);
+  assert.equal(result.queries.jobs[0].target_type, "project");
+  assert.equal(result.queries.jobs[0].target_id, "project-1");
+  assert.equal(payload.skillSlug, "ui-spec-skill");
+  assert.equal(payload.requestedAction, "generate_ui_spec");
+  assert.deepEqual(payload.imagePaths, ["docs/ui/spec-workspace-prd-flow-concept.png"]);
+  assert.equal(payload.expectedArtifacts.includes("docs/ui/ui-spec.md"), true);
+  assert.equal(result.queries.runs[0].feature_id, null);
+  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "ui-spec-skill");
 });
 
 test("spec intake workflow displays the actual discovered source instead of a default PRD path", () => {

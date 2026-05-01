@@ -563,8 +563,8 @@ flowchart TD
 ```mermaid
 flowchart TD
   PRD[PRD / 自然语言需求源] --> EARS["[Skill] pr-ears-requirement-decomposition-skill\nEARS 需求拆解"]
-  EARS --> HLD["[Skill] architecture-plan-skill 等规划流水线\nHLD：系统架构 + 一级页面清单"]
-  HLD --> UISpec["[Skill] contract-design-skill（UI ViewModel/View Contract）\nUI Specs：一级页面概念图"]
+  EARS --> HLD["[Skill] create-project-hld\nHLD：系统架构 + 一级页面清单"]
+  HLD --> UISpec["[Skill] ui-spec-skill\nUI Specs：一级页面概念图"]
   UISpec --> Split["[Skill] task-slicing-skill（Feature 级）\n+ [Code] Feature 记录写入 SQLite\nFeature Spec 拆分"]
   Split --> Pool[Feature Spec Pool\nN 个 Feature 候选]
   Pool --> Checklist["[Skill] requirements-checklist-skill\n+ ambiguity-clarification-skill\n需求质量检查 / 澄清"]
@@ -595,8 +595,8 @@ flowchart TD
 | 阶段 | 触发方式 | 实现归因 | 输入产物 | 输出产物 | 关联 Skill |
 |---|---|---|---|---|---|
 | EARS 需求拆解 | 用户上传 PRD / Spec Sources 扫描 | **Skill** | PRD / 自然语言需求 | EARS Requirements（`requirements.md`） | `pr-ears-requirement-decomposition-skill` |
-| HLD 生成 | EARS 完成后手动或受控命令触发 | **Skill**（内容）+ **Code**（artifact 落地） | EARS Requirements | HLD 文档 + **一级页面清单** | `architecture-plan-skill`（+ `technical-context-skill`、`research-decision-skill`） |
-| UI Specs 概念图 | HLD 完成后触发（含 UI 的产品） | **Skill** | 一级页面清单 | 每个一级页面的概念图（区块/信息层级/主操作入口） | `contract-design-skill`（UI ViewModel/View Contract 部分） |
+| HLD 生成 | EARS 完成后手动或受控命令触发 | **Skill**（内容）+ **Code**（artifact 落地） | PRD + EARS Requirements | HLD 文档（`docs/zh-CN/hld.md`）+ **一级页面清单** | `create-project-hld` |
+| UI Specs 概念图 | HLD 完成后触发（含 UI 的产品） | **Skill** | HLD + 一级页面清单 + 概念图 | UI Spec 文档（`docs/ui/ui-spec.md` 或 Feature 级 `ui-spec.md`） | `ui-spec-skill` |
 | Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill**（拆解）+ **Code**（Feature 记录写入 SQLite） | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`）→ Feature Spec Pool | `task-slicing-skill`（Feature 级） |
 | 需求质量检查 | Feature Spec 创建后 | **Skill** | Feature Spec requirements.md | 通过 → `ready`；歧义 → ClarificationLog + `draft` | `requirements-checklist-skill`、`ambiguity-clarification-skill` |
 | per-Feature 规划 | feature.plan job（Project Scheduler） | **Skill**（内容，bridge 可用时）| Feature Spec requirements / design | Technical Plan、Data Model、Contracts、`spec-consistency-analysis` 报告 | 7-skill 规划流水线 |

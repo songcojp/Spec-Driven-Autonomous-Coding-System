@@ -746,7 +746,7 @@ codex exec --cd <workspace> --json --output-schema evidence.schema.json "<prompt
 Product Console 和 Spec Workspace 的用户操作不直接执行生成、规划或编码逻辑，而是转换为 CLI skill invocation prompt 后进入 Runner：
 
 * Stage 2 需求录入操作生成 `repo-probe-skill`、`pr-ears-requirement-decomposition-skill`、`requirement-intake-skill` 或 `requirements-checklist-skill` 的调用提示，并通过 CLI Adapter 在项目 workspace 中执行。
-* Stage 3 planning 操作通过 Codex Skill Planning Bridge 调用 `technical-context-skill`、`research-decision-skill`、`architecture-plan-skill`、`data-model-skill`、`contract-design-skill`、`quickstart-validation-skill`、`task-slicing-skill` 和 `spec-consistency-analysis-skill`。
+* Stage 3 planning 操作通过 Codex Skill Planning Bridge 调用 Skill：项目级 HLD 生成使用 `create-project-hld` 并输出 `docs/zh-CN/hld.md`；UI Spec 生成使用 `ui-spec-skill`；per-Feature 规划继续调用 `technical-context-skill`、`research-decision-skill`、`architecture-plan-skill`、`data-model-skill`、`contract-design-skill`、`quickstart-validation-skill`、`task-slicing-skill` 和 `spec-consistency-analysis-skill`。
 * Task Board 的运行操作通过 `codex-coding-skill` 执行已排期任务。
 
 平台只记录 Console command、scheduler job、Run、Evidence、Status、Review 和 Audit，不恢复 Skill Registry、Skill Center、Skill schema 校验或平台级 SkillRun 表；Skill 发现和执行属于 CLI workspace 内部行为。
