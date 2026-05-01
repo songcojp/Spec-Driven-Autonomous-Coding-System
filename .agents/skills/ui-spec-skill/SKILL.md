@@ -1,56 +1,45 @@
 ---
 name: ui-spec-skill
-description: "Generate a structured UI Spec from a concept image and HLD using Codex image model support (codex exec -i <image>). Use when the Spec Workspace generate_ui_spec action is triggered and a concept image path is available."
+description: "Generate a structured UI Spec and major-page UI concept images from PRD, EARS requirements, and HLD. Use when the Spec Workspace generate_ui_spec action is triggered after HLD exists."
 ---
 
 # UI Spec Skill
 
-Use this skill to produce a structured UI Spec document from a visual concept image and the existing HLD / feature list.
+Use this skill to produce a structured UI Spec document and major-page concept images from the product PRD, EARS requirements, HLD, and feature index.
 
-## Image Model Usage
+## Generation Contract
 
-Codex CLI supports attaching local image files directly to the initial prompt via the `-i` flag:
-
-```bash
-codex exec \
-  -a on-request \
-  --sandbox workspace-write \
-  --model gpt-5-codex \
-  --output-schema /tmp/evidence.schema.json \
-  -i docs/ui/spec-workspace-prd-flow-concept.png \
-  "Analyze the attached concept image and generate a structured UI Spec for this product..."
-```
-
-The runner resolves the concept image path from the `imagePaths` field of the `SkillInvocationContract` and injects `-i <path>` flags into the `codex exec` argument list before the prompt.
+The concept images are outputs, not required inputs. Generate text-based SVG concept images so the CLI runner can write them directly to workspace artifacts and audit them through evidence.
 
 ## Inputs
 
 | Field | Source | Description |
 |-------|--------|-------------|
-| `imagePaths` | phase facts `Concept` value, resolved relative to workspace root | Concept image(s) to pass to the model via `-i` |
-| `sourcePaths` | HLD path, PRD path, feature index | Text-based context files read as workspace sources |
+| `sourcePaths` | PRD path, EARS requirements path, HLD path, feature index | Text-based product and architecture context |
 | `featureId` | payload | Target feature for the generated UI Spec |
-| `workspaceRoot` | project config | Workspace root used to resolve image paths |
+| `workspaceRoot` | project config | Workspace root used to read sources and write generated artifacts |
 
 ## Workflow
 
-1. Read the project HLD (`docs/zh-CN/hld.md`), PRD (`docs/zh-CN/PRD.md`), and feature index (`docs/features/README.md`) to understand product scope and active features.
-2. For each attached concept image, analyze the visual layout: identify pages/views, navigation structure, key components, data displayed, and user actions.
-3. Cross-reference the visual layout with HLD sections and active Feature Specs to ensure every page maps to a known requirement.
-4. Produce the UI Spec document covering:
+1. Read the project PRD (`docs/zh-CN/PRD.md`), EARS requirements (`docs/zh-CN/requirements.md`), HLD (`docs/zh-CN/hld.md`), and feature index (`docs/features/README.md`) to understand product scope, primary pages, requirements, and architecture boundaries.
+2. Derive the major page inventory from PRD user flows, requirements, HLD page list, and feature ownership. Do not invent pages that have no requirement or HLD support.
+3. Produce the UI Spec document covering:
    - **Page inventory**: list of all pages/views with purpose, route, and owning feature
    - **Component catalog**: reusable components with props and state contract
    - **Interaction flows**: user action → state transition → visual feedback per key flow
    - **View models**: data shape and field list each page requires from the API
    - **Responsive behavior**: desktop vs mobile layout differences
    - **Accessibility notes**: keyboard navigation, ARIA labels, focus management
-5. Write the output to `docs/features/<featureId>/ui-spec.md` (or `docs/ui/ui-spec.md` if no featureId).
-6. Include traceability to the requirements that each page satisfies.
+4. Generate one SVG concept image per major page under `docs/ui/concepts/<page-id>.svg`. Each SVG should show layout structure, navigation, key panels, primary actions, and the most important states. Keep the SVG legible and implementation-oriented rather than decorative.
+5. Write the UI Spec to `docs/features/<featureId>/ui-spec.md` when `featureId` is present, otherwise `docs/ui/ui-spec.md`.
+6. Include traceability from each page and concept image to the requirement IDs or HLD sections that justify it.
 
 ## Output
 
 - `docs/features/<featureId>/ui-spec.md` — structured UI Spec document
-- Evidence summary listing analyzed images, pages identified, and REQ coverage
+- `docs/ui/ui-spec.md` — project-level structured UI Spec document when no feature is selected
+- `docs/ui/concepts/<page-id>.svg` — generated major-page concept images
+- Evidence summary listing generated pages, generated concept image paths, and REQ coverage
 
 ## Example Skill Invocation Contract
 
@@ -59,13 +48,16 @@ The runner resolves the concept image path from the `imagePaths` field of the `S
   "projectId": "my-project",
   "workspaceRoot": "/workspace/my-project",
   "skillSlug": "ui-spec-skill",
-  "imagePaths": ["docs/ui/spec-workspace-prd-flow-concept.png"],
   "sourcePaths": [
     "docs/zh-CN/PRD.md",
+    "docs/zh-CN/requirements.md",
     "docs/zh-CN/hld.md",
     "docs/features/README.md"
   ],
-  "expectedArtifacts": ["docs/features/feat-013-product-console/ui-spec.md"],
+  "expectedArtifacts": [
+    "docs/ui/ui-spec.md",
+    "docs/ui/concepts/<page-id>.svg"
+  ],
   "traceability": {
     "featureId": "feat-013-product-console",
     "requirementIds": ["REQ-052", "REQ-053", "REQ-054"],
@@ -77,6 +69,6 @@ The runner resolves the concept image path from the `imagePaths` field of the `S
 
 ## Failure Routing
 
-- Use `clarification_needed` when no concept image is available and the HLD alone is insufficient to infer page structure.
-- Use `risk_review_needed` when the concept image shows pages or flows that have no corresponding requirement.
-- Use `blocked` when the image path cannot be resolved or the file does not exist at the workspace root.
+- Use `clarification_needed` when PRD, requirements, and HLD do not identify enough page or workflow information to derive major pages.
+- Use `risk_review_needed` when a requested page, flow, or concept image has no corresponding requirement or HLD support.
+- Use `blocked` when required source files cannot be resolved or read at the workspace root.

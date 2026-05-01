@@ -9,7 +9,7 @@ This is the design-named PRD-to-EARS conversion entry point.
 
 ## Workflow
 
-1. Locate the source PRD, product request, PR/RP, or feature brief. If no path is given, prefer existing files such as `docs/PRD.md`, `docs/en/PRD.md`, or language-specific PRD files.
+1. Locate the source PRD, product request, PR/RP, or feature brief. If no path is given, prefer the active localized lane first: `docs/zh-CN/PRD.md`, then `docs/en/PRD.md`, `docs/ja/PRD.md`, and only then legacy root files such as `docs/PRD.md`.
 2. Preserve the source language unless the user asks for another language.
 3. Extract product goals, non-goals, actors, user stories, functional requirements, non-functional requirements, risks, constraints, and unresolved questions.
 4. **Extract and prioritize user stories** before converting to EARS statements:
@@ -25,7 +25,7 @@ This is the design-named PRD-to-EARS conversion entry point.
 6. Keep each requirement atomic, observable, testable, and free of implementation choices unless the source states a hard constraint.
 7. Add traceability back to PRD sections or source bullets when possible.
 8. Surface gaps as open questions instead of inventing product intent.
-9. Write only the EARS requirements output directly to the requested file using normal file-edit/write tools. If the user does not specify a target, create or update `requirements.md` near the PRD or inside the relevant feature spec folder.
+9. Write only the EARS requirements output directly to the requested file using normal file-edit/write tools. If the user does not specify a target, create or update `docs/zh-CN/requirements.md` for project-level Chinese PRD intake, or `requirements.md` near the explicitly selected non-Chinese PRD / relevant feature spec folder.
 10. Do not split product scope into Feature Specs, create `docs/features/<feature-id>/` packages, update `docs/features/README.md`, or push anything into the Feature Spec Pool. Feature splitting belongs to `task-slicing-skill`.
 11. Treat `ARTIFACT: <relative-path>` evidence as a last-resort fallback only when direct file writes fail; do not use ARTIFACT evidence as the normal output path.
 
