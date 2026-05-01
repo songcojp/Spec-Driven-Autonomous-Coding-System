@@ -63,6 +63,15 @@ function readInitialProjectId(): string {
   return window.localStorage.getItem(projectStorageKey) ?? "project-1";
 }
 
+function readInitialView(): ViewKey {
+  if (typeof window === "undefined") {
+    return "overview";
+  }
+  const hash = window.location.hash.slice(1) as ViewKey;
+  const validKeys: ViewKey[] = ["overview", "board", "spec", "runner", "reviews", "settings"];
+  return validKeys.includes(hash) ? hash : "overview";
+}
+
 function bindProjects(data: Omit<ConsoleData, "projects"> | ConsoleData, projects: ProjectSummary[], currentProjectId: string): ConsoleData {
   return {
     ...data,
@@ -86,7 +95,7 @@ function mergeLoadedProjects(loadedProjects: ProjectSummary[], currentProjects: 
 }
 
 export function App() {
-  const [view, setView] = useState<ViewKey>("overview");
+  const [view, setView] = useState<ViewKey>(readInitialView);
   const [locale, setLocale] = useState<Locale>(readInitialLocale);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showChat, setShowChat] = useState(false);
@@ -108,6 +117,22 @@ export function App() {
     () => currentData.board.tasks.find((task) => task.id === selectedTaskId) ?? currentData.board.tasks[0],
     [currentData.board.tasks, selectedTaskId],
   );
+
+  useEffect(() => {
+    window.location.hash = view;
+  }, [view]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.slice(1) as ViewKey;
+      const validKeys: ViewKey[] = ["overview", "board", "spec", "runner", "reviews", "settings"];
+      if (validKeys.includes(hash)) {
+        setView(hash);
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
