@@ -137,10 +137,10 @@ function workflowStageAction(
         : stageKey === "split_feature_specs"
           ? "split_feature_specs"
           : stageKey === "feature_spec_pool"
-            ? "split_feature_specs"
-          : stageKey === "status_scheduling" || stageKey === "status_check"
-            ? "schedule_run"
-            : undefined;
+            ? "push_feature_spec_pool"
+            : stageKey === "status_scheduling" || stageKey === "status_check"
+              ? "schedule_run"
+              : undefined;
   }
   return undefined;
 }
@@ -268,6 +268,7 @@ function SpecPrdWorkflowPanel({
       { key: "generate_hld", action: "generate_hld", status: "pending" as const },
       { key: "generate_ui_spec", action: "generate_ui_spec", status: "pending" as const },
       { key: "split_feature_specs", action: "split_feature_specs", status: "pending" as const },
+      { key: "feature_spec_pool", action: "push_feature_spec_pool", status: "pending" as const },
       { key: "status_check", action: "schedule_run", status: "pending" as const },
     ],
   };
@@ -300,7 +301,8 @@ function SpecPrdWorkflowPanel({
       phaseKey === "feature_planning" &&
       selectedFeatureId &&
       action !== "generate_hld" &&
-      action !== "split_feature_specs"
+      action !== "split_feature_specs" &&
+      action !== "push_feature_spec_pool"
         ? "feature"
         : "project";
     const entityId = entityType === "feature" && selectedFeatureId ? selectedFeatureId : currentProject.id;
@@ -466,7 +468,8 @@ function SpecPrdWorkflowPanel({
                       Boolean(selectedFeatureId) ||
                       stageAction === "generate_hld" ||
                       stageAction === "generate_ui_spec" ||
-                      stageAction === "split_feature_specs");
+                      stageAction === "split_feature_specs" ||
+                      stageAction === "push_feature_spec_pool");
                   const isSpecSourceIntake =
                     phase.key === "requirement_intake" && stage.key === "spec_source_intake";
                   return (

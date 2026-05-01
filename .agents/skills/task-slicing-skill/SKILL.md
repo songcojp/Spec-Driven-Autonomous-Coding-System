@@ -26,6 +26,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 12. Assign expected files, allowed scope, required skill, subagent type, verification command, and done criteria.
 13. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`.
 14. Always create or update the feature index table at `docs/features/README.md`. The index table MUST strictly use the following format: `| Feature ID | Status | Name | Milestone | Dependencies |`. A tree-structured dependency graph (树状依赖关系图) MUST be included to visualize the feature dependencies. This file is required by the downstream coding, testing, review, and PR generation skills.
+15. Always create or update the machine-readable Feature Spec Pool queue plan at `docs/features/feature-pool-queue.json`. Code consumes this artifact to push Feature Specs into the Pool; do not rely on code parsing dependency prose from `README.md`.
 
 ## Feature Slicing Rules
 
@@ -42,6 +43,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 ## Output
 
 - Task graph or updated `tasks.md`, organized by user story phase (P1 → P2 → P3).
+- Feature Spec Pool queue plan at `docs/features/feature-pool-queue.json` with `features[]` entries containing `id`, `priority`, and `dependencies`.
 - User story to task mapping with independent-test checkpoint per story.
 - Dependencies and parallelism constraints.
 - Verification plan.

@@ -842,8 +842,174 @@ test("split Feature Specs dispatches task-slicing skill with PRD EARS HLD inputs
   assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/requirements.md"), true);
   assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/design.md"), true);
   assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/tasks.md"), true);
+  assert.equal(payload.expectedArtifacts.includes("docs/features/feature-pool-queue.json"), true);
   assert.equal(result.queries.runs[0].feature_id, null);
   assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "task-slicing-skill");
+});
+
+test("split Feature Specs preserves uploaded PRD source for task-slicing context", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-split-uploaded-lottery-"));
+  const uploadedSourcePath = ".autobuild/specs/uploads/lottery-prd.md";
+  mkdirSync(join(projectPath, ".autobuild", "specs", "uploads"), { recursive: true });
+  writeFileSync(
+    join(projectPath, uploadedSourcePath),
+    "# Lottery PRD\n\nThe system shall manage lottery tickets from uploaded product notes.",
+    "utf8",
+  );
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "split_feature_specs",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Split uploaded Lottery PRD into Feature Spec packages.",
+    payload: {
+      sourcePath: uploadedSourcePath,
+      resolvedSourcePath: join(projectPath, uploadedSourcePath),
+    },
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+  ]);
+  const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(payload.skillSlug, "task-slicing-skill");
+  assert.equal(payload.sourcePaths[0], uploadedSourcePath);
+  assert.equal(payload.sourcePaths.includes(".autobuild/specs/uploads/requirements.md"), true);
+  assert.equal(payload.sourcePaths.includes("docs/PRD.md"), true);
+});
+
+test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-"));
+  mkdirSync(join(projectPath, "docs", "features", "feat-001-ticket-capture"), { recursive: true });
+  mkdirSync(join(projectPath, "docs", "features", "feat-002-ticket-scan"), { recursive: true });
+  writeFileSync(
+    join(projectPath, "docs", "features", "README.md"),
+    [
+      "| Feature ID | Status | Name | Milestone | Dependencies |",
+      "| --- | --- | --- | --- | --- |",
+      "| FEAT-001 | ready | Ticket Capture | M1 | - |",
+      "| FEAT-002 | ready | Ticket Scan | M1 | FEAT-001 |",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(
+    join(projectPath, "docs", "features", "feature-pool-queue.json"),
+    JSON.stringify({
+      features: [
+        { id: "FEAT-001", priority: 20, dependencies: [] },
+        { id: "FEAT-002", priority: 10, dependencies: ["FEAT-001"] },
+      ],
+    }, null, 2),
+    "utf8",
+  );
+  writeFileSync(
+    join(projectPath, "docs", "features", "feat-001-ticket-capture", "requirements.md"),
+    "# Feature Spec: FEAT-001 Ticket Capture\n\n- REQ-LOT-001: The system shall save lottery ticket records.",
+    "utf8",
+  );
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "tasks.md"), "# Tasks\n", "utf8");
+  writeFileSync(
+    join(projectPath, "docs", "features", "feat-002-ticket-scan", "requirements.md"),
+    "# Feature Spec: FEAT-002 Ticket Scan\n\n- REQ-LOT-002: The system shall scan lottery ticket images.",
+    "utf8",
+  );
+  writeFileSync(join(projectPath, "docs", "features", "feat-002-ticket-scan", "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(projectPath, "docs", "features", "feat-002-ticket-scan", "tasks.md"), "# Tasks\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM runs" },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "push_feature_spec_pool",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Push split Feature Specs into the pool.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "features", sql: "SELECT id, status, priority, dependencies_json, primary_requirements_json FROM features WHERE project_id = 'project-1' ORDER BY id" },
+    { name: "jobs", sql: "SELECT job_type, queue_name, target_type, target_id, status FROM scheduler_job_records ORDER BY rowid DESC LIMIT 1" },
+    { name: "runs", sql: "SELECT id FROM runs" },
+  ]);
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.runId, undefined);
+  assert.equal(receipt.scheduleTriggerId?.length > 0, true);
+  assert.equal(receipt.schedulerJobId?.length > 0, true);
+  assert.deepEqual(result.queries.features.map((row) => [
+    row.id,
+    row.status,
+    JSON.parse(String(row.dependencies_json)),
+    JSON.parse(String(row.primary_requirements_json)),
+  ]), [
+    ["FEAT-001", "ready", [], ["REQ-LOT-001"]],
+    ["FEAT-002", "ready", ["FEAT-001"], ["REQ-LOT-002"]],
+  ]);
+  assert.equal(Number(result.queries.features[0].priority) > Number(result.queries.features[1].priority), true);
+  assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.target_type, row.target_id, row.status]), [
+    ["feature.select", "specdrive:feature-scheduler", "project", "project-1", "queued"],
+  ]);
+  assert.deepEqual(result.queries.runs, []);
+});
+
+test("push Feature Spec Pool blocks when the skill queue plan is missing", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-missing-plan-"));
+  mkdirSync(join(projectPath, "docs", "features", "feat-001-ticket-capture"), { recursive: true });
+  writeFileSync(
+    join(projectPath, "docs", "features", "feat-001-ticket-capture", "requirements.md"),
+    "# Feature Spec: FEAT-001 Ticket Capture\n\n- REQ-LOT-001: The system shall save lottery ticket records.",
+    "utf8",
+  );
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "tasks.md"), "# Tasks\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "push_feature_spec_pool",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Push split Feature Specs into the pool.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "features", sql: "SELECT id FROM features WHERE project_id = 'project-1'" },
+    { name: "jobs", sql: "SELECT id FROM scheduler_job_records WHERE job_type = 'feature.select'" },
+  ]);
+
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.blockedReasons?.some((reason) => reason.includes("feature-pool-queue.json")), true);
+  assert.deepEqual(result.queries.features, []);
+  assert.deepEqual(result.queries.jobs, []);
 });
 
 test("generate UI Spec dispatches the UI spec skill from project-level Spec Workspace actions", () => {

@@ -52,6 +52,7 @@ export type ConsoleCommandAction =
   | "generate_hld"
   | "generate_ui_spec"
   | "split_feature_specs"
+  | "push_feature_spec_pool"
   | "pause_runner"
   | "resume_runner"
   | "approve_review"
@@ -84,6 +85,7 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "generate_hld",
   "generate_ui_spec",
   "split_feature_specs",
+  "push_feature_spec_pool",
   "pause_runner",
   "resume_runner",
   "approve_review",
@@ -284,6 +286,11 @@ export type SpecWorkspaceViewModel = {
 };
 
 type SpecWorkspaceFeatureListItem = SpecWorkspaceViewModel["features"][number];
+type FeaturePoolQueuePlanEntry = {
+  id: string;
+  priority: number;
+  dependencies: string[];
+};
 
 function listFeatureSpecsFromDocs(
   projectPath: string,
@@ -348,6 +355,48 @@ function featureStatusFromDocs(projectPath: string, folder: string): string {
   if (existsSync(join(featureDir, "tasks.md"))) return "ready";
   if (existsSync(join(featureDir, "design.md"))) return "planning";
   return "draft";
+}
+
+function readFeaturePoolQueuePlan(projectPath: string): { path: string; entries: FeaturePoolQueuePlanEntry[]; blockedReasons: string[] } {
+  const relativePath = "docs/features/feature-pool-queue.json";
+  const fullPath = join(projectPath, relativePath);
+  if (!existsSync(fullPath)) {
+    return {
+      path: relativePath,
+      entries: [],
+      blockedReasons: [`Feature Spec Pool queue plan is required before pushing to the pool: ${relativePath}`],
+    };
+  }
+
+  try {
+    const parsed = parseJsonObject(readFileSync(fullPath, "utf8"));
+    const rawEntries = arrayValue(parsed.features).length > 0 ? arrayValue(parsed.features) : arrayValue(parsed.queue);
+    const entries = rawEntries.map((entry, index) => {
+      const record = parseJsonObject(entry);
+      const id = optionalString(record.id)?.toUpperCase() ?? "";
+      return {
+        id,
+        priority: Number(record.priority ?? rawEntries.length - index),
+        dependencies: optionalStringArray(record.dependencies).map((dependency) => dependency.toUpperCase()),
+      };
+    });
+    const blockedReasons = entries.flatMap((entry, index) => {
+      const reasons: string[] = [];
+      if (!/^FEAT-[A-Z0-9-]+$/.test(entry.id)) reasons.push(`Queue plan entry ${index + 1} is missing a valid FEAT-* id.`);
+      if (!Number.isFinite(entry.priority)) reasons.push(`Queue plan entry ${entry.id || index + 1} has an invalid priority.`);
+      return reasons;
+    });
+    if (entries.length === 0) {
+      blockedReasons.push(`Feature Spec Pool queue plan has no features: ${relativePath}`);
+    }
+    return { path: relativePath, entries, blockedReasons };
+  } catch (error) {
+    return {
+      path: relativePath,
+      entries: [],
+      blockedReasons: [`Feature Spec Pool queue plan is invalid: ${error instanceof Error ? error.message : String(error)}`],
+    };
+  }
 }
 
 export type RunnerConsoleViewModel = {
@@ -981,6 +1030,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
           'console_command_generate_hld',
           'console_command_generate_ui_spec',
           'console_command_split_feature_specs',
+          'console_command_push_feature_spec_pool',
           'console_command_schedule_run'
         )
         AND (
@@ -1064,6 +1114,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       { action: "scan_prd_source", entityType: "project" },
       { action: "upload_prd_source", entityType: "project" },
       { action: "generate_ears", entityType: "project" },
+      { action: "push_feature_spec_pool", entityType: "project" },
       { action: "schedule_run", entityType: "project" },
       { action: "schedule_run", entityType: "feature" },
     ],
@@ -1272,7 +1323,15 @@ function buildPrdWorkflow(input: {
     },
     {
       key: "feature_spec_pool",
-      status: input.features.some((feature) => feature.status === "ready") ? "completed" as const : input.features.length > 0 ? "accepted" as const : "pending" as const,
+      action: "push_feature_spec_pool",
+      status: latestByAction.has("push_feature_spec_pool")
+        ? "accepted" as const
+        : input.features.some((feature) => feature.status === "ready")
+          ? "completed" as const
+          : input.features.length > 0
+            ? "accepted" as const
+            : "pending" as const,
+      updatedAt: optionalString(latestByAction.get("push_feature_spec_pool")?.created_at),
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
   const planningBlockedReasons = intakePhaseStatus === "blocked"
@@ -1918,12 +1977,14 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const projectInitializationResult = executeProjectInitializationCommand(dbPath, input);
   const specIntakeResult = executeSpecIntakeCommand(dbPath, input, acceptedAt);
   const specSkillResult = executeSpecSkillCommand(dbPath, input, acceptedAt, scheduler, specIntakeResult);
+  const specPoolResult = executeFeatureSpecPoolCommand(dbPath, input, acceptedAt, scheduler);
   const blockedReasons = [
     ...boardValidation.blockedReasons,
     ...(settingsValidation?.blockedReasons ?? []),
     ...(boardResult?.blockedReasons ?? []),
     ...(projectInitializationResult?.blockedReasons ?? []),
     ...(specIntakeResult?.blockedReasons ?? []),
+    ...(specPoolResult?.blockedReasons ?? []),
   ];
   const auditEventId = recordAuditEvent(dbPath, {
     entityType,
@@ -1939,8 +2000,9 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
       projectInitialization: projectInitializationResult,
       specIntake: specIntakeResult,
       specSkill: specSkillResult,
+      specPool: specPoolResult,
       scheduleTriggerId: scheduleResult?.triggerId,
-      schedulerJobId: scheduleResult?.schedulerJobId,
+      schedulerJobId: scheduleResult?.schedulerJobId ?? specPoolResult?.schedulerJobId,
       schedulerJobIds: boardResult?.schedulerJobIds,
       boardValidation,
       boardResult,
@@ -1959,8 +2021,8 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     acceptedAt,
     approvalRecordId: approvalRecord?.id,
     featureId: optionalString(specIntakeResult?.featureId),
-    scheduleTriggerId: scheduleResult?.triggerId,
-    schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId,
+    scheduleTriggerId: scheduleResult?.triggerId ?? specPoolResult?.scheduleTriggerId,
+    schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId ?? specPoolResult?.schedulerJobId,
     schedulerJobIds: boardResult?.schedulerJobIds,
     runId: specSkillResult?.runId,
     runIds: boardResult?.runIds,
@@ -2136,6 +2198,108 @@ function executeScheduleCommand(
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId };
 }
 
+function executeFeatureSpecPoolCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+  scheduler: SchedulerClient,
+): { featureIds: string[]; scheduleTriggerId?: string; schedulerJobId?: string; blockedReasons: string[] } | undefined {
+  if (input.action !== "push_feature_spec_pool") {
+    return undefined;
+  }
+  if (input.entityType !== "project") {
+    return { featureIds: [], blockedReasons: ["Feature Spec Pool commands require a project entity."] };
+  }
+  const project = getProject(dbPath, input.entityId);
+  if (!project) {
+    return { featureIds: [], blockedReasons: [`Project not found: ${input.entityId}`] };
+  }
+  if (!project.targetRepoPath) {
+    return { featureIds: [], blockedReasons: ["Project repository path is required before pushing Feature Specs into the pool."] };
+  }
+
+  const docsFeatures = listFeatureSpecsFromDocs(project.targetRepoPath, []);
+  if (docsFeatures.length === 0) {
+    return { featureIds: [], blockedReasons: ["No completed Feature Spec packages found under docs/features."] };
+  }
+
+  const queuePlan = readFeaturePoolQueuePlan(project.targetRepoPath);
+  if (queuePlan.blockedReasons.length > 0) {
+    return { featureIds: [], blockedReasons: queuePlan.blockedReasons };
+  }
+  const docsById = new Map(docsFeatures.map((feature) => [feature.id, feature]));
+  const featureIds = queuePlan.entries.map((entry) => entry.id);
+  const missingPlannedFeatures = featureIds.filter((featureId) => !docsById.has(featureId));
+  if (missingPlannedFeatures.length > 0) {
+    return {
+      featureIds: [],
+      blockedReasons: [`Feature Spec Pool queue plan references missing Feature Specs: ${missingPlannedFeatures.join(", ")}.`],
+    };
+  }
+  const missingDependencies = queuePlan.entries
+    .flatMap((entry) => entry.dependencies.filter((dependency) => !featureIds.includes(dependency)).map((dependency) => `${entry.id}->${dependency}`));
+  if (missingDependencies.length > 0) {
+    return {
+      featureIds: [],
+      blockedReasons: [`Feature Spec Pool queue plan references missing dependencies: ${missingDependencies.join(", ")}.`],
+    };
+  }
+  runSqlite(dbPath, queuePlan.entries.map((entry) => {
+    const feature = docsById.get(entry.id)!;
+    return {
+    sql: `INSERT INTO features (
+        id, project_id, title, status, priority, folder, primary_requirements_json, dependencies_json, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        project_id = excluded.project_id,
+        title = excluded.title,
+        status = excluded.status,
+        priority = excluded.priority,
+        folder = excluded.folder,
+        primary_requirements_json = excluded.primary_requirements_json,
+        dependencies_json = excluded.dependencies_json,
+        updated_at = excluded.updated_at`,
+    params: [
+      feature.id,
+      project.id,
+      feature.title,
+      feature.status === "draft" ? "draft" : "ready",
+      entry.priority,
+      feature.folder ?? feature.id.toLowerCase(),
+      JSON.stringify(feature.primaryRequirements),
+      JSON.stringify(entry.dependencies),
+      acceptedAt,
+    ],
+    };
+  }));
+
+  const trigger = persistScheduleTrigger(
+    dbPath,
+    createScheduleTrigger({
+      projectId: project.id,
+      mode: "manual",
+      requestedFor: acceptedAt,
+      source: "product_console",
+      target: { type: "project", id: project.id },
+      boundaryEvidence: [queuePlan.path],
+      now: new Date(acceptedAt),
+    }),
+  );
+  if (trigger.result !== "accepted") {
+    return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: [] };
+  }
+  const job = scheduler.enqueueFeatureSelect({
+    triggerId: trigger.id,
+    projectId: trigger.projectId,
+    target: trigger.target,
+    mode: trigger.mode,
+    requestedFor: trigger.requestedFor,
+    createdAt: acceptedAt,
+  });
+  return { featureIds, scheduleTriggerId: trigger.id, schedulerJobId: job.schedulerJobId, blockedReasons: [] };
+}
+
 function executeSpecSkillCommand(
   dbPath: string,
   input: ConsoleCommandInput,
@@ -2164,7 +2328,7 @@ function executeSpecSkillCommand(
       ?? (input.entityType === "feature" ? input.entityId : undefined);
   const runId = randomUUID();
   const skillSlug = skillSlugForSpecAction(input.action);
-  const sourcePaths = sourcePathsForSpecAction(input.action, payload, featureId);
+  const sourcePaths = sourcePathsForSpecAction(input.action, payload, featureId, project.targetRepoPath);
   const imagePaths = imagePathsForSpecAction(input.action, payload);
   const expectedArtifacts = expectedArtifactsForSpecAction(input.action, featureId, sourcePaths, project.targetRepoPath);
   runSqlite(dbPath, [
@@ -2211,14 +2375,25 @@ function skillSlugForSpecAction(action: ConsoleCommandAction): string {
   return "task-slicing-skill";
 }
 
-function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<string, unknown>, featureId?: string): string[] {
+function sourcePathsForSpecAction(
+  action: ConsoleCommandAction,
+  payload: Record<string, unknown>,
+  featureId?: string,
+  workspaceRoot?: string,
+): string[] {
   const requested = optionalStringArray(payload.sourcePaths);
   if (requested.length > 0) return requested;
+  const payloadSourcePath = workspaceRelativeSourcePath(
+    optionalString(payload.sourcePath),
+    optionalString(payload.resolvedSourcePath),
+    workspaceRoot,
+  );
   if (action === "generate_ears") {
-    return [optionalString(payload.sourcePath) ?? "docs/zh-CN/PRD.md"];
+    return [payloadSourcePath ?? "docs/zh-CN/PRD.md"];
   }
   if (action === "split_feature_specs") {
-    return [
+    return uniqueSourcePaths([
+      ...(payloadSourcePath ? [payloadSourcePath, requirementsArtifactForSource(payloadSourcePath, workspaceRoot)] : []),
       "docs/PRD.md",
       "docs/zh-CN/PRD.md",
       "docs/en/PRD.md",
@@ -2229,7 +2404,7 @@ function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<
       "docs/zh-CN/hld.md",
       "docs/en/hld.md",
       "docs/features/README.md",
-    ];
+    ]);
   }
   if (action === "generate_ui_spec") {
     return [
@@ -2246,6 +2421,25 @@ function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<
     "docs/zh-CN/hld.md",
     ...(featureId ? [`docs/features/${featureId}/requirements.md`] : []),
   ];
+}
+
+function uniqueSourcePaths(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
+function workspaceRelativeSourcePath(sourcePath?: string, resolvedSourcePath?: string, workspaceRoot?: string): string | undefined {
+  const candidates = [sourcePath, resolvedSourcePath];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const relativeSource = isAbsolute(candidate) && workspaceRoot
+      ? relative(workspaceRoot, candidate)
+      : candidate;
+    if (!relativeSource || relativeSource.startsWith("..") || isAbsolute(relativeSource)) {
+      continue;
+    }
+    return relativeSource.replaceAll("\\", "/");
+  }
+  return undefined;
 }
 
 function imagePathsForSpecAction(action: ConsoleCommandAction, payload: Record<string, unknown>): string[] | undefined {
@@ -2269,6 +2463,7 @@ function expectedArtifactsForSpecAction(
       "docs/features/<feature-id>/requirements.md",
       "docs/features/<feature-id>/design.md",
       "docs/features/<feature-id>/tasks.md",
+      "docs/features/feature-pool-queue.json",
     ];
   }
   if (action === "generate_hld") {

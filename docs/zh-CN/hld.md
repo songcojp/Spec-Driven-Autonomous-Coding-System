@@ -597,7 +597,8 @@ flowchart TD
 | EARS 需求拆解 | 用户上传 PRD / Spec Sources 扫描 | **Skill** | PRD / 自然语言需求 | EARS Requirements（`requirements.md`） | `pr-ears-requirement-decomposition-skill` |
 | HLD 生成 | EARS 完成后手动或受控命令触发 | **Skill**（内容）+ **Code**（artifact 落地） | PRD + EARS Requirements | HLD 文档（`docs/zh-CN/hld.md`）+ **一级页面清单** | `create-project-hld` |
 | UI Spec + 主要页面概念图 | HLD 完成后触发（含 UI 的产品） | **Skill** | PRD + EARS Requirements + HLD + 一级页面清单 | UI Spec 文档（`docs/ui/ui-spec.md` 或 Feature 级 `ui-spec.md`）+ 主要页面概念图（`docs/ui/concepts/*.svg`） | `ui-spec-skill` |
-| Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill**（拆解）+ **Code**（Feature 记录写入 SQLite） | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`）→ Feature Spec Pool | `task-slicing-skill`（Feature 级） |
+| Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill** | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`） | `task-slicing-skill`（Feature 级） |
+| 推入 Feature Spec Pool | Feature Spec 拆分完成后触发 | **Code** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` | SQLite Feature 候选记录 + BullMQ `feature.select` 调度队列 | — |
 | 需求质量检查 | Feature Spec 创建后 | **Skill** | Feature Spec requirements.md | 通过 → `ready`；歧义 → ClarificationLog + `draft` | `requirements-checklist-skill`、`ambiguity-clarification-skill` |
 | per-Feature 规划 | feature.plan job（Project Scheduler） | **Skill**（内容，bridge 可用时）| Feature Spec requirements / design | Technical Plan、Data Model、Contracts、`spec-consistency-analysis` 报告 | 7-skill 规划流水线 |
 | Task Graph 生成 | 规划流水线完成 | **Skill**（分解）+ **Code**（TaskGraph 写入） | Technical Plan + Contracts | TaskGraph（SQLite）+ 看板任务卡 | `task-slicing-skill`（Task 级） |
@@ -779,7 +780,8 @@ Decomposition rules:
 | Spec 来源扫描与上传 | **Skill** | `repo-probe-skill`；CLI 已提供文件读取机制。Product Console 在同一个阶段内步骤中显示“扫描”和“上传”两个动作。 |
 | 识别需求格式 | **Skill** | LLM 分类推理，是 `pr-ears-requirement-decomposition-skill` 前置步骤 |
 | 生成 EARS | **Skill** | `pr-ears-requirement-decomposition-skill` 只生成 EARS requirements 文档，不拆分 Feature Spec、不写入 Feature Spec Pool |
-| Feature Spec 拆分 | **Skill**（拆解）+ **Code**（Feature 记录写入） | `task-slicing-skill` 负责拆分 Feature Spec；SQLite 记录 Feature 存在是 Code |
+| Feature Spec 拆分 | **Skill** | `task-slicing-skill` 只负责生成或更新 `docs/features/*` Feature Spec 文档，不负责推入 Pool |
+| 推入 Feature Spec Pool | **Code** | Product Console 读取已拆分 Feature Spec 和 Skill 产出的 `feature-pool-queue.json`，按规划结果写入 SQLite Feature 候选并创建调度队列 |
 | 完成关键澄清 | **Skill** | `ambiguity-clarification-skill` |
 | 需求质量检查 | **Skill** | `requirements-checklist-skill` |
 | Feature 状态 → `ready` | **Code** | 状态迁移必须强制、持久化、可审计；CLI 无法保证 |

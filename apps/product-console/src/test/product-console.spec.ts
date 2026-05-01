@@ -393,6 +393,7 @@ async function installConsoleRoutes(page: Page) {
       "generate_hld",
       "generate_ui_spec",
       "split_feature_specs",
+      "push_feature_spec_pool",
     ]);
     const accepted = body.action === "create_project" || workflowActions.has(body.action);
     await route.fulfill({
