@@ -19,7 +19,7 @@ Read the available project-level sources:
 
 ## Workflow
 
-1. Identify the product scope, MVP boundaries, and current requirement set.
+1. Identify the product scope, phase boundaries, and current requirement set.
 2. Confirm the technology stack from repository evidence. If a decision cannot be made from sources, mark it as `TBD` with the exact missing decision.
 3. Preserve project-level architecture boundaries: subsystems, data domains, integration strategy, workflows, security, observability, deployment, testing strategy, and feature decomposition guidance.
 4. Keep feature-specific implementation details out of the project HLD. Route feature API fields, component internals, and task-level details to feature specs instead.
@@ -35,7 +35,7 @@ Read the available project-level sources:
    - Title, document version, status, source documents, and optional note about deprecated or superseded design documents.
    - New documents use `版本：V1.0`; regenerated documents preserve or intentionally bump the existing version.
 2. Overview
-   - Product purpose, operating model, MVP boundaries, and the role of this HLD.
+   - Product purpose, operating model, phase boundaries, and the role of this HLD.
 3. Goals and Non-Goals
    - Clear product/technical goals and explicit out-of-scope items.
 4. Requirement Coverage
@@ -46,6 +46,7 @@ Read the available project-level sources:
    - First, determine the primary application type (e.g., Mobile, Web, CLI, Backend).
    - Let your judgment determine the most appropriate architecture pattern and technology stack tailored to that specific type.
    - Define concrete stack decisions based on your architectural judgment.
+   - Include the Project Initialization strategy (项目初始化设计), specifying scaffolding tools, base frameworks, directory structure, and environment setup commands.
    - Do not write "implementation layer decides" when repository or PRD evidence is enough to choose. If evidence is missing, write `TBD` with the missing decision.
 7. Architecture Overview
    - Describe the major layers/components based on the chosen application type and how they interact.
@@ -92,7 +93,7 @@ Use these patterns when the source documents support them. They are reusable HLD
 - Cross-Feature Workflows should include state lifecycles such as `draft -> confirmed -> queued -> completed` when the product has durable states, and should identify manual override or retry entry points.
 - Security, Privacy, and Governance should capture local-first/default-local handling, minimized upload or sharing, configurable external providers, sensitive artifact treatment, and audit requirements when applicable.
 - Observability and Operability should identify the measurements that prove the architecture works, such as processing latency, provider choice, retry counts, failure reasons, external-source freshness, status changes, and notification outcomes.
-- Deployment and Runtime Topology should include release strategy, adapter/provider replacement boundaries, offline/online expectations, and MVP-versus-later rollout boundaries.
+- Deployment and Runtime Topology should include release strategy, adapter/provider replacement boundaries, offline/online expectations, and current-versus-later rollout boundaries.
 - Testing and Quality Strategy should tie key risks to verification: validation rules, state transitions, provider failures, retry behavior, privacy boundaries, performance baselines, and manual confirmation flows.
 - Feature Spec Decomposition Guidance should propose implementation priority based on dependency order. Prefer a general order of foundation/setup, intake/input, validation/normalization, persistence/state, orchestration/integration, UI/notification, then advanced management or analysis surfaces; adapt this order to the product and repository evidence.
 - Risks, Tradeoffs, and Open Questions should pair each risk with a mitigation, such as configurable templates/rules, provider fallback, exponential backoff, cached last-known-good data, local-first privacy, or clock/source reconciliation.
@@ -106,7 +107,7 @@ Use these patterns when the source documents support them. They are reusable HLD
 - The HLD must include concept-level entity and interface/event inventories when the product has durable records, external integrations, or workflow transitions.
 - The HLD must include a primary page/surface inventory when downstream UI Spec generation needs page or workflow-screen inputs.
 - The HLD must include module-specific constraints and risk mitigations, not only module names.
-- The HLD must describe runtime/deployment and test strategy, even for a local-first MVP.
+- The HLD must describe runtime/deployment and test strategy, even for a local-first application.
 - The HLD must preserve existing valid architecture decisions during regeneration and explicitly call out superseded or stale content instead of silently dropping it.
 - Avoid weak placeholders such as "具体技术栈由实现层决定" when source documents or repository facts can support a decision.
 

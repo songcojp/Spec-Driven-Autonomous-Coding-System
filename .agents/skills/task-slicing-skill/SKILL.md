@@ -25,7 +25,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 11. Create tasks that are independently reviewable, ordered by dependency, and tied to requirement IDs.
 12. Assign expected files, allowed scope, required skill, subagent type, verification command, and done criteria.
 13. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`.
-14. Always create or update the feature index table at `docs/features/README.md`. Each row must include at minimum: Feature ID, Name, Status (`pending`), Milestone, and Dependencies. This file is required by the downstream coding, testing, review, and PR generation skills.
+14. Always create or update the feature index table at `docs/features/README.md`. The index table MUST strictly use the following format: `| Feature ID | Status | Name | Milestone | Dependencies |`. A tree-structured dependency graph (树状依赖关系图) MUST be included to visualize the feature dependencies. This file is required by the downstream coding, testing, review, and PR generation skills.
 
 ## Feature Slicing Rules
 
@@ -37,7 +37,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 - Mark blocked or ambiguous features with open questions instead of hiding uncertainty.
 - UI-bearing feature tasks must include visible pages or routes, data-bound components, loading/empty/error states, user action controls, and browser-level verification such as Playwright or equivalent runtime checks.
 - API, ViewModel, schema, or unit-test tasks may support a UI-bearing feature, but they must not be the only completion tasks unless the feature explicitly says it is backend-only.
-- Each P1 story phase must be completable and demoed without any P2/P3 tasks being done. An implementation that stops after P1 must still be a valid MVP.
+- Each P1 story phase must be completable and demoed without any P2/P3 tasks being done. An implementation that stops after P1 must still be a valid, usable baseline.
 
 ## Output
 

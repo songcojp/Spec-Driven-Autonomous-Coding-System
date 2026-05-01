@@ -61,7 +61,7 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
   "traceability": {
     "featureId": "feat-013-product-console",
     "requirementIds": ["REQ-052", "REQ-053", "REQ-054"],
-    "changeIds": ["CHG-016"]
+    "changeIds": ["CHG-001"]
   },
   "requestedAction": "generate_ui_spec"
 }

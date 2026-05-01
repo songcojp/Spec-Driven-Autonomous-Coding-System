@@ -31,6 +31,7 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
    - Functional behavior -> `REQ-*`.
    - Non-functional quality, security, reliability, observability, or performance -> `NFR-*`.
    - Error, boundary, recovery, ambiguity, or exceptional path -> `EDGE-*`.
+   - Project Initialization (项目初始化) -> `NFR-*` or foundational `REQ-*`, capturing scaffolding, frameworks, and environment setup.
 5. Update the PRD first when the new requirement changes product scope, user value, milestones, risks, data model, page surface, or non-goals. Keep the PRD concise and conclusion-first.
 6. Update the adjacent `requirements.md` next. Add a stable ID, source trace, priority, EARS statement, and testable acceptance checks.
 7. Run a consistency pass:
@@ -42,7 +43,7 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
    - If it belongs to an existing feature, update that feature's `requirements.md`, `design.md`, and `tasks.md`.
    - If it is independently deliverable, create a new feature folder and update `docs/features/README.md`.
    - Keep dependencies, milestone, status, and source `REQ-*`/`NFR-*`/`EDGE-*` mapping aligned.
-10. Re-check downstream references: traceability matrix, MVP mapping, feature index, HLD split/dependency mapping, and open questions.
+10. Re-check downstream references: traceability matrix, phase mapping, feature index, HLD split/dependency mapping, and open questions.
 
 ## Versioning
 

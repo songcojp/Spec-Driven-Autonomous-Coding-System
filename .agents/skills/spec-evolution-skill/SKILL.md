@@ -40,7 +40,7 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
 5. For Spec Evolution, record the evidence source in the changed doc. Include impact scope and affected IDs.
 6. Update documents in order:
    - PRD for product scope, source intent, non-goals, milestones, risks, page surfaces, or data model changes.
-   - `requirements.md` for EARS statements, acceptance checks, priorities, traceability matrix, MVP mapping, and open questions.
+   - `requirements.md` for EARS statements, acceptance checks, priorities, traceability matrix, phase mapping, and open questions.
    - `hld.md` or `design.md` when system boundaries, data domains, interfaces, state machines, technology stack, or risks change.
    - Feature Specs when the change affects executable feature scope, dependencies, tasks, or acceptance.
 7. Preserve existing IDs when the requirement is semantically the same. Mark deprecated or superseded requirements explicitly when replacement is necessary; do not silently reuse an old ID for a different behavior.

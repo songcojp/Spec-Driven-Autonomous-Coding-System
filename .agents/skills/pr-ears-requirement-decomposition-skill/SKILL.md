@@ -11,11 +11,12 @@ This is the design-named PRD-to-EARS conversion entry point.
 
 1. Locate the source PRD, product request, PR/RP, or feature brief. If no path is given, prefer the active localized lane first: `docs/zh-CN/PRD.md`, then `docs/en/PRD.md`, `docs/ja/PRD.md`, and only then legacy root files such as `docs/PRD.md`.
 2. Preserve the source language unless the user asks for another language.
-3. Extract product goals, non-goals, actors, user stories, functional requirements, non-functional requirements, risks, constraints, and unresolved questions.
+3. Extract product goals, non-goals, actors, user stories, functional requirements, non-functional requirements, risks, constraints, and unresolved questions. Ensure Project Initialization (项目初始化) is extracted as a distinct baseline requirement.
 4. **Extract and prioritize user stories** before converting to EARS statements:
    - Identify each distinct user journey or independently deliverable capability from the PRD.
-   - Assign a priority level: `P1` (MVP—must ship), `P2` (important—should ship), `P3` (nice to have).
+   - Assign a priority level: `P1` (Core—must ship), `P2` (important—should ship), `P3` (nice to have).
    - Verify each user story is independently testable and delivers standalone value.
+   - Include a foundational user story or requirement for Project Initialization (项目初始化) (e.g., scaffolding, environment setup, base dependencies) if not explicitly present.
    - Record stories as `US-001`, `US-002`, ... with title, actor, goal, and priority.
 5. Convert observable behavior into EARS statements using stable IDs:
    - `REQ-001`, `REQ-002`, ... for functional requirements.
