@@ -19,6 +19,7 @@ import {
   processRunnerQueueItem,
   recordRunnerHeartbeat,
   redactLog,
+  renderCliAdapterCommand,
   resolveRunnerPolicy,
   runCodexCli,
   runDueRecoveryDispatches,
@@ -462,6 +463,27 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
     "--output-schema",
     "/tmp/runner-output.schema.json",
   ]);
+});
+
+test("Codex CLI adapter terminates variadic image arguments before prompt", () => {
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-IMAGE-PROMPT",
+    risk: "low",
+    workspaceRoot: makeWorkspacePath(),
+    now: stableDate,
+  });
+
+  const rendered = renderCliAdapterCommand({
+    policy,
+    prompt: "Generate UI Spec from the attached concept image",
+    outputSchemaPath: "/tmp/runner-output.schema.json",
+    imagePaths: ["docs/ui/spec-workspace-prd-flow-concept.png"],
+  });
+
+  const imageIndex = rendered.args.indexOf("-i");
+  assert.equal(rendered.args[imageIndex + 1], "docs/ui/spec-workspace-prd-flow-concept.png");
+  assert.equal(rendered.args[imageIndex + 2], "--");
+  assert.equal(rendered.args[imageIndex + 3], "Generate UI Spec from the attached concept image");
 });
 
 test("Codex CLI adapter closes child stdin for non-interactive runner commands", { timeout: 5000 }, async () => {

@@ -648,10 +648,10 @@ export function renderCliAdapterCommand(input: {
   if (rendered.some((arg) => /{{[^}]+}}/.test(arg))) {
     throw new Error("CLI Adapter command contains unresolved template variables");
   }
-  // Inject -i <path> flags before the prompt (last positional argument) for image model support.
+  // Terminate the variadic --image values so the final positional prompt is not consumed as another image path.
   const imageFlags: string[] = (input.imagePaths ?? []).flatMap((p) => ["-i", p]);
   const args = imageFlags.length
-    ? [...rendered.slice(0, -1), ...imageFlags, rendered[rendered.length - 1]]
+    ? [...rendered.slice(0, -1), ...imageFlags, "--", rendered[rendered.length - 1]]
     : rendered;
   return { command: config.executable, args };
 }
@@ -1957,7 +1957,7 @@ function isSafeExpectedArtifactPath(value: string): boolean {
     (normalized.startsWith("docs/") || normalized.startsWith(".autobuild/evidence/"));
 }
 
-function runCommand(
+export function runCommand(
   command: string,
   args: string[],
   cwd: string,

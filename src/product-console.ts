@@ -1328,7 +1328,7 @@ function buildPrdWorkflow(input: {
           { label: "Feature", value: input.selectedFeatureId ?? "Not selected" },
           { label: "Status", value: input.selectedFeatureStatus ?? "unknown" },
           { label: "Command", value: "schedule_run" },
-          { label: "Concept", value: "docs/ui/spec-workspace-prd-flow-concept.png" },
+          { label: "UI outputs", value: "docs/ui/ui-spec.md + docs/ui/concepts/*.svg" },
         ],
         stages: planningActionStages,
       },
@@ -2234,6 +2234,7 @@ function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<
   if (action === "generate_ui_spec") {
     return [
       "docs/zh-CN/PRD.md",
+      "docs/zh-CN/requirements.md",
       "docs/zh-CN/hld.md",
       "docs/features/README.md",
       ...(featureId ? [`docs/features/${featureId}/requirements.md`] : []),
@@ -2250,9 +2251,6 @@ function sourcePathsForSpecAction(action: ConsoleCommandAction, payload: Record<
 function imagePathsForSpecAction(action: ConsoleCommandAction, payload: Record<string, unknown>): string[] | undefined {
   const requested = optionalStringArray(payload.imagePaths);
   if (requested.length > 0) return requested;
-  if (action === "generate_ui_spec") {
-    return ["docs/ui/spec-workspace-prd-flow-concept.png"];
-  }
   return undefined;
 }
 
@@ -2277,7 +2275,10 @@ function expectedArtifactsForSpecAction(
     return ["docs/zh-CN/hld.md"];
   }
   if (action === "generate_ui_spec") {
-    return featureId ? [`docs/features/${featureId}/ui-spec.md`] : ["docs/ui/ui-spec.md"];
+    return [
+      ...(featureId ? [`docs/features/${featureId}/ui-spec.md`] : ["docs/ui/ui-spec.md"]),
+      "docs/ui/concepts/<page-id>.svg",
+    ];
   }
   return featureId ? [`docs/features/${featureId}/tasks.md`] : ["docs/features/README.md"];
 }
@@ -2289,6 +2290,9 @@ function requirementsArtifactForSource(sourcePath?: string, workspaceRoot?: stri
     ? relative(workspaceRoot, sourcePath)
     : sourcePath;
   if (!relativeSource || relativeSource.startsWith("..") || isAbsolute(relativeSource)) {
+    return fallback;
+  }
+  if (relativeSource === "docs/PRD.md") {
     return fallback;
   }
   const folder = dirname(relativeSource);

@@ -2,6 +2,8 @@ import { loadConfig } from "./config.ts";
 import { initialReadyState, runBootstrap } from "./bootstrap.ts";
 import { createControlPlaneServer, listen } from "./server.ts";
 import { createBullMqScheduler, createSchedulerWorkers, createUnavailableScheduler, type SchedulerWorkers } from "./scheduler.ts";
+import { runCommand } from "./codex-runner.ts";
+
 
 async function main(): Promise<void> {
   const bootstrapOnly = process.argv.includes("--bootstrap-only");
@@ -38,7 +40,23 @@ async function main(): Promise<void> {
     return;
   }
 
-  const controlPlane = createControlPlaneServer(config, initialReadyState(config), { scheduler });
+  const codexRunner = async (prompt: string, outputSchemaPath: string) => {
+    const result = await runCommand(
+      config.runnerConfig.command,
+      [...config.runnerConfig.args, "--json", "--output-schema", outputSchemaPath, prompt],
+      config.projectRoot,
+      30, // heartbeat
+      60000, // 1 min timeout
+    );
+    return {
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+      exitCode: result.status ?? 1,
+    };
+  };
+
+  const controlPlane = createControlPlaneServer(config, initialReadyState(config), { scheduler, codexRunner });
+
   await listen(controlPlane.server, config);
 
   controlPlane.setReadyState(result.readyState);

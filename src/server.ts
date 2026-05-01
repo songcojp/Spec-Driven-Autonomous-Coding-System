@@ -30,6 +30,8 @@ import {
 } from "./product-console.ts";
 import type { SchedulerClient } from "./scheduler.ts";
 import { getOrCreateSession, processChatMessage, getChatHistory } from "./chat.ts";
+import { runCommand } from "./codex-runner.ts";
+
 
 export type ControlPlaneServer = {
   server: Server;
@@ -37,7 +39,15 @@ export type ControlPlaneServer = {
   setReadyState: (state: ReadyState) => void;
 };
 
-export function createControlPlaneServer(config: AppConfig, initialState: ReadyState, options: { scheduler?: SchedulerClient } = {}): ControlPlaneServer {
+export function createControlPlaneServer(
+  config: AppConfig,
+  initialState: ReadyState,
+  options: {
+    scheduler?: SchedulerClient;
+    codexRunner?: (prompt: string, outputSchemaPath: string) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  } = {},
+): ControlPlaneServer {
+
   let readyState = initialState;
 
   const server = createServer((request, response) => {
@@ -53,6 +63,7 @@ export function createControlPlaneServer(config: AppConfig, initialState: ReadyS
 
     void routeRequest(config, request, response, options);
   });
+
 
   server.on("error", (error) => {
     readyState = {
@@ -75,8 +86,12 @@ async function routeRequest(
   config: AppConfig,
   request: IncomingMessage,
   response: ServerResponse,
-  options: { scheduler?: SchedulerClient } = {},
+  options: {
+    scheduler?: SchedulerClient;
+    codexRunner?: (prompt: string, outputSchemaPath: string) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  } = {},
 ): Promise<void> {
+
   try {
     const url = new URL(request.url ?? "/", "http://control-plane.local");
 
@@ -230,7 +245,11 @@ async function routeRequest(
         writeJson(response, 400, { error: "content is required" });
         return;
       }
-      const chatResponse = await processChatMessage(config.dbPath, sessionId, content, { scheduler: options.scheduler });
+      const chatResponse = await processChatMessage(config.dbPath, sessionId, content, {
+        scheduler: options.scheduler,
+        codexRunner: options.codexRunner,
+      });
+
       writeJson(response, 200, chatResponse);
       return;
     }

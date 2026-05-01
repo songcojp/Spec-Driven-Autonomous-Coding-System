@@ -871,8 +871,10 @@ test("generate UI Spec dispatches the UI spec skill from project-level Spec Work
   assert.equal(result.queries.jobs[0].target_id, "project-1");
   assert.equal(payload.skillSlug, "ui-spec-skill");
   assert.equal(payload.requestedAction, "generate_ui_spec");
-  assert.deepEqual(payload.imagePaths, ["docs/ui/spec-workspace-prd-flow-concept.png"]);
+  assert.equal(payload.imagePaths, undefined);
+  assert.equal(payload.sourcePaths.includes("docs/zh-CN/requirements.md"), true);
   assert.equal(payload.expectedArtifacts.includes("docs/ui/ui-spec.md"), true);
+  assert.equal(payload.expectedArtifacts.includes("docs/ui/concepts/<page-id>.svg"), true);
   assert.equal(result.queries.runs[0].feature_id, null);
   assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "ui-spec-skill");
 });
@@ -966,7 +968,7 @@ test("spec intake workflow discovers docs PRD at the project docs root", () => {
   assert.equal(workspace.prdWorkflow.resolvedSourcePath, join(projectPath, "docs", "PRD.md"));
   assert.equal(generateReceipt.status, "accepted");
   assert.deepEqual(jobPayload.sourcePaths, ["docs/PRD.md"]);
-  assert.deepEqual(jobPayload.expectedArtifacts, ["docs/requirements.md"]);
+  assert.deepEqual(jobPayload.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
 });
 
 test("console write commands persist rule and spec evolution evidence", () => {
