@@ -40,13 +40,17 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
 - `docs/ui/ui-spec.md` — project-level structured UI Spec document when no feature is selected
 - `docs/ui/concepts/<page-id>.svg` — generated major-page concept images
 - Evidence summary listing generated pages, generated concept image paths, and REQ coverage
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, `evidence`, and `traceability` matching the invocation contract.
 
 ## Example Skill Invocation Contract
 
 ```json
 {
+  "contractVersion": "skill-contract/v1",
+  "executionId": "EXEC-001",
   "projectId": "my-project",
   "workspaceRoot": "/workspace/my-project",
+  "operation": "generate_ui_spec",
   "skillSlug": "ui-spec-skill",
   "sourcePaths": [
     "docs/zh-CN/PRD.md",
@@ -55,13 +59,17 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
     "docs/features/README.md"
   ],
   "expectedArtifacts": [
-    "docs/ui/ui-spec.md",
-    "docs/ui/concepts/<page-id>.svg"
+    { "path": "docs/ui/ui-spec.md", "kind": "markdown", "required": true },
+    { "path": "docs/ui/concepts/<page-id>.svg", "kind": "image", "required": true }
   ],
   "traceability": {
     "featureId": "feat-013-product-console",
     "requirementIds": ["REQ-052", "REQ-053", "REQ-054"],
     "changeIds": ["CHG-001"]
+  },
+  "constraints": {
+    "allowedFiles": [],
+    "risk": "medium"
   },
   "requestedAction": "generate_ui_spec"
 }

@@ -109,6 +109,7 @@ test("dashboard board exposes task facts, dependencies, diffs, tests, approvals,
   const highRiskTask = board.tasks.find((task) => task.id === "TASK-HIGH");
   const highRiskWithoutReview = board.tasks.find((task) => task.id === "TASK-HIGH-NO-REVIEW");
 
+  assert.equal(readyTask?.name, "Ready board task");
   assert.equal(readyTask?.dependencies[0].satisfied, true);
   assert.deepEqual(readyTask?.diff, { files: ["src/product-console.ts"] });
   assert.deepEqual(readyTask?.testResults, { command: "node --test tests/product-console.test.ts", passed: true });
@@ -277,6 +278,7 @@ test("board commands validate state, dependency, risk, and approval gates before
   const audit = runSqlite(dbPath, [], [
     { name: "events", sql: "SELECT event_type, payload_json FROM audit_timeline_events WHERE event_type LIKE 'console_command_%board%' ORDER BY created_at, rowid" },
     { name: "tasks", sql: "SELECT id, status FROM task_graph_tasks WHERE id IN ('TASK-READY', 'TASK-HIGH', 'TASK-SCHEDULED') ORDER BY id" },
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records ORDER BY created_at, rowid" },
   ]);
   assert.deepEqual(audit.queries.events.map((row) => row.event_type), [
     "console_command_schedule_board_tasks",
@@ -294,6 +296,11 @@ test("board commands validate state, dependency, risk, and approval gates before
     ["TASK-READY", "scheduled"],
     ["TASK-SCHEDULED", "running"],
   ]);
+  assert.equal(JSON.parse(String(audit.queries.jobs[0].payload_json)).context.taskName, "High risk approved board task");
+  assert.equal(
+    buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-1").schedulerJobs.find((job) => job.taskId === "TASK-HIGH-APPROVED")?.name,
+    "High risk approved board task",
+  );
 });
 
 test("console view models expose specs, scheduler state, runner, and reviews", () => {
@@ -313,7 +320,7 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(specWorkspace.commands.some((command) => command.action === "scan_prd_source"), true);
   assert.equal(specWorkspace.commands.some((command) => command.action === "generate_ears"), true);
   assert.equal(specWorkspace.prdWorkflow.sourcePath, "No Spec source selected");
-  assert.deepEqual(specWorkspace.prdWorkflow.phases.map((phase) => phase.key), ["project_initialization", "requirement_intake", "feature_planning"]);
+  assert.deepEqual(specWorkspace.prdWorkflow.phases.map((phase) => phase.key), ["project_initialization", "requirement_intake", "feature_execution"]);
   assert.equal(specWorkspace.prdWorkflow.phases[0].stages.some((stage) => stage.key === "initialize_project_memory"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "spec_source_intake"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[1].stages.some((stage) => stage.key === "scan_prd"), false);
@@ -449,6 +456,31 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
     payload: { taskIds: ["TASK-READY"] },
     now: stableDate,
   });
+  runSqlite(dbPath, [
+    {
+      sql: `UPDATE task_graphs
+        SET graph_json = ?
+        WHERE id = 'TG-FEAT-013'`,
+      params: [JSON.stringify({
+        tasks: [
+          {
+            taskId: "TASK-READY",
+            description: "Schedule the real Product Console task queue from persisted task graph facts.",
+          },
+        ],
+      })],
+    },
+    {
+      sql: `UPDATE task_graph_tasks
+        SET source_requirements_json = ?, acceptance_criteria_json = ?, allowed_files_json = ?
+        WHERE id = 'TASK-READY'`,
+      params: [
+        JSON.stringify(["REQ-052"]),
+        JSON.stringify(["AC-RUNNER-QUEUE"]),
+        JSON.stringify(["src/product-console.ts", "apps/product-console/src/pages/RunnerPage.tsx"]),
+      ],
+    },
+  ]);
 
   const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-1");
 
@@ -461,6 +493,10 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   assert.equal(runner.lanes.blocked.find((task) => task.id === "TASK-HIGH")?.action, "review");
   assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.dependencies[0].satisfied, true);
   assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.action, "run");
+  assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.name, "Ready board task");
+  assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.description, "Schedule the real Product Console task queue from persisted task graph facts.");
+  assert.deepEqual(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.sourceRequirementIds, ["REQ-052"]);
+  assert.deepEqual(runner.lanes.scheduled.find((task) => task.id === "TASK-READY")?.allowedFiles, ["src/product-console.ts", "apps/product-console/src/pages/RunnerPage.tsx"]);
   assert.equal(runner.lanes.scheduled.find((task) => task.id === "TASK-SCHEDULED")?.action, "run");
   assert.equal(runner.recentTriggers.some((entry) => entry.action === "schedule_board_tasks"), true);
 
@@ -652,8 +688,8 @@ test("spec intake commands scan, upload, and enqueue EARS skill invocation", () 
     { name: "features", sql: "SELECT id, project_id, title, status FROM features WHERE id LIKE 'FEAT-INTAKE-%'" },
     { name: "requirements", sql: "SELECT id, feature_id, body FROM requirements WHERE feature_id LIKE 'FEAT-INTAKE-%' ORDER BY id" },
     { name: "evidence", sql: "SELECT kind, feature_id, path, summary FROM evidence_packs WHERE kind IN ('spec_source_scan','spec_source_upload','ears_generation') ORDER BY created_at, rowid" },
-    { name: "runs", sql: "SELECT id, project_id, status, metadata_json FROM runs WHERE project_id = 'project-1' ORDER BY rowid DESC LIMIT 1" },
-    { name: "jobs", sql: "SELECT job_type, target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+    { name: "executions", sql: "SELECT id, project_id, status, metadata_json, context_json FROM execution_records WHERE project_id = 'project-1' ORDER BY rowid DESC LIMIT 1" },
+    { name: "jobs", sql: "SELECT job_type, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
   ]);
 
   assert.equal(scanReceipt.status, "accepted");
@@ -662,11 +698,11 @@ test("spec intake commands scan, upload, and enqueue EARS skill invocation", () 
   assert.equal(result.queries.features.length, 0);
   assert.equal(result.queries.requirements.length, 0);
   assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["spec_source_scan", "spec_source_upload"]);
-  assert.equal(generateReceipt.runId, result.queries.runs[0].id);
+  assert.equal(generateReceipt.executionId, result.queries.executions[0].id);
   const jobPayload = JSON.parse(String(result.queries.jobs[0].payload_json));
-  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "pr-ears-requirement-decomposition-skill");
-  assert.equal(jobPayload.skillSlug, "pr-ears-requirement-decomposition-skill");
-  assert.deepEqual(jobPayload.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
+  assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "pr-ears-requirement-decomposition-skill");
+  assert.equal(jobPayload.context.skillSlug, "pr-ears-requirement-decomposition-skill");
+  assert.deepEqual(jobPayload.context.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
 });
 
 test("spec workspace records EARS generation as a CLI skill run instead of direct Feature creation", () => {
@@ -704,8 +740,8 @@ test("spec workspace records EARS generation as a CLI skill run instead of direc
 
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.featureId, undefined);
-  assert.equal(receipt.runId, runner.skillInvocations[0].runId);
-  assert.equal(runner.skillInvocations[0].skillSlug, "pr-ears-requirement-decomposition-skill");
+  const skillInvocation = runner.skillInvocations.find((entry) => entry.runId === receipt.executionId);
+  assert.equal(skillInvocation?.skillSlug, "pr-ears-requirement-decomposition-skill");
   assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
 });
 
@@ -724,22 +760,23 @@ test("generate HLD dispatches the project HLD skill and writes hld.md", () => {
     now: stableDate,
   }, { scheduler });
   const result = runSqlite(dbPath, [], [
-    { name: "jobs", sql: "SELECT target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
-    { name: "runs", sql: "SELECT feature_id, project_id, metadata_json FROM runs WHERE id = ?", params: [receipt.runId ?? ""] },
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+    { name: "executions", sql: "SELECT context_json, project_id, metadata_json FROM execution_records WHERE id = ?", params: [receipt.executionId ?? ""] },
   ]);
   const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
+  const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:03:01.000Z"), "project-1");
 
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.featureId, undefined);
-  assert.equal(result.queries.jobs[0].target_type, "project");
-  assert.equal(result.queries.jobs[0].target_id, "project-1");
-  assert.equal(payload.skillSlug, "create-project-hld");
+  assert.equal(payload.projectId, "project-1");
+  assert.equal(payload.context.skillSlug, "create-project-hld");
   assert.equal(payload.requestedAction, "generate_hld");
-  assert.deepEqual(payload.expectedArtifacts, ["docs/zh-CN/hld.md"]);
-  assert.equal(payload.expectedArtifacts.includes("docs/zh-CN/design.md"), false);
+  assert.deepEqual(payload.context.expectedArtifacts, ["docs/zh-CN/hld.md"]);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/zh-CN/design.md"), false);
   assert.deepEqual(payload.traceability.changeIds, []);
-  assert.equal(result.queries.runs[0].feature_id, null);
-  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "create-project-hld");
+  assert.equal(JSON.parse(String(result.queries.executions[0].context_json)).featureId, undefined);
+  assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "create-project-hld");
+  assert.equal(runner.schedulerJobs.find((job) => job.executionId === receipt.executionId)?.name, "Generate project HLD");
 });
 
 test("spec workspace does not treat intake artifacts as Feature Specs", () => {
@@ -825,26 +862,25 @@ test("split Feature Specs dispatches task-slicing skill with PRD EARS HLD inputs
     now: stableDate,
   }, { scheduler });
   const result = runSqlite(dbPath, [], [
-    { name: "jobs", sql: "SELECT target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
-    { name: "runs", sql: "SELECT feature_id, project_id, metadata_json FROM runs WHERE id = ?", params: [receipt.runId ?? ""] },
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+    { name: "executions", sql: "SELECT context_json, project_id, metadata_json FROM execution_records WHERE id = ?", params: [receipt.executionId ?? ""] },
   ]);
   const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
 
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.featureId, undefined);
-  assert.equal(result.queries.jobs[0].target_type, "project");
-  assert.equal(result.queries.jobs[0].target_id, "project-1");
-  assert.equal(payload.skillSlug, "task-slicing-skill");
+  assert.equal(payload.projectId, "project-1");
+  assert.equal(payload.context.skillSlug, "task-slicing-skill");
   assert.equal(payload.requestedAction, "split_feature_specs");
-  assert.equal(payload.sourcePaths.includes("docs/PRD.md"), true);
-  assert.equal(payload.sourcePaths.includes("docs/requirements.md"), true);
-  assert.equal(payload.sourcePaths.includes("docs/hld.md"), true);
-  assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/requirements.md"), true);
-  assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/design.md"), true);
-  assert.equal(payload.expectedArtifacts.includes("docs/features/<feature-id>/tasks.md"), true);
-  assert.equal(payload.expectedArtifacts.includes("docs/features/feature-pool-queue.json"), true);
-  assert.equal(result.queries.runs[0].feature_id, null);
-  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "task-slicing-skill");
+  assert.equal(payload.context.sourcePaths.includes("docs/PRD.md"), true);
+  assert.equal(payload.context.sourcePaths.includes("docs/requirements.md"), true);
+  assert.equal(payload.context.sourcePaths.includes("docs/hld.md"), true);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/features/<feature-id>/requirements.md"), true);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/features/<feature-id>/design.md"), true);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/features/<feature-id>/tasks.md"), true);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/features/feature-pool-queue.json"), true);
+  assert.equal(JSON.parse(String(result.queries.executions[0].context_json)).featureId, undefined);
+  assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "task-slicing-skill");
 });
 
 test("split Feature Specs preserves uploaded PRD source for task-slicing context", () => {
@@ -883,10 +919,10 @@ test("split Feature Specs preserves uploaded PRD source for task-slicing context
   const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
 
   assert.equal(receipt.status, "accepted");
-  assert.equal(payload.skillSlug, "task-slicing-skill");
-  assert.equal(payload.sourcePaths[0], uploadedSourcePath);
-  assert.equal(payload.sourcePaths.includes(".autobuild/specs/uploads/requirements.md"), true);
-  assert.equal(payload.sourcePaths.includes("docs/PRD.md"), true);
+  assert.equal(payload.context.skillSlug, "task-slicing-skill");
+  assert.equal(payload.context.sourcePaths[0], uploadedSourcePath);
+  assert.equal(payload.context.sourcePaths.includes(".autobuild/specs/uploads/requirements.md"), true);
+  assert.equal(payload.context.sourcePaths.includes("docs/PRD.md"), true);
 });
 
 test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
@@ -934,7 +970,7 @@ test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
   runSqlite(dbPath, [
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
-    { sql: "DELETE FROM runs" },
+    { sql: "DELETE FROM execution_records" },
     { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
   ]);
 
@@ -949,12 +985,12 @@ test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
   }, { scheduler });
   const result = runSqlite(dbPath, [], [
     { name: "features", sql: "SELECT id, status, priority, dependencies_json, primary_requirements_json FROM features WHERE project_id = 'project-1' ORDER BY id" },
-    { name: "jobs", sql: "SELECT job_type, queue_name, target_type, target_id, status FROM scheduler_job_records ORDER BY rowid DESC LIMIT 1" },
-    { name: "runs", sql: "SELECT id FROM runs" },
+    { name: "jobs", sql: "SELECT job_type, queue_name, status, payload_json FROM scheduler_job_records ORDER BY rowid DESC LIMIT 1" },
+    { name: "executions", sql: "SELECT id, operation, context_json FROM execution_records" },
   ]);
 
   assert.equal(receipt.status, "accepted");
-  assert.equal(receipt.runId, undefined);
+  assert.equal(receipt.executionId?.length > 0, true);
   assert.equal(receipt.scheduleTriggerId?.length > 0, true);
   assert.equal(receipt.schedulerJobId?.length > 0, true);
   assert.deepEqual(result.queries.features.map((row) => [
@@ -967,10 +1003,10 @@ test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
     ["FEAT-002", "ready", ["FEAT-001"], ["REQ-LOT-002"]],
   ]);
   assert.equal(Number(result.queries.features[0].priority) > Number(result.queries.features[1].priority), true);
-  assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.target_type, row.target_id, row.status]), [
-    ["feature.select", "specdrive:feature-scheduler", "project", "project-1", "queued"],
+  assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.status, JSON.parse(String(row.payload_json)).operation]), [
+    ["cli.run", "specdrive:cli-runner", "queued", "feature_execution"],
   ]);
-  assert.deepEqual(result.queries.runs, []);
+  assert.equal(result.queries.executions[0].operation, "feature_execution");
 });
 
 test("push Feature Spec Pool blocks when the skill queue plan is missing", () => {
@@ -1012,6 +1048,56 @@ test("push Feature Spec Pool blocks when the skill queue plan is missing", () =>
   assert.deepEqual(result.queries.jobs, []);
 });
 
+test("push Feature Spec Pool accepts skill queue plan P-level priorities", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-priority-label-"));
+  mkdirSync(join(projectPath, "docs", "features", "FEAT-001"), { recursive: true });
+  mkdirSync(join(projectPath, "docs", "features", "FEAT-002"), { recursive: true });
+  writeFileSync(
+    join(projectPath, "docs", "features", "feature-pool-queue.json"),
+    JSON.stringify({
+      features: [
+        { id: "FEAT-001", priority: "P1", dependencies: [] },
+        { id: "FEAT-002", priority: "P2", dependencies: ["FEAT-001"] },
+      ],
+    }, null, 2),
+    "utf8",
+  );
+  for (const featureId of ["FEAT-001", "FEAT-002"]) {
+    writeFileSync(
+      join(projectPath, "docs", "features", featureId, "requirements.md"),
+      `# Feature Spec: ${featureId} Label Priority\n\n- REQ-LOT-${featureId.slice(-3)}: The system shall accept labeled queue priorities.`,
+      "utf8",
+    );
+    writeFileSync(join(projectPath, "docs", "features", featureId, "design.md"), "# Design\n", "utf8");
+    writeFileSync(join(projectPath, "docs", "features", featureId, "tasks.md"), "# Tasks\n", "utf8");
+  }
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "push_feature_spec_pool",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Push split Feature Specs into the pool.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "features", sql: "SELECT id, priority FROM features WHERE project_id = 'project-1' ORDER BY priority DESC" },
+  ]);
+
+  assert.equal(receipt.status, "accepted");
+  assert.deepEqual(result.queries.features.map((row) => row.id), ["FEAT-001", "FEAT-002"]);
+  assert.equal(Number(result.queries.features[0].priority) > Number(result.queries.features[1].priority), true);
+});
+
 test("generate UI Spec dispatches the UI spec skill from project-level Spec Workspace actions", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -1027,23 +1113,22 @@ test("generate UI Spec dispatches the UI spec skill from project-level Spec Work
     now: stableDate,
   }, { scheduler });
   const result = runSqlite(dbPath, [], [
-    { name: "jobs", sql: "SELECT target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
-    { name: "runs", sql: "SELECT feature_id, project_id, metadata_json FROM runs WHERE id = ?", params: [receipt.runId ?? ""] },
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+    { name: "executions", sql: "SELECT context_json, project_id, metadata_json FROM execution_records WHERE id = ?", params: [receipt.executionId ?? ""] },
   ]);
   const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
 
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.featureId, undefined);
-  assert.equal(result.queries.jobs[0].target_type, "project");
-  assert.equal(result.queries.jobs[0].target_id, "project-1");
-  assert.equal(payload.skillSlug, "ui-spec-skill");
+  assert.equal(payload.projectId, "project-1");
+  assert.equal(payload.context.skillSlug, "ui-spec-skill");
   assert.equal(payload.requestedAction, "generate_ui_spec");
-  assert.equal(payload.imagePaths, undefined);
-  assert.equal(payload.sourcePaths.includes("docs/zh-CN/requirements.md"), true);
-  assert.equal(payload.expectedArtifacts.includes("docs/ui/ui-spec.md"), true);
-  assert.equal(payload.expectedArtifacts.includes("docs/ui/concepts/<page-id>.svg"), true);
-  assert.equal(result.queries.runs[0].feature_id, null);
-  assert.equal(JSON.parse(String(result.queries.runs[0].metadata_json)).skillSlug, "ui-spec-skill");
+  assert.deepEqual(payload.context.imagePaths ?? [], []);
+  assert.equal(payload.context.sourcePaths.includes("docs/zh-CN/requirements.md"), true);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/ui/ui-spec.md"), true);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/ui/concepts/<page-id>.svg"), true);
+  assert.equal(JSON.parse(String(result.queries.executions[0].context_json)).featureId, undefined);
+  assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "ui-spec-skill");
 });
 
 test("spec intake workflow displays the actual discovered source instead of a default PRD path", () => {
@@ -1134,8 +1219,8 @@ test("spec intake workflow discovers docs PRD at the project docs root", () => {
   assert.equal(workspace.prdWorkflow.sourcePath, "docs/PRD.md");
   assert.equal(workspace.prdWorkflow.resolvedSourcePath, join(projectPath, "docs", "PRD.md"));
   assert.equal(generateReceipt.status, "accepted");
-  assert.deepEqual(jobPayload.sourcePaths, ["docs/PRD.md"]);
-  assert.deepEqual(jobPayload.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
+  assert.deepEqual(jobPayload.context.sourcePaths, ["docs/PRD.md"]);
+  assert.deepEqual(jobPayload.context.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
 });
 
 test("console write commands persist rule and spec evolution evidence", () => {
@@ -1229,7 +1314,7 @@ test("console schedule command records scheduler triggers without bypassing boun
     },
     {
       name: "jobs",
-      sql: "SELECT id, job_type, queue_name, target_type, target_id, status FROM scheduler_job_records ORDER BY rowid",
+      sql: "SELECT id, job_type, queue_name, status, payload_json FROM scheduler_job_records ORDER BY rowid",
     },
   ]);
 
@@ -1249,8 +1334,9 @@ test("console schedule command records scheduler triggers without bypassing boun
     ["feature", "FEAT-013"],
     ["feature", "FEAT-013"],
   ]);
-  assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.target_type, row.target_id, row.status]), [
-    ["feature.select", "specdrive:feature-scheduler", "feature", "FEAT-013", "queued"],
+  assert.equal(receipt.executionId, JSON.parse(String(result.queries.jobs[0].payload_json)).executionId);
+  assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.status, JSON.parse(String(row.payload_json)).operation]), [
+    ["cli.run", "specdrive:cli-runner", "queued", "feature_execution"],
   ]);
   assert.deepEqual(result.queries.decisions, []);
 });
@@ -1372,12 +1458,12 @@ function seedConsoleData(dbPath: string): void {
           ('TASK-FAILED', 'FEAT-013', 'Implement review list', 'failed', 'incomplete', '[]')`,
     },
     {
-      sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
+      sql: `INSERT INTO execution_records (id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
         VALUES
-          ('RUN-013', 'TASK-RUNNING', 'FEAT-013', 'project-1', 'running', '2026-04-28T08:00:00.000Z', '{"automatic":true}'),
-          ('RUN-FAILED', 'TASK-FAILED', 'FEAT-013', 'project-1', 'failed', '2026-04-28T09:00:00.000Z', '{"automatic":true}'),
-          ('RUN-MANUAL', 'TASK-RUNNING', 'FEAT-013', 'project-1', 'completed', '2026-04-28T10:00:00.000Z', '{"automatic":false}'),
-          ('RUN-OTHER', 'TASK-OTHER', 'FEAT-OTHER', 'project-2', 'failed', '2026-04-28T10:30:00.000Z', '{"automatic":true}')`,
+          ('RUN-013', 'cli', 'feature_execution', 'project-1', '{"taskId":"TASK-RUNNING","featureId":"FEAT-013"}', 'running', '2026-04-28T08:00:00.000Z', '{"automatic":true}'),
+          ('RUN-FAILED', 'cli', 'feature_execution', 'project-1', '{"taskId":"TASK-FAILED","featureId":"FEAT-013"}', 'failed', '2026-04-28T09:00:00.000Z', '{"automatic":true}'),
+          ('RUN-MANUAL', 'cli', 'feature_execution', 'project-1', '{"taskId":"TASK-RUNNING","featureId":"FEAT-013"}', 'completed', '2026-04-28T10:00:00.000Z', '{"automatic":false}'),
+          ('RUN-OTHER', 'cli', 'feature_execution', 'project-2', '{"taskId":"TASK-OTHER","featureId":"FEAT-OTHER"}', 'failed', '2026-04-28T10:30:00.000Z', '{"automatic":true}')`,
     },
     {
       sql: `INSERT INTO task_graphs (id, feature_id, graph_json)

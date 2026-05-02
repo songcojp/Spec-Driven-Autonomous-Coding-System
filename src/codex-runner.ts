@@ -143,6 +143,8 @@ export type EvidenceInput = {
   stderr: string;
   testEnvironmentIsolation?: TestRunnerIsolationInput;
   skillInvocation?: SkillInvocationContract;
+  skillOutput?: SkillOutputContract;
+  contractValidation?: SkillContractValidationResult;
   logFiles?: CliInvocationLogFiles;
 };
 
@@ -205,6 +207,7 @@ export type CodexAdapterInput = {
   outputSchemaPath?: string;
   imagePaths?: string[];
   adapterConfig?: CliAdapterConfig;
+  skillInvocation?: SkillInvocationContract;
   runner?: CodexCommandRunner;
   asyncRunner?: AsyncCodexCommandRunner;
   onHeartbeat?: () => void;
@@ -233,19 +236,72 @@ export type RunnerQueueItem = {
 };
 
 export type SkillInvocationContract = {
+  contractVersion: "skill-contract/v1";
+  executionId: string;
   projectId: string;
   workspaceRoot: string;
+  operation: string;
   skillSlug: string;
   sourcePaths: string[];
   imagePaths?: string[];
-  expectedArtifacts: string[];
-  traceability: {
-    featureId?: string;
-    taskId?: string;
-    requirementIds: string[];
-    changeIds: string[];
-  };
+  expectedArtifacts: SkillArtifactContract[];
+  traceability: SkillTraceabilityContract;
+  constraints: SkillInvocationConstraints;
   requestedAction: string;
+};
+
+export type SkillArtifactContract = {
+  path: string;
+  kind: string;
+  required: boolean;
+};
+
+export type SkillTraceabilityContract = {
+  featureId?: string;
+  taskId?: string;
+  requirementIds: string[];
+  changeIds: string[];
+};
+
+export type SkillInvocationConstraints = {
+  allowedFiles: string[];
+  sandboxMode?: RunnerSandboxMode;
+  approvalPolicy?: RunnerApprovalPolicy;
+  risk: RiskLevel;
+};
+
+export type SkillOutputArtifact = {
+  path: string;
+  kind: string;
+  status: "created" | "updated" | "unchanged" | "missing" | "skipped";
+  checksum?: string;
+  summary?: string;
+};
+
+export type SkillOutputEvidence = {
+  kind: string;
+  summary: string;
+  path?: string;
+  command?: string;
+  status?: string;
+};
+
+export type SkillOutputContract = {
+  contractVersion: "skill-contract/v1";
+  executionId: string;
+  skillSlug: string;
+  requestedAction: string;
+  status: "completed" | "review_needed" | "blocked" | "failed";
+  summary: string;
+  producedArtifacts: SkillOutputArtifact[];
+  evidence: SkillOutputEvidence[];
+  traceability: SkillTraceabilityContract;
+  result?: Record<string, unknown>;
+};
+
+export type SkillContractValidationResult = {
+  valid: boolean;
+  reasons: string[];
 };
 
 export type WorkspaceValidationResult = {
@@ -390,11 +446,66 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
 const DEFAULT_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["summary", "status", "evidence"],
+  required: [
+    "contractVersion",
+    "executionId",
+    "skillSlug",
+    "requestedAction",
+    "status",
+    "summary",
+    "producedArtifacts",
+    "evidence",
+    "traceability",
+  ],
   properties: {
+    contractVersion: { const: "skill-contract/v1" },
+    executionId: { type: "string" },
+    skillSlug: { type: "string" },
+    requestedAction: { type: "string" },
     summary: { type: "string" },
     status: { enum: ["completed", "review_needed", "blocked", "failed"] },
-    evidence: { type: "array", items: { type: "string" } },
+    producedArtifacts: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "kind", "status"],
+        properties: {
+          path: { type: "string" },
+          kind: { type: "string" },
+          status: { enum: ["created", "updated", "unchanged", "missing", "skipped"] },
+          checksum: { type: "string" },
+          summary: { type: "string" },
+        },
+      },
+    },
+    evidence: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "summary"],
+        properties: {
+          kind: { type: "string" },
+          summary: { type: "string" },
+          path: { type: "string" },
+          command: { type: "string" },
+          status: { type: "string" },
+        },
+      },
+    },
+    traceability: {
+      type: "object",
+      additionalProperties: false,
+      required: ["requirementIds", "changeIds"],
+      properties: {
+        featureId: { type: "string" },
+        taskId: { type: "string" },
+        requirementIds: { type: "array", items: { type: "string" } },
+        changeIds: { type: "array", items: { type: "string" } },
+      },
+    },
+    result: { type: "object", additionalProperties: true },
   },
 };
 const FORBIDDEN_FILE_PATTERNS = [
@@ -529,7 +640,7 @@ export function isTrustedDirectWriteInvocation(invocation?: SkillInvocationContr
     return safeAllowedFiles.length > 0 && safeAllowedFiles.length === allowedFiles.length;
   }
 
-  const safeArtifacts = invocation.expectedArtifacts.filter(isSafeExpectedArtifactPath);
+  const safeArtifacts = invocation.expectedArtifacts.map((artifact) => artifact.path).filter(isSafeExpectedArtifactPath);
   return safeArtifacts.length > 0 && safeArtifacts.length === invocation.expectedArtifacts.length;
 }
 
@@ -717,9 +828,12 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- Use only skills discovered from this workspace's .agents/skills directory.",
     "- Treat AGENTS.md and the referenced source paths as governing context.",
     "- If the prompt includes a Workspace Context Bundle, use it as already-read workspace evidence; do not block solely because shell-based file reads fail.",
-    "- Produce the expected artifacts and include traceability in the final evidence.",
+    "- Return exactly one JSON object matching SkillOutputContractV1.",
+    "- The output contract must echo contractVersion, executionId, skillSlug, requestedAction, and traceability from the Skill Invocation Contract.",
+    "- Produce the expected artifacts and list every produced or intentionally unchanged artifact in producedArtifacts.",
     "- Prefer writing expected artifacts directly to the workspace paths named in the contract.",
-    "- If direct file writes fail, return each complete artifact as one evidence string using exactly: ARTIFACT: <relative-path> followed by a markdown fenced block containing the full file content.",
+    "- If direct file writes fail, return each complete artifact as evidence summary using exactly: ARTIFACT: <relative-path> followed by a markdown fenced block containing the full file content.",
+    "- ARTIFACT evidence is only a last-resort file materialization fallback; it does not replace the required SkillOutputContractV1 fields.",
     "- Do not assume a platform Skill Registry or Skill Center exists.",
     ...taskSlicingRules,
     "",
@@ -803,6 +917,8 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       createdAt: completedAt,
     };
     materializeArtifactEvidence(input.policy.workspaceRoot, input.skillInvocation, events);
+    const skillOutput = extractSkillOutputContract(events);
+    const contractValidation = validateSkillOutputContract(input.skillInvocation, skillOutput);
     const completedEvent = events.find((e) => e.type === "turn.completed" && e.usage);
     const usage = completedEvent?.usage as Record<string, number> | undefined;
     writeCliOutputLog(logFiles, {
@@ -826,6 +942,8 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       stderr: rawLog.stderr,
       testEnvironmentIsolation: input.policy.testEnvironmentIsolation,
       skillInvocation: input.skillInvocation,
+      skillOutput,
+      contractValidation,
       logFiles,
     };
 
@@ -843,7 +961,7 @@ function materializeArtifactEvidence(
   events: CodexJsonEvent[],
 ): void {
   if (!invocation) return;
-  const expected = new Set(invocation.expectedArtifacts.filter(isMaterializedSpecArtifact));
+  const expected = new Set(invocation.expectedArtifacts.map((artifact) => artifact.path).filter(isMaterializedSpecArtifact));
   if (expected.size === 0) return;
 
   for (const evidence of extractEvidenceStrings(events)) {
@@ -871,8 +989,15 @@ function extractEvidenceStrings(events: CodexJsonEvent[]): string[] {
     }
     return records.flatMap((record) => {
       const evidence = Array.isArray(record.evidence) ? record.evidence.filter((value): value is string => typeof value === "string") : [];
+      const structuredEvidence = Array.isArray(record.evidence)
+        ? record.evidence.flatMap((value) => {
+            if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+            const summary = (value as Record<string, unknown>).summary;
+            return typeof summary === "string" ? [summary] : [];
+          })
+        : [];
       const summary = typeof record.summary === "string" ? [record.summary] : [];
-      return [...evidence, ...summary];
+      return [...evidence, ...structuredEvidence, ...summary];
     });
   });
 }
@@ -883,6 +1008,134 @@ function parseArtifactEvidence(evidence: string): { path: string; content: strin
   const path = normalizePath(match[1].trim());
   if (!path || path.startsWith("../") || path.startsWith("/") || path.includes("<")) return undefined;
   return { path, content: match[2].endsWith("\n") ? match[2] : `${match[2]}\n` };
+}
+
+function extractSkillOutputContract(events: CodexJsonEvent[]): SkillOutputContract | undefined {
+  for (const event of events) {
+    const direct = parseSkillOutputRecord(event);
+    if (direct) return direct;
+
+    const output = typeof event.output === "object" && event.output !== null ? event.output as Record<string, unknown> : undefined;
+    const fromOutput = parseSkillOutputRecord(output);
+    if (fromOutput) return fromOutput;
+
+    const item = typeof event.item === "object" && event.item !== null ? event.item as Record<string, unknown> : undefined;
+    const itemText = typeof item?.text === "string" ? item.text : undefined;
+    if (!itemText) continue;
+    try {
+      const parsed = JSON.parse(itemText) as Record<string, unknown>;
+      const fromText = parseSkillOutputRecord(parsed);
+      if (fromText) return fromText;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function parseSkillOutputRecord(record: Record<string, unknown> | undefined): SkillOutputContract | undefined {
+  if (!record || record.contractVersion !== "skill-contract/v1") return undefined;
+  const status = normalizeQueueStatus(typeof record.status === "string" ? record.status : undefined);
+  if (!status) return undefined;
+  const traceability = parseTraceabilityContract(record.traceability);
+  if (!traceability) return undefined;
+  return {
+    contractVersion: "skill-contract/v1",
+    executionId: String(record.executionId ?? ""),
+    skillSlug: String(record.skillSlug ?? ""),
+    requestedAction: String(record.requestedAction ?? ""),
+    status,
+    summary: String(record.summary ?? ""),
+    producedArtifacts: parseProducedArtifacts(record.producedArtifacts),
+    evidence: parseOutputEvidence(record.evidence),
+    traceability,
+    result: typeof record.result === "object" && record.result !== null && !Array.isArray(record.result)
+      ? record.result as Record<string, unknown>
+      : undefined,
+  };
+}
+
+function parseTraceabilityContract(value: unknown): SkillTraceabilityContract | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const requirementIds = Array.isArray(record.requirementIds) ? record.requirementIds.filter((item): item is string => typeof item === "string") : undefined;
+  const changeIds = Array.isArray(record.changeIds) ? record.changeIds.filter((item): item is string => typeof item === "string") : undefined;
+  if (!requirementIds || !changeIds) return undefined;
+  return {
+    featureId: typeof record.featureId === "string" ? record.featureId : undefined,
+    taskId: typeof record.taskId === "string" ? record.taskId : undefined,
+    requirementIds,
+    changeIds,
+  };
+}
+
+function parseProducedArtifacts(value: unknown): SkillOutputArtifact[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    const status = ["created", "updated", "unchanged", "missing", "skipped"].includes(String(record.status))
+      ? record.status as SkillOutputArtifact["status"]
+      : undefined;
+    if (!status || typeof record.path !== "string" || typeof record.kind !== "string") return [];
+    return [{
+      path: normalizePath(record.path),
+      kind: record.kind,
+      status,
+      checksum: typeof record.checksum === "string" ? record.checksum : undefined,
+      summary: typeof record.summary === "string" ? record.summary : undefined,
+    }];
+  });
+}
+
+function parseOutputEvidence(value: unknown): SkillOutputEvidence[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    if (typeof record.kind !== "string" || typeof record.summary !== "string") return [];
+    return [{
+      kind: record.kind,
+      summary: record.summary,
+      path: typeof record.path === "string" ? record.path : undefined,
+      command: typeof record.command === "string" ? record.command : undefined,
+      status: typeof record.status === "string" ? record.status : undefined,
+    }];
+  });
+}
+
+function validateSkillOutputContract(invocation: SkillInvocationContract | undefined, output: SkillOutputContract | undefined): SkillContractValidationResult {
+  if (!invocation) return { valid: true, reasons: [] };
+  const reasons: string[] = [];
+  if (!output) {
+    return { valid: false, reasons: ["Skill output contract is missing or invalid JSON."] };
+  }
+  if (output.contractVersion !== invocation.contractVersion) reasons.push(`Skill output contractVersion mismatch: ${output.contractVersion}.`);
+  if (output.executionId !== invocation.executionId) reasons.push(`Skill output executionId mismatch: ${output.executionId}.`);
+  if (output.skillSlug !== invocation.skillSlug) reasons.push(`Skill output skillSlug mismatch: ${output.skillSlug}.`);
+  if (output.requestedAction !== invocation.requestedAction) reasons.push(`Skill output requestedAction mismatch: ${output.requestedAction}.`);
+  if (output.traceability.featureId !== invocation.traceability.featureId) reasons.push("Skill output traceability.featureId mismatch.");
+  if (output.traceability.taskId !== invocation.traceability.taskId) reasons.push("Skill output traceability.taskId mismatch.");
+  if (!sameStringSet(output.traceability.requirementIds, invocation.traceability.requirementIds)) {
+    reasons.push("Skill output traceability.requirementIds mismatch.");
+  }
+  if (!sameStringSet(output.traceability.changeIds, invocation.traceability.changeIds)) {
+    reasons.push("Skill output traceability.changeIds mismatch.");
+  }
+  for (const artifact of invocation.expectedArtifacts.filter((entry) => entry.required && isMaterializedSpecArtifact(entry.path))) {
+    const produced = output.producedArtifacts.find((entry) => entry.path === artifact.path && entry.status !== "missing" && entry.status !== "skipped");
+    const existsOnDisk = existsSync(join(invocation.workspaceRoot, artifact.path));
+    if (!produced && !existsOnDisk) {
+      reasons.push(`Required artifact was not produced: ${artifact.path}.`);
+    }
+  }
+  return { valid: reasons.length === 0, reasons };
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+  const leftSorted = [...new Set(left)].sort();
+  const rightSorted = [...new Set(right)].sort();
+  return leftSorted.length === rightSorted.length && leftSorted.every((value, index) => value === rightSorted[index]);
 }
 
 export async function processRunnerQueueItem(
@@ -1081,6 +1334,9 @@ export async function processRunnerQueueItem(
     }
   }
   const finalStatus = statusCheckResult ? queueStatusFromStatusCheck(statusCheckResult.status, status) : status;
+  const contractEvidence = adapterResult.evidence.contractValidation && !adapterResult.evidence.contractValidation.valid
+    ? `Skill output contract review needed: ${adapterResult.evidence.contractValidation.reasons.join("; ")}`
+    : adapterResult.evidence.skillOutput?.summary;
   return {
     runId: input.runId,
     status: finalStatus,
@@ -1091,7 +1347,7 @@ export async function processRunnerQueueItem(
     recoveryDispatchInput,
     recoverySafety,
     recoveryDispatch,
-    evidence: `Codex CLI exited with ${adapterResult.session.exitCode ?? "unknown"}.`,
+    evidence: contractEvidence ?? `Codex CLI exited with ${adapterResult.session.exitCode ?? "unknown"}.`,
   };
 }
 
@@ -1620,6 +1876,9 @@ export function buildEvidencePackInput(input: EvidenceInput): {
       stdout: input.stdout,
       stderr: input.stderr,
       skillInvocation: input.skillInvocation,
+      skillOutput: input.skillOutput,
+      contractValidation: input.contractValidation,
+      producedArtifacts: input.skillOutput?.producedArtifacts ?? [],
       logFiles: input.logFiles,
     },
   };
@@ -1773,6 +2032,13 @@ function classifyQueueStatus(result: CodexAdapterResult): RunnerQueueStatus {
     return "failed";
   }
 
+  if (result.evidence.skillInvocation) {
+    if (!result.evidence.contractValidation?.valid) {
+      return "review_needed";
+    }
+    return result.evidence.skillOutput?.status ?? "review_needed";
+  }
+
   const reportedStatus = extractReportedStatus(result.rawLog.events);
   if (reportedStatus) {
     return reportedStatus;
@@ -1829,9 +2095,9 @@ function missingExpectedArtifacts(result: CodexAdapterResult): string[] {
   const invocation = result.evidence.skillInvocation;
   if (!invocation) return [];
   return invocation.expectedArtifacts.filter((artifact) => {
-    if (!isMaterializedSpecArtifact(artifact)) return false;
-    return !existsSync(join(invocation.workspaceRoot, artifact));
-  });
+    if (!isMaterializedSpecArtifact(artifact.path)) return false;
+    return !existsSync(join(invocation.workspaceRoot, artifact.path));
+  }).map((artifact) => artifact.path);
 }
 
 function isMaterializedSpecArtifact(artifact: string): boolean {

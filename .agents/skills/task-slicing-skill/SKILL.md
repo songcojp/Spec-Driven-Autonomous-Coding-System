@@ -48,6 +48,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 - Dependencies and parallelism constraints.
 - Verification plan.
 - Requirement, user story, and acceptance mapping.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, `evidence`, and `traceability` matching the invocation contract.
 
 ## Failure Routing
 

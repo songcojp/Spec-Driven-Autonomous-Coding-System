@@ -59,6 +59,7 @@ THE SYSTEM SHALL [safe handling, error message, rollback, retry, or blocked acti
 - Traceability matrix (requirement → PRD section → user story).
 - Open questions for unresolved product intent.
 - No Feature Spec package, task graph, or Feature Spec index output.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, `evidence`, and `traceability` matching the invocation contract.
 
 ## Quality Bar
 

@@ -132,6 +132,8 @@ export type ConsoleCommandReceipt = {
   scheduleTriggerId?: string;
   schedulerJobId?: string;
   schedulerJobIds?: string[];
+  executionId?: string;
+  executionIds?: string[];
   runId?: string;
   runIds?: string[];
   selectionDecisionId?: string;
@@ -211,6 +213,7 @@ export type DashboardBoardViewModel = {
   tasks: Array<{
     id: string;
     featureId?: string;
+    name: string;
     title: string;
     status: BoardColumn | "unknown";
     risk: RiskLevel | "unknown";
@@ -246,7 +249,7 @@ export type SpecWorkspaceViewModel = {
     runtime?: string;
     blockedReasons: string[];
     phases: Array<{
-      key: "project_initialization" | "requirement_intake" | "feature_planning" | "ui_spec";
+      key: "project_initialization" | "requirement_intake" | "feature_execution" | "ui_spec";
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       blockedReasons: string[];
@@ -357,6 +360,39 @@ function featureStatusFromDocs(projectPath: string, folder: string): string {
   return "draft";
 }
 
+function normalizeFeaturePoolPriority(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : Number.NaN;
+  }
+
+  const label = String(value).trim().toUpperCase();
+  const numeric = Number(label);
+  if (Number.isFinite(numeric)) {
+    return numeric;
+  }
+
+  const pLevel = label.match(/^P(\d+)$/);
+  if (pLevel) {
+    return 1000 - Number(pLevel[1]);
+  }
+
+  const namedPriorities: Record<string, number> = {
+    CRITICAL: 900,
+    HIGH: 800,
+    MUST: 800,
+    MVP: 700,
+    MEDIUM: 500,
+    SHOULD: 500,
+    LOW: 200,
+    COULD: 200,
+    WONT: 0,
+  };
+  return namedPriorities[label] ?? Number.NaN;
+}
+
 function readFeaturePoolQueuePlan(projectPath: string): { path: string; entries: FeaturePoolQueuePlanEntry[]; blockedReasons: string[] } {
   const relativePath = "docs/features/feature-pool-queue.json";
   const fullPath = join(projectPath, relativePath);
@@ -376,7 +412,7 @@ function readFeaturePoolQueuePlan(projectPath: string): { path: string; entries:
       const id = optionalString(record.id)?.toUpperCase() ?? "";
       return {
         id,
-        priority: Number(record.priority ?? rawEntries.length - index),
+        priority: normalizeFeaturePoolPriority(record.priority, rawEntries.length - index),
         dependencies: optionalStringArray(record.dependencies).map((dependency) => dependency.toUpperCase()),
       };
     });
@@ -399,6 +435,68 @@ function readFeaturePoolQueuePlan(projectPath: string): { path: string; entries:
   }
 }
 
+function selectFeaturePoolQueueEntry(
+  dbPath: string,
+  entries: FeaturePoolQueuePlanEntry[],
+  projectId: string,
+): FeaturePoolQueuePlanEntry | undefined {
+  const completed = new Set(runSqlite(dbPath, [], [
+    {
+      name: "features",
+      sql: "SELECT id FROM features WHERE project_id = ? AND status IN ('done', 'delivered')",
+      params: [projectId],
+    },
+  ]).queries.features.map((row) => String(row.id)));
+  return [...entries]
+    .sort((left, right) => right.priority - left.priority)
+    .find((entry) => !completed.has(entry.id) && entry.dependencies.every((dependency) => completed.has(dependency)));
+}
+
+function persistExecutionRecord(dbPath: string, input: {
+  executionId: string;
+  schedulerJobId?: string;
+  executorType: string;
+  operation: string;
+  projectId?: string;
+  context: Record<string, unknown>;
+  status: string;
+  acceptedAt: string;
+  metadata?: Record<string, unknown>;
+}): void {
+  const metadata = input.metadata ?? {
+    scheduler: "bullmq",
+    executorType: input.executorType,
+    operation: input.operation,
+  };
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, metadata_json, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        scheduler_job_id = excluded.scheduler_job_id,
+        status = excluded.status,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at`,
+      params: [
+        input.executionId,
+        input.schedulerJobId ?? null,
+        input.executorType,
+        input.operation,
+        input.projectId ?? null,
+        JSON.stringify(input.context),
+        input.status,
+        input.acceptedAt,
+        JSON.stringify(metadata),
+        input.acceptedAt,
+        input.acceptedAt,
+      ],
+    },
+  ]);
+}
+
 export type RunnerConsoleViewModel = {
   summary: {
     onlineRunners: number;
@@ -416,6 +514,7 @@ export type RunnerConsoleViewModel = {
   };
   schedulerJobs: Array<{
     id: string;
+    name: string;
     bullmqJobId?: string;
     queueName: string;
     jobType: string;
@@ -429,6 +528,7 @@ export type RunnerConsoleViewModel = {
     featureId?: string;
     projectId?: string;
     workspaceRoot?: string;
+    context?: Record<string, unknown>;
   }>;
   recentTriggers: Array<{
     id: string;
@@ -497,9 +597,14 @@ export type RunnerScheduleTaskViewModel = {
   id: string;
   featureId?: string;
   featureTitle?: string;
+  name: string;
   title: string;
+  description?: string;
   status: BoardColumn | "unknown";
   risk: RiskLevel | "unknown";
+  sourceRequirementIds: string[];
+  acceptanceCriteriaIds: string[];
+  allowedFiles: string[];
   dependencies: Array<{ id: string; status: BoardColumn | "unknown"; satisfied: boolean }>;
   approvalStatus: "approved" | "pending" | "not_required";
   runnerId?: string;
@@ -507,6 +612,8 @@ export type RunnerScheduleTaskViewModel = {
   action: "schedule" | "run" | "review" | "observe";
   blockedReasons: string[];
   recentLog?: string;
+  evidenceSummary?: string;
+  lastUpdatedAt?: string;
 };
 
 export type ReviewCenterViewModel = {
@@ -623,17 +730,20 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
     },
     {
       name: "runs",
-      sql: `SELECT r.id, r.task_id, r.feature_id, COALESCE(r.project_id, f.project_id) AS project_id, r.status, r.started_at
-        FROM runs r
-        LEFT JOIN features f ON f.id = r.feature_id
+      sql: `SELECT r.id,
+          json_extract(r.context_json, '$.taskId') AS task_id,
+          json_extract(r.context_json, '$.featureId') AS feature_id,
+          COALESCE(r.project_id, f.project_id) AS project_id,
+          r.status, r.started_at
+        FROM execution_records r
+        LEFT JOIN features f ON f.id = json_extract(r.context_json, '$.featureId')
         ORDER BY COALESCE(r.started_at, '') DESC`,
     },
     {
       name: "heartbeats",
-      sql: `SELECT hb.runner_id, hb.status, hb.beat_at, COALESCE(r.project_id, f.project_id) AS project_id
+      sql: `SELECT hb.runner_id, hb.status, hb.beat_at, r.project_id AS project_id
         FROM runner_heartbeats hb
-        LEFT JOIN runs r ON r.id = hb.run_id
-        LEFT JOIN features f ON f.id = r.feature_id
+        LEFT JOIN execution_records r ON r.id = hb.run_id
         ORDER BY hb.beat_at DESC`,
     },
     {
@@ -646,7 +756,7 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
         LEFT JOIN features tf ON tf.id = t.feature_id
         LEFT JOIN task_graph_tasks gt ON gt.id = ri.task_id
         LEFT JOIN features gtf ON gtf.id = gt.feature_id
-        LEFT JOIN runs r ON r.id = ri.run_id
+        LEFT JOIN execution_records r ON r.id = ri.run_id
         ORDER BY ri.created_at DESC`,
     },
     { name: "metrics", sql: "SELECT metric_name, metric_value, labels_json FROM metric_samples ORDER BY sampled_at, rowid" },
@@ -735,7 +845,7 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
         message: `${onlineRunners}/${latestHeartbeats.length} runner${latestHeartbeats.length === 1 ? "" : "s"} online.`,
       },
     ],
-    factSources: ["projects", "features", "task_graph_tasks", "tasks", "runs", "runner_heartbeats", "review_items", "metric_samples"],
+    factSources: ["projects", "features", "task_graph_tasks", "tasks", "execution_records", "runner_heartbeats", "review_items", "metric_samples"],
   };
 }
 
@@ -747,14 +857,14 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
   const projectParams = options.projectId ? [options.projectId] : [];
   const projectIdFilter = options.projectId ? "WHERE id = ?" : "";
   const featureProjectFilter = options.projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
-  const runProjectFilter = options.projectId ? "WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)" : "";
+  const runProjectFilter = options.projectId ? "WHERE run_id IN (SELECT id FROM execution_records WHERE project_id = ?)" : "";
   const reviewProjectFilter = options.projectId
     ? `WHERE (
         project_id = ?
         OR feature_id IN (SELECT id FROM features WHERE project_id = ?)
         OR task_id IN (SELECT id FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
         OR task_id IN (SELECT id FROM task_graph_tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
-        OR run_id IN (SELECT id FROM runs WHERE project_id = ?)
+        OR run_id IN (SELECT id FROM execution_records WHERE project_id = ?)
       )`
     : "";
   const reviewParams = options.projectId ? [options.projectId, options.projectId, options.projectId, options.projectId, options.projectId] : [];
@@ -779,7 +889,11 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
     },
     {
       name: "runs",
-      sql: `SELECT id, task_id, feature_id, status, started_at, metadata_json FROM runs ${projectFilter} ORDER BY COALESCE(started_at, '') DESC`,
+      sql: `SELECT id,
+          json_extract(context_json, '$.taskId') AS task_id,
+          json_extract(context_json, '$.featureId') AS feature_id,
+          status, started_at, metadata_json
+        FROM execution_records ${projectFilter} ORDER BY COALESCE(started_at, '') DESC`,
       params: projectParams,
     },
     {
@@ -859,7 +973,7 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       "projects",
       "features",
       "tasks",
-      "runs",
+      "execution_records",
       "runner_heartbeats",
       "metric_samples",
       "review_items",
@@ -931,6 +1045,7 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
       return {
         id: taskId,
         featureId: optionalString(row.feature_id),
+        name: taskName(row),
         title: String(row.title),
         status: normalizeBoardStatus(row.status),
         risk: normalizeRisk(row.risk),
@@ -1379,7 +1494,7 @@ function buildPrdWorkflow(input: {
         stages: requirementIntakeStages,
       },
       {
-        key: "feature_planning",
+        key: "feature_execution",
         status: planningPhaseStatus,
         updatedAt: planningActionStages.find((stage) => stage.updatedAt)?.updatedAt,
         blockedReasons: planningBlockedReasons,
@@ -1467,7 +1582,7 @@ function resolveExistingSourcePath(
 }
 
 export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), projectId?: string): RunnerConsoleViewModel {
-  const runProjectFilter = projectId ? "WHERE run_id IN (SELECT id FROM runs WHERE project_id = ?)" : "";
+  const runProjectFilter = projectId ? "WHERE run_id IN (SELECT id FROM execution_records WHERE project_id = ?)" : "";
   const runProjectParams = projectId ? [projectId] : [];
   const featureProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
   const taskProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
@@ -1484,7 +1599,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
         OR feature_id IN (SELECT id FROM features WHERE project_id = ?)
         OR task_id IN (SELECT id FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
         OR task_id IN (SELECT id FROM task_graph_tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
-        OR run_id IN (SELECT id FROM runs WHERE project_id = ?)
+        OR run_id IN (SELECT id FROM execution_records WHERE project_id = ?)
       )`
     : "";
   const reviewParams = projectId ? [projectId, projectId, projectId, projectId, projectId] : [];
@@ -1494,16 +1609,20 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     { name: "logs", sql: `SELECT * FROM raw_execution_logs ${runProjectFilter} ORDER BY created_at DESC LIMIT 25`, params: runProjectParams },
     {
       name: "graphTasks",
-      sql: `SELECT t.id, t.feature_id, f.title AS feature_title, t.title, t.status, t.dependencies_json, t.risk
+      sql: `SELECT t.id, t.feature_id, f.title AS feature_title, t.title, t.status, t.dependencies_json, t.risk,
+          t.source_requirements_json, t.acceptance_criteria_json, t.allowed_files_json, t.updated_at, g.graph_json
         FROM task_graph_tasks t
         LEFT JOIN features f ON f.id = t.feature_id
+        LEFT JOIN task_graphs g ON g.id = t.graph_id
         ${featureProjectFilter ? `WHERE t.feature_id IN (SELECT id FROM features WHERE project_id = ?)` : ""}
         ORDER BY t.updated_at DESC, t.created_at DESC, t.id`,
       params: projectParams,
     },
     {
       name: "tasks",
-      sql: `SELECT t.id, t.feature_id, f.title AS feature_title, t.title, t.status, COALESCE(t.depends_on_json, '[]') AS dependencies_json, 'unknown' AS risk
+      sql: `SELECT t.id, t.feature_id, f.title AS feature_title, t.title, t.description, t.status,
+          COALESCE(t.depends_on_json, '[]') AS dependencies_json, COALESCE(t.allowed_files_json, '[]') AS allowed_files_json,
+          'unknown' AS risk, '[]' AS source_requirements_json, '[]' AS acceptance_criteria_json, t.updated_at
         FROM tasks t
         LEFT JOIN features f ON f.id = t.feature_id
         ${taskProjectFilter ? `WHERE t.feature_id IN (SELECT id FROM features WHERE project_id = ?)` : ""}
@@ -1511,8 +1630,13 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       params: projectParams,
     },
     {
-      name: "runs",
-      sql: `SELECT id, task_id, feature_id, project_id, status, started_at, completed_at, summary, metadata_json FROM runs ${projectId ? "WHERE project_id = ?" : ""} ORDER BY COALESCE(started_at, '') DESC, id`,
+      name: "executionRecords",
+      sql: `SELECT id,
+          json_extract(context_json, '$.taskId') AS task_id,
+          json_extract(context_json, '$.featureId') AS feature_id,
+          scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, summary, metadata_json, updated_at
+        FROM execution_records ${projectId ? "WHERE project_id = ?" : ""}
+        ORDER BY COALESCE(updated_at, completed_at, started_at, '') DESC, id`,
       params: projectParams,
     },
     {
@@ -1533,7 +1657,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     },
     {
       name: "schedulerJobs",
-      sql: `SELECT id, bullmq_job_id, queue_name, job_type, target_type, target_id, status, error, payload_json, updated_at
+      sql: `SELECT id, bullmq_job_id, queue_name, job_type, status, attempts, error, payload_json, updated_at
         FROM scheduler_job_records ${schedulerProjectFilter}
         ORDER BY updated_at DESC, rowid DESC LIMIT 12`,
       params: schedulerProjectParams,
@@ -1547,7 +1671,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
   const latestHeartbeats = latestRunnerStatuses(result.queries.heartbeats);
   const taskRows = result.queries.graphTasks.length > 0 ? result.queries.graphTasks : result.queries.tasks;
   const taskById = new Map(taskRows.map((row) => [String(row.id), row]));
-  const latestRunsByTask = latestRunsForTasks(result.queries.runs);
+  const latestRunsByTask = latestRunsForTasks(result.queries.executionRecords);
   const latestHeartbeatsByRun = latestHeartbeatByRun(result.queries.heartbeats);
   const laneTasks = buildRunnerScheduleLanes({
     taskRows,
@@ -1557,6 +1681,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     logs: result.queries.logs,
     reviews: result.queries.reviews,
     approvals: result.queries.approvals,
+    evidence: result.queries.evidence,
   });
   const runners = latestHeartbeats.map((heartbeat) => {
     const policy = result.queries.policies.find((row) => row.run_id === heartbeat.run_id);
@@ -1592,12 +1717,12 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       failureRate: latestMetric(result.queries.metrics, "failure_rate"),
     },
     lanes: laneTasks,
-    schedulerJobs: buildRunnerSchedulerJobs(result.queries.schedulerJobs, result.queries.runs),
+    schedulerJobs: buildRunnerSchedulerJobs(result.queries.schedulerJobs, result.queries.executionRecords, taskRows),
     recentTriggers: [
       ...result.queries.schedulerJobs.map((row) => ({
         id: String(row.id),
         action: String(row.job_type),
-        target: `${String(row.target_type)}:${String(row.target_id ?? "")}`,
+        target: schedulerJobTargetLabel(row),
         result: String(row.status),
         createdAt: String(row.updated_at),
       })),
@@ -1619,7 +1744,8 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     factSources: [
       "task_graph_tasks",
       "tasks",
-      "runs",
+      "execution_records",
+      "execution_records",
       "runner_heartbeats",
       "runner_policies",
       "scheduler_job_records",
@@ -1638,7 +1764,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       { action: "schedule_board_tasks", entityType: "feature" },
       { action: "run_board_tasks", entityType: "feature" },
     ],
-    skillInvocations: buildSkillInvocationFeedback(result.queries.runs, result.queries.schedulerJobs, result.queries.evidence),
+    skillInvocations: buildSkillInvocationFeedback(result.queries.executionRecords, result.queries.schedulerJobs, result.queries.evidence),
   };
 }
 
@@ -1717,7 +1843,15 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     { name: "features", sql: `SELECT id, project_id FROM features ${featureFilter}`, params: projectId ? [projectId] : [] },
     { name: "tasks", sql: "SELECT id, feature_id FROM tasks" },
     { name: "graphTasks", sql: "SELECT id, feature_id FROM task_graph_tasks" },
-    { name: "runs", sql: "SELECT id, task_id, feature_id, project_id, status, metadata_json, started_at, completed_at FROM runs ORDER BY COALESCE(completed_at, started_at, '') DESC, id" },
+    {
+      name: "runs",
+      sql: `SELECT id,
+          json_extract(context_json, '$.taskId') AS task_id,
+          json_extract(context_json, '$.featureId') AS feature_id,
+          project_id, status, metadata_json, started_at, completed_at
+        FROM execution_records
+        ORDER BY COALESCE(completed_at, started_at, '') DESC, id`,
+    },
     { name: "reviews", sql: "SELECT id, project_id, feature_id, task_id, status, severity, body, created_at FROM review_items ORDER BY created_at DESC, rowid DESC" },
     {
       name: "audit",
@@ -1750,7 +1884,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     },
     {
       name: "schedulerJobs",
-      sql: `SELECT id, bullmq_job_id, queue_name, job_type, target_type, target_id, status, payload_json, error, updated_at
+      sql: `SELECT id, bullmq_job_id, queue_name, job_type, status, payload_json, error, updated_at
         FROM scheduler_job_records
         ORDER BY updated_at DESC, rowid DESC
         LIMIT 80`,
@@ -1765,7 +1899,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     .map((row) => String(row.id)));
   const scopedRunIds = new Set(result.queries.runs
     .filter((row) => auditRowBelongsToProject({
-      entityType: "run",
+      entityType: "execution",
       entityId: String(row.id),
       projectId,
       payload: parseJsonObject(row.metadata_json),
@@ -1811,8 +1945,8 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
   );
   const schedulerRows = result.queries.schedulerJobs.filter((row) => auditRowBelongsToProject({
     ...scope,
-    entityType: String(row.target_type),
-    entityId: String(row.target_id ?? ""),
+    entityType: "execution",
+    entityId: optionalString(parseJsonObject(row.payload_json).executionId) ?? String(row.id),
     payload: parseJsonObject(row.payload_json),
   }));
 
@@ -1880,14 +2014,14 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     status: String(row.status) === "failed" || optionalString(row.error) ? "blocked" as const : "recorded" as const,
     eventType: "scheduler_job",
     action: String(row.job_type),
-    entityType: String(row.target_type),
-    entityId: String(row.target_id ?? ""),
+    entityType: "execution",
+    entityId: optionalString(parseJsonObject(row.payload_json).executionId) ?? String(row.id),
     reason: optionalString(row.error) ?? String(row.status),
     requestedBy: undefined,
-    runId: optionalString(parseJsonObject(row.payload_json).runId),
+    runId: optionalString(parseJsonObject(row.payload_json).executionId),
     jobId: String(row.id),
-    featureId: optionalString(parseJsonObject(row.payload_json).featureId),
-    taskId: optionalString(parseJsonObject(row.payload_json).taskId),
+    featureId: optionalString(parseJsonObject(parseJsonObject(row.payload_json).context).featureId),
+    taskId: optionalString(parseJsonObject(parseJsonObject(row.payload_json).context).taskId),
     evidenceId: undefined,
     reviewId: undefined,
     blockedReasons: optionalString(row.error) ? [String(row.error)] : [],
@@ -1950,7 +2084,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
       "evidence_packs",
       "approval_records",
       "scheduler_job_records",
-      "runs",
+      "execution_records",
     ],
   };
 }
@@ -2024,7 +2158,9 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     scheduleTriggerId: scheduleResult?.triggerId ?? specPoolResult?.scheduleTriggerId,
     schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId ?? specPoolResult?.schedulerJobId,
     schedulerJobIds: boardResult?.schedulerJobIds,
-    runId: specSkillResult?.runId,
+    executionId: specSkillResult?.executionId ?? scheduleResult?.executionId ?? specPoolResult?.executionId,
+    executionIds: boardResult?.runIds,
+    runId: specSkillResult?.executionId,
     runIds: boardResult?.runIds,
     blockedReasons: blockedReasons.length > 0 ? blockedReasons : undefined,
   };
@@ -2157,7 +2293,7 @@ function executeScheduleCommand(
   input: ConsoleCommandInput,
   acceptedAt: string,
   scheduler: SchedulerClient,
-): { triggerId: string; schedulerJobId?: string } | undefined {
+): { triggerId: string; schedulerJobId?: string; executionId?: string } | undefined {
   if (input.action !== "schedule_run") {
     return undefined;
   }
@@ -2186,16 +2322,37 @@ function executeScheduleCommand(
   if (trigger.result !== "accepted") {
     return { triggerId: trigger.id };
   }
-  const job = scheduler.enqueueFeatureSelect({
-    triggerId: trigger.id,
-    projectId: trigger.projectId,
-    featureId: trigger.featureId,
-    target: trigger.target,
-    mode: trigger.mode,
-    requestedFor: trigger.requestedFor,
-    createdAt: acceptedAt,
+  const featureId = trigger.featureId ?? optionalString(payload.featureId);
+  const taskId = optionalString(payload.taskId) ?? (input.entityType === "task" ? input.entityId : undefined);
+  const executionId = randomUUID();
+  const operation = optionalString(payload.operation) ?? "feature_execution";
+  const context = {
+    featureId,
+    taskId,
+    featureSpecPath: featureId ? `docs/features/${featureId}` : undefined,
+    sourcePaths: optionalStringArray(payload.sourcePaths),
+    expectedArtifacts: optionalStringArray(payload.expectedArtifacts),
+    skillSlug: optionalString(payload.skillSlug),
+    skillPhase: optionalString(payload.skillPhase) ?? operation,
+  };
+  const job = scheduler.enqueueCliRun({
+    executionId,
+    operation,
+    projectId: trigger.projectId ?? optionalString(payload.projectId),
+    context,
+    requestedAction: optionalString(payload.requestedAction),
   });
-  return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId };
+  persistExecutionRecord(dbPath, {
+    executionId,
+    schedulerJobId: job.schedulerJobId,
+    executorType: "cli",
+    operation,
+    projectId: trigger.projectId ?? optionalString(payload.projectId),
+    context,
+    status: "queued",
+    acceptedAt,
+  });
+  return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId };
 }
 
 function executeFeatureSpecPoolCommand(
@@ -2203,7 +2360,7 @@ function executeFeatureSpecPoolCommand(
   input: ConsoleCommandInput,
   acceptedAt: string,
   scheduler: SchedulerClient,
-): { featureIds: string[]; scheduleTriggerId?: string; schedulerJobId?: string; blockedReasons: string[] } | undefined {
+): { featureIds: string[]; scheduleTriggerId?: string; schedulerJobId?: string; executionId?: string; blockedReasons: string[] } | undefined {
   if (input.action !== "push_feature_spec_pool") {
     return undefined;
   }
@@ -2289,15 +2446,46 @@ function executeFeatureSpecPoolCommand(
   if (trigger.result !== "accepted") {
     return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: [] };
   }
-  const job = scheduler.enqueueFeatureSelect({
-    triggerId: trigger.id,
-    projectId: trigger.projectId,
-    target: trigger.target,
-    mode: trigger.mode,
-    requestedFor: trigger.requestedFor,
-    createdAt: acceptedAt,
+  const selected = selectFeaturePoolQueueEntry(dbPath, queuePlan.entries, project.id);
+  if (!selected) {
+    return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: ["No executable Feature Spec found in feature-pool-queue.json."] };
+  }
+  const selectedFeature = docsById.get(selected.id)!;
+  const featureSpecPath = `docs/features/${selectedFeature.folder ?? selected.id.toLowerCase()}`;
+  const executionId = randomUUID();
+  const context = {
+    featureId: selected.id,
+    featureSpecPath,
+    sourcePaths: [
+      "docs/zh-CN/PRD.md",
+      "docs/zh-CN/requirements.md",
+      "docs/zh-CN/hld.md",
+      `${featureSpecPath}/requirements.md`,
+      `${featureSpecPath}/design.md`,
+      `${featureSpecPath}/tasks.md`,
+    ],
+    expectedArtifacts: [".autobuild/evidence/feature-execution.json"],
+    workspaceRoot: project.targetRepoPath,
+    skillSlug: "codex-coding-skill",
+    skillPhase: "feature_execution",
+  };
+  const job = scheduler.enqueueCliRun({
+    executionId,
+    operation: "feature_execution",
+    projectId: project.id,
+    context,
   });
-  return { featureIds, scheduleTriggerId: trigger.id, schedulerJobId: job.schedulerJobId, blockedReasons: [] };
+  persistExecutionRecord(dbPath, {
+    executionId,
+    schedulerJobId: job.schedulerJobId,
+    executorType: "cli",
+    operation: "feature_execution",
+    projectId: project.id,
+    context,
+    status: "queued",
+    acceptedAt,
+  });
+  return { featureIds, scheduleTriggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId, blockedReasons: [] };
 }
 
 function executeSpecSkillCommand(
@@ -2306,7 +2494,7 @@ function executeSpecSkillCommand(
   acceptedAt: string,
   scheduler: SchedulerClient,
   specIntakeResult?: ({ blockedReasons: string[] } & Record<string, unknown>),
-): { runId: string; schedulerJobId: string; skillSlug: string; workspaceRoot?: string } | undefined {
+): { executionId: string; schedulerJobId: string; skillSlug: string; workspaceRoot?: string } | undefined {
   if (!["generate_ears", "generate_hld", "generate_ui_spec", "split_feature_specs"].includes(input.action)) {
     return undefined;
   }
@@ -2326,46 +2514,49 @@ function executeSpecSkillCommand(
     : optionalString(specIntakeResult?.featureId)
       ?? optionalString(payload.featureId)
       ?? (input.entityType === "feature" ? input.entityId : undefined);
-  const runId = randomUUID();
+  const executionId = randomUUID();
   const skillSlug = skillSlugForSpecAction(input.action);
   const sourcePaths = sourcePathsForSpecAction(input.action, payload, featureId, project.targetRepoPath);
   const imagePaths = imagePathsForSpecAction(input.action, payload);
   const expectedArtifacts = expectedArtifactsForSpecAction(input.action, featureId, sourcePaths, project.targetRepoPath);
-  runSqlite(dbPath, [
-    {
-      sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
-        VALUES (?, NULL, ?, ?, ?, ?, ?)`,
-      params: [
-        runId,
-        featureId ?? null,
-        projectId,
-        "queued",
-        acceptedAt,
-        JSON.stringify({
-          commandAction: input.action,
-          scheduler: "bullmq",
-          workspaceRoot: project.targetRepoPath,
-          skillSlug,
-          skillPhase: input.action,
-        }),
-      ],
-    },
-  ]);
-  const job = scheduler.enqueueCliRun({
-    projectId,
+  const context = {
     featureId,
-    runId,
-    skillSlug,
-    requestedAction: input.action,
     sourcePaths,
     imagePaths,
     expectedArtifacts,
+    workspaceRoot: project.targetRepoPath,
+    skillSlug,
+    skillPhase: input.action,
+  };
+  const job = scheduler.enqueueCliRun({
+    executionId,
+    operation: input.action,
+    projectId,
+    context,
+    requestedAction: input.action,
     traceability: {
       requirementIds: optionalStringArray(payload.requirementIds),
       changeIds: input.action === "generate_hld" ? [] : ["CHG-016"],
     },
   });
-  return { runId, schedulerJobId: job.schedulerJobId, skillSlug, workspaceRoot: project.targetRepoPath };
+  persistExecutionRecord(dbPath, {
+    executionId,
+    schedulerJobId: job.schedulerJobId,
+    executorType: "cli",
+    operation: input.action,
+    projectId,
+    context,
+    status: "queued",
+    acceptedAt,
+    metadata: {
+      commandAction: input.action,
+      scheduler: "bullmq",
+      workspaceRoot: project.targetRepoPath,
+      skillSlug,
+      skillPhase: input.action,
+    },
+  });
+  return { executionId, schedulerJobId: job.schedulerJobId, skillSlug, workspaceRoot: project.targetRepoPath };
 }
 
 function skillSlugForSpecAction(action: ConsoleCommandAction): string {
@@ -2797,13 +2988,20 @@ function executeBoardCommand(
       const runId = randomUUID();
       runSqlite(dbPath, [
         {
-          sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          sql: `INSERT INTO execution_records (id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           params: [
             runId,
-            taskId,
-            task.featureId ?? null,
+            "cli",
+            "feature_execution",
             task.projectId ?? null,
+            JSON.stringify({
+              featureId: task.featureId,
+              taskId,
+              taskName: task.name,
+              skillSlug: "codex-coding-skill",
+              skillPhase: "task_execution",
+            }),
             "queued",
             acceptedAt,
             JSON.stringify({ commandAction: input.action, scheduler: "bullmq" }),
@@ -2811,10 +3009,17 @@ function executeBoardCommand(
         },
       ]);
       const job = scheduler.enqueueCliRun({
+        executionId: runId,
+        operation: "feature_execution",
         projectId: task.projectId,
-        featureId: task.featureId,
-        taskId,
-        runId,
+        context: {
+          featureId: task.featureId,
+          taskId,
+          taskName: task.name,
+          skillSlug: "codex-coding-skill",
+          skillPhase: "task_execution",
+        },
+        requestedAction: "task_execution",
       });
       schedulerJobIds.push(job.schedulerJobId);
       runIds.push(runId);
@@ -2835,6 +3040,7 @@ function executeBoardCommand(
 
 function loadBoardCommandTasks(dbPath: string, taskIds: string[]): Array<{
   id: string;
+  name: string;
   featureId?: string;
   projectId?: string;
   status: BoardColumn | "unknown";
@@ -2842,23 +3048,24 @@ function loadBoardCommandTasks(dbPath: string, taskIds: string[]): Array<{
   const result = runSqlite(dbPath, [], [
     {
       name: "graphTasks",
-      sql: `SELECT t.id, t.feature_id, f.project_id, t.status
+      sql: `SELECT t.id, t.feature_id, f.project_id, t.title, t.status
         FROM task_graph_tasks t LEFT JOIN features f ON f.id = t.feature_id
         WHERE t.id IN (${placeholders(taskIds.length)})`,
       params: taskIds,
     },
     {
       name: "tasks",
-      sql: `SELECT t.id, t.feature_id, f.project_id, t.status
+      sql: `SELECT t.id, t.feature_id, f.project_id, t.title, t.status
         FROM tasks t LEFT JOIN features f ON f.id = t.feature_id
         WHERE t.id IN (${placeholders(taskIds.length)})`,
       params: taskIds,
     },
   ]);
-  const byId = new Map<string, { id: string; featureId?: string; projectId?: string; status: BoardColumn | "unknown" }>();
+  const byId = new Map<string, { id: string; name: string; featureId?: string; projectId?: string; status: BoardColumn | "unknown" }>();
   for (const row of [...result.queries.tasks, ...result.queries.graphTasks]) {
     byId.set(String(row.id), {
       id: String(row.id),
+      name: taskName(row),
       featureId: optionalString(row.feature_id),
       projectId: optionalString(row.project_id),
       status: normalizeBoardStatus(row.status),
@@ -3322,6 +3529,7 @@ function buildRunnerScheduleLanes(input: {
   logs: Record<string, unknown>[];
   reviews: Record<string, unknown>[];
   approvals: Record<string, unknown>[];
+  evidence: Record<string, unknown>[];
 }): RunnerConsoleViewModel["lanes"] {
   const lanes: RunnerConsoleViewModel["lanes"] = { ready: [], scheduled: [], running: [], blocked: [] };
   for (const row of input.taskRows) {
@@ -3334,13 +3542,21 @@ function buildRunnerScheduleLanes(input: {
     const run = input.runsByTask.get(taskId);
     const heartbeat = run ? input.heartbeatsByRun.get(String(run.id)) : undefined;
     const log = run ? input.logs.find((entry) => entry.run_id === run.id) : undefined;
+    const evidence = input.evidence.find((entry) =>
+      entry.task_id === row.id || (run && entry.run_id === run.id) || (!entry.task_id && entry.feature_id === row.feature_id)
+    );
     const task = {
       id: taskId,
       featureId: optionalString(row.feature_id),
       featureTitle: optionalString(row.feature_title),
+      name: taskName(row),
       title: String(row.title),
+      description: taskDescription(row),
       status,
       risk: normalizeRisk(row.risk),
+      sourceRequirementIds: optionalStringArray(parseJsonArray(row.source_requirements_json)),
+      acceptanceCriteriaIds: optionalStringArray(parseJsonArray(row.acceptance_criteria_json)),
+      allowedFiles: optionalStringArray(parseJsonArray(row.allowed_files_json)),
       dependencies: parseJsonArray(row.dependencies_json).map((dependency) => {
         const id = String(dependency);
         const dependencyStatus = normalizeBoardStatus(input.taskById.get(id)?.status);
@@ -3356,6 +3572,8 @@ function buildRunnerScheduleLanes(input: {
       action: runnerTaskAction(status, blockedReasons),
       blockedReasons,
       recentLog: optionalString(log?.stderr) ?? optionalString(log?.stdout),
+      evidenceSummary: optionalString(evidence?.summary),
+      lastUpdatedAt: optionalString(row.updated_at) ?? optionalString(run?.started_at),
     } satisfies RunnerScheduleTaskViewModel;
 
     if (["blocked", "failed", "review_needed"].includes(String(status)) || blockedReasons.length > 0) {
@@ -3376,6 +3594,19 @@ function buildRunnerScheduleLanes(input: {
   };
 }
 
+function taskDescription(row: Record<string, unknown>): string | undefined {
+  const explicit = optionalString(row.description);
+  if (explicit) {
+    return explicit;
+  }
+  const graph = parseJsonObject(row.graph_json);
+  const tasks = arrayValue(graph.tasks);
+  const match = tasks
+    .map((entry) => parseJsonObject(entry))
+    .find((entry) => optionalString(entry.taskId) === row.id || optionalString(entry.id) === row.id);
+  return optionalString(match?.description);
+}
+
 function runnerTaskAction(status: BoardColumn | "unknown", blockedReasons: string[]): RunnerScheduleTaskViewModel["action"] {
   if (blockedReasons.length > 0 || status === "review_needed" || status === "blocked" || status === "failed") {
     return "review";
@@ -3390,7 +3621,7 @@ function runnerTaskAction(status: BoardColumn | "unknown", blockedReasons: strin
 }
 
 function buildSkillInvocationFeedback(
-  runRows: Record<string, unknown>[],
+  executionRows: Record<string, unknown>[],
   schedulerRows: Record<string, unknown>[],
   evidenceRows: Record<string, unknown>[],
 ): RunnerConsoleViewModel["skillInvocations"] {
@@ -3401,30 +3632,28 @@ function buildSkillInvocationFeedback(
       evidenceByRun.set(runId, row);
     }
   }
-  return runRows
-    .map((run) => {
-      const metadata = parseJsonObject(run.metadata_json);
+  return executionRows
+    .map((execution) => {
+      const metadata = parseJsonObject(execution.metadata_json);
+      const context = parseJsonObject(execution.context_json);
       const skillSlug = optionalString(metadata.skillSlug);
-      const skillPhase = optionalString(metadata.skillPhase) ?? optionalString(metadata.commandAction);
+      const skillPhase = optionalString(metadata.skillPhase) ?? optionalString(context.skillPhase) ?? optionalString(execution.operation);
       if (!skillSlug && !skillPhase) {
         return undefined;
       }
-      const runId = String(run.id);
-      const schedulerJob = schedulerRows.find((row) => {
-        const payload = parseJsonObject(row.payload_json);
-        return optionalString(payload.runId) === runId;
-      });
-      const evidence = evidenceByRun.get(runId);
+      const executionId = String(execution.id);
+      const schedulerJob = schedulerRows.find((row) => row.id === execution.scheduler_job_id || optionalString(parseJsonObject(row.payload_json).executionId) === executionId);
+      const evidence = evidenceByRun.get(executionId);
       return {
-        runId,
+        runId: executionId,
         schedulerJobId: optionalString(schedulerJob?.id),
-        workspaceRoot: optionalString(metadata.workspaceRoot),
-        skillSlug,
+        workspaceRoot: optionalString(metadata.workspaceRoot) ?? optionalString(context.workspaceRoot),
+        skillSlug: skillSlug ?? optionalString(context.skillSlug),
         skillPhase,
-        blockedReason: optionalString(metadata.blockedReason) ?? (String(run.status) === "blocked" ? optionalString(run.summary) : undefined),
-        status: String(run.status),
+        blockedReason: optionalString(metadata.blockedReason) ?? (String(execution.status) === "blocked" ? optionalString(execution.summary) : undefined),
+        status: String(execution.status),
         evidenceSummary: optionalString(evidence?.summary),
-        updatedAt: optionalString(run.completed_at) ?? optionalString(run.started_at),
+        updatedAt: optionalString(execution.completed_at) ?? optionalString(execution.started_at) ?? optionalString(execution.updated_at),
       };
     })
     .filter((entry): entry is RunnerConsoleViewModel["skillInvocations"][number] => Boolean(entry))
@@ -3433,33 +3662,90 @@ function buildSkillInvocationFeedback(
 
 function buildRunnerSchedulerJobs(
   schedulerRows: Record<string, unknown>[],
-  runRows: Record<string, unknown>[],
+  executionRows: Record<string, unknown>[],
+  taskRows: Record<string, unknown>[],
 ): RunnerConsoleViewModel["schedulerJobs"] {
-  const runMetadata = new Map<string, Record<string, unknown>>();
-  for (const run of runRows) {
-    runMetadata.set(String(run.id), parseJsonObject(run.metadata_json));
+  const executionsByJob = new Map<string, Record<string, unknown>>();
+  const executionsById = new Map<string, Record<string, unknown>>();
+  const tasksById = new Map(taskRows.map((row) => [String(row.id), row]));
+  for (const execution of executionRows) {
+    executionsById.set(String(execution.id), execution);
+    const schedulerJobId = optionalString(execution.scheduler_job_id);
+    if (schedulerJobId) executionsByJob.set(schedulerJobId, execution);
   }
   return schedulerRows.map((row) => {
     const payload = parseJsonObject(row.payload_json);
-    const runId = optionalString(payload.runId);
-    const metadata = runId ? runMetadata.get(runId) : undefined;
+    const payloadContext = parseJsonObject(payload.context);
+    const executionId = optionalString(payload.executionId);
+    const execution = executionsByJob.get(String(row.id)) ?? (executionId ? executionsById.get(executionId) : undefined);
+    const metadata = parseJsonObject(execution?.metadata_json);
+    const context = parseJsonObject(execution?.context_json);
+    const mergedContext = { ...payloadContext, ...context };
+    const taskId = optionalString(mergedContext.taskId);
+    const featureId = optionalString(mergedContext.featureId);
     return {
       id: String(row.id),
+      name: schedulerJobName(row, payload, mergedContext, tasksById),
       bullmqJobId: optionalString(row.bullmq_job_id),
       queueName: String(row.queue_name),
       jobType: String(row.job_type),
-      targetType: String(row.target_type),
-      targetId: optionalString(row.target_id),
+      operation: optionalString(payload.operation),
+      targetType: "execution",
+      targetId: executionId,
       status: String(row.status),
+      attempts: Number(row.attempts ?? 0),
       error: optionalString(row.error),
       updatedAt: String(row.updated_at),
-      runId,
-      taskId: optionalString(payload.taskId),
-      featureId: optionalString(payload.featureId),
+      executionId,
+      runId: executionId,
+      taskId,
+      featureId,
       projectId: optionalString(payload.projectId),
-      workspaceRoot: optionalString(metadata?.workspaceRoot),
+      workspaceRoot: optionalString(metadata.workspaceRoot) ?? optionalString(mergedContext.workspaceRoot),
+      context: mergedContext,
     };
   });
+}
+
+function taskName(row: Record<string, unknown>): string {
+  return optionalString(row.name) ?? optionalString(row.title) ?? String(row.id);
+}
+
+function schedulerJobName(
+  row: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  context: Record<string, unknown>,
+  tasksById: Map<string, Record<string, unknown>>,
+): string {
+  const taskId = optionalString(context.taskId);
+  if (taskId) {
+    return optionalString(context.taskName) ?? optionalString(context.name) ?? taskName(tasksById.get(taskId) ?? { id: taskId });
+  }
+  return optionalString(context.featureTitle)
+    ?? optionalString(context.name)
+    ?? schedulerOperationName(optionalString(payload.operation), optionalString(context.skillSlug), optionalString(context.skillPhase))
+    ?? String(row.job_type);
+}
+
+function schedulerOperationName(operation?: string, skillSlug?: string, skillPhase?: string): string | undefined {
+  if (skillSlug === "codex-coding-skill" || skillPhase === "task_execution") return "Execute task";
+  if (skillSlug === "create-project-hld" || operation === "generate_hld") return "Generate project HLD";
+  if (skillSlug === "pr-ears-requirement-decomposition-skill" || operation === "generate_ears") return "Generate EARS requirements";
+  if (skillSlug === "task-slicing-skill" || operation === "split_feature_specs") return "Split Feature Specs";
+  if (skillSlug === "ui-spec-skill" || operation === "generate_ui_spec") return "Generate UI Spec";
+  if (skillSlug === "technical-context-skill") return "Collect technical context";
+  if (operation === "feature_execution") return "Execute feature work";
+  return undefined;
+}
+
+function schedulerJobTargetLabel(row: Record<string, unknown>): string {
+  const payload = parseJsonObject(row.payload_json);
+  const context = parseJsonObject(payload.context);
+  return optionalString(context.taskId)
+    ?? optionalString(context.featureId)
+    ?? optionalString(payload.projectId)
+    ?? optionalString(payload.executionId)
+    ?? "execution";
 }
 
 function filterRunnerAuditEvents(

@@ -30,6 +30,66 @@ import { handleRecoveryResult, persistRecoveryResultHandling } from "../src/reco
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
+function skillInvocationContract(overrides: Partial<{
+  executionId: string;
+  projectId: string;
+  workspaceRoot: string;
+  operation: string;
+  skillSlug: string;
+  sourcePaths: string[];
+  expectedArtifacts: Array<{ path: string; kind: string; required: boolean }>;
+  featureId: string;
+  taskId: string;
+  requirementIds: string[];
+  changeIds: string[];
+  requestedAction: string;
+}> = {}) {
+  return {
+    contractVersion: "skill-contract/v1" as const,
+    executionId: overrides.executionId ?? "RUN-SKILL",
+    projectId: overrides.projectId ?? "project-1",
+    workspaceRoot: overrides.workspaceRoot ?? "/workspace/project",
+    operation: overrides.operation ?? overrides.requestedAction ?? "generate_ears",
+    skillSlug: overrides.skillSlug ?? "pr-ears-requirement-decomposition-skill",
+    sourcePaths: overrides.sourcePaths ?? ["docs/PRD.md"],
+    expectedArtifacts: overrides.expectedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", required: true }],
+    traceability: {
+      featureId: overrides.featureId,
+      taskId: overrides.taskId,
+      requirementIds: overrides.requirementIds ?? [],
+      changeIds: overrides.changeIds ?? ["CHG-016"],
+    },
+    constraints: {
+      allowedFiles: [],
+      risk: "low" as const,
+    },
+    requestedAction: overrides.requestedAction ?? "generate_ears",
+  };
+}
+
+function skillOutputEvent(overrides: Partial<{
+  executionId: string;
+  skillSlug: string;
+  requestedAction: string;
+  status: "completed" | "review_needed" | "blocked" | "failed";
+  summary: string;
+  evidenceSummary: string;
+  producedArtifacts: Array<{ path: string; kind: string; status: "created" | "updated" | "unchanged" | "missing" | "skipped" }>;
+}> = {}): string {
+  const output = {
+    contractVersion: "skill-contract/v1",
+    executionId: overrides.executionId ?? "RUN-SKILL",
+    skillSlug: overrides.skillSlug ?? "pr-ears-requirement-decomposition-skill",
+    requestedAction: overrides.requestedAction ?? "generate_ears",
+    status: overrides.status ?? "completed",
+    summary: overrides.summary ?? "Skill completed.",
+    producedArtifacts: overrides.producedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
+    evidence: [{ kind: "artifact", summary: overrides.evidenceSummary ?? "Generated artifact.", status: "passed" }],
+    traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+  };
+  return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
+}
+
 test("schema includes Codex runner policies, heartbeats, sessions, and logs", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
@@ -221,15 +281,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   const docsDirectWrite = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Generate EARS requirements.",
-    skillInvocation: {
-      projectId: "project-1",
-      workspaceRoot: "/workspace/project",
-      skillSlug: "pr-ears-requirement-decomposition-skill",
-      sourcePaths: ["docs/PRD.md"],
-      expectedArtifacts: ["docs/requirements.md"],
-      traceability: { requirementIds: [], changeIds: ["CHG-016"] },
-      requestedAction: "generate_ears",
-    },
+    skillInvocation: skillInvocationContract(),
   });
   assert.equal(docsDirectWrite.allowed, true);
   assert.equal(docsDirectWrite.reviewNeeded, false);
@@ -238,15 +290,14 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
     policy: docsDirectWritePolicy,
     prompt: "Implement the bounded task.",
     files: ["src/index.ts", "tests/index.test.ts"],
-    skillInvocation: {
-      projectId: "project-1",
-      workspaceRoot: "/workspace/project",
+    skillInvocation: skillInvocationContract({
       skillSlug: "codex-coding-skill",
+      operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [".autobuild/evidence/codex-runner.json"],
-      traceability: { requirementIds: ["REQ-001"], changeIds: ["CHG-016"] },
+      expectedArtifacts: [{ path: ".autobuild/evidence/codex-runner.json", kind: "json", required: true }],
+      requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
-    },
+    }),
   });
   assert.equal(codingDirectWrite.allowed, true);
   assert.equal(codingDirectWrite.reviewNeeded, false);
@@ -254,15 +305,14 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   const unboundedCodingDirectWrite = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Implement the task without file scope.",
-    skillInvocation: {
-      projectId: "project-1",
-      workspaceRoot: "/workspace/project",
+    skillInvocation: skillInvocationContract({
       skillSlug: "codex-coding-skill",
+      operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [".autobuild/evidence/codex-runner.json"],
-      traceability: { requirementIds: ["REQ-001"], changeIds: ["CHG-016"] },
+      expectedArtifacts: [{ path: ".autobuild/evidence/codex-runner.json", kind: "json", required: true }],
+      requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
-    },
+    }),
   });
   assert.equal(unboundedCodingDirectWrite.allowed, false);
   assert.equal(unboundedCodingDirectWrite.reasons.some((reason) => reason.includes("bounded write scope")), true);
@@ -270,15 +320,11 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   const unsafeArtifactDirectWrite = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Generate a risky artifact.",
-    skillInvocation: {
-      projectId: "project-1",
-      workspaceRoot: "/workspace/project",
+    skillInvocation: skillInvocationContract({
       skillSlug: "technical-context-skill",
-      sourcePaths: ["docs/PRD.md"],
-      expectedArtifacts: ["../outside.md"],
-      traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+      expectedArtifacts: [{ path: "../outside.md", kind: "markdown", required: true }],
       requestedAction: "feature_planning",
-    },
+    }),
   });
   assert.equal(unsafeArtifactDirectWrite.allowed, false);
   assert.equal(unsafeArtifactDirectWrite.reasons.some((reason) => reason.includes("bounded write scope")), true);
@@ -316,15 +362,7 @@ test("safety gate ignores high-risk words inside bundled source context", () => 
 
 test("skill invocation prompt asks child CLI to return docs artifacts as evidence", () => {
   const prompt = buildSkillInvocationPrompt(
-    {
-      projectId: "project-1",
-      workspaceRoot: "/workspace/project",
-      skillSlug: "pr-ears-requirement-decomposition-skill",
-      sourcePaths: ["docs/PRD.md"],
-      expectedArtifacts: ["docs/requirements.md"],
-      traceability: { requirementIds: [], changeIds: ["CHG-016"] },
-      requestedAction: "generate_ears",
-    },
+    skillInvocationContract(),
     "Context",
   );
 
@@ -595,19 +633,11 @@ test("runner queue worker routes blocked work to review and executes allowed wor
       runId: "RUN-006A",
       prompt: "Generate requirements",
       policy: missingArtifactPolicy,
-      skillInvocation: {
-        projectId: "project-1",
-        workspaceRoot: missingArtifactRoot,
-        skillSlug: "pr-ears-requirement-decomposition-skill",
-        sourcePaths: ["docs/PRD.md"],
-        expectedArtifacts: ["docs/requirements.md"],
-        traceability: { requirementIds: [], changeIds: ["CHG-016"] },
-        requestedAction: "generate_ears",
-      },
+      skillInvocation: skillInvocationContract({ executionId: "RUN-006A", workspaceRoot: missingArtifactRoot }),
     },
-    () => ({ status: 0, stdout: '{"type":"result","message":"done"}', stderr: "" }),
+    () => ({ status: 0, stdout: skillOutputEvent({ executionId: "RUN-006A", producedArtifacts: [] }), stderr: "" }),
   );
-  assert.equal(missingArtifact.status, "failed");
+  assert.equal(missingArtifact.status, "review_needed");
 
   const materializedArtifactRoot = makeWorkspacePath();
   const materializedArtifactPolicy = resolveRunnerPolicy({
@@ -621,21 +651,14 @@ test("runner queue worker routes blocked work to review and executes allowed wor
       runId: "RUN-006M",
       prompt: "Generate requirements",
       policy: materializedArtifactPolicy,
-      skillInvocation: {
-        projectId: "project-1",
-        workspaceRoot: materializedArtifactRoot,
-        skillSlug: "pr-ears-requirement-decomposition-skill",
-        sourcePaths: ["docs/PRD.md"],
-        expectedArtifacts: ["docs/requirements.md"],
-        traceability: { requirementIds: [], changeIds: ["CHG-016"] },
-        requestedAction: "generate_ears",
-      },
+      skillInvocation: skillInvocationContract({ executionId: "RUN-006M", workspaceRoot: materializedArtifactRoot }),
     },
     () => ({
       status: 0,
-      stdout: [
-        "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"summary\\\":\\\"generated\\\",\\\"status\\\":\\\"completed\\\",\\\"evidence\\\":[\\\"ARTIFACT: docs/requirements.md\\\\n```markdown\\\\n# Requirements\\\\n\\\\nREQ-001: THE SYSTEM SHALL run.\\\\n```\\\"]}\"}}",
-      ].join("\n"),
+      stdout: skillOutputEvent({
+        executionId: "RUN-006M",
+        evidenceSummary: "ARTIFACT: docs/requirements.md\n```markdown\n# Requirements\n\nREQ-001: THE SYSTEM SHALL run.\n```",
+      }),
       stderr: "",
     }),
   );
@@ -654,21 +677,14 @@ test("runner queue worker routes blocked work to review and executes allowed wor
       runId: "RUN-006S",
       prompt: "Generate requirements",
       policy: summaryArtifactPolicy,
-      skillInvocation: {
-        projectId: "project-1",
-        workspaceRoot: summaryArtifactRoot,
-        skillSlug: "pr-ears-requirement-decomposition-skill",
-        sourcePaths: ["docs/PRD.md"],
-        expectedArtifacts: ["docs/requirements.md"],
-        traceability: { requirementIds: [], changeIds: ["CHG-016"] },
-        requestedAction: "generate_ears",
-      },
+      skillInvocation: skillInvocationContract({ executionId: "RUN-006S", workspaceRoot: summaryArtifactRoot }),
     },
     () => ({
       status: 0,
-      stdout: [
-        "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"summary\\\":\\\"ARTIFACT: docs/requirements.md\\\\n```markdown\\\\n# Requirements from summary\\\\n\\\\nREQ-002: THE SYSTEM SHALL land summary artifacts.\\\\n```\\\",\\\"status\\\":\\\"completed\\\",\\\"evidence\\\":[]}\"}}",
-      ].join("\n"),
+      stdout: skillOutputEvent({
+        executionId: "RUN-006S",
+        summary: "ARTIFACT: docs/requirements.md\n```markdown\n# Requirements from summary\n\nREQ-002: THE SYSTEM SHALL land summary artifacts.\n```",
+      }),
       stderr: "",
     }),
   );

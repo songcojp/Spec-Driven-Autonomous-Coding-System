@@ -1,21 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, normalize, relative } from "node:path";
-import { Queue, Worker, type JobsOptions, type Job, type WorkerOptions } from "bullmq";
+import { Queue, Worker, type Job, type WorkerOptions } from "bullmq";
 import IORedis from "ioredis";
 import { runSqlite } from "./sqlite.ts";
 import { recordAuditEvent } from "./persistence.ts";
 import {
-  persistSelectionDecision,
   persistStateTransition,
-  selectNextFeature,
-  transitionFeature,
   transitionTask,
   type BoardColumn,
-  type FeatureCandidate,
-  type FeatureLifecycleStatus,
   type RiskLevel,
-  type ScheduleTriggerMode,
 } from "./orchestration.ts";
 import {
   buildEvidencePackInput,
@@ -31,21 +25,17 @@ import {
   type CliAdapterConfig,
   type CodexCommandRunner,
   type RunnerQueueStatus,
+  type SkillArtifactContract,
   type SkillInvocationContract,
 } from "./codex-runner.ts";
 
-export const FEATURE_SCHEDULER_QUEUE = "specdrive:feature-scheduler";
 export const CLI_RUNNER_QUEUE = "specdrive:cli-runner";
-export const BULLMQ_FEATURE_SCHEDULER_QUEUE = "specdrive-feature-scheduler";
 export const BULLMQ_CLI_RUNNER_QUEUE = "specdrive-cli-runner";
-export const FEATURE_WORKER_LOCK_DURATION_MS = 5 * 60 * 1000;
 export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
-export const PLANNING_BRIDGE_NOT_IMPLEMENTED = "Planning skill execution bridge is not implemented";
-export const PLANNING_BRIDGE_WORKSPACE_BLOCKED = "Planning skill execution bridge is blocked because the project workspace is unavailable";
 const MAX_CONTEXT_FILE_BYTES = 120_000;
 const MAX_CONTEXT_BUNDLE_BYTES = 360_000;
 
-export type SchedulerJobType = "feature.select" | "feature.plan" | "cli.run";
+export type SchedulerJobType = "cli.run" | "native.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "blocked" | "failed";
 
 export type SchedulerEnqueueResult = {
@@ -61,43 +51,37 @@ export type SchedulerHealth = {
   reason?: string;
 };
 
-export type FeatureSelectJobPayload = {
-  triggerId: string;
-  projectId?: string;
+export type ExecutorJobContext = {
   featureId?: string;
-  target: { type: "project" | "feature" | "task"; id?: string };
-  mode: ScheduleTriggerMode;
-  requestedFor: string;
-  createdAt: string;
-};
-
-export type FeaturePlanJobPayload = {
-  triggerId?: string;
-  projectId?: string;
-  featureId: string;
-  selectionDecisionId?: string;
-};
-
-export type CliRunJobPayload = {
-  projectId?: string;
-  featureId?: string;
+  featureSpecPath?: string;
   taskId?: string;
-  runId: string;
-  skillSlug?: string;
-  requestedAction?: string;
   sourcePaths?: string[];
   imagePaths?: string[];
   expectedArtifacts?: string[];
+  workspaceRoot?: string;
+  skillSlug?: string;
+  skillPhase?: string;
+  [key: string]: unknown;
+};
+
+export type ExecutorRunJobPayload = {
+  operation: string;
+  projectId?: string;
+  executionId: string;
+  context?: ExecutorJobContext;
+  requestedAction?: string;
   traceability?: {
     requirementIds?: string[];
     changeIds?: string[];
   };
 };
 
+export type CliRunJobPayload = ExecutorRunJobPayload;
+export type NativeRunJobPayload = ExecutorRunJobPayload & { nativeHandler?: string };
+
 export type SchedulerClient = {
-  enqueueFeatureSelect(payload: FeatureSelectJobPayload): SchedulerEnqueueResult;
-  enqueueFeaturePlan(payload: FeaturePlanJobPayload): SchedulerEnqueueResult;
   enqueueCliRun(payload: CliRunJobPayload): SchedulerEnqueueResult;
+  enqueueNativeRun?(payload: NativeRunJobPayload): SchedulerEnqueueResult;
   health?: () => SchedulerHealth;
   close?: () => Promise<void>;
 };
@@ -115,40 +99,13 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
   connection.on("ready", () => {
     lastError = undefined;
   });
-  const featureQueue = new Queue(BULLMQ_FEATURE_SCHEDULER_QUEUE, { connection });
   const cliQueue = new Queue(BULLMQ_CLI_RUNNER_QUEUE, { connection });
 
   return {
-    enqueueFeatureSelect(payload) {
-      const result = createQueuedJobRecord(dbPath, {
-        queueName: FEATURE_SCHEDULER_QUEUE,
-        jobType: "feature.select",
-        targetType: payload.target.type,
-        targetId: payload.target.id,
-        payload,
-      });
-      void featureQueue.add("feature.select", { ...payload, schedulerJobId: result.schedulerJobId }, featureSelectJobOptions(payload, result.bullmqJobId))
-        .catch((error) => markSchedulerJobFailed(dbPath, result.bullmqJobId, error));
-      return result;
-    },
-    enqueueFeaturePlan(payload) {
-      const result = createQueuedJobRecord(dbPath, {
-        queueName: FEATURE_SCHEDULER_QUEUE,
-        jobType: "feature.plan",
-        targetType: "feature",
-        targetId: payload.featureId,
-        payload,
-      });
-      void featureQueue.add("feature.plan", { ...payload, schedulerJobId: result.schedulerJobId }, { jobId: result.bullmqJobId, attempts: 1 })
-        .catch((error) => markSchedulerJobFailed(dbPath, result.bullmqJobId, error));
-      return result;
-    },
     enqueueCliRun(payload) {
       const result = createQueuedJobRecord(dbPath, {
         queueName: CLI_RUNNER_QUEUE,
         jobType: "cli.run",
-        targetType: payload.taskId ? "task" : payload.featureId ? "feature" : "project",
-        targetId: payload.taskId ?? payload.featureId ?? payload.projectId,
         payload,
       });
       void cliQueue.add("cli.run", { ...payload, schedulerJobId: result.schedulerJobId }, { jobId: result.bullmqJobId, attempts: 1 })
@@ -161,26 +118,20 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
         : { status: "blocked", redisUrl, reason: lastError ?? `Redis connection is ${connection.status}.` };
     },
     async close() {
-      await Promise.all([featureQueue.close(), cliQueue.close(), connection.quit().catch(() => undefined)]);
+      await Promise.all([cliQueue.close(), connection.quit().catch(() => undefined)]);
     },
   };
 }
 
 export function createUnavailableScheduler(dbPath: string, reason: string): SchedulerClient {
-  const enqueue = (jobType: SchedulerJobType, queueName: string, targetType: string, targetId: string | undefined, payload: unknown): SchedulerEnqueueResult => {
-    const result = createQueuedJobRecord(dbPath, { queueName, jobType, targetType, targetId, payload });
+  const enqueue = (jobType: SchedulerJobType, queueName: string, payload: unknown): SchedulerEnqueueResult => {
+    const result = createQueuedJobRecord(dbPath, { queueName, jobType, payload });
     updateSchedulerJobRecord(dbPath, result.bullmqJobId, "blocked", reason);
     return result;
   };
   return {
-    enqueueFeatureSelect(payload) {
-      return enqueue("feature.select", FEATURE_SCHEDULER_QUEUE, payload.target.type, payload.target.id, payload);
-    },
-    enqueueFeaturePlan(payload) {
-      return enqueue("feature.plan", FEATURE_SCHEDULER_QUEUE, "feature", payload.featureId, payload);
-    },
     enqueueCliRun(payload) {
-      return enqueue("cli.run", CLI_RUNNER_QUEUE, payload.taskId ? "task" : payload.featureId ? "feature" : "project", payload.taskId ?? payload.featureId ?? payload.projectId, payload);
+      return enqueue("cli.run", CLI_RUNNER_QUEUE, payload);
     },
     health() {
       return { status: "blocked", reason };
@@ -190,21 +141,15 @@ export function createUnavailableScheduler(dbPath: string, reason: string): Sche
 
 export function createMemoryScheduler(dbPath: string): SchedulerClient & { jobs: SchedulerEnqueueResult[] } {
   const jobs: SchedulerEnqueueResult[] = [];
-  const enqueue = (jobType: SchedulerJobType, queueName: string, targetType: string, targetId: string | undefined, payload: unknown): SchedulerEnqueueResult => {
-    const result = createQueuedJobRecord(dbPath, { queueName, jobType, targetType, targetId, payload });
+  const enqueue = (jobType: SchedulerJobType, queueName: string, payload: unknown): SchedulerEnqueueResult => {
+    const result = createQueuedJobRecord(dbPath, { queueName, jobType, payload });
     jobs.push(result);
     return result;
   };
   return {
     jobs,
-    enqueueFeatureSelect(payload) {
-      return enqueue("feature.select", FEATURE_SCHEDULER_QUEUE, payload.target.type, payload.target.id, payload);
-    },
-    enqueueFeaturePlan(payload) {
-      return enqueue("feature.plan", FEATURE_SCHEDULER_QUEUE, "feature", payload.featureId, payload);
-    },
     enqueueCliRun(payload) {
-      return enqueue("cli.run", CLI_RUNNER_QUEUE, payload.taskId ? "task" : payload.featureId ? "feature" : "project", payload.taskId ?? payload.featureId ?? payload.projectId, payload);
+      return enqueue("cli.run", CLI_RUNNER_QUEUE, payload);
     },
     health() {
       return { status: "ready" };
@@ -221,13 +166,7 @@ export async function createSchedulerWorkers(input: {
   const connection = new IORedis(input.redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
   connection.on("error", () => undefined);
   const scheduler = input.scheduler ?? createBullMqScheduler(input.dbPath, input.redisUrl);
-  const featureWorkerOptions = workerOptions(connection, FEATURE_WORKER_LOCK_DURATION_MS);
   const cliWorkerOptions = workerOptions(connection, CLI_WORKER_LOCK_DURATION_MS);
-  const featureWorker = new Worker(
-    BULLMQ_FEATURE_SCHEDULER_QUEUE,
-    async (job) => dispatchFeatureJob(input.dbPath, scheduler, job),
-    featureWorkerOptions,
-  );
   const cliWorker = new Worker(
     BULLMQ_CLI_RUNNER_QUEUE,
     async (job) => dispatchCliJob(input.dbPath, job, input.runner),
@@ -236,7 +175,6 @@ export async function createSchedulerWorkers(input: {
   return {
     async close() {
       await Promise.all([
-        featureWorker.close(),
         cliWorker.close(),
         scheduler.close?.() ?? Promise.resolve(),
         connection.quit().catch(() => undefined),
@@ -255,149 +193,12 @@ function workerOptions(connection: IORedis, lockDuration: number): WorkerOptions
   };
 }
 
-export function runFeatureSelectJob(dbPath: string, scheduler: Pick<SchedulerClient, "enqueueFeaturePlan">, payload: FeatureSelectJobPayload): { decisionId: string; selectedFeatureId?: string } {
-  const now = new Date();
-  const candidates = loadLiveScheduleCandidates(dbPath, payload.projectId, payload.featureId);
-  const completedFeatureIds = candidates
-    .filter((candidate) => candidate.status === "done" || candidate.status === "delivered")
-    .map((candidate) => candidate.id);
-  const decision = persistSelectionDecision(
-    dbPath,
-    selectNextFeature(candidates, completedFeatureIds, `schedule_trigger:${payload.triggerId}`, now),
-    payload.projectId,
-  );
-  if (!decision.selectedFeatureId) {
-    return { decisionId: decision.id };
-  }
-
-  const current = candidates.find((candidate) => candidate.id === decision.selectedFeatureId);
-  if (current?.status === "ready") {
-    persistStateTransition(dbPath, transitionFeature(decision.selectedFeatureId, "ready", "planning", {
-      reason: decision.reason,
-      evidence: `feature_selection_decision:${decision.id}`,
-      triggeredBy: "feature_scheduler",
-      occurredAt: now.toISOString(),
-    }));
-    runSqlite(dbPath, [
-      { sql: "UPDATE features SET status = ? WHERE id = ?", params: ["planning", decision.selectedFeatureId] },
-    ]);
-  }
-
-  scheduler.enqueueFeaturePlan({
-    triggerId: payload.triggerId,
-    projectId: payload.projectId,
-    featureId: decision.selectedFeatureId,
-    selectionDecisionId: decision.id,
-  });
-  return { decisionId: decision.id, selectedFeatureId: decision.selectedFeatureId };
-}
-
-export function runFeaturePlanJob(dbPath: string, payload: FeaturePlanJobPayload, scheduler?: Pick<SchedulerClient, "enqueueCliRun">): { runId?: string; blockedReason?: string } {
-  const now = new Date().toISOString();
-  const row = runSqlite(dbPath, [], [
-    {
-      name: "feature",
-      sql: `SELECT f.id, f.status, f.project_id, f.primary_requirements_json, p.target_repo_path,
-          rc.local_path AS repository_local_path
-        FROM features f
-        LEFT JOIN projects p ON p.id = f.project_id
-        LEFT JOIN repository_connections rc ON rc.project_id = f.project_id
-          AND rc.connected_at = (
-            SELECT MAX(connected_at) FROM repository_connections latest WHERE latest.project_id = f.project_id
-          )
-        WHERE f.id = ? LIMIT 1`,
-      params: [payload.featureId],
-    },
-  ]).queries.feature[0];
-  if (!row) {
-    throw new Error(`Feature not found: ${payload.featureId}`);
-  }
-  const projectId = payload.projectId ?? optionalString(row.project_id);
-  const workspace = validateWorkspaceRoot(resolveWorkspaceRoot(row));
-  if (scheduler && projectId && workspace.valid && workspace.workspaceRoot) {
-    const runId = randomUUID();
-    runSqlite(dbPath, [
-      {
-        sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
-          VALUES (?, NULL, ?, ?, ?, ?, ?)`,
-        params: [
-          runId,
-          payload.featureId,
-          projectId,
-          "queued",
-          now,
-          JSON.stringify({
-            scheduler: "bullmq",
-            jobType: "feature.plan",
-            skillSlug: "technical-context-skill",
-            workspaceRoot: workspace.workspaceRoot,
-            skillPhase: "feature_planning",
-          }),
-        ],
-      },
-    ]);
-    scheduler.enqueueCliRun({
-      projectId,
-      featureId: payload.featureId,
-      runId,
-      skillSlug: "technical-context-skill",
-      requestedAction: "feature_planning",
-      sourcePaths: [
-        "docs/zh-CN/PRD.md",
-        "docs/zh-CN/requirements.md",
-        "docs/zh-CN/hld.md",
-        `docs/features/${payload.featureId}/requirements.md`,
-        `docs/features/${payload.featureId}/design.md`,
-        `docs/features/${payload.featureId}/tasks.md`,
-      ],
-      expectedArtifacts: [
-        `docs/features/${payload.featureId}/design.md`,
-        `docs/features/${payload.featureId}/tasks.md`,
-        ".autobuild/evidence/planning-run.json",
-      ],
-      traceability: {
-        requirementIds: parseJsonArray(row.primary_requirements_json).map(String),
-        changeIds: ["CHG-016"],
-      },
-    });
-    recordAuditEvent(dbPath, {
-      entityType: "feature",
-      entityId: payload.featureId,
-      eventType: "scheduler_job_dispatched",
-      source: "feature_scheduler",
-      reason: "Feature planning bridge dispatched a workspace-aware Codex skill run.",
-      payload: { ...payload, runId, workspaceRoot: workspace.workspaceRoot, skillSlug: "technical-context-skill" },
-    });
-    return { runId };
-  }
-
-  const from = normalizeFeatureStatus(row.status);
-  const blockedReason = workspace.blockedReasons.length > 0
-    ? `${PLANNING_BRIDGE_WORKSPACE_BLOCKED}: ${workspace.blockedReasons.join("; ")}`
-    : PLANNING_BRIDGE_NOT_IMPLEMENTED;
-  if (from !== "blocked") {
-    persistStateTransition(dbPath, transitionFeature(payload.featureId, from, "blocked", {
-      reason: blockedReason,
-      evidence: "feature.plan",
-      triggeredBy: "feature_scheduler",
-      occurredAt: now,
-    }));
-  }
-  runSqlite(dbPath, [
-    { sql: "UPDATE features SET status = ? WHERE id = ?", params: ["blocked", payload.featureId] },
-  ]);
-  recordAuditEvent(dbPath, {
-    entityType: "feature",
-    entityId: payload.featureId,
-    eventType: "scheduler_job_blocked",
-    source: "feature_scheduler",
-    reason: blockedReason,
-    payload,
-  });
-  return { blockedReason };
-}
-
-export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, runner?: CodexCommandRunner): Promise<{ runId: string; status: RunnerQueueStatus }> {
+export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, runner?: CodexCommandRunner): Promise<{ executionId: string; status: RunnerQueueStatus }> {
+  const context = payload.context ?? {};
+  const featureId = optionalString(context.featureId);
+  const taskId = optionalString(context.taskId);
+  const skillSlug = optionalString(context.skillSlug);
+  const skillPhase = optionalString(context.skillPhase) ?? payload.operation;
   let loaded: ReturnType<typeof loadRunnerTaskContext>;
   try {
     loaded = loadRunnerTaskContext(dbPath, payload);
@@ -405,40 +206,42 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     const reason = errorMessage(error);
     runSqlite(dbPath, [
       {
-        sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, completed_at, summary, metadata_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json`,
+        sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
         params: [
-          payload.runId,
-          payload.taskId ?? null,
-          payload.featureId ?? null,
+          payload.executionId,
+          optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+          "cli",
+          payload.operation,
           payload.projectId ?? null,
+          JSON.stringify(context),
           "blocked",
           new Date().toISOString(),
           reason,
           JSON.stringify({
             scheduler: "bullmq",
             jobType: "cli.run",
-            skillSlug: payload.skillSlug,
-            skillPhase: payload.requestedAction,
+            skillSlug,
+            skillPhase,
             blockedReason: reason,
           }),
         ],
       },
     ]);
     recordAuditEvent(dbPath, {
-      entityType: payload.taskId ? "task" : payload.featureId ? "feature" : "project",
-      entityId: payload.taskId ?? payload.featureId ?? payload.projectId ?? payload.runId,
+      entityType: taskId ? "task" : featureId ? "feature" : "project",
+      entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
       eventType: "cli_run_blocked",
       source: "cli_runner",
       reason,
       payload,
     });
-    return { runId: payload.runId, status: "blocked" };
+    return { executionId: payload.executionId, status: "blocked" };
   }
   const now = new Date();
   const policy = resolveRunnerPolicy({
-    runId: payload.runId,
+    runId: payload.executionId,
     risk: loaded.risk,
     workspaceRoot: loaded.workspaceRoot,
     model: loaded.adapter.defaults.model,
@@ -449,27 +252,29 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     now,
   });
   const heartbeat = recordRunnerHeartbeat({
-    runId: payload.runId,
+    runId: payload.executionId,
     runnerId: "bullmq-cli-runner",
     policy,
     queueStatus: "running",
-    message: `Running ${payload.taskId}`,
+    message: `Running ${taskId ?? payload.operation}`,
     now,
   });
   persistCodexRunnerArtifacts(dbPath, { policy, heartbeat });
-  if (payload.taskId && loaded.taskStatus) {
-    transitionTaskIfAllowed(dbPath, payload.taskId, loaded.taskStatus, "running", "cli.run job started", "cli.run");
+  if (taskId && loaded.taskStatus) {
+    transitionTaskIfAllowed(dbPath, taskId, loaded.taskStatus, "running", "cli.run job started", "cli.run");
   }
   runSqlite(dbPath, [
     {
-      sql: `INSERT INTO runs (id, task_id, feature_id, project_id, status, started_at, metadata_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET status = excluded.status, started_at = COALESCE(runs.started_at, excluded.started_at), metadata_json = excluded.metadata_json`,
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, started_at = COALESCE(execution_records.started_at, excluded.started_at), metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
       params: [
-        payload.runId,
-        payload.taskId ?? null,
-        loaded.featureId,
-        loaded.projectId ?? null,
+        payload.executionId,
+        optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+        "cli",
+        payload.operation,
+        loaded.projectId ?? payload.projectId ?? null,
+        JSON.stringify(loaded.skillInvocation ?? { ...context, featureId: loaded.featureId ?? featureId, taskId }),
         "running",
         now.toISOString(),
         JSON.stringify({
@@ -478,14 +283,15 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
+          skillInvocationContract: loaded.skillInvocation,
         }),
       ],
     },
   ]);
 
   const result = await processRunnerQueueItem({
-    runId: payload.runId,
-    taskId: payload.taskId,
+    runId: payload.executionId,
+    taskId,
     featureId: loaded.featureId,
     prompt: loaded.prompt,
     policy,
@@ -501,7 +307,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
       session: result.adapterResult.session,
       rawLog: result.adapterResult.rawLog,
       heartbeat: recordRunnerHeartbeat({
-        runId: payload.runId,
+        runId: payload.executionId,
         runnerId: "bullmq-cli-runner",
         policy,
         queueStatus: result.status,
@@ -528,20 +334,32 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
   }
 
   const taskStatus = taskStatusFromRunnerStatus(result.status);
-  if (payload.taskId) {
-    transitionTaskIfAllowed(dbPath, payload.taskId, "running", taskStatus, result.evidence, "cli.run");
+  if (taskId) {
+    transitionTaskIfAllowed(dbPath, taskId, "running", taskStatus, result.evidence, "cli.run");
   }
+  const finalMetadata = {
+    scheduler: "bullmq",
+    jobType: "cli.run",
+    workspaceRoot: loaded.workspaceRoot,
+    skillSlug: loaded.skillInvocation?.skillSlug,
+    skillPhase: loaded.skillInvocation?.requestedAction,
+    skillInvocationContract: loaded.skillInvocation,
+    skillOutputContract: result.adapterResult?.evidence.skillOutput,
+    contractValidation: result.adapterResult?.evidence.contractValidation,
+    producedArtifacts: result.adapterResult?.evidence.skillOutput?.producedArtifacts ?? [],
+  };
   runSqlite(dbPath, [
-    { sql: "UPDATE runs SET status = ?, completed_at = ?, summary = ? WHERE id = ?", params: [result.status, new Date().toISOString(), result.evidence, payload.runId] },
+    {
+      sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      params: [result.status, new Date().toISOString(), result.evidence, JSON.stringify(finalMetadata), payload.executionId],
+    },
   ]);
-  return { runId: payload.runId, status: result.status };
+  return { executionId: payload.executionId, status: result.status };
 }
 
 export function createQueuedJobRecord(dbPath: string, input: {
   queueName: string;
   jobType: SchedulerJobType;
-  targetType: string;
-  targetId?: string;
   payload: unknown;
 }): SchedulerEnqueueResult {
   const schedulerJobId = randomUUID();
@@ -549,16 +367,14 @@ export function createQueuedJobRecord(dbPath: string, input: {
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (
-        id, bullmq_job_id, queue_name, job_type, target_type, target_id, status,
+        id, bullmq_job_id, queue_name, job_type, status,
         payload_json, attempts, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       params: [
         schedulerJobId,
         bullmqJobId,
         input.queueName,
         input.jobType,
-        input.targetType,
-        input.targetId ?? null,
         "queued",
         JSON.stringify(input.payload),
         0,
@@ -580,27 +396,6 @@ export function updateSchedulerJobRecord(dbPath: string, bullmqJobId: string | u
   ]);
 }
 
-async function dispatchFeatureJob(dbPath: string, scheduler: SchedulerClient, job: Job): Promise<void> {
-  updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
-  try {
-    if (job.name === "feature.select") {
-      runFeatureSelectJob(dbPath, scheduler, job.data as FeatureSelectJobPayload);
-    } else if (job.name === "feature.plan") {
-      const result = runFeaturePlanJob(dbPath, job.data as FeaturePlanJobPayload, scheduler);
-      if (result.blockedReason) {
-        updateSchedulerJobRecord(dbPath, String(job.id), "blocked", result.blockedReason, job.attemptsMade);
-        return;
-      }
-    } else {
-      throw new Error(`Unsupported feature scheduler job: ${job.name}`);
-    }
-    updateSchedulerJobRecord(dbPath, String(job.id), "completed", undefined, job.attemptsMade);
-  } catch (error) {
-    updateSchedulerJobRecord(dbPath, String(job.id), "failed", error, job.attemptsMade);
-    throw error;
-  }
-}
-
 async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRunner): Promise<void> {
   updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
   try {
@@ -610,58 +405,6 @@ async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRun
     updateSchedulerJobRecord(dbPath, String(job.id), "failed", error, job.attemptsMade);
     throw error;
   }
-}
-
-function featureSelectJobOptions(payload: FeatureSelectJobPayload, jobId: string): JobsOptions {
-  const options: JobsOptions = { jobId, attempts: 1 };
-  if (payload.mode === "scheduled_at") {
-    options.delay = Math.max(0, new Date(payload.requestedFor).getTime() - Date.now());
-  } else if (payload.mode === "hourly") {
-    options.repeat = { pattern: "0 * * * *" };
-  } else if (payload.mode === "daily") {
-    options.repeat = { pattern: "0 9 * * *" };
-  } else if (payload.mode === "nightly") {
-    options.repeat = { pattern: "0 2 * * *" };
-  } else if (payload.mode === "weekdays") {
-    options.repeat = { pattern: "0 9 * * 1-5" };
-  }
-  return options;
-}
-
-function loadLiveScheduleCandidates(dbPath: string, projectId?: string, featureId?: string): FeatureCandidate[] {
-  const clauses = ["1 = 1"];
-  const params: unknown[] = [];
-  if (projectId) {
-    clauses.push("project_id = ?");
-    params.push(projectId);
-  }
-  if (featureId) {
-    clauses.push("id = ?");
-    params.push(featureId);
-  }
-  const rows = runSqlite(dbPath, [], [
-    {
-      name: "features",
-      sql: `SELECT id, title, status, COALESCE(priority, 0) AS priority,
-          COALESCE(dependencies_json, '[]') AS dependencies_json,
-          COALESCE(primary_requirements_json, '[]') AS primary_requirements_json,
-          created_at
-        FROM features
-        WHERE ${clauses.join(" AND ")}
-        ORDER BY priority DESC, created_at`,
-      params,
-    },
-  ]).queries.features;
-  return rows.map((row) => ({
-    id: String(row.id),
-    title: String(row.title),
-    status: normalizeFeatureStatus(row.status),
-    priority: Number(row.priority ?? 0),
-    dependencies: parseJsonArray(row.dependencies_json).map(String),
-    requirementIds: parseJsonArray(row.primary_requirements_json).map(String),
-    acceptanceRisk: "low",
-    readySince: optionalString(row.created_at) ?? new Date(0).toISOString(),
-  }));
 }
 
 function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
@@ -677,13 +420,16 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
   prompt: string;
   skillInvocation?: SkillInvocationContract;
 } {
+  const payloadContext = payload.context ?? {};
+  const featureIdFromContext = optionalString(payloadContext.featureId);
+  const taskIdFromContext = optionalString(payloadContext.taskId);
   const result = runSqlite(dbPath, [], [
     {
       name: "graphTask",
       sql: `SELECT t.id, t.feature_id, f.project_id, t.title, '' AS description, t.status, t.risk, t.allowed_files_json
         FROM task_graph_tasks t LEFT JOIN features f ON f.id = t.feature_id
         WHERE t.id = ? LIMIT 1`,
-      params: [payload.taskId ?? ""],
+      params: [taskIdFromContext ?? ""],
     },
     {
       name: "task",
@@ -691,7 +437,7 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
           'medium' AS risk, COALESCE(t.allowed_files_json, '[]') AS allowed_files_json
         FROM tasks t LEFT JOIN features f ON f.id = t.feature_id
         WHERE t.id = ? LIMIT 1`,
-      params: [payload.taskId ?? ""],
+      params: [taskIdFromContext ?? ""],
     },
     {
       name: "project",
@@ -702,21 +448,21 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
             SELECT MAX(connected_at) FROM repository_connections latest WHERE latest.project_id = p.id
           )
         WHERE p.id = ? OR p.id = (SELECT project_id FROM features WHERE id = ?) LIMIT 1`,
-      params: [payload.projectId ?? "", payload.featureId ?? ""],
+      params: [payload.projectId ?? "", featureIdFromContext ?? ""],
     },
     {
       name: "feature",
       sql: `SELECT id, project_id, title, status, COALESCE(primary_requirements_json, '[]') AS primary_requirements_json
         FROM features WHERE id = ? LIMIT 1`,
-      params: [payload.featureId ?? ""],
+      params: [featureIdFromContext ?? ""],
     },
     { name: "adapter", sql: "SELECT * FROM cli_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
     { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM cli_adapter_configs" },
   ]);
   const row = result.queries.graphTask[0] ?? result.queries.task[0];
   const featureRow = result.queries.feature[0];
-  if (!row && !featureRow && payload.taskId) {
-    throw new Error(`Task not found: ${payload.taskId}`);
+  if (!row && !featureRow && taskIdFromContext) {
+    throw new Error(`Task not found: ${taskIdFromContext}`);
   }
   if (!row && !featureRow && !payload.projectId) {
     throw new Error("CLI run requires a task, feature, or project context.");
@@ -733,19 +479,25 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
     throw new Error("No active CLI adapter configured. Activate an adapter in System Settings before starting new runs.");
   }
   const adapter = adapterFromRow(adapterRow);
-  const featureId = payload.featureId ?? optionalString(row?.feature_id) ?? optionalString(featureRow?.id);
+  const featureId = featureIdFromContext ?? optionalString(row?.feature_id) ?? optionalString(featureRow?.id);
   const title = optionalString(row?.title) ?? optionalString(featureRow?.title) ?? `Project ${projectId}`;
   const description = optionalString(row?.description) ?? title;
+  const risk = normalizeRisk(row?.risk);
+  const allowedFiles = parseJsonArray(row?.allowed_files_json).map(String);
   const skillInvocation = buildCliSkillInvocation({
     payload,
     projectId,
     workspaceRoot: workspace.workspaceRoot,
     featureId,
-    taskId: payload.taskId,
+    taskId: taskIdFromContext,
     requirementIds: parseJsonArray(featureRow?.primary_requirements_json).map(String),
+    allowedFiles,
+    risk,
+    sandboxMode: adapter.defaults.sandbox,
+    approvalPolicy: adapter.defaults.approval,
   });
   const context = [
-    `Run ${payload.runId}${payload.taskId ? ` for task ${payload.taskId}` : ""}${featureId ? ` in feature ${featureId}` : ""}: ${title}`,
+    `Execution ${payload.executionId}${taskIdFromContext ? ` for task ${taskIdFromContext}` : ""}${featureId ? ` in feature ${featureId}` : ""}: ${title}`,
     "",
     description,
     "",
@@ -757,8 +509,8 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
     projectId,
     title,
     description,
-    risk: normalizeRisk(row?.risk),
-    allowedFiles: parseJsonArray(row?.allowed_files_json).map(String),
+    risk,
+    allowedFiles,
     workspaceRoot: workspace.workspaceRoot,
     adapter,
     prompt: buildSkillInvocationPrompt(skillInvocation, context),
@@ -882,11 +634,19 @@ function buildCliSkillInvocation(input: {
   featureId?: string;
   taskId?: string;
   requirementIds?: string[];
+  allowedFiles: string[];
+  risk: RiskLevel;
+  sandboxMode?: string;
+  approvalPolicy?: string;
 }): SkillInvocationContract {
-  const skillSlug = input.payload.skillSlug ?? (input.taskId ? "codex-coding-skill" : "technical-context-skill");
-  const requestedAction = input.payload.requestedAction ?? (input.taskId ? "task_execution" : "feature_planning");
-  const sourcePaths = input.payload.sourcePaths?.length
-    ? input.payload.sourcePaths
+  const context = input.payload.context ?? {};
+  const skillSlug = optionalString(context.skillSlug) ?? (input.taskId ? "codex-coding-skill" : "technical-context-skill");
+  const requestedAction = input.payload.requestedAction ?? optionalString(context.skillPhase) ?? input.payload.operation;
+  const contextSourcePaths = optionalStringArray(context.sourcePaths);
+  const contextImagePaths = optionalStringArray(context.imagePaths);
+  const contextExpectedArtifacts = normalizeArtifactContracts(context.expectedArtifacts);
+  const sourcePaths = contextSourcePaths.length
+    ? contextSourcePaths
     : [
         "AGENTS.md",
         ".agents/skills",
@@ -896,19 +656,22 @@ function buildCliSkillInvocation(input: {
           `docs/features/${input.featureId}/tasks.md`,
         ] : []),
       ];
-  const expectedArtifacts = input.payload.expectedArtifacts?.length
-    ? input.payload.expectedArtifacts
+  const expectedArtifacts = contextExpectedArtifacts.length
+    ? contextExpectedArtifacts
     : input.taskId
-      ? [".autobuild/evidence/codex-runner.json"]
+      ? normalizeArtifactContracts([".autobuild/evidence/codex-runner.json"])
       : input.featureId
-        ? [`docs/features/${input.featureId}/design.md`, `docs/features/${input.featureId}/tasks.md`]
-        : [".autobuild/evidence/spec-intake.json"];
+        ? normalizeArtifactContracts([`docs/features/${input.featureId}/design.md`, `docs/features/${input.featureId}/tasks.md`])
+        : normalizeArtifactContracts([".autobuild/evidence/spec-intake.json"]);
   return {
+    contractVersion: "skill-contract/v1",
+    executionId: input.payload.executionId,
     projectId: input.projectId ?? "unknown-project",
     workspaceRoot: input.workspaceRoot,
+    operation: input.payload.operation,
     skillSlug,
     sourcePaths,
-    imagePaths: input.payload.imagePaths,
+    imagePaths: contextImagePaths,
     expectedArtifacts,
     traceability: {
       featureId: input.featureId,
@@ -916,15 +679,47 @@ function buildCliSkillInvocation(input: {
       requirementIds: input.payload.traceability?.requirementIds ?? input.requirementIds ?? [],
       changeIds: input.payload.traceability?.changeIds ?? ["CHG-016"],
     },
+    constraints: {
+      allowedFiles: input.allowedFiles,
+      sandboxMode: normalizeSandboxMode(input.sandboxMode),
+      approvalPolicy: normalizeApprovalPolicy(input.approvalPolicy),
+      risk: input.risk,
+    },
     requestedAction,
   };
 }
 
-function normalizeFeatureStatus(value: unknown): FeatureLifecycleStatus {
-  const status = String(value);
-  return ["draft", "ready", "planning", "tasked", "implementing", "done", "delivered", "review_needed", "blocked", "failed"].includes(status)
-    ? status as FeatureLifecycleStatus
-    : "draft";
+function normalizeArtifactContracts(value: unknown): SkillArtifactContract[] {
+  const entries = Array.isArray(value) ? value : [];
+  return entries.flatMap((entry) => {
+    if (typeof entry === "string") {
+      return [{ path: entry, kind: artifactKind(entry), required: true }];
+    }
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    const path = optionalString(record.path);
+    if (!path) return [];
+    return [{
+      path,
+      kind: optionalString(record.kind) ?? artifactKind(path),
+      required: typeof record.required === "boolean" ? record.required : true,
+    }];
+  });
+}
+
+function artifactKind(path: string): string {
+  if (path.endsWith(".md")) return "markdown";
+  if (path.endsWith(".json")) return "json";
+  if (path.endsWith(".svg") || path.endsWith(".png")) return "image";
+  return "artifact";
+}
+
+function normalizeSandboxMode(value: unknown): SkillInvocationContract["constraints"]["sandboxMode"] {
+  return value === "read-only" || value === "workspace-write" || value === "danger-full-access" ? value : undefined;
+}
+
+function normalizeApprovalPolicy(value: unknown): SkillInvocationContract["constraints"]["approvalPolicy"] {
+  return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never" || value === "bypass" ? value : undefined;
 }
 
 function normalizeBoardStatus(value: unknown): BoardColumn {
@@ -948,6 +743,10 @@ function parseJsonArray(value: unknown): unknown[] {
   } catch {
     return [];
   }
+}
+
+function optionalStringArray(value: unknown): string[] {
+  return parseJsonArray(value).map((entry) => String(entry)).filter(Boolean);
 }
 
 function parseJsonObject(value: unknown): Record<string, unknown> {

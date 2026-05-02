@@ -18,8 +18,10 @@ Spec Evolution:
 - CHG-014：用户确认阶段 2 的 Spec 扫描和上传必须合并为一个步骤；Product Console 在该步骤内显示“扫描”和“上传”两个按钮，不再把扫描和上传渲染为两个独立阶段步骤。
 - CHG-013：2026-04-29 平台边界收缩为调度和状态维护，移除 Skill Center、Subagent Console 和规划流水线入口；Runner 页面仅展示外部执行状态、心跳、日志、证据和状态检测。
 - ADD-006：用户要求优化 CLI 调用并升级为 adapter；CLI 配置通过 JSON 管理，支持 JSON 表单并可通过 UI 直接编辑修改。Product Console 必须提供系统设置，并将 CLI Adapter 配置管理放到系统设置下；Runner Console 只展示配置健康摘要和跳转入口。
-- CHG-016：用户要求 Spec/UI 操作转换为完整 CLI Skill 调用流程，且 Codex 支持 workspace 时必须传入项目路径。Product Console 必须把 Spec Workspace 和 Task Board 操作转换为受控命令回执，并展示 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
+- CHG-016：用户要求 Spec/UI 操作转换为完整 CLI Skill 调用流程，且 Codex 支持 workspace 时必须传入项目路径。Product Console 必须把 Spec Workspace 和 Task Board 操作转换为受控命令回执，并展示 scheduler job、execution id、workspace、skill phase、blocked reason、contract validation 和最近 Evidence。
 - ADD-007：用户确认采用 `docs/ui/task-scheduler-console-concept.png` 作为 Runner / Scheduler UI 实现基线。Runner Console 必须展示调度流水线、BullMQ queue、任务队列表格、scheduler job inspector、workspace、heartbeat、blocked reason、Evidence 摘要和受控命令回执。
+- ADD-008：用户要求任务调度中心管理队列任务，支持按条件筛选、查看任务详情、以可读描述呈现任务意图，且页面功能必须接入真实前后端数据，不得使用 demo 或 mock 数据作为完成证据。
+- CHG-017：任务调度中心重构为执行 Job 队列视图。Job 与 Feature 解耦，Feature/Task/Project 只作为 payload context；`runs` 领域词替换为 Execution Record / 执行记录；旧 `feature.select -> feature.plan -> cli.run` 流水线废弃。
 
 ## Scope
 
@@ -36,14 +38,16 @@ Spec Evolution:
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
 - Runner Console 的队列状态必须来自 `scheduler_job_records` 与 Runner heartbeat/session/log，而不是静态 recent logs。
-- Runner Console 必须把 `feature.select -> feature.plan -> cli.run` 作为调度流水线展示，并显示 `specdrive:feature-scheduler` 与 `specdrive:cli-runner` queue 的 job 数量、状态和当前活跃 job。
-- Runner Console 必须以任务队列表格或 lane-table hybrid 展示任务、Feature、依赖门禁、审批、风险、scheduler job、run id、workspace、状态和动作。
-- Runner Console 必须提供右侧 scheduler job inspector，展示选中任务或 job 的 scheduler job id、BullMQ job id、queue、job type、target、workspace、CLI Adapter 健康、Runner heartbeat、blocked reason、Evidence 摘要和最近日志。
-- Spec Workspace 和 Runner Console 必须展示 workspace-aware skill invocation 反馈，包括 scheduler job、run id、workspace、skill phase、blocked reason 和最近 Evidence。
+- Runner Console 必须展示 `cli.run` 与后续 `native.run` 的执行队列，不展示固定 Feature 列或旧流水线卡片。
+- Runner Console 主列表必须展示 Job：执行名称、执行类型、operation、status、execution id、attempts、updatedAt、workspace。
+- Runner Console 的任务队列必须支持按状态和关键词筛选，关键词至少覆盖 job id、job type、operation、execution id、workspace、skill/native 信息、状态和阻塞原因。
+- Runner Console 的任务列表必须优先展示可读执行意图；scheduler job id、BullMQ job id、execution id 等 GUID 只能作为辅助事实。
+- Runner Console 必须提供 scheduler job / execution detail，展示 Job 基础信息、payload/context、Execution Record、CLI skill 或 native handler、Evidence、logs、error/blocked reason。
+- Spec Workspace 和 Runner Console 必须展示 workspace-aware skill invocation 反馈，包括 scheduler job、execution id、workspace、skill phase、blocked reason 和最近 Evidence。
 - System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
-- Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler/Run、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
+- Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler / Execution Record、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
-- Audit Center 页面展示审计摘要、Audit Timeline、命令回执、阻塞原因、状态转换、Evidence、Run、Job 和 Approval 关联记录，并使用 `docs/ui/audit-center-concept.png` 作为实现基线。
+- Audit Center 页面展示审计摘要、Audit Timeline、命令回执、阻塞原因、状态转换、Evidence、Execution Record、Job 和 Approval 关联记录，并使用 `docs/ui/audit-center-concept.png` 作为实现基线。
 - Product Console 必须提供用户可访问的前端应用入口、页面路由和可交互控件；Control Plane JSON API、Query Model 或 ViewModel 不构成用户 UI 完成证据。
 - Product Console 必须默认使用中文界面，并提供可见语言切换入口；切换范围覆盖导航、页面标题、操作按钮、状态标签、空态、错误态、反馈提示和确认信息。
 
@@ -70,7 +74,7 @@ Spec Evolution:
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。
 - 用户可以判断 Runner 是否可执行新任务。
 - 用户可以通过系统设置查看 active CLI Adapter，并通过原始 JSON 或 JSON Schema 表单编辑 adapter 配置。
-- 用户保存或启用 CLI Adapter 配置前可以看到 dry-run 校验结果；无效配置不得影响正在运行的 Run。
+- 用户保存或启用 CLI Adapter 配置前可以看到 dry-run 校验结果；无效配置不得影响正在运行的 Execution Record。
 - 高风险、阻塞或需澄清任务能从 Review Center 被处理。
 - 用户可以在浏览器中打开 Product Console，并在 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center 之间切换。
 - 用户可以从 Product Console 导航进入系统设置，并从 Runner Console 跳转到系统设置中的 CLI 配置页。
@@ -109,11 +113,12 @@ Spec Evolution:
 - [ ] Product Console 提供系统设置入口，系统设置至少包含 CLI 配置页。
 - [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
 - [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
-- [ ] Runner Console 浏览器级验证覆盖调度流水线、`specdrive:feature-scheduler`、`specdrive:cli-runner`、任务队列表格、scheduler job inspector、workspace、Runner heartbeat、blocked reason 或 Evidence 摘要。
+- [ ] Runner Console 浏览器级验证覆盖 `cli.run` / `native.run` 执行队列、Job 列表、execution detail、payload context、workspace、Runner heartbeat、blocked reason 或 Evidence 摘要。
+- [ ] Runner Console 浏览器级验证覆盖 Job 队列筛选、执行详情、可读执行描述，以及详情来自真实 ViewModel 字段而不是静态 demo 文案。
 - [ ] Audit Center 浏览器级验证覆盖审计摘要、Audit Timeline、事件详情、阻塞原因、Evidence / Approval 关联记录和英文 `Audit Center` 文案。
 - [ ] CLI Adapter 表单编辑和原始 JSON 编辑共享同一份配置事实源，切换编辑模式不得丢失未保存修改。
-- [ ] 浏览器级验证覆盖 CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存和无效配置不影响 running Run 的反馈。
-- [ ] 浏览器级验证覆盖 Spec Workspace / Task Board 执行动作返回 scheduler job、run id、workspace、skill phase、blocked reason 和 Evidence 摘要。
+- [ ] 浏览器级验证覆盖 CLI Adapter JSON 编辑、表单编辑、校验失败、成功保存和无效配置不影响 running Execution Record 的反馈。
+- [ ] 浏览器级验证覆盖 Spec Workspace / Task Board 执行动作返回 scheduler job、execution id、workspace、skill phase、blocked reason 和 Evidence 摘要。
 - [ ] 浏览器级验证覆盖 Runner Console 调度/运行按钮仍返回 command receipt，且不会绕过 Console Command Gateway。
 
 ## Risks and Open Questions

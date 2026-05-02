@@ -7,130 +7,46 @@ import { initializeSchema, listTables } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
   BULLMQ_CLI_RUNNER_QUEUE,
-  BULLMQ_FEATURE_SCHEDULER_QUEUE,
   CLI_WORKER_LOCK_DURATION_MS,
   CLI_RUNNER_QUEUE,
   createMemoryScheduler,
-  FEATURE_WORKER_LOCK_DURATION_MS,
-  FEATURE_SCHEDULER_QUEUE,
-  PLANNING_BRIDGE_NOT_IMPLEMENTED,
   runCliRunJob,
-  runFeaturePlanJob,
-  runFeatureSelectJob,
 } from "../src/scheduler.ts";
 
 test("BullMQ queue names avoid reserved colon separator while logical queue names stay traceable", () => {
-  assert.equal(FEATURE_SCHEDULER_QUEUE, "specdrive:feature-scheduler");
   assert.equal(CLI_RUNNER_QUEUE, "specdrive:cli-runner");
-  assert.equal(BULLMQ_FEATURE_SCHEDULER_QUEUE.includes(":"), false);
   assert.equal(BULLMQ_CLI_RUNNER_QUEUE.includes(":"), false);
 });
 
 test("CLI worker lock is long enough for skill invocations", () => {
-  assert.equal(FEATURE_WORKER_LOCK_DURATION_MS >= 5 * 60 * 1000, true);
   assert.equal(CLI_WORKER_LOCK_DURATION_MS >= 60 * 60 * 1000, true);
 });
 
-test("scheduler schema records BullMQ job metadata", () => {
+test("scheduler schema records executor job metadata without feature target columns", () => {
   const dbPath = makeDbPath();
   const tables = listTables(dbPath);
   assert.equal(tables.includes("scheduler_job_records"), true);
+  assert.equal(tables.includes("execution_records"), true);
 
   const scheduler = createMemoryScheduler(dbPath);
-  const job = scheduler.enqueueFeatureSelect({
-    triggerId: "TRIG-001",
+  const job = scheduler.enqueueCliRun({
+    executionId: "EXEC-001",
+    operation: "feature_execution",
     projectId: "project-1",
-    target: { type: "project", id: "project-1" },
-    mode: "manual",
-    requestedFor: "2026-04-28T12:00:00.000Z",
-    createdAt: "2026-04-28T12:00:00.000Z",
+    context: { featureId: "FEAT-001", featureSpecPath: "docs/features/feat-001" },
   });
   const rows = runSqlite(dbPath, [], [
-    { name: "jobs", sql: "SELECT id, queue_name, job_type, target_type, target_id, status FROM scheduler_job_records" },
+    { name: "jobs", sql: "SELECT id, queue_name, job_type, status, payload_json FROM scheduler_job_records" },
+    { name: "columns", sql: "PRAGMA table_info(scheduler_job_records)" },
   ]).queries.jobs;
+  const columns = runSqlite(dbPath, [], [{ name: "columns", sql: "PRAGMA table_info(scheduler_job_records)" }]).queries.columns.map((row) => row.name);
 
-  assert.equal(job.queueName, "specdrive:feature-scheduler");
-  assert.deepEqual(rows.map((row) => [row.id, row.queue_name, row.job_type, row.target_type, row.target_id, row.status]), [
-    [job.schedulerJobId, "specdrive:feature-scheduler", "feature.select", "project", "project-1", "queued"],
+  assert.equal(job.queueName, "specdrive:cli-runner");
+  assert.equal(columns.includes("target_type"), false);
+  assert.equal(columns.includes("target_id"), false);
+  assert.deepEqual(rows.map((row) => [row.id, row.queue_name, row.job_type, row.status, JSON.parse(String(row.payload_json)).operation]), [
+    [job.schedulerJobId, "specdrive:cli-runner", "cli.run", "queued", "feature_execution"],
   ]);
-});
-
-test("feature.select reads live ready features, records decision, and enqueues planning", () => {
-  const dbPath = makeDbPath();
-  seedFeatureSchedulerData(dbPath);
-  const scheduler = createMemoryScheduler(dbPath);
-
-  const result = runFeatureSelectJob(dbPath, scheduler, {
-    triggerId: "TRIG-READY",
-    projectId: "project-1",
-    target: { type: "project", id: "project-1" },
-    mode: "manual",
-    requestedFor: "2026-04-28T12:00:00.000Z",
-    createdAt: "2026-04-28T12:00:00.000Z",
-  });
-  const rows = runSqlite(dbPath, [], [
-    { name: "features", sql: "SELECT id, status FROM features WHERE id IN ('FEAT-A', 'FEAT-B') ORDER BY id" },
-    { name: "decisions", sql: "SELECT id, selected_feature_id, memory_summary FROM feature_selection_decisions" },
-    { name: "jobs", sql: "SELECT job_type, target_id, status FROM scheduler_job_records ORDER BY rowid" },
-  ]).queries;
-
-  assert.equal(result.selectedFeatureId, "FEAT-B");
-  assert.deepEqual(rows.features.map((row) => [row.id, row.status]), [["FEAT-A", "ready"], ["FEAT-B", "planning"]]);
-  assert.deepEqual(rows.decisions.map((row) => [row.id, row.selected_feature_id, row.memory_summary]), [
-    [result.decisionId, "FEAT-B", "schedule_trigger:TRIG-READY"],
-  ]);
-  assert.deepEqual(rows.jobs.map((row) => [row.job_type, row.target_id, row.status]), [["feature.plan", "FEAT-B", "queued"]]);
-});
-
-test("feature.plan blocks when Codex Skill bridge is absent and does not create fake tasks", () => {
-  const dbPath = makeDbPath();
-  const root = mkdtempSync(join(tmpdir(), "specdrive-feature-plan-"));
-  prepareSkillWorkspace(root);
-  runSqlite(dbPath, [
-    { sql: "INSERT INTO projects (id, name, goal, project_type, tech_preferences_json, target_repo_path, default_branch, environment) VALUES ('project-1', 'Project', 'Goal', 'app', '[]', ?, 'main', 'dev')", params: [root] },
-    {
-      sql: `INSERT INTO features (id, project_id, title, status, priority, dependencies_json, primary_requirements_json)
-        VALUES ('FEAT-PLAN', 'project-1', 'Planning bridge', 'planning', 10, '[]', '[]')`,
-    },
-  ]);
-
-  runFeaturePlanJob(dbPath, { projectId: "project-1", featureId: "FEAT-PLAN", triggerId: "TRIG-PLAN" });
-  const rows = runSqlite(dbPath, [], [
-    { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-PLAN'" },
-    { name: "tasks", sql: "SELECT id FROM task_graph_tasks WHERE feature_id = 'FEAT-PLAN'" },
-    { name: "audit", sql: "SELECT event_type, reason FROM audit_timeline_events WHERE entity_id = 'FEAT-PLAN' ORDER BY rowid DESC LIMIT 1" },
-  ]).queries;
-
-  assert.equal(rows.feature[0].status, "blocked");
-  assert.equal(rows.tasks.length, 0);
-  assert.deepEqual([rows.audit[0].event_type, rows.audit[0].reason], ["scheduler_job_blocked", PLANNING_BRIDGE_NOT_IMPLEMENTED]);
-});
-
-test("feature.plan enqueues a workspace-aware planning CLI run when bridge is available", () => {
-  const dbPath = makeDbPath();
-  const root = mkdtempSync(join(tmpdir(), "specdrive-feature-plan-bridge-"));
-  prepareSkillWorkspace(root);
-  runSqlite(dbPath, [
-    { sql: "INSERT INTO projects (id, name, goal, project_type, tech_preferences_json, target_repo_path, default_branch, environment) VALUES ('project-1', 'Project', 'Goal', 'app', '[]', ?, 'main', 'dev')", params: [root] },
-    { sql: "INSERT INTO repository_connections (id, project_id, provider, local_path, default_branch) VALUES ('repo-1', 'project-1', 'local', ?, 'main')", params: [root] },
-    {
-      sql: `INSERT INTO features (id, project_id, title, status, priority, dependencies_json, primary_requirements_json)
-        VALUES ('FEAT-PLAN', 'project-1', 'Planning bridge', 'planning', 10, '[]', '["REQ-068"]')`,
-    },
-  ]);
-  const scheduler = createMemoryScheduler(dbPath);
-
-  const result = runFeaturePlanJob(dbPath, { projectId: "project-1", featureId: "FEAT-PLAN", triggerId: "TRIG-PLAN" }, scheduler);
-  const rows = runSqlite(dbPath, [], [
-    { name: "runs", sql: "SELECT id, feature_id, project_id, status, metadata_json FROM runs WHERE feature_id = 'FEAT-PLAN'" },
-    { name: "jobs", sql: "SELECT job_type, target_type, target_id, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run'" },
-  ]).queries;
-
-  assert.equal(Boolean(result.runId), true);
-  assert.equal(rows.runs[0].status, "queued");
-  assert.equal(JSON.parse(String(rows.runs[0].metadata_json)).workspaceRoot, root);
-  assert.deepEqual(rows.jobs.map((row) => [row.job_type, row.target_type, row.target_id]), [["cli.run", "feature", "FEAT-PLAN"]]);
-  assert.equal(JSON.parse(String(rows.jobs[0].payload_json)).skillSlug, "technical-context-skill");
 });
 
 test("cli.run executes mocked Codex runner and persists runner artifacts", async () => {
@@ -140,21 +56,21 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   seedCliRunData(dbPath, root);
   const calls: Array<{ cwd: string; args: string[] }> = [];
 
-  const result = await runCliRunJob(dbPath, { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-CLI" }, () => ({
+  const result = await runCliRunJob(dbPath, cliRunPayload("RUN-CLI"), () => ({
     status: 0,
-    stdout: '{"type":"session","session_id":"SESSION-CLI"}\n{"type":"result","message":"done"}',
+    stdout: `{"type":"session","session_id":"SESSION-CLI"}\n${skillOutputEvent("RUN-CLI")}`,
     stderr: "",
   }));
-  const resultWithSpy = await runCliRunJob(dbPath, { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-CLI-SPY" }, (_command, args, cwd) => {
+  const resultWithSpy = await runCliRunJob(dbPath, cliRunPayload("RUN-CLI-SPY"), (_command, args, cwd) => {
     calls.push({ cwd, args });
     return {
     status: 0,
-    stdout: '{"type":"session","session_id":"SESSION-CLI"}\n{"type":"result","message":"done"}',
+    stdout: `{"type":"session","session_id":"SESSION-CLI"}\n${skillOutputEvent("RUN-CLI-SPY")}`,
     stderr: "",
     };
   });
   const rows = runSqlite(dbPath, [], [
-    { name: "runs", sql: "SELECT status FROM runs WHERE id = 'RUN-CLI'" },
+    { name: "runs", sql: "SELECT status, metadata_json FROM execution_records WHERE id = 'RUN-CLI'" },
     { name: "task", sql: "SELECT status FROM task_graph_tasks WHERE id = 'TASK-CLI'" },
     { name: "sessions", sql: "SELECT session_id, exit_code FROM codex_session_records WHERE run_id = 'RUN-CLI'" },
     { name: "logs", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-CLI'" },
@@ -175,9 +91,10 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
   assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
   assert.equal(rows.runs[0].status, "completed");
+  assert.equal(JSON.parse(String(rows.runs[0].metadata_json)).contractValidation.valid, true);
   assert.equal(rows.task[0].status, "checking");
   assert.deepEqual(rows.sessions.map((row) => [row.session_id, row.exit_code]), [["SESSION-CLI", 0]]);
-  assert.match(String(rows.logs[0].stdout), /done/);
+  assert.match(String(rows.logs[0].stdout), /skill-contract\/v1/);
   assert.equal(rows.evidence[0].kind, "codex_runner");
   assert.equal(JSON.parse(String(rows.evidence[0].metadata_json)).skillInvocation.skillSlug, "codex-coding-skill");
 });
@@ -197,18 +114,26 @@ test("cli.run uses danger-full-access for trusted direct-write runs with bounded
     dbPath,
     {
       projectId: "project-1",
-      runId: "RUN-EARS-DIRECT",
-      skillSlug: "pr-ears-requirement-decomposition-skill",
+      executionId: "RUN-EARS-DIRECT",
+      operation: "generate_ears",
       requestedAction: "generate_ears",
-      sourcePaths: ["docs/PRD.md"],
-      expectedArtifacts: ["docs/requirements.md"],
+      context: {
+        skillSlug: "pr-ears-requirement-decomposition-skill",
+        skillPhase: "generate_ears",
+        sourcePaths: ["docs/PRD.md"],
+        expectedArtifacts: ["docs/requirements.md"],
+      },
     },
     (_command, args) => {
       calls.push({ args });
       writeFileSync(join(root, "docs", "requirements.md"), "# Requirements\n");
       return {
         status: 0,
-        stdout: '{"type":"session","session_id":"SESSION-EARS"}\n{"type":"result","status":"completed"}',
+        stdout: `{"type":"session","session_id":"SESSION-EARS"}\n${skillOutputEvent("RUN-EARS-DIRECT", {
+          skillSlug: "pr-ears-requirement-decomposition-skill",
+          requestedAction: "generate_ears",
+          producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
+        })}`,
         stderr: "",
       };
     },
@@ -234,12 +159,12 @@ test("cli.run keeps coding skills sandboxed when allowed file scope is missing",
 
   const result = await runCliRunJob(
     dbPath,
-    { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-CODING-UNBOUNDED" },
+    cliRunPayload("RUN-CODING-UNBOUNDED"),
     (_command, args) => {
       calls.push({ args });
       return {
         status: 0,
-        stdout: '{"type":"session","session_id":"SESSION-CODING"}\n{"type":"result","status":"completed"}',
+        stdout: `{"type":"session","session_id":"SESSION-CODING"}\n${skillOutputEvent("RUN-CODING-UNBOUNDED")}`,
         stderr: "",
       };
     },
@@ -266,11 +191,11 @@ test("cli.run blocks when target project workspace is missing or lacks workspace
     },
   ]);
 
-  const result = await runCliRunJob(dbPath, { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-BLOCKED" }, () => {
+  const result = await runCliRunJob(dbPath, cliRunPayload("RUN-BLOCKED"), () => {
     throw new Error("runner should not be called");
   });
   const rows = runSqlite(dbPath, [], [
-    { name: "run", sql: "SELECT status, summary FROM runs WHERE id = 'RUN-BLOCKED'" },
+    { name: "run", sql: "SELECT status, summary FROM execution_records WHERE id = 'RUN-BLOCKED'" },
   ]).queries.run;
 
   assert.equal(result.status, "blocked");
@@ -293,11 +218,11 @@ test("cli.run blocks when CLI adapters exist in DB but none is active", async ()
     },
   ]);
 
-  const result = await runCliRunJob(dbPath, { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-NO-ADAPTER" }, () => {
+  const result = await runCliRunJob(dbPath, cliRunPayload("RUN-NO-ADAPTER"), () => {
     throw new Error("runner should not be called");
   });
   const rows = runSqlite(dbPath, [], [
-    { name: "run", sql: "SELECT status, summary FROM runs WHERE id = 'RUN-NO-ADAPTER'" },
+    { name: "run", sql: "SELECT status, summary FROM execution_records WHERE id = 'RUN-NO-ADAPTER'" },
   ]).queries.run;
 
   assert.equal(result.status, "blocked");
@@ -312,9 +237,9 @@ test("cli.run uses default built-in adapter when cli_adapter_configs table is em
   seedCliRunData(dbPath, root);
   // Table is empty (no adapters configured) — should fall back to DEFAULT and succeed
 
-  const result = await runCliRunJob(dbPath, { projectId: "project-1", featureId: "FEAT-CLI", taskId: "TASK-CLI", runId: "RUN-DEFAULT-ADAPTER" }, () => ({
+  const result = await runCliRunJob(dbPath, cliRunPayload("RUN-DEFAULT-ADAPTER"), () => ({
     status: 0,
-    stdout: '{"type":"session","session_id":"SESSION-DEFAULT"}\n{"type":"result","message":"done"}',
+    stdout: `{"type":"session","session_id":"SESSION-DEFAULT"}\n${skillOutputEvent("RUN-DEFAULT-ADAPTER")}`,
     stderr: "",
   }));
 
@@ -351,6 +276,43 @@ function seedCliRunData(dbPath: string, root: string): void {
         ) VALUES ('TASK-CLI', 'TG-CLI', 'FEAT-CLI', 'Run CLI task', 'scheduled', '[]', '[]', '["src/index.ts"]', '[]', 'low', 1)`,
     },
   ]);
+}
+
+function cliRunPayload(executionId: string) {
+  return {
+    projectId: "project-1",
+    executionId,
+    operation: "feature_execution",
+    context: {
+      featureId: "FEAT-CLI",
+      taskId: "TASK-CLI",
+      skillPhase: "feature_execution",
+    },
+  };
+}
+
+function skillOutputEvent(executionId: string, overrides: {
+  skillSlug?: string;
+  requestedAction?: string;
+  producedArtifacts?: Array<{ path: string; kind: string; status: string }>;
+} = {}): string {
+  const output = {
+    contractVersion: "skill-contract/v1",
+    executionId,
+    skillSlug: overrides.skillSlug ?? "codex-coding-skill",
+    requestedAction: overrides.requestedAction ?? "feature_execution",
+    status: "completed",
+    summary: "Skill completed.",
+    producedArtifacts: overrides.producedArtifacts ?? [],
+    evidence: [{ kind: "command", summary: "Mock runner completed.", status: "passed" }],
+    traceability: {
+      featureId: overrides.skillSlug ? undefined : "FEAT-CLI",
+      taskId: overrides.skillSlug ? undefined : "TASK-CLI",
+      requirementIds: [],
+      changeIds: ["CHG-016"],
+    },
+  };
+  return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
 }
 
 function prepareSkillWorkspace(root: string): void {

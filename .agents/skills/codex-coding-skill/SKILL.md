@@ -21,6 +21,7 @@ Use this skill for implementation tasks after planning and scheduling.
 - Code changes within scope.
 - Test or verification evidence.
 - Residual risks and follow-up notes.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, `evidence`, and `traceability` matching the invocation contract.
 
 ## Failure Routing
 
