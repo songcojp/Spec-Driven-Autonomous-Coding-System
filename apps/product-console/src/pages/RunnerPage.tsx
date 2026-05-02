@@ -237,7 +237,7 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
     return (
       <section className="rounded-md border border-line bg-white p-3">
         <div className="text-[12px] font-semibold text-ink">{text.skillOutput}</div>
-        <div className="mt-2 text-muted">{text.stdoutJsonNotFound}</div>
+        <div className="mt-2 text-muted">{text.stdoutLogNotFound}</div>
       </section>
     );
   }
@@ -252,10 +252,10 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
         <FactList
           rows={[
             [text.status, output.status ?? text.none],
-            [text.summary, output.summary ?? output.error ?? text.stdoutJsonNotFound],
+            [text.summary, output.summary ?? output.error ?? text.stdoutLogNotFound],
             [text.tokenUsage, output.tokenUsage ? formatSpecValue(output.tokenUsage) : text.none],
             ["Cost", output.tokenConsumption ? `$${output.tokenConsumption.costUsd.toFixed(6)} ${output.tokenConsumption.pricingStatus}` : text.none],
-            [text.stdoutJsonPath, output.stdoutJsonPath ?? text.none],
+            [text.stdoutLogPath, output.stdoutLogPath ?? text.none],
           ]}
         />
         {output.producedArtifacts.length > 0 ? (

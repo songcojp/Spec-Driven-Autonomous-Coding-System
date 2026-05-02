@@ -14,7 +14,7 @@
 - 支持 Execution Record、状态、Memory 和 Evidence 更新的幂等重放。
 - 保留任务、Execution Record、Evidence Pack 和 Project Memory 状态以支持崩溃恢复。
 - 记录任务、Execution Record、审批和状态变化的审计时间线。
-- 使用独立 token 消费明细记录每次 CLI run 的 token、成本、模型、价格快照和来源 `stdout.json`；通用 Metrics 仅记录成功率、失败率、看板加载耗时、状态刷新耗时、Evidence 写入耗时和 Runner 心跳。
+- 使用独立 token 消费明细记录每次 CLI run 的 token、成本、模型、价格快照和来源 `stdout.log`；通用 Metrics 仅记录成功率、失败率、看板加载耗时、状态刷新耗时、Evidence 写入耗时和 Runner 心跳。
 - 追踪 MVP 自动化成功指标。
 
 ## Non-Scope

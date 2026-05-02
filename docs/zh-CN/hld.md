@@ -434,7 +434,7 @@ Collaborates With:
 | Spec Protocol | Spec Protocol Engine | Feature、Requirement、ClarificationLog、Checklist、SpecVersion、SpecSlice | SQLite + Markdown/JSON artifact。 |
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
 | Orchestration State | Orchestration and State Machine | Feature、StateTransition、ScheduleTrigger、SchedulerJobRecord、ExecutionRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
-| Runtime Execution | Codex Runner | ExecutionRecord、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog、TokenConsumptionRecord | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发；token/cost 只从 `.autobuild/runs/<runId>/stdout.json` 提取消费事实。 |
+| Runtime Execution | Codex Runner | ExecutionRecord、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog、TokenConsumptionRecord | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发；token/cost 只从 `.autobuild/runs/<runId>/stdout.log` 提取消费事实。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Evidence and Audit | Evidence Store | EvidencePack、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/evidence/` artifact。 |
@@ -648,7 +648,7 @@ Observability:
 - 每个 Run、Task、Feature、Evidence Pack、Review Item 和 State Transition 必须有可追踪 ID。
 - Runner 每 10 至 30 秒更新心跳，Runner Console 展示最近心跳时间。
 - Audit Timeline 记录状态变化、触发原因、执行者、来源证据和时间。
-- Token Consumption 记录每次 CLI run 的 token、成本、模型、价格快照和 `stdout.json` 来源路径，并以 `run_id` 唯一约束防止重复计数。
+- Token Consumption 记录每次 CLI run 的 token、成本、模型、价格快照和 `stdout.log` 来源路径，并以 `run_id` 唯一约束防止重复计数。
 - Metrics 记录成功率、失败率、看板加载耗时、状态刷新耗时和 Evidence 写入耗时；不承载 token 或成本消费事实。
 - Dashboard 展示项目健康、任务状态、Subagent 状态、失败、审批、来自 token 消费明细的成本、最近 PR 和风险。
 

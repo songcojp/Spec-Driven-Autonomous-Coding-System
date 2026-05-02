@@ -225,7 +225,7 @@ test("token consumption records store run-level token and cost facts outside met
         ) VALUES (
           'TOKEN-001', 'RUN-001', 'JOB-001', 'project-1', 'FEAT-014', 'TASK-001', 'feature_execution', 'gpt-5.5',
           1000, 100, 200, 50, 1250, 0.42, 'USD', 'priced',
-          '{"inputTokens":1000,"outputTokens":200}', '{"model":"gpt-5.5"}', '.autobuild/runs/RUN-001/stdout.json'
+          '{"inputTokens":1000,"outputTokens":200}', '{"model":"gpt-5.5"}', '.autobuild/runs/RUN-001/stdout.log'
         )`,
     },
   ]);

@@ -426,7 +426,7 @@ const returnsPortalData: ConsoleProjectData = {
       ],
       skillOutput: {
         parseStatus: "found",
-        stdoutJsonPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.json",
+        stdoutLogPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.log",
         status: "completed",
         summary: "Carrier label quote fixture wired and acceptance evidence recorded.",
         tokenUsage: { inputTokens: 18420, outputTokens: 2310, totalTokens: 20730 },
@@ -460,7 +460,7 @@ const returnsPortalData: ConsoleProjectData = {
     schedulerJobs: [
       { id: "JOB-709", bullmqJobId: "BULL-709", queueName: "specdrive:cli-runner", jobType: "cli.run", operation: "feature_execution", targetType: "execution", targetId: "RUN-709", status: "queued", attempts: 0, updatedAt: "2026-04-29T03:42:00.000Z", executionId: "RUN-709", runId: "RUN-709", taskId: "T-229", featureId: "FEAT-204", projectId: "project-1", workspaceRoot: "workspace/acme-returns-portal", context: { featureId: "FEAT-204", featureSpecPath: "docs/features/FEAT-204/tasks.md", taskId: "T-229", taskName: "Connect carrier label quote mock", workspaceRoot: "workspace/acme-returns-portal", skillSlug: "codex-coding-skill", skillPhase: "task_execution" }, skillOutput: {
         parseStatus: "found",
-        stdoutJsonPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.json",
+        stdoutLogPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.log",
         status: "completed",
         summary: "Carrier label quote fixture wired and acceptance evidence recorded.",
         tokenUsage: { inputTokens: 18420, outputTokens: 2310, totalTokens: 20730 },
@@ -534,7 +534,7 @@ const returnsPortalData: ConsoleProjectData = {
         evidenceSummary: "Codex skill invocation contract queued for workspace execution.",
         output: {
           parseStatus: "found",
-          stdoutJsonPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.json",
+          stdoutLogPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.log",
           status: "completed",
           summary: "Carrier label quote fixture wired and acceptance evidence recorded.",
           tokenUsage: { inputTokens: 18420, outputTokens: 2310, totalTokens: 20730 },

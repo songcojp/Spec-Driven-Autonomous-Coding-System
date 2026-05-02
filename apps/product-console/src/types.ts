@@ -160,7 +160,7 @@ export type SpecSourceItem = {
 
 export type SkillOutputModel = {
   parseStatus: "found" | "missing" | "invalid";
-  stdoutJsonPath?: string;
+  stdoutLogPath?: string;
   error?: string;
   status?: string;
   summary?: string;

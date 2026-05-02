@@ -608,7 +608,7 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   assert.equal(otherProject.runners.some((entry) => entry.runnerId === "runner-main"), false);
 });
 
-test("runner and spec workspace record token consumption only from stdout.json", () => {
+test("runner and spec workspace record token consumption only from stdout.log", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const projectPath = mkdtempSync(join(tmpdir(), "skill-output-"));
@@ -629,8 +629,14 @@ test("runner and spec workspace record token consumption only from stdout.json",
     traceability: { featureId: "FEAT-013", requirementIds: ["REQ-052"], changeIds: [] },
     result: { featureCount: 3 },
   };
-  writeFileSync(join(runDir, "stdout.json"), JSON.stringify(skillOutput, null, 2));
-  writeFileSync(join(runDir, "stdout.log"), "this must not be used");
+  writeFileSync(join(runDir, "stdout.log"), [
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(skillOutput) } }),
+    JSON.stringify({ type: "turn.completed", usage: skillOutput.tokenUsage }),
+    "",
+  ].join("\n"));
+  writeFileSync(join(runDir, "cli-output.json"), JSON.stringify({
+    usage: { input_tokens: 9000000, cached_input_tokens: 0, output_tokens: 9000000, reasoning_output_tokens: 0 },
+  }));
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO cli_adapter_configs (
@@ -715,10 +721,6 @@ test("runner and spec workspace record token consumption only from stdout.json",
       reasoning_output_tokens: 22274,
     },
   }));
-  writeFileSync(join(missingRunDir, "stdout.log"), JSON.stringify({
-    type: "turn.completed",
-    usage: { input_tokens: 1, output_tokens: 1 },
-  }));
   const missing = buildRunnerConsoleView(dbPath, stableDate, "project-1").schedulerJobs.find((job) => job.id === "JOB-MISSING")?.skillOutput;
   assert.equal(missing?.parseStatus, "missing");
   assert.equal(missing?.tokenUsage, undefined);
@@ -729,7 +731,7 @@ test("runner and spec workspace record token consumption only from stdout.json",
 
   const invalidDir = join(projectPath, ".autobuild", "runs", "RUN-INVALID");
   mkdirSync(invalidDir, { recursive: true });
-  writeFileSync(join(invalidDir, "stdout.json"), "{not-json");
+  writeFileSync(join(invalidDir, "stdout.log"), "{not-json");
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
@@ -1842,7 +1844,7 @@ function seedConsoleData(dbPath: string): void {
           cost_usd, currency, pricing_status, usage_json, pricing_json, source_path, recorded_at
         ) VALUES (
           'TOKEN-1', 'RUN-MANUAL', 'project-1', 'FEAT-013', 'TASK-RUNNING', 'feature_execution', 'gpt-5.5',
-          8000, 1000, 9000, 1.25, 'USD', 'priced', '{}', '{}', '/workspace/specdrive/.autobuild/runs/RUN-MANUAL/stdout.json', '2026-04-28T10:00:00.000Z'
+          8000, 1000, 9000, 1.25, 'USD', 'priced', '{}', '{}', '/workspace/specdrive/.autobuild/runs/RUN-MANUAL/stdout.log', '2026-04-28T10:00:00.000Z'
         )`,
     },
     {
@@ -1851,7 +1853,7 @@ function seedConsoleData(dbPath: string): void {
           cost_usd, currency, pricing_status, usage_json, pricing_json, source_path, recorded_at
         ) VALUES (
           'TOKEN-OTHER', 'RUN-OTHER', 'project-2', 'FEAT-OTHER', 'TASK-OTHER', 'feature_execution', 'gpt-5.5',
-          900000, 100000, 1000000, 99, 'USD', 'priced', '{}', '{}', '/workspace/other/.autobuild/runs/RUN-OTHER/stdout.json', '2026-04-28T10:30:00.000Z'
+          900000, 100000, 1000000, 99, 'USD', 'priced', '{}', '{}', '/workspace/other/.autobuild/runs/RUN-OTHER/stdout.log', '2026-04-28T10:30:00.000Z'
         )`,
     },
   ]);

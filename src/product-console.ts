@@ -308,7 +308,7 @@ export type FeatureSpecDocumentViewModel = {
 
 export type SkillOutputViewModel = {
   parseStatus: "found" | "missing" | "invalid";
-  stdoutJsonPath?: string;
+  stdoutLogPath?: string;
   error?: string;
   status?: string;
   summary?: string;
@@ -4325,10 +4325,10 @@ function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void
       ?? optionalString(context.workspaceRoot)
       ?? (project ? workspaceRootByProject.get(project) : undefined);
     if (!workspaceRoot) continue;
-    const stdoutJsonPath = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(runId), "stdout.json");
-    if (!existsSync(stdoutJsonPath)) continue;
-    const raw = parseJson(readFileSync(stdoutJsonPath, "utf8"));
-    const usage = tokenUsageFromValue(raw);
+    const stdoutLogPath = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(runId), "stdout.log");
+    const stdoutLog = readStdoutLogEvents(stdoutLogPath);
+    if (!stdoutLog.exists || stdoutLog.error) continue;
+    const usage = tokenUsageFromValue(stdoutLog.events);
     if (!usage) continue;
     const normalized = normalizeTokenUsage(usage);
     if (normalized.totalTokens <= 0) continue;
@@ -4363,7 +4363,7 @@ function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void
           pricing.pricingStatus,
           JSON.stringify(usage),
           JSON.stringify(pricing.pricingSnapshot),
-          stdoutJsonPath,
+          stdoutLogPath,
         ],
       },
     ]);
@@ -4572,35 +4572,33 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
   }
 
   const runDir = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(executionId));
-  const stdoutJsonPath = join(runDir, "stdout.json");
-  if (!existsSync(stdoutJsonPath)) {
+  const stdoutLogPath = join(runDir, "stdout.log");
+  const stdoutLog = readStdoutLogEvents(stdoutLogPath);
+  if (!stdoutLog.exists) {
     return {
       parseStatus: "missing",
-      stdoutJsonPath,
-      error: "stdout_json_not_found",
+      stdoutLogPath,
+      error: "stdout_log_not_found",
       producedArtifacts: [],
       evidence: [],
     };
   }
-
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(stdoutJsonPath, "utf8"));
-  } catch (error) {
+  if (stdoutLog.error) {
     return {
       parseStatus: "invalid",
-      stdoutJsonPath,
-      error: error instanceof Error ? error.message : String(error),
+      stdoutLogPath,
+      error: stdoutLog.error,
       producedArtifacts: [],
       evidence: [],
     };
   }
 
+  const raw = stdoutLog.events;
   const output = findSkillOutputRecord(raw);
   const recordCount = Array.isArray(raw) ? raw.length : undefined;
   return {
     parseStatus: "found",
-    stdoutJsonPath,
+    stdoutLogPath,
     status: optionalString(output?.status),
     summary: optionalString(output?.summary),
     tokenUsage: skillOutputTokenUsage(output, raw),
@@ -4613,6 +4611,27 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
     raw,
     recordCount,
   };
+}
+
+function readStdoutLogEvents(stdoutLogPath: string): { exists: boolean; events: unknown[]; error?: string } {
+  if (!existsSync(stdoutLogPath)) {
+    return { exists: false, events: [] };
+  }
+  const events: unknown[] = [];
+  const lines = readFileSync(stdoutLogPath, "utf8").split(/\r?\n/u);
+  for (const [index, line] of lines.entries()) {
+    if (!line.trim()) continue;
+    try {
+      events.push(JSON.parse(line));
+    } catch (error) {
+      return {
+        exists: true,
+        events,
+        error: `stdout_log_invalid_json_line_${index + 1}: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+  return { exists: true, events };
 }
 
 function skillInputContract(output: Record<string, unknown> | undefined, raw: unknown): unknown {

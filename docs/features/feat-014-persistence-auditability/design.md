@@ -12,7 +12,7 @@ Persistence and Auditability 是跨 Feature 基础能力。SQLite 是 MVP 的 Pe
 | Scheduler Job Records | 保存 BullMQ job id、queue、job type、target、status、payload、attempts 和错误信息。 |
 | Idempotency Manager | 管理 Run、状态、Memory、Evidence 和恢复流程的幂等键。 |
 | Audit Timeline | 记录状态变化、Run、审批、恢复、Memory 压缩、worktree 生命周期和交付事件。 |
-| Token Consumption Records | 记录每次 CLI run 从 `stdout.json` 提取的 token usage、成本、模型、价格快照和来源路径，使用 `run_id` 唯一约束避免重复计数。 |
+| Token Consumption Records | 记录每次 CLI run 从 `stdout.log` 提取的 token usage、成本、模型、价格快照和来源路径，使用 `run_id` 唯一约束避免重复计数。 |
 | Metrics Collector | 记录成功率、失败率、性能基线和心跳；不承载 token 或成本消费事实。 |
 | Artifact Store | 在 `.autobuild/` 保存 Memory、Spec、Evidence、Report 和 Run 元数据。 |
 | Recovery Index | 支持崩溃后恢复任务、Run、Evidence 和 Memory。 |
