@@ -3,7 +3,19 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
-import { createFeatureSpec, extractVersion, projectSpecArtifact, scanSpecSources, type FeatureSpec, type SpecSourceScanSummary } from "./spec-protocol.ts";
+import {
+  createFeatureSpec,
+  extractVersion,
+  mergeFileSpecState,
+  projectSpecArtifact,
+  readFileSpecState,
+  scanSpecSources,
+  specStateRelativePath,
+  writeFileSpecState,
+  type FeatureSpec,
+  type FileSpecState,
+  type SpecSourceScanSummary,
+} from "./spec-protocol.ts";
 import {
   createScheduleTrigger,
   persistScheduleTrigger,
@@ -295,6 +307,7 @@ export type FeatureSpecDocumentsViewModel = {
   requirements?: FeatureSpecDocumentViewModel;
   design?: FeatureSpecDocumentViewModel;
   tasks?: FeatureSpecDocumentViewModel;
+  specState?: FeatureSpecDocumentViewModel;
 };
 
 export type FeatureSpecDocumentViewModel = {
@@ -312,6 +325,7 @@ export type SkillOutputViewModel = {
   error?: string;
   status?: string;
   summary?: string;
+  nextAction?: string;
   tokenUsage?: unknown;
   tokenConsumption?: TokenConsumptionViewModel;
   inputContract?: unknown;
@@ -344,6 +358,22 @@ type FeaturePoolQueuePlanEntry = {
   dependencies: string[];
 };
 
+type FeaturePoolSelectionInput = {
+  dbPath: string;
+  entries: FeaturePoolQueuePlanEntry[];
+  projectId: string;
+  projectPath: string;
+  docsById: Map<string, SpecWorkspaceFeatureListItem>;
+  resumeFeatureId?: string;
+  skipFeatureIds: string[];
+  now: Date;
+};
+
+type FeaturePoolSelectionResult = {
+  selected?: FeaturePoolQueuePlanEntry;
+  blockedReasons: string[];
+};
+
 function listFeatureSpecsFromDocs(
   projectPath: string,
   dbFeatures: SpecWorkspaceFeatureListItem[] = [],
@@ -360,11 +390,13 @@ function listFeatureSpecsFromDocs(
       const requirementsPath = join(featuresDir, folder, "requirements.md");
       const requirementsContent = existsSync(requirementsPath) ? readFileSync(requirementsPath, "utf8") : "";
       const dbFeature = dbById.get(id);
+      const statePath = join(projectPath, specStateRelativePath(folder));
+      const fileState = existsSync(statePath) ? readFileSpecState(projectPath, folder, id) : undefined;
       return {
         id,
         title: featureTitleFromRequirements(requirementsContent, id, folder) ?? dbFeature?.title ?? humanizeFeatureFolder(folder),
         folder,
-        status: dbFeature?.status ?? featureStatusFromDocs(projectPath, folder),
+        status: fileState?.status ?? dbFeature?.status ?? featureStatusFromDocs(projectPath, folder),
         primaryRequirements: dbFeature?.primaryRequirements?.length
           ? dbFeature.primaryRequirements
           : requirementIdsFromText(requirementsContent),
@@ -379,6 +411,7 @@ function readFeatureSpecDocuments(projectPath: string, folder: string): FeatureS
     requirements: readFeatureSpecDocument(projectPath, safeFolder, "requirements.md"),
     design: readFeatureSpecDocument(projectPath, safeFolder, "design.md"),
     tasks: readFeatureSpecDocument(projectPath, safeFolder, "tasks.md"),
+    specState: readFeatureSpecDocument(projectPath, safeFolder, "spec-state.json"),
   };
 }
 
@@ -554,21 +587,84 @@ function readFeaturePoolQueuePlan(projectPath: string): { path: string; entries:
   }
 }
 
-function selectFeaturePoolQueueEntry(
-  dbPath: string,
-  entries: FeaturePoolQueuePlanEntry[],
-  projectId: string,
-): FeaturePoolQueuePlanEntry | undefined {
-  const completed = new Set(runSqlite(dbPath, [], [
+function selectFeaturePoolQueueEntry(input: FeaturePoolSelectionInput): FeaturePoolSelectionResult {
+  const completed = new Set(runSqlite(input.dbPath, [], [
     {
       name: "features",
       sql: "SELECT id FROM features WHERE project_id = ? AND status IN ('done', 'delivered')",
-      params: [projectId],
+      params: [input.projectId],
     },
   ]).queries.features.map((row) => String(row.id)));
-  return [...entries]
-    .sort((left, right) => right.priority - left.priority)
-    .find((entry) => !completed.has(entry.id) && entry.dependencies.every((dependency) => completed.has(dependency)));
+  for (const entry of input.entries) {
+    const feature = input.docsById.get(entry.id);
+    const state = feature?.folder ? readFileSpecState(input.projectPath, feature.folder, entry.id, input.now) : undefined;
+    if (state?.status === "completed" || state?.status === "delivered") {
+      completed.add(entry.id);
+    }
+  }
+
+  const blockedReasons: string[] = [];
+  for (const entry of [...input.entries].sort((left, right) => right.priority - left.priority)) {
+    const feature = input.docsById.get(entry.id);
+    if (!feature?.folder) {
+      blockedReasons.push(`${entry.id} is not available as a Feature Spec directory.`);
+      continue;
+    }
+    const state = readFileSpecState(input.projectPath, feature.folder, entry.id, input.now);
+    if (input.skipFeatureIds.includes(entry.id)) {
+      writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
+        status: "skipped",
+        blockedReasons: [],
+        nextAction: "Skipped by operator; scheduler can select the next ready Feature.",
+      }, {
+        now: input.now,
+        source: "scheduler",
+        summary: "Feature skipped by operator.",
+      }));
+      completed.add(entry.id);
+      continue;
+    }
+    if (completed.has(entry.id)) continue;
+
+    const dependencyMissing = entry.dependencies.filter((dependency) => !completed.has(dependency));
+    if (dependencyMissing.length > 0) {
+      const reason = `${entry.id} is blocked by incomplete dependencies: ${dependencyMissing.join(", ")}.`;
+      blockedReasons.push(reason);
+      writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
+        status: "blocked",
+        dependencies: entry.dependencies,
+        blockedReasons: [reason],
+        nextAction: "Wait for dependency completion or skip to the next Feature.",
+      }, { now: input.now, source: "scheduler", summary: reason }));
+      continue;
+    }
+
+    const readiness = validateFeatureSpecDirectory(input.projectPath, `docs/features/${feature.folder}`);
+    if (readiness.length > 0) {
+      const reason = `${entry.id} cannot run: ${readiness.join(" ")}`;
+      blockedReasons.push(reason);
+      writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
+        status: "blocked",
+        dependencies: entry.dependencies,
+        blockedReasons: [reason],
+        nextAction: "Complete the Feature Spec documents, then resume this Feature.",
+      }, { now: input.now, source: "scheduler", summary: reason }));
+      continue;
+    }
+
+    if (["blocked", "failed", "review_needed"].includes(state.status) && input.resumeFeatureId !== entry.id) {
+      const reason = `${entry.id} is ${state.status} and requires resume before it can run.`;
+      blockedReasons.push(reason);
+      continue;
+    }
+    if (state.status !== "ready" && input.resumeFeatureId !== entry.id) {
+      const reason = `${entry.id} is ${state.status}; scheduler only runs ready or explicitly resumed Features.`;
+      blockedReasons.push(reason);
+      continue;
+    }
+    return { selected: entry, blockedReasons };
+  }
+  return { blockedReasons };
 }
 
 function persistExecutionRecord(dbPath: string, input: {
@@ -1391,6 +1487,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       { action: "scan_prd_source", entityType: "project" },
       { action: "upload_prd_source", entityType: "project" },
       { action: "generate_ears", entityType: "project" },
+      { action: "update_spec", entityType: "spec" },
       { action: "push_feature_spec_pool", entityType: "project" },
       { action: "schedule_run", entityType: "project" },
       { action: "schedule_run", entityType: "feature" },
@@ -1927,18 +2024,11 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       })),
     ].slice(0, 8),
     factSources: [
-      "task_graph_tasks",
-      "tasks",
       "execution_records",
-      "execution_records",
-      "runner_heartbeats",
-      "runner_policies",
       "scheduler_job_records",
+      "runner_heartbeats",
       "raw_execution_logs",
-      "review_items",
-      "approval_records",
-      "audit_timeline_events",
-      "metric_samples",
+      "evidence_packs",
       "token_consumption_records",
     ],
     runners,
@@ -2522,9 +2612,20 @@ function executeScheduleCommand(
   const project = projectId ? getProject(dbPath, projectId) : undefined;
   const workspaceRoot = scheduleRunWorkspaceRoot(dbPath, projectId, project?.targetRepoPath);
   const featureSpecPath = featureSpecPathForScheduleRun(dbPath, workspaceRoot, featureId);
+  const featureFolder = featureSpecPath?.replace(/^docs\/features\//, "");
+  const specState = workspaceRoot && featureFolder && featureId
+    ? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt))
+    : undefined;
   if (operation === "feature_execution" && skillSlug === "codex-coding-skill") {
     const readiness = validateFeatureSpecExecutionInput(workspaceRoot, featureSpecPath);
     if (readiness.length > 0) {
+      if (workspaceRoot && featureFolder && featureId) {
+        writeFileSpecState(workspaceRoot, featureFolder, mergeFileSpecState(specState ?? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt)), {
+          status: "blocked",
+          blockedReasons: readiness,
+          nextAction: "Complete the Feature Spec documents, then resume this Feature.",
+        }, { now: new Date(acceptedAt), source: "schedule_run", summary: readiness.join(" ") }));
+      }
       return { triggerId: trigger.id, blockedReasons: readiness };
     }
   }
@@ -2532,6 +2633,8 @@ function executeScheduleCommand(
     featureId,
     taskId,
     featureSpecPath,
+    specStatePath: featureFolder ? specStateRelativePath(featureFolder) : undefined,
+    specState,
     sourcePaths: scheduleRunSourcePaths(payload, featureSpecPath),
     expectedArtifacts: scheduleRunExpectedArtifacts(payload),
     workspaceRoot,
@@ -2555,12 +2658,39 @@ function executeScheduleCommand(
     status: "queued",
     acceptedAt,
   });
+  if (workspaceRoot && featureFolder && featureId) {
+    writeFileSpecState(workspaceRoot, featureFolder, mergeFileSpecState(specState ?? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt)), {
+      status: "queued",
+      blockedReasons: [],
+      currentJob: {
+        schedulerJobId: job.schedulerJobId,
+        executionId,
+        operation,
+        queuedAt: acceptedAt,
+      },
+      nextAction: "Waiting for Runner to start this Feature.",
+    }, {
+      now: new Date(acceptedAt),
+      source: "schedule_run",
+      summary: "Feature execution queued.",
+      schedulerJobId: job.schedulerJobId,
+      executionId,
+    }));
+  }
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId };
 }
 
 function validateFeatureSpecExecutionInput(workspaceRoot?: string, featureSpecPath?: string): string[] {
   if (!workspaceRoot) return ["Feature execution requires a project workspace root."];
   if (!featureSpecPath) return ["Feature execution requires a Feature Spec directory."];
+  const normalized = featureSpecPath.replaceAll("\\", "/");
+  if (isAbsolute(normalized) || normalized.startsWith("..") || normalized.includes("/../")) {
+    return [`Feature Spec path must stay inside the workspace: ${featureSpecPath}`];
+  }
+  return validateFeatureSpecDirectory(workspaceRoot, normalized);
+}
+
+function validateFeatureSpecDirectory(workspaceRoot: string, featureSpecPath: string): string[] {
   const normalized = featureSpecPath.replaceAll("\\", "/");
   if (isAbsolute(normalized) || normalized.startsWith("..") || normalized.includes("/../")) {
     return [`Feature Spec path must stay inside the workspace: ${featureSpecPath}`];
@@ -2640,6 +2770,12 @@ function executeFeatureSpecPoolCommand(
   if (!project.targetRepoPath) {
     return { featureIds: [], blockedReasons: ["Project repository path is required before pushing Feature Specs into the pool."] };
   }
+  const payload = parseJsonObject(input.payload);
+  const resumeFeatureId = optionalString(payload.resumeFeatureId)?.toUpperCase();
+  const skipFeatureIds = [
+    ...optionalStringArray(payload.skipFeatureIds),
+    ...(optionalString(payload.skipFeatureId) ? [optionalString(payload.skipFeatureId)!] : []),
+  ].map((value) => value.toUpperCase());
 
   const docsFeatures = listFeatureSpecsFromDocs(project.targetRepoPath, []);
   if (docsFeatures.length === 0) {
@@ -2669,6 +2805,14 @@ function executeFeatureSpecPoolCommand(
   }
   runSqlite(dbPath, queuePlan.entries.map((entry) => {
     const feature = docsById.get(entry.id)!;
+    const state = readFileSpecState(project.targetRepoPath, feature.folder ?? feature.id.toLowerCase(), feature.id, new Date(acceptedAt));
+    writeFileSpecState(project.targetRepoPath, feature.folder ?? feature.id.toLowerCase(), mergeFileSpecState(state, {
+      dependencies: entry.dependencies,
+    }, {
+      now: new Date(acceptedAt),
+      source: "feature-pool-queue",
+      summary: "Feature queue metadata synchronized from feature-pool-queue.json.",
+    }));
     return {
     sql: `INSERT INTO features (
         id, project_id, title, status, priority, folder, primary_requirements_json, dependencies_json, updated_at
@@ -2712,16 +2856,36 @@ function executeFeatureSpecPoolCommand(
   if (trigger.result !== "accepted") {
     return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: [] };
   }
-  const selected = selectFeaturePoolQueueEntry(dbPath, queuePlan.entries, project.id);
+  const selection = selectFeaturePoolQueueEntry({
+    dbPath,
+    entries: queuePlan.entries,
+    projectId: project.id,
+    projectPath: project.targetRepoPath,
+    docsById,
+    resumeFeatureId,
+    skipFeatureIds,
+    now: new Date(acceptedAt),
+  });
+  const selected = selection.selected;
   if (!selected) {
-    return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: ["No executable Feature Spec found in feature-pool-queue.json."] };
+    return {
+      featureIds,
+      scheduleTriggerId: trigger.id,
+      blockedReasons: selection.blockedReasons.length > 0
+        ? selection.blockedReasons
+        : ["No executable Feature Spec found in feature-pool-queue.json."],
+    };
   }
   const selectedFeature = docsById.get(selected.id)!;
   const featureSpecPath = `docs/features/${selectedFeature.folder ?? selected.id.toLowerCase()}`;
+  const selectedFolder = selectedFeature.folder ?? selected.id.toLowerCase();
+  const specState = readFileSpecState(project.targetRepoPath, selectedFolder, selected.id, new Date(acceptedAt));
   const executionId = randomUUID();
   const context = {
     featureId: selected.id,
     featureSpecPath,
+    specStatePath: specStateRelativePath(selectedFolder),
+    specState,
     sourcePaths: [
       "docs/zh-CN/PRD.md",
       "docs/zh-CN/requirements.md",
@@ -2751,6 +2915,23 @@ function executeFeatureSpecPoolCommand(
     status: "queued",
     acceptedAt,
   });
+  writeFileSpecState(project.targetRepoPath, selectedFolder, mergeFileSpecState(specState, {
+    status: "queued",
+    blockedReasons: [],
+    currentJob: {
+      schedulerJobId: job.schedulerJobId,
+      executionId,
+      operation: "feature_execution",
+      queuedAt: acceptedAt,
+    },
+    nextAction: "Waiting for Runner to start this Feature.",
+  }, {
+    now: new Date(acceptedAt),
+    source: "feature-pool-queue",
+    summary: resumeFeatureId === selected.id ? "Blocked Feature resumed and queued." : "Next ready Feature queued.",
+    schedulerJobId: job.schedulerJobId,
+    executionId,
+  }));
   return { featureIds, scheduleTriggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId, blockedReasons: [] };
 }
 
@@ -3399,21 +3580,44 @@ function executeCliAdapterCommand(
 }
 
 function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): string | undefined {
-  if (input.action !== "write_project_rule" && input.action !== "write_spec_evolution") {
+  if (input.action !== "write_project_rule" && input.action !== "write_spec_evolution" && input.action !== "update_spec") {
     return undefined;
   }
   const id = randomUUID();
   const payload = isRecord(input.payload) ? input.payload : {};
   const projectId = optionalString(payload.projectId);
+  const project = projectId ? getProject(dbPath, projectId) : undefined;
   const featureId = input.action === "write_spec_evolution"
     ? optionalString(payload.featureId) ?? (input.entityType === "feature" ? input.entityId : undefined)
     : undefined;
-  const kind = input.action === "write_project_rule" ? "project_rule" : "spec_evolution";
+  const kind = input.action === "write_project_rule"
+    ? "project_rule"
+    : input.action === "update_spec"
+      ? "spec_document_update"
+      : "spec_evolution";
   const path = optionalString(payload.path)
-    ?? (input.action === "write_project_rule"
+    ?? (input.action === "update_spec"
+      ? `.autobuild/spec-updates/${input.entityId}.json`
+      : input.action === "write_project_rule"
       ? `.autobuild/rules/${input.entityId}.json`
       : `.autobuild/spec-evolution/${input.entityId}.json`);
   const summary = optionalString(payload.summary) ?? optionalString(payload.body) ?? input.reason;
+  if (input.action === "update_spec" && (optionalString(payload.path) || optionalString(payload.content))) {
+    if (!project?.targetRepoPath) {
+      throw new Error("update_spec requires a project workspace.");
+    }
+    if (!path) {
+      throw new Error("update_spec requires payload.path.");
+    }
+    const safePath = safeSpecDocumentWritePath(path);
+    const content = optionalString(payload.content);
+    if (content === undefined) {
+      throw new Error("update_spec requires payload.content.");
+    }
+    const fullPath = join(project.targetRepoPath, safePath);
+    mkdirSync(dirname(fullPath), { recursive: true });
+    writeFileSync(fullPath, content, { encoding: "utf8", mode: 0o600 });
+  }
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
@@ -3440,6 +3644,18 @@ function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, 
     },
   ]);
   return id;
+}
+
+function safeSpecDocumentWritePath(path: string): string {
+  const normalized = path.replaceAll("\\", "/").split("/").filter(Boolean).join("/");
+  if (!normalized || normalized.startsWith("../") || normalized.includes("/../") || isAbsolute(normalized)) {
+    throw new Error(`Spec document path must stay inside the workspace: ${path}`);
+  }
+  const allowed = normalized.startsWith("docs/") || normalized.startsWith(".agents/skills/");
+  if (!allowed) {
+    throw new Error(`Spec document updates are limited to docs/ or .agents/skills/: ${path}`);
+  }
+  return normalized;
 }
 
 function executeReviewCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): ReturnType<typeof recordApprovalDecision> | undefined {
@@ -4619,6 +4835,7 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
     stdoutLogPath,
     status: optionalString(output?.status),
     summary: optionalString(output?.summary),
+    nextAction: optionalString(output?.nextAction),
     tokenUsage,
     inputContract: compactSkillOutputValue(skillInputContract(output, raw)),
     producedArtifacts: arrayValue(output?.producedArtifacts).map(compactSkillOutputValue),

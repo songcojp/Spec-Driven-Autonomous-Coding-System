@@ -164,6 +164,7 @@ export type SkillOutputModel = {
   error?: string;
   status?: string;
   summary?: string;
+  nextAction?: string;
   tokenUsage?: unknown;
   tokenConsumption?: {
     runId: string;
@@ -184,6 +185,7 @@ export type SkillOutputModel = {
   evidence: unknown[];
   traceability?: unknown;
   result?: unknown;
+  raw?: unknown;
   recordCount?: number;
 };
 
@@ -245,6 +247,7 @@ export type FeatureSpecDocumentsModel = {
   requirements?: FeatureSpecDocumentModel;
   design?: FeatureSpecDocumentModel;
   tasks?: FeatureSpecDocumentModel;
+  specState?: FeatureSpecDocumentModel;
 };
 
 export type FeatureSpecDocumentModel = {

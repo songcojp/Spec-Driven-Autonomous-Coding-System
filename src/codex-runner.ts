@@ -253,6 +253,7 @@ export type SkillInvocationContract = {
   sourcePaths: string[];
   imagePaths?: string[];
   expectedArtifacts: SkillArtifactContract[];
+  specState?: Record<string, unknown>;
   traceability: SkillTraceabilityContract;
   constraints: SkillInvocationConstraints;
   requestedAction: string;
@@ -301,6 +302,7 @@ export type SkillOutputContract = {
   requestedAction: string;
   status: "completed" | "review_needed" | "blocked" | "failed";
   summary: string;
+  nextAction?: string;
   producedArtifacts: SkillOutputArtifact[];
   evidence: SkillOutputEvidence[];
   traceability: SkillTraceabilityContract;
@@ -463,6 +465,7 @@ const DEFAULT_OUTPUT_SCHEMA = {
     "requestedAction",
     "status",
     "summary",
+    "nextAction",
     "producedArtifacts",
     "evidence",
     "traceability",
@@ -474,6 +477,7 @@ const DEFAULT_OUTPUT_SCHEMA = {
     skillSlug: { type: "string" },
     requestedAction: { type: "string" },
     summary: { type: "string" },
+    nextAction: { type: ["string", "null"] },
     status: { type: "string", enum: ["completed", "review_needed", "blocked", "failed"] },
     producedArtifacts: {
       type: "array",
@@ -869,6 +873,7 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- If the prompt includes a Workspace Context Bundle, use it as already-read workspace evidence; do not block solely because shell-based file reads fail.",
     "- Return exactly one JSON object matching SkillOutputContractV1.",
     "- The output contract must echo contractVersion, executionId, skillSlug, requestedAction, and traceability from the Skill Invocation Contract.",
+    "- When specState is present, treat it as the machine-readable Feature state. Return status and result fields that allow the scheduler to patch docs/features/<feature-id>/spec-state.json.",
     "- Produce the expected artifacts and list every produced or intentionally unchanged artifact in producedArtifacts.",
     "- Prefer writing expected artifacts directly to the workspace paths named in the contract.",
     "- If direct file writes fail, return each complete artifact as evidence summary using exactly: ARTIFACT: <relative-path> followed by a markdown fenced block containing the full file content.",
@@ -1086,6 +1091,7 @@ function parseSkillOutputRecord(record: Record<string, unknown> | undefined): Sk
     requestedAction: String(record.requestedAction ?? ""),
     status,
     summary: String(record.summary ?? ""),
+    nextAction: typeof record.nextAction === "string" ? record.nextAction : undefined,
     producedArtifacts: parseProducedArtifacts(record.producedArtifacts),
     evidence: parseOutputEvidence(record.evidence),
     traceability,

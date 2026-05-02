@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
@@ -477,7 +477,8 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(scopedRunner.lanes.blocked.some((task) => task.id === "TASK-RUNNING"), true);
   assert.equal(scopedRunner.lanes.blocked.find((task) => task.id === "TASK-RUNNING")?.blockedReasons.some((reason) => reason.includes("unresolved review")), true);
   assert.equal(scopedRunner.lanes.blocked.find((task) => task.id === "TASK-RUNNING")?.runnerId, "runner-main");
-  assert.equal(scopedRunner.factSources.includes("audit_timeline_events"), true);
+  assert.equal(scopedRunner.factSources.includes("scheduler_job_records"), true);
+  assert.equal(scopedRunner.factSources.includes("execution_records"), true);
   assert.equal(runner.commands.map((command) => command.action).join(","), "pause_runner,resume_runner,schedule_run,schedule_board_tasks,run_board_tasks");
 
   const reviews = buildReviewCenterView(dbPath);
@@ -672,6 +673,7 @@ test("runner and spec workspace record token consumption only from stdout.log", 
     requestedAction: "split_feature_specs",
     status: "completed",
     summary: "Feature specs split and queue plan created.",
+    nextAction: "Push the Feature Spec pool.",
     tokenUsage: { inputTokens: 1200, cachedInputTokens: 200, outputTokens: 320, reasoningOutputTokens: 80, totalTokens: 1600 },
     inputContract: { skillSlug: "task-slicing-skill", required: ["featureId", "workspaceRoot"] },
     outputContract: { contractVersion: "skill-contract/v1", required: ["status"], resultShape: { featureCount: "number" } },
@@ -1339,6 +1341,86 @@ test("push Feature Spec Pool blocks when the skill queue plan is missing", () =>
   assert.deepEqual(result.queries.jobs, []);
 });
 
+test("push Feature Spec Pool writes file-backed state and can skip to the next Feature", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-skip-"));
+  for (const folder of ["feat-001-ticket-capture", "feat-002-ticket-scan"]) {
+    mkdirSync(join(projectPath, "docs", "features", folder), { recursive: true });
+    const id = folder.startsWith("feat-001") ? "FEAT-001" : "FEAT-002";
+    writeFileSync(join(projectPath, "docs", "features", folder, "requirements.md"), `# Feature Spec: ${id} Demo\n\n- REQ-${id.slice(-3)}: The system shall run this Feature.`, "utf8");
+    writeFileSync(join(projectPath, "docs", "features", folder, "design.md"), "# Design\n", "utf8");
+    writeFileSync(join(projectPath, "docs", "features", folder, "tasks.md"), "# Tasks\n", "utf8");
+  }
+  writeFileSync(join(projectPath, "docs", "features", "feature-pool-queue.json"), JSON.stringify({
+    features: [
+      { id: "FEAT-001", priority: 20, dependencies: [] },
+      { id: "FEAT-002", priority: 10, dependencies: [] },
+    ],
+  }, null, 2), "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "push_feature_spec_pool",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Skip blocked work and pick the next Feature.",
+    payload: { skipFeatureId: "FEAT-001" },
+    now: stableDate,
+  }, { scheduler });
+  const skipped = JSON.parse(readFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "spec-state.json"), "utf8"));
+  const queued = JSON.parse(readFileSync(join(projectPath, "docs", "features", "feat-002-ticket-scan", "spec-state.json"), "utf8"));
+  const result = runSqlite(dbPath, [], [
+    { name: "execution", sql: "SELECT context_json FROM execution_records WHERE id = ?", params: [receipt.executionId] },
+  ]);
+  const context = JSON.parse(String(result.queries.execution[0].context_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(skipped.status, "skipped");
+  assert.equal(queued.status, "queued");
+  assert.equal(context.featureId, "FEAT-002");
+  assert.equal(context.specStatePath, "docs/features/feat-002-ticket-scan/spec-state.json");
+});
+
+test("push Feature Spec Pool marks incomplete Feature Spec state as blocked", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-blocked-state-"));
+  mkdirSync(join(projectPath, "docs", "features", "feat-001-ticket-capture"), { recursive: true });
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "requirements.md"), "# Feature Spec: FEAT-001 Ticket Capture\n", "utf8");
+  writeFileSync(join(projectPath, "docs", "features", "feature-pool-queue.json"), JSON.stringify({
+    features: [{ id: "FEAT-001", priority: 20, dependencies: [] }],
+  }, null, 2), "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "push_feature_spec_pool",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Push split Feature Specs into the pool.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const state = JSON.parse(readFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "spec-state.json"), "utf8"));
+
+  assert.equal(receipt.status, "blocked");
+  assert.equal(state.status, "blocked");
+  assert.equal(state.blockedReasons.some((reason: string) => reason.includes("design.md")), true);
+  assert.equal(state.blockedReasons.some((reason: string) => reason.includes("tasks.md")), true);
+});
+
 test("push Feature Spec Pool accepts skill queue plan P-level priorities", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -1550,6 +1632,46 @@ test("console write commands persist rule and spec evolution evidence", () => {
   assert.equal(result.queries.evidence[0].summary, "Do not bypass review approvals.");
   assert.equal(result.queries.evidence[1].feature_id, "FEAT-013");
   assert.match(String(result.queries.evidence[1].metadata_json), /write_spec_evolution/);
+});
+
+test("update_spec writes only workspace spec documents through controlled command", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "update-spec-"));
+  mkdirSync(join(projectPath, "docs", "features", "feat-013-product-console"), { recursive: true });
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "update_spec",
+    entityType: "spec",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Update Feature Spec tasks.",
+    payload: {
+      projectId: "project-1",
+      path: "docs/features/feat-013-product-console/tasks.md",
+      content: "# Tasks\n\n- [x] TASK-001: Updated through controlled command.\n",
+    },
+    now: stableDate,
+  });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(readFileSync(join(projectPath, "docs", "features", "feat-013-product-console", "tasks.md"), "utf8").includes("Updated through controlled command"), true);
+  assert.throws(() => submitConsoleCommand(dbPath, {
+    action: "update_spec",
+    entityType: "spec",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Attempt unsafe write.",
+    payload: {
+      projectId: "project-1",
+      path: "../outside.md",
+      content: "bad",
+    },
+    now: stableDate,
+  }), /inside the workspace/);
 });
 
 test("console schedule command records scheduler triggers without bypassing boundaries", () => {

@@ -73,6 +73,7 @@ function skillOutputEvent(overrides: Partial<{
   requestedAction: string;
   status: "completed" | "review_needed" | "blocked" | "failed";
   summary: string;
+  nextAction: string;
   evidenceSummary: string;
   producedArtifacts: Array<{ path: string; kind: string; status: "created" | "updated" | "unchanged" | "missing" | "skipped" }>;
 }> = {}): string {
@@ -83,6 +84,7 @@ function skillOutputEvent(overrides: Partial<{
     requestedAction: overrides.requestedAction ?? "generate_ears",
     status: overrides.status ?? "completed",
     summary: overrides.summary ?? "Skill completed.",
+    nextAction: "Update spec-state.json and continue.",
     producedArtifacts: overrides.producedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
     evidence: [{ kind: "artifact", summary: overrides.evidenceSummary ?? "Generated artifact.", status: "passed" }],
     traceability: { requirementIds: [], changeIds: ["CHG-016"] },

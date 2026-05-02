@@ -44,3 +44,4 @@
 - [x] TASK-041: 优化 Runner / Task Scheduler 任务队列中心，接入真实 ViewModel 的任务描述、需求、验收、允许文件和 Evidence 摘要，支持按队列、状态、风险和关键词筛选，并提供选中任务详情。
 - [x] TASK-042: 将任务调度中心重构为 Job 列表 + Execution Record 详情，移除固定 Feature 列和旧 `feature.select` / `feature.plan` 流水线展示，支持空 Feature task 表但有 Job/Execution Record 时仍显示队列。
 - [x] TASK-043: 将 Feature 级 `schedule_run` 和 Runner 反馈更新为 Feature Spec 目录驱动：完整 `requirements.md` / `design.md` / `tasks.md` 可直接入队 `feature_execution`，缺失三件套展示 blocked reason，编码执行不依赖 `task_graph_tasks` / `tasks` 表。
+- [x] TASK-044: 在 Spec Workspace 展示 `spec-state.json`，在 Runner / Scheduler 详情中展示 Skill next action，并将 `update_spec` 作为受控 Spec 文档写入入口。

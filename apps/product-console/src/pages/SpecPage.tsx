@@ -813,6 +813,7 @@ function SkillExecutionResult({ output, text }: { output?: SkillOutputModel; tex
           rows={[
             [text.status, output?.status ?? text.none],
             [text.summary, output?.summary ?? output?.error ?? text.stdoutLogNotFound],
+            ["Next action", output?.nextAction ?? text.none],
             [text.tokenUsage, output?.tokenUsage ? formatSpecValue(output.tokenUsage) : text.none],
             ["Cost", output?.tokenConsumption ? `$${output.tokenConsumption.costUsd.toFixed(6)} ${output.tokenConsumption.pricingStatus}` : text.none],
             [text.stdoutLogPath, output?.stdoutLogPath ?? text.none],
@@ -869,6 +870,18 @@ function RunnerInputContractSection({ output, text }: { output?: SkillOutputMode
               <summary className="cursor-pointer font-semibold text-ink">{text.traceability}</summary>
               <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.traceability)}</pre>
             </details>
+          ) : null}
+          {output?.result ? (
+            <details className="rounded-md border border-line p-2">
+              <summary className="cursor-pointer font-semibold text-ink">{text.detailedSkillOutput}</summary>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.result)}</pre>
+            </details>
+          ) : null}
+          {output?.raw ? (
+            <div className="rounded-md border border-line p-2">
+              <button className="font-semibold text-ink" type="button">{text.detailedSkillOutput}</button>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.raw)}</pre>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -963,6 +976,7 @@ export function SpecPage({
     { key: "requirements", label: text.requirements },
     { key: "design", label: text.design },
     { key: "tasks", label: text.tasks },
+    { key: "spec-state", label: "Spec State" },
     { key: "quality", label: text.qualityChecklist },
     { key: "input-contract", label: text.inputContract },
     { key: "execution-result", label: text.executionResult },
@@ -1182,6 +1196,8 @@ export function SpecPage({
                 <FeatureSpecDocumentSection document={selected.documents.design} text={text} />
               ) : activeSection === "tasks" ? (
                 <FeatureSpecDocumentSection document={selected.documents.tasks} text={text} />
+              ) : activeSection === "spec-state" ? (
+                <FeatureSpecDocumentSection document={selected.documents.specState} text={text} />
               ) : activeSection === "execution-result" ? (
                 <SkillExecutionResult output={selected.skillOutput} text={text} />
               ) : activeSection === "quality" ? (

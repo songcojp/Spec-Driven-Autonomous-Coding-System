@@ -390,7 +390,9 @@ THE SYSTEM SHALL 读取 `feature-pool-queue.json` 中已经规划好的 Feature 
 
 验收：
 - [ ] Project Scheduler 不依赖 Project Memory 中的静态候选队列作为真实调度来源。
+- [ ] Spec/Feature 流程状态以 `docs/features/<feature-id>/spec-state.json` 为机器可读事实源，数据库只保存运行时执行事实。
 - [ ] `schedule_run` 和 `push_feature_spec_pool` 只创建 `<executor>.run` Job 并返回 `scheduleTriggerId`、`schedulerJobId` 和 `executionId`。
+- [ ] `push_feature_spec_pool` 支持 blocked Feature 的显式 resume 和操作者 skip to next；缺失三件套、依赖未完成或未恢复的 blocked Feature 不得进入执行队列。
 - [ ] Job 顶层不得包含 Feature/Task/Project 属性；这些业务上下文只能写入 payload `context`。
 - [ ] Feature 执行统一使用 `operation = "feature_execution"`。
 - [ ] 调度触发来源、触发时间、触发原因、BullMQ job id 和调度结果被记录到 SQLite 审计/调度记录；Project Memory 只保存投影摘要。

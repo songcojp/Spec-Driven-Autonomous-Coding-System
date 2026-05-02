@@ -10,3 +10,4 @@
 - [x] TASK-008: 添加持久化完整性测试，确认核心实体必填字段可完整读取。
 - [x] TASK-009: 添加幂等和崩溃恢复测试，确认重复重放不会产生不可控副作用。
 - [x] TASK-010: 添加敏感信息保护测试，确认 token、password、secret、key 和 connection string 不进入普通日志。
+- [x] TASK-011: 将 Spec / Feature 流程状态文件化，保留 SQLite 作为 Scheduler Job、Execution Record、logs、Evidence 和轻量 Activity 事实源。

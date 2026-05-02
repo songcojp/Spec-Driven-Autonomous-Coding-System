@@ -35,6 +35,7 @@
 - 歧义输入必须生成带状态和来源上下文的 Clarification Log。
 - Requirement Checklist 必须覆盖完整性、清晰度、一致性、可测量性、场景覆盖、边界条件、非功能属性、依赖、假设、歧义和冲突。
 - Spec 变更必须按 MAJOR、MINOR 或 PATCH 规则生成版本记录。
+- Spec / Feature 流程状态必须以 `docs/features/<feature-id>/spec-state.json` 作为机器可读事实源；Markdown 继续作为人类阅读和评审入口。
 
 ## Acceptance Criteria
 
@@ -44,6 +45,7 @@
 - [ ] Coding Agent 默认只能读取当前任务相关的 Spec 切片。
 - [ ] 未通过 checklist 的 Feature 不得自动进入 `ready`。
 - [ ] Spec 版本记录能说明版本号、变更类型和变更原因。
+- [ ] `spec-state.json` 能记录 status、dependencies、blocked reasons、current job、last result、next action 和 history，并拒绝 workspace 外路径。
 
 ## Risks and Open Questions
 

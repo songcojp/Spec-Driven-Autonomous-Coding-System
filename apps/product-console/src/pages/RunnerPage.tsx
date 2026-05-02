@@ -253,6 +253,7 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
           rows={[
             [text.status, output.status ?? text.none],
             [text.summary, output.summary ?? output.error ?? text.stdoutLogNotFound],
+            ["Next action", output.nextAction ?? text.none],
             [text.tokenUsage, output.tokenUsage ? formatSpecValue(output.tokenUsage) : text.none],
             ["Cost", output.tokenConsumption ? `$${output.tokenConsumption.costUsd.toFixed(6)} ${output.tokenConsumption.pricingStatus}` : text.none],
             [text.stdoutLogPath, output.stdoutLogPath ?? text.none],
@@ -292,6 +293,12 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
           <details className="rounded-md border border-line p-2">
             <summary className="cursor-pointer font-semibold text-ink">{text.result}</summary>
             <pre className="mt-2 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.result)}</pre>
+          </details>
+        ) : null}
+        {output.raw ? (
+          <details className="rounded-md border border-line p-2">
+            <summary className="cursor-pointer font-semibold text-ink">{text.rawJson}</summary>
+            <pre className="mt-2 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.raw)}</pre>
           </details>
         ) : null}
       </div>

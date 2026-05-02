@@ -27,7 +27,14 @@ import {
   type RunnerQueueStatus,
   type SkillArtifactContract,
   type SkillInvocationContract,
+  type SkillOutputContract,
 } from "./codex-runner.ts";
+import {
+  mergeFileSpecState,
+  readFileSpecState,
+  skillOutputToSpecStatePatch,
+  writeFileSpecState,
+} from "./spec-protocol.ts";
 
 export const CLI_RUNNER_QUEUE = "specdrive:cli-runner";
 export const BULLMQ_CLI_RUNNER_QUEUE = "specdrive-cli-runner";
@@ -288,6 +295,16 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
       ],
     },
   ]);
+  updateFeatureSpecFileState({
+    workspaceRoot: loaded.workspaceRoot,
+    featureId: loaded.featureId ?? featureId,
+    context,
+    status: "running",
+    summary: "Runner started feature execution.",
+    source: "cli.run",
+    schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+    executionId: payload.executionId,
+  });
 
   const result = await processRunnerQueueItem({
     runId: payload.executionId,
@@ -354,7 +371,75 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
       params: [result.status, new Date().toISOString(), result.evidence, JSON.stringify(finalMetadata), payload.executionId],
     },
   ]);
+  updateFeatureSpecFileState({
+    workspaceRoot: loaded.workspaceRoot,
+    featureId: loaded.featureId ?? featureId,
+    context,
+    status: result.status,
+    summary: result.evidence,
+    source: "cli.run",
+    schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+    executionId: payload.executionId,
+    skillOutput: result.adapterResult?.evidence.skillOutput,
+  });
   return { executionId: payload.executionId, status: result.status };
+}
+
+function updateFeatureSpecFileState(input: {
+  workspaceRoot?: string;
+  featureId?: string;
+  context: ExecutorJobContext;
+  status: RunnerQueueStatus;
+  summary: string;
+  source: string;
+  schedulerJobId?: string;
+  executionId: string;
+  skillOutput?: SkillOutputContract;
+}): void {
+  if (!input.workspaceRoot || !input.featureId || input.context.skillSlug !== "codex-coding-skill") return;
+  const featureSpecPath = optionalString(input.context.featureSpecPath);
+  if (!featureSpecPath?.startsWith("docs/features/")) return;
+  const featureFolder = featureSpecPath.slice("docs/features/".length);
+  try {
+    const current = readFileSpecState(input.workspaceRoot, featureFolder, input.featureId);
+    const patch = input.skillOutput
+      ? skillOutputToSpecStatePatch(input.skillOutput)
+      : {
+          status: runnerStatusToFileSpecStatus(input.status),
+          blockedReasons: input.status === "blocked" || input.status === "failed" ? [input.summary] : [],
+          nextAction: input.status === "running"
+            ? "Runner is executing this Feature."
+            : input.status === "completed"
+              ? "Run status checks and prepare review."
+              : "Review execution result and resume or skip.",
+        };
+    writeFileSpecState(input.workspaceRoot, featureFolder, mergeFileSpecState(current, {
+      ...patch,
+      currentJob: {
+        schedulerJobId: input.schedulerJobId,
+        executionId: input.executionId,
+        operation: optionalString(input.context.skillPhase) ?? optionalString(input.context.operation) ?? "feature_execution",
+        startedAt: input.status === "running" ? new Date().toISOString() : current.currentJob?.startedAt,
+        completedAt: input.status !== "running" ? new Date().toISOString() : current.currentJob?.completedAt,
+      },
+    }, {
+      source: input.source,
+      summary: input.summary,
+      schedulerJobId: input.schedulerJobId,
+      executionId: input.executionId,
+    }));
+  } catch {
+    // Spec state is operator-facing context; execution_records remain the runtime fact if this projection fails.
+  }
+}
+
+function runnerStatusToFileSpecStatus(status: RunnerQueueStatus) {
+  if (status === "completed") return "completed";
+  if (status === "review_needed") return "review_needed";
+  if (status === "blocked") return "blocked";
+  if (status === "failed") return "failed";
+  if (status === "running") return "running";
+  return "queued";
 }
 
 export function createQueuedJobRecord(dbPath: string, input: {
@@ -673,6 +758,7 @@ function buildCliSkillInvocation(input: {
     sourcePaths,
     imagePaths: contextImagePaths,
     expectedArtifacts,
+    specState: parseJsonObject(context.specState),
     traceability: {
       featureId: input.featureId,
       taskId: input.taskId,

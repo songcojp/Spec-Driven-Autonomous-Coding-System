@@ -9,6 +9,8 @@
 
 2026-05-01 调度队列重构：调度中心管理执行 Job，不再把 Feature 作为 Job 顶层属性。`feature-pool-queue.json` 是 Feature 队列规划来源；`push_feature_spec_pool` 读取该文件后直接创建 `<executor>.run` Job。当前 executor 为 `cli.run`，后续可扩展 `native.run`；payload 使用 `operation` 区分 `feature_execution`、EARS、HLD、UI Spec、Feature split 等操作。`feature.select`、`feature.plan` 和 `feature_planning` 阶段已废弃。真实执行实例统一称为 Execution Record / 执行记录，替代旧 Run 领域词。
 
+2026-05-02 Spec 状态文件化更新：Spec / Feature 流程状态不再以数据库为主事实源。人类可读状态保留在 `requirements.md`、`design.md`、`tasks.md` 和 Feature Index 中；机器可读状态写入 `docs/features/feature-pool-queue.json` 与 `docs/features/<feature-id>/spec-state.json`。SQLite 继续保存运行时事实，包括 Scheduler Job、Execution Record、heartbeat、raw logs、adapter config、command receipt 和 Evidence。审计中心降级为轻量活动记录，操作者主视图以 Runner / Scheduler 队列、Execution Record、Skill 输出和 Evidence 为准。
+
 ---
 
 ## 1. 产品定义

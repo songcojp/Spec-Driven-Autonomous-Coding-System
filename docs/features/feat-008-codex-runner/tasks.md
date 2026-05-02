@@ -18,3 +18,4 @@
 - [x] TASK-015: 实现 CLI skill invocation prompt builder，支持 Stage 2 需求录入、Stage 3 planning pipeline 和 Feature 级 `codex-coding-skill` 运行的 `skillSlug`、Feature Spec `sourcePaths`、`expectedArtifacts` 与 traceability。
 - [x] TASK-017: 将 Feature 级 `codex-coding-skill` 执行边界改为读取完整 Feature Spec 目录（`requirements.md` / `design.md` / `tasks.md`），不再依赖 `task_graph_tasks` / `tasks`，并阻止 evidence-only completion。
 - [x] TASK-016: 添加 workspace root、skill invocation contract、blocked path cases、mock Codex cwd 和 Evidence metadata 测试。
+- [x] TASK-017: 在 `SkillInvocationContractV1` 中携带当前 `specState`，并将有效 `SkillOutputContractV1` 投影回 Feature `spec-state.json`。

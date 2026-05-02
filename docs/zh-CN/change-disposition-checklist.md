@@ -40,6 +40,7 @@
 | CHG-016 | Workspace-aware Codex Skill Bridge | 用户指令：“完善 CLI 调用实现”“Spec/UI 操作转换成 skill 调用完整流程”“Codex 支持 workspace，需要传入项目路径” | 已写入 PRD、requirements、HLD / Feature Spec design、FEAT-004、FEAT-008、FEAT-013 | 作为 FEAT-004 / FEAT-008 / FEAT-013 联合 patch：Console/Spec 操作转换为 CLI skill invocation contract，经 CLI Adapter 在当前项目 workspace 中调用 Codex；平台不恢复 Skill Registry 或 Skill Center。 |
 | CHG-017 | CLI Adapter 逐步阻断与系统设置禁用按鈕补充 | 实现发现：ADD-006 任务执行期间发现 Runner Worker 在 `cli_adapter_configs` 表有记录但无 active 行时未阶断新 Run，且 SettingsPage 缺少 `disable_cli_adapter_config` 受控命令按鈕 | FEAT-008 全部 16 项任务已完成（TASK-001 至 TASK-016）；FEAT-013 TASK-029–032 已完成，TASK-026–028、033 待执行 | 已将 FEAT-008 标记为 done；已更新 Feature Index ADD-006 follow-up；巻 FEAT-013 TASK-029–032 认知为已完成。 |
 | CHG-018 | 任务执行队列重构为 Job 与 Execution Record | 用户指令：Job 与 Feature 解耦、`runs` 改名为 `execution_records`、取消 `feature.select` / `feature.plan` / `feature_planning`，并要求文档同步 | 已写入 PRD、requirements、HLD、历史 design、FEAT-004、FEAT-008、FEAT-013、FEAT-014 和 Feature Index | 作为 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 联合重构：`push_feature_spec_pool` 读取 `feature-pool-queue.json` 后直接入队 `<executor>.run`；Product Console 调度中心展示 Job 列表和执行详情。 |
+| CHG-020 | Spec 状态文件化与审计简化 | 用户反馈：调度状态不友好、审计复杂但低频、Spec 文档查看编辑不方便 | 已写入 research、PRD、requirements、HLD、skills、FEAT-002、FEAT-004、FEAT-008、FEAT-013、FEAT-014 和 Feature Index | 作为跨 Feature patch：`spec-state.json` 成为 Spec/Feature 流程状态事实源；Scheduler 支持 blocked/resume/skip/next；Runner 将 Skill 输出投影回状态文件；Audit 降级为轻量活动记录。 |
 
 ## 人工处置顺序建议
 

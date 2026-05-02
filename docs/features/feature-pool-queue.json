@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-05-02T00:00:00.000Z",
+  "features": [
+    {
+      "id": "FEAT-002",
+      "priority": "P1",
+      "dependencies": []
+    },
+    {
+      "id": "FEAT-004",
+      "priority": "P1",
+      "dependencies": [
+        "FEAT-002"
+      ]
+    },
+    {
+      "id": "FEAT-008",
+      "priority": "P1",
+      "dependencies": [
+        "FEAT-004"
+      ]
+    },
+    {
+      "id": "FEAT-013",
+      "priority": "P1",
+      "dependencies": [
+        "FEAT-004",
+        "FEAT-008"
+      ]
+    },
+    {
+      "id": "FEAT-014",
+      "priority": "P2",
+      "dependencies": [
+        "FEAT-002",
+        "FEAT-004"
+      ]
+    }
+  ]
+}

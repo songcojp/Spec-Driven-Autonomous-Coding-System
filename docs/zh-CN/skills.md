@@ -25,6 +25,12 @@
 | 实现与验证 | `codex-coding-skill`, `test-execution-skill`, `failure-recovery-skill` | 在受控范围内实现、运行测试、处理失败恢复。 |
 | 评审与交付 | `review-report-skill`, `pr-generation-skill`, `workflow-hook-skill` | 生成评审结论、提交/PR、生命周期副作用和审计证据。 |
 
+## Spec => Skill Contract
+
+所有由 Spec Workspace、Feature Pool 或 Runner 调起的项目级 Skill 均使用 `SkillInvocationContractV1` 作为输入。输入必须包含 `workspaceRoot`、`featureId` 或项目上下文、`sourcePaths`、`expectedArtifacts`、当前 `specState`、traceability、constraints 和 requested action。Skill 不应从数据库推断 Spec 状态。
+
+Skill 输出必须使用 `SkillOutputContractV1`，包含 `status`、`summary`、`nextAction`、`producedArtifacts`、`evidence`、traceability 和 result。Runner 校验输出后将状态投影回 `docs/features/<feature-id>/spec-state.json`，同时把执行事实保存在 Execution Record、raw logs 和 Evidence 中。
+
 ## Skill 清单
 
 ### 需求与规格类

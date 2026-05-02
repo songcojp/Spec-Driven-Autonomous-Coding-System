@@ -212,7 +212,7 @@ export const zhCN = {
   sourceRequirements: "来源需求",
   acceptanceCriteria: "验收条件",
   allowedFiles: "允许文件",
-  factSourcesRunner: "事实源：task_graph_tasks、runs、runner_heartbeats、review_items、audit_timeline_events",
+  factSourcesRunner: "事实源：scheduler_job_records、execution_records、runner_heartbeats、raw_execution_logs、evidence_packs",
   noRunner: "尚未记录 Runner 心跳。",
   systemSettings: "系统设置",
   systemSettingsSubtitle: "管理影响所有项目的运行时配置。",

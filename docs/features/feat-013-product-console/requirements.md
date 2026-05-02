@@ -40,6 +40,7 @@ Spec Evolution:
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
 - Runner Console 的队列状态必须来自 `scheduler_job_records` 与 Runner heartbeat/session/log，而不是静态 recent logs。
+- Runner / Scheduler 页面必须以操作者视角展示当前队列动作、执行结果、blocked reason、Skill 输出、next action 和 Evidence；审计时间线不得作为理解队列状态的主入口。
 - Runner Console 必须展示 `cli.run` 与后续 `native.run` 的执行队列，不展示固定 Feature 列或旧流水线卡片。
 - Runner Console 主列表必须展示 Job：执行名称、执行类型、operation、status、execution id、attempts、updatedAt、workspace。
 - Runner Console 的任务队列必须支持按状态和关键词筛选，关键词至少覆盖 job id、job type、operation、execution id、workspace、skill/native 信息、状态和阻塞原因。
@@ -88,6 +89,7 @@ Spec Evolution:
 - 受控命令必须记录 action、entity、requestedBy、reason、payload、accepted/blocked 状态和 audit event；查询接口不得隐藏写入副作用或直接修改 Git、worktree、artifact、数据库状态或 CLI 执行状态。
 - Spec Workspace 和 Task Board 的执行类动作必须展示转换后的 CLI skill invocation 状态；项目 workspace 缺失、不可读或缺少所需 Skill 文件时，用户必须看到 blocked reason。
 - Feature 级 `schedule_run` 必须在完整 Feature Spec 目录存在时可直接创建 `feature_execution` Execution Record；目录缺失 `requirements.md`、`design.md` 或 `tasks.md` 时必须展示 blocked reason。
+- Spec Workspace 必须展示 Feature Spec Markdown 文档和 `spec-state.json`，并通过受控 `update_spec` 命令限制写入当前项目 workspace 的 Spec 路径。
 - 用户可以切换界面语言并保留选择；Evidence、diff、日志、文件路径、命令输出和用户输入内容保持原文，不被界面翻译层改写。
 
 ## Acceptance Criteria

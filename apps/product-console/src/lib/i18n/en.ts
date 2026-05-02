@@ -212,7 +212,7 @@ export const en = {
   sourceRequirements: "Source Requirements",
   acceptanceCriteria: "Acceptance Criteria",
   allowedFiles: "Allowed Files",
-  factSourcesRunner: "Fact sources: task_graph_tasks, runs, runner_heartbeats, review_items, audit_timeline_events",
+  factSourcesRunner: "Fact sources: scheduler_job_records, execution_records, runner_heartbeats, raw_execution_logs, evidence_packs",
   noRunner: "No runner heartbeats have been recorded.",
   systemSettings: "System Settings",
   systemSettingsSubtitle: "Manage runtime configuration that applies across projects.",

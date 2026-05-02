@@ -23,6 +23,8 @@
 
 FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、Evidence 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃；Feature 级编码执行由 `codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md`，不再依赖平台 `task_graph_tasks` / `tasks` 表。
 
+2026-05-02 update：Spec / Feature 流程状态已文件化。`docs/features/feature-pool-queue.json` 是 Scheduler 读取的全局队列，`docs/features/<feature-folder>/spec-state.json` 是单 Feature 的机器可读状态。Product Console 的 Runner / Scheduler 页面以 Job、Execution Record、Skill 输出、next action 和 Evidence 解释队列；Audit 仅保留轻量活动记录，不再作为主排障入口。
+
 ## Dependency Tree
 
 依赖树以主解锁路径为主线，每个 Feature 只出现一次；存在多上游依赖的 Feature 在节点后标出额外前置项。

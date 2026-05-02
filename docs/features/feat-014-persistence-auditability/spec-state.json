@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "featureId": "FEAT-014",
+  "status": "ready",
+  "updatedAt": "2026-05-02T00:00:00.000Z",
+  "blockedReasons": [],
+  "dependencies": [
+    "FEAT-002",
+    "FEAT-004"
+  ],
+  "nextAction": "Keep runtime facts in SQLite while keeping Spec flow state in workspace files.",
+  "history": [
+    {
+      "at": "2026-05-02T00:00:00.000Z",
+      "status": "ready",
+      "summary": "Persistence state initialized for lightweight activity records and file-backed Spec state.",
+      "source": "docs-sync"
+    }
+  ]
+}

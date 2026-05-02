@@ -3,6 +3,17 @@ import { join, resolve, sep } from "node:path";
 
 export type InputSourceType = "natural-language" | "PR" | "RP" | "PRD" | "EARS" | "mixed";
 export type FeatureStatus = "draft" | "review_needed" | "ready";
+export type FileSpecLifecycleStatus =
+  | "draft"
+  | "ready"
+  | "queued"
+  | "running"
+  | "blocked"
+  | "review_needed"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "delivered";
 export type ClarificationStatus = "open" | "answered" | "closed";
 export type ChecklistStatus = "passed" | "failed";
 export type SpecVersionBump = "MAJOR" | "MINOR" | "PATCH";
@@ -125,6 +136,43 @@ export type FeatureSpec = {
   checklist: RequirementChecklist;
   versions: SpecVersion[];
   status: FeatureStatus;
+};
+
+export type FileSpecState = {
+  schemaVersion: 1;
+  featureId: string;
+  status: FileSpecLifecycleStatus;
+  updatedAt: string;
+  currentJob?: {
+    schedulerJobId?: string;
+    executionId?: string;
+    operation?: string;
+    queuedAt?: string;
+    startedAt?: string;
+    completedAt?: string;
+  };
+  blockedReasons: string[];
+  dependencies: string[];
+  lastResult?: {
+    status: FileSpecLifecycleStatus;
+    summary: string;
+    evidence: Array<{ kind: string; summary: string; path?: string; command?: string; status?: string }>;
+    producedArtifacts: Array<{ path: string; kind: string; status: string; summary?: string }>;
+    completedAt: string;
+  };
+  nextAction?: string;
+  history: Array<{
+    at: string;
+    status: FileSpecLifecycleStatus;
+    summary: string;
+    source: string;
+    schedulerJobId?: string;
+    executionId?: string;
+  }>;
+};
+
+export type FileSpecStatePatch = Partial<Omit<FileSpecState, "schemaVersion" | "featureId" | "history">> & {
+  history?: FileSpecState["history"];
 };
 
 export type SpecSlice = {
@@ -617,6 +665,101 @@ export function projectSpecArtifact(spec: FeatureSpec, artifactRoot: string): st
   return path;
 }
 
+export function specStateRelativePath(featureFolder: string): string {
+  const safeFolder = sanitizeFeatureFolder(featureFolder);
+  return `docs/features/${safeFolder}/spec-state.json`;
+}
+
+export function readFileSpecState(
+  workspaceRoot: string,
+  featureFolder: string,
+  featureId: string,
+  now: Date = new Date(),
+): FileSpecState {
+  const relativePath = specStateRelativePath(featureFolder);
+  const fullPath = safeWorkspacePath(workspaceRoot, relativePath);
+  if (!existsSync(fullPath)) {
+    return createDefaultFileSpecState(featureId, now);
+  }
+
+  try {
+    const parsed = JSON.parse(readFileSync(fullPath, "utf8")) as Partial<FileSpecState>;
+    return normalizeFileSpecState(parsed, featureId, now);
+  } catch {
+    return {
+      ...createDefaultFileSpecState(featureId, now),
+      status: "blocked",
+      blockedReasons: [`Spec state file is invalid JSON: ${relativePath}`],
+      nextAction: "Fix spec-state.json before scheduling this Feature.",
+    };
+  }
+}
+
+export function writeFileSpecState(workspaceRoot: string, featureFolder: string, state: FileSpecState): string {
+  const relativePath = specStateRelativePath(featureFolder);
+  const fullPath = safeWorkspacePath(workspaceRoot, relativePath);
+  mkdirSync(resolve(fullPath, ".."), { recursive: true });
+  writeFileSync(fullPath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  return relativePath;
+}
+
+export function mergeFileSpecState(
+  current: FileSpecState,
+  patch: FileSpecStatePatch,
+  input: { now?: Date; source: string; summary?: string; schedulerJobId?: string; executionId?: string },
+): FileSpecState {
+  const updatedAt = (input.now ?? new Date()).toISOString();
+  const status = patch.status ?? current.status;
+  return {
+    ...current,
+    ...patch,
+    schemaVersion: 1,
+    featureId: current.featureId,
+    status,
+    updatedAt,
+    blockedReasons: patch.blockedReasons ?? current.blockedReasons,
+    dependencies: patch.dependencies ?? current.dependencies,
+    history: [
+      ...current.history,
+      {
+        at: updatedAt,
+        status,
+        summary: input.summary ?? patch.lastResult?.summary ?? status,
+        source: input.source,
+        schedulerJobId: input.schedulerJobId,
+        executionId: input.executionId,
+      },
+      ...(patch.history ?? []),
+    ].slice(-50),
+  };
+}
+
+export function skillOutputToSpecStatePatch(output: {
+  status: "completed" | "review_needed" | "blocked" | "failed";
+  summary: string;
+  nextAction?: string;
+  producedArtifacts: Array<{ path: string; kind: string; status: string; summary?: string }>;
+  evidence: Array<{ kind: string; summary: string; path?: string; command?: string; status?: string }>;
+}): FileSpecStatePatch {
+  const status: FileSpecLifecycleStatus = output.status === "completed" ? "completed" : output.status;
+  return {
+    status,
+    blockedReasons: output.status === "blocked" || output.status === "failed" ? [output.summary] : [],
+    nextAction: output.nextAction ?? (output.status === "completed"
+      ? "Run status checks and prepare review."
+      : output.status === "review_needed"
+        ? "Review Skill output and resolve the open decision."
+        : "Resolve blocked reason and resume this Feature."),
+    lastResult: {
+      status,
+      summary: output.summary,
+      producedArtifacts: output.producedArtifacts,
+      evidence: output.evidence,
+      completedAt: new Date().toISOString(),
+    },
+  };
+}
+
 function safeSpecArtifactPath(specsDir: string, specId: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(specId)) {
     throw new Error(`Invalid spec artifact id: ${specId}`);
@@ -628,6 +771,78 @@ function safeSpecArtifactPath(specsDir: string, specId: string): string {
     return path;
   }
   throw new Error(`Spec artifact path escapes specs directory: ${specId}`);
+}
+
+function createDefaultFileSpecState(featureId: string, now: Date): FileSpecState {
+  const updatedAt = now.toISOString();
+  return {
+    schemaVersion: 1,
+    featureId,
+    status: "ready",
+    updatedAt,
+    blockedReasons: [],
+    dependencies: [],
+    nextAction: "Ready for scheduler selection.",
+    history: [{ at: updatedAt, status: "ready", summary: "Spec state initialized from Feature Spec files.", source: "spec-protocol" }],
+  };
+}
+
+function normalizeFileSpecState(parsed: Partial<FileSpecState>, featureId: string, now: Date): FileSpecState {
+  const fallback = createDefaultFileSpecState(featureId, now);
+  return {
+    schemaVersion: 1,
+    featureId: typeof parsed.featureId === "string" && parsed.featureId ? parsed.featureId : featureId,
+    status: isFileSpecLifecycleStatus(parsed.status) ? parsed.status : fallback.status,
+    updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : fallback.updatedAt,
+    currentJob: parsed.currentJob && typeof parsed.currentJob === "object" ? parsed.currentJob : undefined,
+    blockedReasons: Array.isArray(parsed.blockedReasons) ? parsed.blockedReasons.filter((item): item is string => typeof item === "string") : [],
+    dependencies: Array.isArray(parsed.dependencies) ? parsed.dependencies.filter((item): item is string => typeof item === "string") : [],
+    lastResult: parsed.lastResult && typeof parsed.lastResult === "object" ? parsed.lastResult : undefined,
+    nextAction: typeof parsed.nextAction === "string" ? parsed.nextAction : fallback.nextAction,
+    history: Array.isArray(parsed.history) ? parsed.history.filter(isFileSpecStateHistoryEntry).slice(-50) : fallback.history,
+  };
+}
+
+function isFileSpecLifecycleStatus(value: unknown): value is FileSpecLifecycleStatus {
+  return typeof value === "string" && [
+    "draft",
+    "ready",
+    "queued",
+    "running",
+    "blocked",
+    "review_needed",
+    "completed",
+    "failed",
+    "skipped",
+    "delivered",
+  ].includes(value);
+}
+
+function isFileSpecStateHistoryEntry(value: unknown): value is FileSpecState["history"][number] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.at === "string"
+    && isFileSpecLifecycleStatus(record.status)
+    && typeof record.summary === "string"
+    && typeof record.source === "string";
+}
+
+function sanitizeFeatureFolder(featureFolder: string): string {
+  const normalized = featureFolder.replaceAll("\\", "/").split("/").filter(Boolean).join("/");
+  if (!normalized || normalized.startsWith("../") || normalized.includes("/../") || normalized.startsWith("/")) {
+    throw new Error(`Feature folder must stay inside docs/features: ${featureFolder}`);
+  }
+  return normalized;
+}
+
+function safeWorkspacePath(workspaceRoot: string, relativePath: string): string {
+  if (!workspaceRoot) throw new Error("workspaceRoot is required.");
+  const root = resolve(workspaceRoot);
+  const fullPath = resolve(root, relativePath);
+  if (fullPath === root || fullPath.startsWith(`${root}${sep}`)) {
+    return fullPath;
+  }
+  throw new Error(`Path must stay inside workspace: ${relativePath}`);
 }
 
 function parseSources(rawInput: string, defaultType: InputSourceType): SourceContext[] {

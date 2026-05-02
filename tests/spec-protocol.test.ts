@@ -10,8 +10,12 @@ import {
   createSpecSlice,
   createSpecVersion,
   projectSpecArtifact,
+  mergeFileSpecState,
+  readFileSpecState,
   recordSpecVersion,
   scanSpecSources,
+  specStateRelativePath,
+  writeFileSpecState,
 } from "../src/spec-protocol.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
@@ -227,6 +231,32 @@ RP: When review starts, the system shall return spec JSON for inspection.
   assert.equal(projected.acceptanceCriteria.length, spec.acceptanceCriteria.length);
   assert.equal(projected.testScenarios.length, spec.testScenarios.length);
   assert.equal(projected.sources.length, spec.sources.length);
+});
+
+test("file spec state reads, merges, writes, and blocks path escapes", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-state-"));
+  mkdirSync(join(root, "docs", "features", "feat-001-demo"), { recursive: true });
+  const initial = readFileSpecState(root, "feat-001-demo", "FEAT-001", stableDate);
+  const merged = mergeFileSpecState(initial, {
+    status: "blocked",
+    blockedReasons: ["Missing tasks.md"],
+    nextAction: "Complete tasks.md, then resume.",
+  }, {
+    now: stableDate,
+    source: "test",
+    summary: "Blocked by incomplete Feature Spec.",
+    executionId: "RUN-1",
+  });
+  const relativePath = writeFileSpecState(root, "feat-001-demo", merged);
+  const reread = readFileSpecState(root, "feat-001-demo", "FEAT-001", stableDate);
+
+  assert.equal(relativePath, "docs/features/feat-001-demo/spec-state.json");
+  assert.equal(specStateRelativePath("feat-001-demo"), relativePath);
+  assert.equal(existsSync(join(root, relativePath)), true);
+  assert.equal(reread.status, "blocked");
+  assert.deepEqual(reread.blockedReasons, ["Missing tasks.md"]);
+  assert.equal(reread.history.at(-1)?.executionId, "RUN-1");
+  assert.throws(() => specStateRelativePath("../outside"), /inside docs\/features/);
 });
 
 test("rejects unsafe spec artifact ids before projection", () => {

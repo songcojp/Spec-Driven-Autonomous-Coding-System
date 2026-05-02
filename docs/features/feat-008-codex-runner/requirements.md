@@ -43,7 +43,9 @@
 - `feature_execution` 的 `SkillInvocationContractV1` 必须包含 Feature Spec `requirements.md`、`design.md` 和 `tasks.md` 作为 `sourcePaths`；缺失完整 Feature Spec 目录时，新执行必须 blocked。
 - Feature 级 `codex-coding-skill` 不得只生成 evidence JSON 或总结计划来满足执行；输出 contract 的 `producedArtifacts` 必须列出实际创建或更新的代码、测试、配置或文档文件。
 - CLI skill invocation contract 必须使用 `SkillInvocationContractV1`，包含 `contractVersion`、`executionId`、`projectId`、`workspaceRoot`、`operation`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability`、`constraints` 和 `requestedAction`。
-- CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`producedArtifacts`、`evidence` 和 `traceability`，并允许技能在 `result` 中写入扩展结果。
+- CLI skill invocation contract 必须携带当前 `specState`，供 Skill 明确读取 Feature 文件状态而不是查询数据库。
+- CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts`、`evidence` 和 `traceability`，并允许技能在 `result` 中写入扩展结果。
+- Runner 校验有效输出后必须把状态、结果摘要、Evidence、产物和下一步动作投影回 `docs/features/<feature-id>/spec-state.json`。
 - Runner 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配或必需 artifact 缺失时，Execution Record 必须进入 `review_needed` 并保留原因。
 - Runner 必须以 `execution_records` 作为执行状态主表；不得为 `cli.run` 创建或更新旧 `runs` 记录。
 - CLI Adapter 配置必须以 JSON 为唯一事实源，并支持 dry-run 校验。
