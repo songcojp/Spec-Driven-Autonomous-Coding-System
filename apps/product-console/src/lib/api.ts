@@ -27,6 +27,19 @@ export async function fetchConsoleData(projectId: string): Promise<Omit<ConsoleD
   return Object.fromEntries(entries) as ConsoleData;
 }
 
+export async function fetchSpecWorkspace(projectId: string, featureId?: string): Promise<ConsoleData["spec"]> {
+  const params = new URLSearchParams({ projectId });
+  if (featureId) {
+    params.set("featureId", featureId);
+  }
+  const path = `/console/spec-workspace?${params.toString()}`;
+  const response = await fetch(path, { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    throw new Error(`${path} returned ${response.status}`);
+  }
+  return await response.json() as ConsoleData["spec"];
+}
+
 export async function fetchProjectOverview(): Promise<ProjectOverviewModel> {
   const response = await fetch("/console/project-overview", { headers: { accept: "application/json" } });
   if (!response.ok) {

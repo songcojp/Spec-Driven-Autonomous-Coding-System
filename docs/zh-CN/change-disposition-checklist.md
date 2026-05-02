@@ -81,6 +81,7 @@
 | CHG-015 | 进入 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 patch；调度需求由 BullMQ + Redis 承载，SQLite 继续作为业务事实和审计源。 | 已同步 PRD、requirements、HLD / Feature Spec design、Feature Index、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks、FEAT-013 requirements/tasks 和 FEAT-014 requirements/design；实现和测试已覆盖。 | 已同步实现 |
 | CHG-016 | 进入 FEAT-004 / FEAT-008 / FEAT-013 patch；Spec Workspace、Stage 3 planning 和 Task Board 运行动作必须转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中启动 Codex。 | 已同步 PRD、REQ-037、REQ-065、新增 REQ-068、HLD / Feature Spec design、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks 和 FEAT-013 requirements/design/tasks；实现已覆盖 workspace root 校验、planning CLI run、Skill invocation prompt、UI 回执、单测和浏览器级验证。 | 已同步实现 |
 | CHG-017 | 在 `src/scheduler.ts` `loadRunnerTaskContext` 补充 adapter 数龐查询：若表有记录但无 active row，抛出阶断错误；若表为空，回退到 DEFAULT_CLI_ADAPTER_CONFIG。在 SettingsPage 添加禁用按鈕，调用 `disable_cli_adapter_config` 受控命令。新增 CLI Adapter 校验、normalize 和阶断单测。 | 已同步 FEAT-008 tasks.md（TASK-009–012 全部 ☑）、FEAT-013 tasks.md（TASK-029–032 ☑）、Feature Index（FEAT-008 done，ADD-006 follow-up 更新）；全部 298 项测试通过。 | 已同步实现 |
+| CHG-019 | Feature 编码执行改为 Feature Spec 目录驱动；`task_graph_tasks` / `tasks` 不再是编码执行前置条件。 | 已同步 HLD、Feature Index、FEAT-004 requirements/tasks、FEAT-008 requirements/design/tasks、FEAT-013 requirements/design/tasks 和 Skill 说明；实现已覆盖完整 Feature Spec 目录入队、缺失三件套 blocked、prompt 禁止 evidence-only completion。 | 已同步实现 |
 
 ## Feature Spec Execute 评估
 
@@ -90,6 +91,7 @@
 | P1 | FEAT-004 Orchestration and State Machine | CHG-003 | 执行后续 `codex-coding-skill` patch | ADD-002 已完成；计划流水线强制阶段仍需后续处理。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 Scheduler Integration | CHG-015 | 已执行 patch | BullMQ + Redis 调度、scheduler job record、Execution Record、`cli.run` Worker 和 Console 队列状态已实现；`feature.select` / `feature.plan` 已由 CHG-018 废弃。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 Workspace-aware Codex Skill Bridge | CHG-016 | 已执行 patch | Console command → scheduler job → run → active CLI Adapter → Codex workspace → skill prompt → Evidence/status 已接通，并已完成单测与浏览器验证。 |
+| P1 | FEAT-004 / FEAT-008 / FEAT-013 Feature Spec Directory Execution | CHG-019 | 已执行 patch | Feature 级 `schedule_run` 直接使用完整 Feature Spec 目录入队 `feature_execution`；缺失 `requirements.md` / `design.md` / `tasks.md` 时 blocked；编码 prompt 明确禁止 evidence-only completion。 |
 | P1 | FEAT-008 Codex Runner / FEAT-013 System Settings | CHG-017 | 已执行 patch | FEAT-008 全部 16 项任务完成，FEAT-008 标记为 done；FEAT-013 TASK-029–032 完成（System Settings 框架、CLI 配置页、JSON 编辑器、受控命令 disable）；298 项单测全部通过。 |
 | P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `codex-coding-skill` patch | 并行写入和测试资源隔离属于执行安全边界。 |
 | P2 | FEAT-013 Product Console | ADD-003、ADD-005、CHG-005、CHG-009 | 执行 `codex-coding-skill` patch | 必须交付真实浏览器 UI、页面路由、组件系统、项目切换入口和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |

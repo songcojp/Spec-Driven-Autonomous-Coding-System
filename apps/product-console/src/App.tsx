@@ -21,6 +21,7 @@ import {
   fetchConsoleData,
   fetchProjectOverview,
   fetchProjectSummaries,
+  fetchSpecWorkspace,
   submitCommand,
 } from "./lib/api";
 import { i18n, localeStorageKey, type UiStrings, type Locale, type ViewKey } from "./lib/i18n";
@@ -247,6 +248,32 @@ export function App() {
           acceptedAt: new Date().toISOString(),
           blockedReasons: [nextError instanceof Error ? nextError.message : String(nextError)],
         });
+      }
+    });
+  }
+
+  function selectSpecFeature(featureId: string) {
+    if (demoProjectIds.has(currentProject.id)) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const spec = await fetchSpecWorkspace(currentProject.id, featureId);
+        setProjectDataCache((previous) => {
+          const current = previous[currentProject.id];
+          if (!current) {
+            return previous;
+          }
+          return {
+            ...previous,
+            [currentProject.id]: {
+              ...current,
+              spec,
+            },
+          };
+        });
+      } catch {
+        // Keep the list selection responsive when detail refresh fails.
       }
     });
   }
@@ -486,7 +513,14 @@ export function App() {
                 <BoardPage data={currentData} text={text} project={currentProject} selectedTask={selectedTask} onSelectTask={setSelectedTaskId} onCommand={runCommand} busy={isPending} />
               </Tabs.Content>
               <Tabs.Content value="spec">
-                <SpecPage data={currentData} text={text} currentProject={currentProject} onCreateProject={createProject} onCommand={runCommand} />
+                <SpecPage
+                  data={currentData}
+                  text={text}
+                  currentProject={currentProject}
+                  onCreateProject={createProject}
+                  onCommand={runCommand}
+                  onSelectFeature={selectSpecFeature}
+                />
               </Tabs.Content>
               <Tabs.Content value="runner">
                 <RunnerPage data={currentData} text={text} onCommand={runCommand} busy={isPending} onOpenSettings={() => setView("settings")} />

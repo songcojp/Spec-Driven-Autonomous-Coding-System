@@ -350,7 +350,12 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   const scopedSpecWorkspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
   assert.equal(specWorkspace.selectedFeature?.requirements[0].id, "REQ-052");
   assert.equal(scopedSpecWorkspace.features.some((feature) => feature.id === "FEAT-OTHER"), false);
-  assert.equal(specWorkspace.selectedFeature?.qualityChecklist.every((item) => item.passed), true);
+  const checklist = new Map(specWorkspace.selectedFeature?.qualityChecklist.map((item) => [item.item, item.passed]));
+  assert.equal(checklist.get("requirements_present"), true);
+  assert.equal(checklist.get("requirements_md_present"), false);
+  assert.equal(checklist.get("design_md_present"), false);
+  assert.equal(checklist.get("tasks_md_present"), false);
+  assert.equal(checklist.get("status_ready_for_scheduling"), false);
   assert.equal(specWorkspace.selectedFeature?.clarificationRecords.length, 1);
   assert.deepEqual(specWorkspace.selectedFeature?.dataModels, []);
   assert.deepEqual(specWorkspace.selectedFeature?.contracts, []);
@@ -482,6 +487,65 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(audit.summary.pendingApprovals, 1);
 });
 
+test("spec workspace parses selected Feature Spec documents for detail tabs", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "specdrive-feature-docs-"));
+  const featureDir = join(projectPath, "docs", "features", "feat-013-product-console");
+  mkdirSync(featureDir, { recursive: true });
+  writeFileSync(
+    join(featureDir, "requirements.md"),
+    [
+      "# Feature Spec: FEAT-013 Product Console",
+      "",
+      "Spec Evolution:",
+      "- CHG-020: Parse Feature Spec detail tabs from workspace docs.",
+      "",
+      "## Requirements",
+      "- REQ-052 Dashboard shows status.",
+      "",
+      "## Acceptance Criteria",
+      "- Selected Feature Spec tabs display parsed workspace content.",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(
+    join(featureDir, "design.md"),
+    [
+      "# Design: FEAT-013 Product Console",
+      "",
+      "## Design Summary",
+      "Spec Workspace detail tabs read Feature Spec markdown from the current project workspace.",
+      "",
+      "## Controlled Command Boundary",
+      "The query path is read-only and does not mutate the workspace.",
+      "",
+      "## Review and Evidence",
+      "Browser tests assert the parsed tab content.",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n\n- [x] Legacy task file remains a scheduling input.\n", "utf8");
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE repository_connections SET local_path = ? WHERE project_id = 'project-1'",
+      params: [projectPath],
+    },
+  ]);
+
+  const specWorkspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+
+  assert.equal(specWorkspace.selectedFeature?.documents.requirements?.exists, true);
+  assert.equal(specWorkspace.selectedFeature?.documents.design?.exists, true);
+  assert.equal(specWorkspace.selectedFeature?.documents.tasks?.exists, true);
+  assert.match(specWorkspace.selectedFeature?.documents.design?.sections.find((section) => section.heading === "Design Summary")?.body ?? "", /Feature Spec markdown/);
+  const checklist = new Map(specWorkspace.selectedFeature?.qualityChecklist.map((item) => [item.item, item.passed]));
+  assert.equal(checklist.get("requirements_md_present"), true);
+  assert.equal(checklist.get("design_md_present"), true);
+  assert.equal(checklist.get("tasks_md_present"), true);
+  assert.equal(checklist.get("status_ready_for_scheduling"), true);
+});
+
 test("runner console view model exposes scheduling lanes and recent triggers", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -542,6 +606,109 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   const otherProject = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"), "project-2");
   assert.equal(otherProject.lanes.ready.some((task) => task.featureId === "FEAT-013"), false);
   assert.equal(otherProject.runners.some((entry) => entry.runnerId === "runner-main"), false);
+});
+
+test("runner and spec workspace visualize skill output from stdout.json and execution usage from cli-output", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "skill-output-"));
+  const runDir = join(projectPath, ".autobuild", "runs", "RUN-SKILL");
+  mkdirSync(runDir, { recursive: true });
+  const skillOutput = {
+    contractVersion: "skill-contract/v1",
+    executionId: "RUN-SKILL",
+    skillSlug: "task-slicing-skill",
+    requestedAction: "split_feature_specs",
+    status: "completed",
+    summary: "Feature specs split and queue plan created.",
+    tokenUsage: { inputTokens: 1200, outputTokens: 320, totalTokens: 1520 },
+    inputContract: { skillSlug: "task-slicing-skill", required: ["featureId", "workspaceRoot"] },
+    outputContract: { contractVersion: "skill-contract/v1", required: ["status"], resultShape: { featureCount: "number" } },
+    producedArtifacts: [{ path: "docs/features/feature-pool-queue.json", kind: "json", status: "created" }],
+    evidence: [{ kind: "spec", summary: "Queue plan is ready.", path: "docs/features/feature-pool-queue.json" }],
+    traceability: { featureId: "FEAT-013", requirementIds: ["REQ-052"], changeIds: [] },
+    result: { featureCount: 3 },
+  };
+  writeFileSync(join(runDir, "stdout.json"), JSON.stringify(skillOutput, null, 2));
+  writeFileSync(join(runDir, "stdout.log"), "this must not be used");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
+        VALUES ('JOB-SKILL', 'BULL-SKILL', 'specdrive:cli-runner', 'cli.run', 'completed', ?, 1, '2026-04-28T12:04:00.000Z')`,
+      params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-SKILL", operation: "split_feature_specs", context: { featureId: "FEAT-013" } })],
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, metadata_json)
+        VALUES ('RUN-SKILL', 'JOB-SKILL', 'cli', 'split_feature_specs', 'project-1', ?, 'completed', '2026-04-28T12:03:00.000Z', '2026-04-28T12:04:00.000Z', ?)`,
+      params: [
+        JSON.stringify({ featureId: "FEAT-013", skillPhase: "split_feature_specs" }),
+        JSON.stringify({ skillSlug: "task-slicing-skill" }),
+      ],
+    },
+  ]);
+
+  const runner = buildRunnerConsoleView(dbPath, stableDate, "project-1");
+  const jobOutput = runner.schedulerJobs.find((job) => job.id === "JOB-SKILL")?.skillOutput;
+  const workspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
+
+  assert.equal(jobOutput?.parseStatus, "found");
+  assert.equal(jobOutput?.summary, "Feature specs split and queue plan created.");
+  assert.deepEqual(jobOutput?.tokenUsage, skillOutput.tokenUsage);
+  assert.deepEqual(jobOutput?.inputContract, skillOutput.inputContract);
+  assert.deepEqual(jobOutput?.outputContract, skillOutput.outputContract);
+  assert.deepEqual(jobOutput?.producedArtifacts, skillOutput.producedArtifacts);
+  assert.equal(runner.skillInvocations.find((entry) => entry.runId === "RUN-SKILL")?.output?.parseStatus, "found");
+  assert.equal(workspace.selectedFeature?.skillOutput?.parseStatus, "found");
+  assert.deepEqual(workspace.selectedFeature?.skillOutput?.result, skillOutput.result);
+
+  const otherProject = buildRunnerConsoleView(dbPath, stableDate, "project-2");
+  assert.equal(otherProject.schedulerJobs.some((job) => job.id === "JOB-SKILL"), false);
+
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
+        VALUES ('JOB-MISSING', 'BULL-MISSING', 'specdrive:cli-runner', 'cli.run', 'completed', ?, 1, '2026-04-28T12:05:00.000Z')`,
+      params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-MISSING", operation: "generate_ui_spec", context: { featureId: "FEAT-013" } })],
+    },
+  ]);
+  const missingRunDir = join(projectPath, ".autobuild", "runs", "RUN-MISSING");
+  mkdirSync(missingRunDir, { recursive: true });
+  writeFileSync(join(missingRunDir, "cli-output.json"), JSON.stringify({
+    status: 0,
+    usage: {
+      input_tokens: 6201837,
+      cached_input_tokens: 6086784,
+      output_tokens: 46721,
+      reasoning_output_tokens: 22274,
+    },
+  }));
+  writeFileSync(join(missingRunDir, "stdout.log"), JSON.stringify({
+    type: "turn.completed",
+    usage: { input_tokens: 1, output_tokens: 1 },
+  }));
+  const missing = buildRunnerConsoleView(dbPath, stableDate, "project-1").schedulerJobs.find((job) => job.id === "JOB-MISSING")?.skillOutput;
+  assert.equal(missing?.parseStatus, "missing");
+  assert.deepEqual(missing?.tokenUsage, {
+    input_tokens: 6201837,
+    cached_input_tokens: 6086784,
+    output_tokens: 46721,
+    reasoning_output_tokens: 22274,
+  });
+
+  const invalidDir = join(projectPath, ".autobuild", "runs", "RUN-INVALID");
+  mkdirSync(invalidDir, { recursive: true });
+  writeFileSync(join(invalidDir, "stdout.json"), "{not-json");
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
+        VALUES ('JOB-INVALID', 'BULL-INVALID', 'specdrive:cli-runner', 'cli.run', 'completed', ?, 1, '2026-04-28T12:06:00.000Z')`,
+      params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-INVALID", operation: "generate_ui_spec", context: { featureId: "FEAT-013" } })],
+    },
+  ]);
+  const invalid = buildRunnerConsoleView(dbPath, stableDate, "project-1").schedulerJobs.find((job) => job.id === "JOB-INVALID")?.skillOutput;
+  assert.equal(invalid?.parseStatus, "invalid");
 });
 
 test("system settings exposes CLI adapter config and governed activation", () => {
@@ -1304,6 +1471,13 @@ test("console schedule command records scheduler triggers without bypassing boun
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "feature-execution-"));
+  const featureDir = join(projectPath, "docs", "features", "feat-013-product-console");
+  mkdirSync(featureDir, { recursive: true });
+  writeFileSync(join(featureDir, "requirements.md"), "# Requirements\n", "utf8");
+  writeFileSync(join(featureDir, "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n", "utf8");
+  runSqlite(dbPath, [{ sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] }]);
   runSqlite(dbPath, [{ sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" }]);
 
   const receipt = submitConsoleCommand(dbPath, {
@@ -1381,7 +1555,7 @@ test("console schedule command records scheduler triggers without bypassing boun
   assert.equal(cliRunPayload.context.featureSpecPath, "docs/features/feat-013-product-console");
   assert.equal(cliRunPayload.context.skillSlug, "codex-coding-skill");
   assert.equal(cliRunPayload.context.skillPhase, "feature_execution");
-  assert.equal(cliRunPayload.context.workspaceRoot, "/workspace/specdrive");
+  assert.equal(cliRunPayload.context.workspaceRoot, projectPath);
   assert.deepEqual(cliRunPayload.context.expectedArtifacts, [".autobuild/evidence/feature-execution.json"]);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/requirements.md"), true);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/design.md"), true);
@@ -1390,6 +1564,36 @@ test("console schedule command records scheduler triggers without bypassing boun
     ["cli.run", "specdrive:cli-runner", "queued", "feature_execution"],
   ]);
   assert.deepEqual(result.queries.decisions, []);
+});
+
+test("console schedule command blocks feature execution when Feature Spec directory is incomplete", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "feature-execution-missing-"));
+  mkdirSync(join(projectPath, "docs", "features", "feat-013-product-console"), { recursive: true });
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Schedule incomplete feature execution.",
+    payload: { projectId: "project-1", mode: "manual" },
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT id FROM scheduler_job_records" },
+  ]);
+
+  assert.equal(receipt.status, "blocked");
+  assert.match(receipt.blockedReasons?.join("\n") ?? "", /missing requirements\.md, design\.md, tasks\.md/);
+  assert.equal(receipt.schedulerJobId, undefined);
+  assert.deepEqual(result.queries.jobs, []);
 });
 
 function makeDbPath(): string {

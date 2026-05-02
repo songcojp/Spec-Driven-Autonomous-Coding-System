@@ -35,8 +35,8 @@ CHG-016 update：Spec Workspace、Task Board 和 Runner Console 必须展示 wor
 | Project Switcher | 展示项目列表、当前项目、项目健康摘要、导入入口和新建表单，并触发项目切换。 |
 | Dashboard View | 聚合项目健康、Feature、任务、活跃外部运行、失败、审批、成本、PR 和风险。 |
 | Project Home View | 作为单个当前项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并承载 Task Board 分区。 |
-| Task Board Section | 展示任务依赖、diff、测试结果、审批状态和失败恢复历史，并发起受控拖拽、批量排期和批量运行命令。 |
-| Spec Workspace View | 展示阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 扫描、Feature Spec、澄清、Checklist、计划、数据模型、契约、任务图和版本 diff。 |
+| Task Board Section | 展示兼容任务状态、diff、测试结果、审批状态和失败恢复历史，并发起受控拖拽、兼容排期和执行入口命令；编码执行事实源是 Feature Spec 目录，不是 Task Board 任务表。 |
+| Spec Workspace View | 展示阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 扫描、Feature Spec、澄清、Checklist、计划、数据模型、契约、Feature Spec `tasks.md` 覆盖情况和版本 diff。 |
 | Runner Console View | 展示 Runner 在线、Codex 版本、安全配置、executor queue、日志、心跳、CLI Adapter 配置健康摘要和系统设置跳转入口。 |
 | Scheduler Job List | 展示 `cli.run` 与后续 `native.run` Job 的执行名称、执行类型、operation、status、execution id、attempts 和 updatedAt。 |
 | Scheduler Job Inspector | 展示选中 job 的 scheduler job id、BullMQ job id、queue、job type、payload context、Execution Record、workspace、CLI Adapter / native handler、heartbeat、blocked reason 和 Evidence 摘要。 |
@@ -69,7 +69,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 1. 用户在浏览器打开 Product Console。
 2. Frontend App Shell 读取持久化语言偏好；没有偏好时默认中文，并加载项目列表、当前项目上下文、导航和默认 Dashboard 页面。
 3. Dashboard Query Service 按当前 `project_id` 聚合状态并通过页面组件展示真实数据、加载态、空态或错误态。
-4. 用户进入具体工作台查看证据、diff、日志、任务图或执行命令。
+4. 用户进入具体工作台查看证据、diff、日志、Feature Spec `tasks.md` 覆盖情况或执行命令。
 5. Spec Workspace 从项目、仓库连接、项目宪章、Project Memory、Feature、Requirement 和审计事件派生 Spec 流程阶段状态；阶段 1 / 阶段 2 / 阶段 3 Feature 执行在工作台头部默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；流程说明栏用标签显示当前 Spec 来源、版本、扫描模式、最后扫描时间和阻塞数量，不再在流程后方展示独立提示信息栏。用户点击标签后展开自动项目初始化事实、阻塞原因、Spec 扫描与上传（同一步骤内两个按钮）、格式识别、已有 HLD / Feature Spec / tasks 盘点、EARS 文档生成、澄清、质量检查、Feature Spec Pool 推入、执行队列和状态检查状态。
 6. Console Command Gateway 将拖拽、批量排期、批量运行、暂停、恢复和 Spec 流程动作连同当前 `project_id` 提交为受控命令；Feature Spec 拆分使用独立 Skill 操作并产出队列规划，推入 Feature Spec Pool 只读取已拆分 Feature Spec 和机器可读规划结果，按规划写入 Pool 并创建 scheduler 队列。
 7. Control Plane 更新状态，Console 显示成功、阻塞或失败反馈并重新查询。
@@ -78,7 +78,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 10. 用户在导入现有项目表单设置目录后，Console 调用只读 `/projects/scan` 扫描 Git、包管理器、SpecDrive 目录和仓库来源，并把扫描结果作为导入项目默认信息。
 11. 用户从 App Shell 打开 System Settings，或从 Runner Console 的配置健康摘要跳转到系统设置中的 CLI 配置页；Console 加载 active/draft JSON 配置、JSON Schema 和 form schema，并在原始 JSON 编辑器与表单之间保持同一份待保存配置状态。
 12. 用户执行 dry-run 或保存配置时，Console 调用 Control Plane 受控命令；校验失败展示字段级错误和命令模板错误，校验通过后允许保存草稿或启用配置。
-13. 用户从 Spec Workspace 或 Task Board 发起执行类操作时，Console 展示 Control Plane 返回的 command receipt，并在后续刷新中显示 scheduler job、execution id、workspace、skill phase、blocked reason 和最近 Evidence；workspace 缺失或 Skill 文件缺失时展示 blocked 反馈而不是静默失败。
+13. 用户从 Spec Workspace 或 Task Board 发起执行类操作时，Console 展示 Control Plane 返回的 command receipt，并在后续刷新中显示 scheduler job、execution id、workspace、skill phase、blocked reason 和最近 Evidence；Feature 级 `schedule_run` 必须以当前项目 workspace 中完整 Feature Spec 目录作为输入，目录缺少 `requirements.md`、`design.md` 或 `tasks.md` 时展示 blocked 反馈而不是依赖平台 task 表兜底。
 14. 用户进入 Runner Console 时，Console 先展示 executor queue 健康，再展示 Job 列表；用户选择 Job 后，右侧 inspector 显示该 Job 关联的 Execution Record、payload context、workspace、CLI Adapter / native handler、Runner heartbeat、阻塞原因、Evidence 和日志，所有调度/运行动作仍通过受控命令提交。
 
 ## Dependencies
@@ -98,7 +98,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 - UI 多项目验收必须覆盖项目创建入口、项目列表、项目切换、刷新后保留当前项目，以及不同项目数据不串读。
 - UI Spec Sources 验收必须覆盖阶段 2 自动扫描状态、PRD / EARS / HLD / Feature Spec / tasks 等来源类型、缺失项、冲突项、扫描与上传合并为一个步骤且显示两个按钮，以及阶段 2 不展示阶段 3 生成/拆分/规划入口。
 - UI CLI Adapter 验收必须覆盖系统设置入口、Runner Console 跳转、active adapter 展示、原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验失败、成功保存草稿、启用配置和无效配置不影响 running Execution Record 的反馈。
-- UI skill invocation 验收必须覆盖 Spec Workspace / Task Board 执行动作的 scheduler job、execution id、workspace、skill phase、blocked reason 和 Evidence 摘要展示。
+- UI skill invocation 验收必须覆盖 Spec Workspace / Task Board 执行动作的 scheduler job、execution id、workspace、skill phase、blocked reason 和 Evidence 摘要展示；Feature 级编码调度必须验证完整 Feature Spec 目录可入队，缺失三件套会 blocked，且不依赖 `task_graph_tasks` / `tasks` 表。
 - UI scheduler refinement 验收必须覆盖 Runner Console 中 `cli.run`、后续 `native.run`、Job 列表、Execution Record 详情、payload context、scheduler job inspector、workspace、blocked reason 或 Evidence 摘要，以及调度/运行 command receipt。
 - API 单元测试、ViewModel 快照或 HTTP JSON 响应只能证明后端契约，不能单独作为 Product Console 完成证据。
 - 浏览器验收命令：`npm run console:test`。构建验收命令：`npm run console:build`。

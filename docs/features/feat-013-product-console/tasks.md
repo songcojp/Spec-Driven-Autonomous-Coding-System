@@ -43,3 +43,4 @@
 - [x] TASK-040: 保存 Audit Center UI 概念图到 `docs/ui/audit-center-concept.png`，并按概念图升级审计中心，展示审计摘要、筛选工具栏、时间线、事件详情、Evidence 和 Approval 关联记录。
 - [x] TASK-041: 优化 Runner / Task Scheduler 任务队列中心，接入真实 ViewModel 的任务描述、需求、验收、允许文件和 Evidence 摘要，支持按队列、状态、风险和关键词筛选，并提供选中任务详情。
 - [x] TASK-042: 将任务调度中心重构为 Job 列表 + Execution Record 详情，移除固定 Feature 列和旧 `feature.select` / `feature.plan` 流水线展示，支持空 Feature task 表但有 Job/Execution Record 时仍显示队列。
+- [x] TASK-043: 将 Feature 级 `schedule_run` 和 Runner 反馈更新为 Feature Spec 目录驱动：完整 `requirements.md` / `design.md` / `tasks.md` 可直接入队 `feature_execution`，缺失三件套展示 blocked reason，编码执行不依赖 `task_graph_tasks` / `tasks` 表。

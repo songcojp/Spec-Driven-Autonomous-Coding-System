@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  ExternalLink,
   FileText,
   GitBranch,
   Layers,
@@ -12,7 +11,6 @@ import {
   Plus,
   RefreshCw,
   Search,
-  ShieldAlert,
   ShieldCheck,
   Upload,
   Workflow,
@@ -20,8 +18,8 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { UiStrings } from "../lib/i18n";
-import { statusTone, humanizeSpecKey, joinDisplayPath, formatSpecValue, normalizeSpecItems } from "../lib/utils";
-import type { BoardTask, CommandReceipt, ConsoleData, ProjectCreateForm, ProjectSummary } from "../types";
+import { statusTone, humanizeSpecKey, joinDisplayPath, formatSpecValue } from "../lib/utils";
+import type { BoardTask, CommandReceipt, ConsoleData, FeatureSpecDocumentModel, ProjectCreateForm, ProjectSummary, SkillOutputModel } from "../types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "../components/ui/primitives";
 import { FactList, StatusDot } from "../components/ui/helpers";
 import { CreateProjectDialog } from "../components/CreateProjectDialog";
@@ -629,13 +627,12 @@ function SpecPrdWorkflowPanel({
 
 function RequirementsSection({
   selected,
-  tasks,
   text,
 }: {
   selected: NonNullable<ConsoleData["spec"]["selectedFeature"]>;
-  tasks: BoardTask[];
   text: UiStrings;
 }) {
+  const requirementsDocument = selected.documents.requirements;
   return (
     <div className="space-y-5">
       <div>
@@ -698,54 +695,9 @@ function RequirementsSection({
               </tbody>
             </table>
           </div>
-        ) : (
-          <EmptyState title={text.noSpecSectionData} />
-        )}
+        ) : null}
       </div>
-      <div>
-        <div className="mb-3 text-[15px] font-semibold">{text.traceability}</div>
-        {selected.requirements.length > 0 && tasks.length > 0 ? (
-          <div className="overflow-auto rounded-md border border-line">
-            <table className="w-full min-w-[520px] border-collapse text-center text-[12px]">
-              <thead className="border-b border-line bg-slate-50 text-[12px] text-muted">
-                <tr>
-                  <th className="px-3 py-3 text-left">
-                    {text.requirements} / {text.task}
-                  </th>
-                  {tasks.slice(0, 6).map((task) => (
-                    <th key={task.id} className="px-3 py-3">
-                      {task.id}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {selected.requirements.map((requirement, rowIndex) => (
-                  <tr key={requirement.id} className="border-b border-line last:border-0">
-                    <td className="px-3 py-3 text-left font-medium">{requirement.id}</td>
-                    {tasks.slice(0, 6).map((task, columnIndex) => {
-                      const linked =
-                        (rowIndex + columnIndex) % 2 === 0 ||
-                        task.title.toLowerCase().includes(requirement.id.toLowerCase());
-                      return (
-                        <td key={task.id} className="px-3 py-3">
-                          {linked ? (
-                            <CheckCircle2 className="mx-auto text-emerald-600" size={16} />
-                          ) : (
-                            <span className="text-muted">--</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyState title={text.noSpecSectionData} />
-        )}
-      </div>
+      <FeatureSpecDocumentSection document={requirementsDocument} text={text} />
     </div>
   );
 }
@@ -757,87 +709,185 @@ function QualitySection({
   selected: NonNullable<ConsoleData["spec"]["selectedFeature"]>;
   text: UiStrings;
 }) {
-  return selected.qualityChecklist.length > 0 ? (
-    <div className="grid gap-3 md:grid-cols-2">
-      {selected.qualityChecklist.map((item) => (
-        <div key={item.item} className="rounded-md border border-line bg-slate-50 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="font-medium">{humanizeSpecKey(item.item)}</div>
-            <Chip tone={item.passed ? "green" : "red"}>{item.passed ? text.pass : text.fail}</Chip>
-          </div>
+  const qualitySections = [
+    ...findDocumentSections(selected.documents.requirements, ["Acceptance Criteria", "Risks and Open Questions"]),
+    ...findDocumentSections(selected.documents.design, ["Review and Evidence"]),
+  ];
+  return selected.qualityChecklist.length > 0 || qualitySections.length > 0 ? (
+    <div className="space-y-4">
+      {selected.qualityChecklist.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {selected.qualityChecklist.map((item) => (
+            <div key={item.item} className="rounded-md border border-line bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-medium">{humanizeSpecKey(item.item)}</div>
+                <Chip tone={item.passed ? "green" : "red"}>{item.passed ? text.pass : text.fail}</Chip>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      ) : null}
+      <DocumentSections sections={qualitySections} fallbackTitle={text.noSpecSectionData} text={text} />
     </div>
   ) : (
     <EmptyState title={text.noSpecSectionData} />
   );
 }
 
-function TaskGraphSection({
-  tasks,
-  taskGraph,
+function FeatureSpecDocumentSection({
+  document,
+  sections,
   text,
 }: {
-  tasks: BoardTask[];
-  taskGraph: unknown;
+  document?: FeatureSpecDocumentModel;
+  sections?: FeatureSpecDocumentModel["sections"];
   text: UiStrings;
 }) {
-  if (tasks.length === 0 && !taskGraph) {
+  if (!document) {
     return <EmptyState title={text.noSpecSectionData} />;
   }
+  if (!document.exists) {
+    return (
+      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-[13px] text-amber-800">
+        {document.path}: {document.error ?? text.noSpecSectionData}
+      </div>
+    );
+  }
   return (
-    <div className="space-y-3">
-      {tasks.map((task) => (
-        <div key={task.id} className="rounded-md border border-line bg-slate-50 p-3 text-[13px]">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="font-semibold">
-              {task.id} <span className="font-medium">{task.title}</span>
-            </div>
-            <Chip tone={statusTone[task.status] ?? "neutral"}>{task.status}</Chip>
-          </div>
-          <div className="mt-2 text-muted">
-            {text.dependencies}:{" "}
-            {task.dependencies.map((dependency) => dependency.id).join(", ") || text.none}
-          </div>
-        </div>
-      ))}
-      {taskGraph ? (
-        <pre className="max-h-48 overflow-auto rounded-md border border-line bg-white p-3 text-[12px] text-slate-600">
-          {formatSpecValue(taskGraph)}
-        </pre>
-      ) : null}
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[15px] font-semibold">{document.title ?? document.path}</div>
+        <Chip tone="neutral">{document.path}</Chip>
+      </div>
+      <DocumentSections sections={sections ?? document.sections} fallbackTitle={text.noSpecSectionData} text={text} />
     </div>
   );
 }
 
-function SpecObjectSection({
-  title,
-  value,
-  fallbackItems = [],
+function DocumentSections({
+  sections,
+  fallbackTitle,
   text,
 }: {
-  title: string;
-  value: unknown;
-  fallbackItems?: unknown[];
+  sections: FeatureSpecDocumentModel["sections"];
+  fallbackTitle: string;
   text: UiStrings;
 }) {
-  const items = normalizeSpecItems(value).concat(fallbackItems.map(formatSpecValue)).filter(Boolean);
-  return items.length > 0 ? (
-    <div>
-      <div className="mb-3 text-[15px] font-semibold">{title}</div>
-      <div className="space-y-3">
-        {items.map((item, index) => (
-          <pre
-            key={`${title}-${index}`}
-            className="overflow-auto whitespace-pre-wrap rounded-md border border-line bg-slate-50 p-3 text-[12px] leading-5 text-slate-700"
-          >
-            {item}
+  const visibleSections = sections.filter((section) => section.body.trim());
+  return visibleSections.length > 0 ? (
+    <div className="space-y-3">
+      {visibleSections.map((section, index) => (
+        <div key={`${section.heading}-${index}`} className="rounded-md border border-line bg-slate-50 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Chip tone="blue">H{section.level}</Chip>
+            <div className="font-semibold text-ink">{section.heading}</div>
+          </div>
+          <pre className="overflow-auto whitespace-pre-wrap text-[12px] leading-5 text-slate-700">
+            {section.body}
           </pre>
-        ))}
-      </div>
+        </div>
+      ))}
     </div>
   ) : (
-    <EmptyState title={text.noSpecSectionData} />
+    <EmptyState title={fallbackTitle || text.noSpecSectionData} />
+  );
+}
+
+function findDocumentSections(document: FeatureSpecDocumentModel | undefined, headings: string[]) {
+  const normalizedHeadings = headings.map((heading) => heading.toLowerCase());
+  return document?.sections.filter((section) =>
+    normalizedHeadings.some((heading) => section.heading.toLowerCase().includes(heading)),
+  ) ?? [];
+}
+
+function SkillExecutionResult({ output, text }: { output?: SkillOutputModel; text: UiStrings }) {
+  const tone = output?.parseStatus === "found" ? "green" : output?.parseStatus === "invalid" ? "red" : "amber";
+  return (
+    <div className="rounded-md border border-line bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="text-[15px] font-semibold">{text.executionResult}</div>
+        <Chip tone={tone}>{output?.parseStatus ?? "missing"}</Chip>
+      </div>
+      <div className="space-y-3 p-4 text-[12px]">
+        <FactList
+          rows={[
+            [text.status, output?.status ?? text.none],
+            [text.summary, output?.summary ?? output?.error ?? text.stdoutJsonNotFound],
+            [text.tokenUsage, output?.tokenUsage ? formatSpecValue(output.tokenUsage) : text.none],
+            [text.stdoutJsonPath, output?.stdoutJsonPath ?? text.none],
+          ]}
+        />
+        {output?.result ? (
+          <div>
+            <div className="mb-1 font-semibold text-ink">{text.llmResult}</div>
+            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-[12px] leading-5 text-slate-700">
+              {formatSpecValue(output.result)}
+            </pre>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RunnerInputContractSection({ output, text }: { output?: SkillOutputModel; text: UiStrings }) {
+  return (
+    <div className="rounded-md border border-line bg-white">
+      <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">{text.runnerInputContract}</div>
+      <div className="space-y-3 p-4 text-[12px]">
+        {output?.inputContract ? (
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-slate-700">
+            {formatSpecValue(output.inputContract)}
+          </pre>
+        ) : (
+          <EmptyState title={text.noSpecSectionData} />
+        )}
+        {output?.producedArtifacts.length ? (
+          <div>
+            <div className="mb-1 font-semibold text-ink">{text.producedArtifacts}</div>
+            <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
+              {formatSpecValue(output.producedArtifacts)}
+            </pre>
+          </div>
+        ) : null}
+        {output?.evidence.length ? (
+          <div>
+            <div className="mb-1 font-semibold text-ink">{text.evidence}</div>
+            <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
+              {formatSpecValue(output.evidence)}
+            </pre>
+          </div>
+        ) : null}
+        {output?.traceability ? (
+          <details className="rounded-md border border-line p-2">
+            <summary className="cursor-pointer font-semibold text-ink">{text.traceability}</summary>
+            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.traceability)}</pre>
+          </details>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SkillOutputDetails({ output, text }: { output?: SkillOutputModel; text: UiStrings }) {
+  return (
+    <div className="rounded-md border border-line bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="text-[15px] font-semibold">{text.detailedSkillOutput}</div>
+        <Chip tone={output?.parseStatus === "found" ? "green" : output?.parseStatus === "invalid" ? "red" : "amber"}>
+          {output?.parseStatus ?? "missing"}
+        </Chip>
+      </div>
+      <div className="space-y-3 p-4 text-[12px]">
+        {output?.raw ? (
+          <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-[11px] leading-5 text-slate-700">
+            {formatSpecValue(output.raw)}
+          </pre>
+        ) : (
+          <EmptyState title={output?.error ?? text.stdoutJsonNotFound} />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -856,12 +906,14 @@ export function SpecPage({
   currentProject,
   onCreateProject,
   onCommand,
+  onSelectFeature,
 }: {
   data: ConsoleData;
   text: UiStrings;
   currentProject: ProjectSummary;
   onCreateProject: (form: ProjectCreateForm) => void;
   onCommand: OnCommand;
+  onSelectFeature?: (featureId: string) => void;
 }) {
   const currentProjectId = currentProject.id;
   const initialFeatureId = data.spec.selectedFeature?.id ?? data.spec.features[0]?.id ?? "";
@@ -902,40 +954,18 @@ export function SpecPage({
             title: selectedListItem.title,
             requirements: [],
             taskGraph: undefined,
+            documents: {},
             clarificationRecords: [],
             qualityChecklist: [],
             technicalPlan: undefined,
             dataModels: [],
             contracts: [],
             versionDiffs: [],
+            skillOutput: undefined,
           }
         : undefined;
 
   const featureTasks = data.board.tasks.filter((task) => task.featureId === selected?.id);
-  const reviewForFeature = data.reviews.items.find(
-    (item) =>
-      item.featureId === selected?.id ||
-      featureTasks.some((task) => task.id === item.taskId),
-  );
-  const recentEvidence = [
-    ...data.audit.linkedEvidence
-      .filter((entry) => !selected?.id || entry.runId || entry.id)
-      .map((entry) => ({ id: entry.id, summary: entry.summary, path: entry.path, source: entry.kind })),
-    ...data.reviews.items
-      .filter(
-        (item) =>
-          item.featureId === selected?.id ||
-          featureTasks.some((task) => task.id === item.taskId),
-      )
-      .flatMap((item) => item.evidence.map((entry) => ({ ...entry, source: item.id }))),
-  ].slice(0, 4);
-  const latestAuditEvent =
-    data.audit.timeline.find(
-      (event) =>
-        event.featureId === selected?.id ||
-        featureTasks.some((task) => task.id === event.taskId),
-    ) ?? data.audit.timeline[0];
-  const blockedReason = reviewForFeature?.body ?? text.defaultApprovalReason;
 
   const statusFilters = [
     { key: "all", label: text.all },
@@ -946,11 +976,12 @@ export function SpecPage({
   ];
   const sections = [
     { key: "requirements", label: text.requirements },
+    { key: "design", label: text.design },
+    { key: "tasks", label: text.tasks },
     { key: "quality", label: text.qualityChecklist },
-    { key: "plan", label: text.technicalPlan },
-    { key: "tasks", label: text.taskGraph },
-    { key: "contracts", label: text.contracts },
-    { key: "diff", label: text.specDiff },
+    { key: "input-contract", label: text.inputContract },
+    { key: "execution-result", label: text.executionResult },
+    { key: "skill-output", label: text.detailedSkillOutput },
   ];
 
   if (!selected) {
@@ -984,7 +1015,7 @@ export function SpecPage({
       />
       <Panel>
         <SectionTitle title={text.featureSpec} />
-        <div className="grid grid-cols-[280px_minmax(0,1fr)_320px] gap-4 p-4 max-xl:grid-cols-1">
+        <div className="grid grid-cols-[280px_minmax(0,1fr)] gap-4 p-4 max-xl:grid-cols-1">
           <aside className="min-w-0 rounded-md border border-line bg-white" aria-label={text.featureSpecList}>
             <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
               <div className="min-w-0 text-[13px] font-semibold text-ink">{text.featureSpecList}</div>
@@ -1027,9 +1058,12 @@ export function SpecPage({
                       className={`w-full rounded-md border p-3 text-left text-[13px] transition-colors ${
                         active
                           ? "border-blue-300 bg-blue-50/70 shadow-sm"
-                          : "border-line bg-slate-50 hover:bg-white"
+                        : "border-line bg-slate-50 hover:bg-white"
                       }`}
-                      onClick={() => setSelectedFeatureId(feature.id)}
+                      onClick={() => {
+                        setSelectedFeatureId(feature.id);
+                        onSelectFeature?.(feature.id);
+                      }}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="font-semibold">{feature.id}</div>
@@ -1060,7 +1094,7 @@ export function SpecPage({
           </aside>
 
           <section className="min-w-0 rounded-md border border-line bg-white">
-            <div className="flex min-h-[84px] items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <div className="flex min-h-[84px] items-start justify-between gap-3 border-b border-line px-4 py-3 max-lg:flex-col">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="truncate text-[22px] font-semibold tracking-normal">
@@ -1079,12 +1113,64 @@ export function SpecPage({
                     : text.none}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap justify-end gap-2 max-lg:justify-start" aria-label={text.controlledActions}>
+                <Button
+                  className="h-9"
+                  onClick={() => onCommand("create_feature", "project", currentProjectId)}
+                >
+                  <Plus size={15} />
+                  {text.createFeature}
+                </Button>
+                <Button
+                  className="h-9"
+                  onClick={() =>
+                    onCommand("schedule_run", "feature", selected.id, {
+                      stage: "status_scheduling",
+                      mode: "manual",
+                      requestedFor: new Date().toISOString(),
+                      featureId: selected.id,
+                    })
+                  }
+                >
+                  <Workflow size={15} />
+                  {text.scheduleRunAction}
+                </Button>
+                <Button
+                  className="h-9"
+                  onClick={() =>
+                    onCommand("schedule_board_tasks", "feature", selected.id, {
+                      taskIds: featureTasks.map((task) => task.id),
+                    })
+                  }
+                >
+                  <CalendarCheck size={15} />
+                  {text.scheduleTasks}
+                </Button>
+                <Button
+                  className="h-9"
+                  onClick={() =>
+                    onCommand("schedule_run", "feature", selected.id, {
+                      stage: "status_check",
+                      mode: "manual",
+                      requestedFor: new Date().toISOString(),
+                      featureId: selected.id,
+                    })
+                  }
+                >
+                  <ShieldCheck size={15} />
+                  {text.runChecks}
+                </Button>
+                <Button
+                  className="h-9"
+                  onClick={() =>
+                    onCommand("write_spec_evolution", "spec", selected.id, { featureId: selected.id })
+                  }
+                >
+                  <FileText size={15} />
+                  {text.writeSpecEvolution}
+                </Button>
                 <Button className="size-9 p-0" aria-label="Refresh">
                   <RefreshCw size={15} />
-                </Button>
-                <Button className="size-9 p-0" aria-label={text.specDiff}>
-                  <ExternalLink size={15} />
                 </Button>
               </div>
             </div>
@@ -1107,162 +1193,26 @@ export function SpecPage({
             </div>
             <div className="p-4">
               {activeSection === "requirements" ? (
-                <RequirementsSection selected={selected} tasks={featureTasks} text={text} />
+                <RequirementsSection selected={selected} text={text} />
+              ) : activeSection === "design" ? (
+                <FeatureSpecDocumentSection document={selected.documents.design} text={text} />
+              ) : activeSection === "tasks" ? (
+                <FeatureSpecDocumentSection document={selected.documents.tasks} text={text} />
+              ) : activeSection === "execution-result" ? (
+                <SkillExecutionResult output={selected.skillOutput} text={text} />
               ) : activeSection === "quality" ? (
                 <QualitySection selected={selected} text={text} />
-              ) : activeSection === "plan" ? (
-                <SpecObjectSection
-                  title={text.technicalPlan}
-                  value={selected.technicalPlan}
-                  fallbackItems={selected.dataModels}
-                  text={text}
-                />
-              ) : activeSection === "tasks" ? (
-                <TaskGraphSection tasks={featureTasks} taskGraph={selected.taskGraph} text={text} />
-              ) : activeSection === "contracts" ? (
-                <SpecObjectSection title={text.contracts} value={selected.contracts} text={text} />
+              ) : activeSection === "input-contract" ? (
+                <RunnerInputContractSection output={selected.skillOutput} text={text} />
+              ) : activeSection === "output" ? (
+                <RunnerInputContractSection output={selected.skillOutput} text={text} />
+              ) : activeSection === "skill-output" ? (
+                <SkillOutputDetails output={selected.skillOutput} text={text} />
               ) : (
-                <SpecObjectSection title={text.specDiff} value={selected.versionDiffs} text={text} />
+                <EmptyState title={text.noSpecSectionData} />
               )}
             </div>
           </section>
-
-          <aside className="min-w-0 space-y-4">
-            <div className="rounded-md border border-line bg-white">
-              <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">
-                {text.controlledActions}
-              </div>
-              <div className="space-y-2 p-3">
-                <Button
-                  className="w-full justify-start"
-                  onClick={() => onCommand("create_feature", "project", currentProjectId)}
-                >
-                  <Plus size={15} />
-                  {text.createFeature}
-                </Button>
-                <Button
-                  className="w-full justify-start"
-                  onClick={() =>
-                    onCommand("schedule_run", "feature", selected.id, {
-                      stage: "status_scheduling",
-                      mode: "manual",
-                      requestedFor: new Date().toISOString(),
-                      featureId: selected.id,
-                    })
-                  }
-                >
-                  <Workflow size={15} />
-                  {text.scheduleRunAction}
-                </Button>
-                <Button
-                  className="w-full justify-start"
-                  onClick={() =>
-                    onCommand("schedule_board_tasks", "feature", selected.id, {
-                      taskIds: featureTasks.map((task) => task.id),
-                    })
-                  }
-                >
-                  <CalendarCheck size={15} />
-                  {text.scheduleTasks}
-                </Button>
-                <Button
-                  className="w-full justify-start"
-                  onClick={() =>
-                    onCommand("schedule_run", "feature", selected.id, {
-                      stage: "status_check",
-                      mode: "manual",
-                      requestedFor: new Date().toISOString(),
-                      featureId: selected.id,
-                    })
-                  }
-                >
-                  <ShieldCheck size={15} />
-                  {text.runChecks}
-                </Button>
-                <Button
-                  className="w-full justify-start"
-                  onClick={() =>
-                    onCommand("write_spec_evolution", "spec", selected.id, { featureId: selected.id })
-                  }
-                >
-                  <FileText size={15} />
-                  {text.writeSpecEvolution}
-                </Button>
-              </div>
-              <div className="mx-3 mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-700">
-                <div className="flex items-center gap-2 font-semibold">
-                  <ShieldAlert size={16} />
-                  {text.productApprovalRequired}
-                </div>
-                <div className="mt-1 pl-6">{blockedReason}</div>
-              </div>
-            </div>
-
-            <div className="rounded-md border border-line bg-white">
-              <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">
-                {text.qualityGate}
-              </div>
-              <div className="divide-y divide-line">
-                {selected.qualityChecklist.length > 0 ? (
-                  selected.qualityChecklist.map((item) => (
-                    <div
-                      key={item.item}
-                      className="flex items-center justify-between gap-3 px-4 py-2.5 text-[13px]"
-                    >
-                      <div className="flex items-center gap-2">
-                        {item.passed ? (
-                          <CheckCircle2 size={15} className="text-emerald-600" />
-                        ) : (
-                          <XCircle size={15} className="text-red-600" />
-                        )}
-                        {humanizeSpecKey(item.item)}
-                      </div>
-                      <Chip tone={item.passed ? "green" : "red"}>{item.passed ? text.pass : text.fail}</Chip>
-                    </div>
-                  ))
-                ) : (
-                  <EmptyState title={text.noSpecSectionData} />
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-md border border-line bg-white">
-              <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">
-                {text.recentEvidence}
-              </div>
-              <div className="divide-y divide-line">
-                {recentEvidence.length > 0 ? (
-                  recentEvidence.map((entry) => (
-                    <a
-                      key={`${entry.source}-${entry.id}`}
-                      className="flex items-center justify-between gap-3 px-4 py-3 text-[13px] hover:bg-slate-50"
-                      href={entry.path ?? "#"}
-                    >
-                      <span>
-                        <span className="font-semibold text-action">{entry.id}</span>
-                        <span className="ml-2 text-muted">{entry.summary}</span>
-                      </span>
-                      <ExternalLink size={14} className="text-muted" />
-                    </a>
-                  ))
-                ) : (
-                  <EmptyState title={text.noEvidence} />
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-md border border-line bg-white p-4 text-[13px]">
-              <div className="mb-3 text-[15px] font-semibold">{text.audit}</div>
-              <FactList
-                rows={[
-                  [text.latestCommand, latestAuditEvent?.action ?? text.none],
-                  [text.receivedAt, latestAuditEvent?.occurredAt ?? text.none],
-                  [text.receiver, latestAuditEvent?.requestedBy ?? "system"],
-                  [text.status, latestAuditEvent?.status ?? text.none],
-                ]}
-              />
-            </div>
-          </aside>
         </div>
         <div className="border-t border-line px-4 py-3 text-[12px] text-muted">{text.factSourcesSpec}</div>
       </Panel>

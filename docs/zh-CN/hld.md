@@ -47,7 +47,7 @@ MVP 采用本地优先的控制面架构：
 
 - 从自然语言、PR、RP、PRD、EARS 或混合输入生成结构化 Feature Spec。
 - 基于优先级、依赖、风险和就绪状态自动选择下一个可执行 Feature。
-- 自动推进 Feature 从需求、计划、任务图、看板、执行、检测、恢复、审批到交付。
+- 自动推进 Feature 从需求、计划、Feature Spec `tasks.md`、执行队列、检测、恢复、审批到交付。
 - 用 Skill 约束不同工程阶段的输入、输出、风险等级、适用阶段和失败处理。
 - 用 Agent Run Contract 控制 Subagent 的上下文切片、读写边界、禁止动作、验收标准和输出 schema。
 - 用 Project Memory 支持长时间运行、断点恢复、跨会话目标恢复和失败模式记忆。
@@ -74,9 +74,9 @@ MVP 采用本地优先的控制面架构：
 | REQ-010, REQ-011, REQ-012, REQ-013 | 7.3, 8, 9, 11, 14, 15 | Skill System 管理注册、内置 Skill、schema 校验、版本治理和项目级覆盖。 |
 | REQ-014, REQ-015, REQ-016, REQ-017, REQ-018 | 7.5, 7.7, 8, 9, 10, 11, 13 | Subagent Runtime、Context Broker、Workspace Manager 和 Result Merger 保证边界、并行隔离和结果合并。 |
 | REQ-019, REQ-020, REQ-021, REQ-022, REQ-023 | 7.6, 8, 9, 10, 11, 12, 13 | Project Memory Service 负责初始化、注入、更新、压缩、版本和回滚。 |
-| REQ-024, REQ-025, REQ-026, REQ-027 | 7.4, 7.11, 8, 10, 14, 15 | Task Graph、Kanban Board 和任务状态机支撑任务可追踪执行。 |
+| REQ-024, REQ-025, REQ-026, REQ-027 | 7.4, 7.11, 8, 10, 14, 15 | Feature Spec `tasks.md`、兼容 Kanban Board 和状态机支撑任务可追踪执行。 |
 | REQ-028, REQ-029, REQ-030, REQ-031, REQ-032 | 7.4, 7.7, 10, 13, 14, 15 | Feature 状态机、选择器、计划流水线、聚合和并行策略由 Orchestration 负责。 |
-| REQ-033, REQ-034, REQ-035, REQ-036, REQ-060 | 7.4, 7.7, 10, 12, 13, 14 | Project Scheduler、Feature Scheduler、触发模式、worktree 生命周期和恢复启动是调度运行时核心。 |
+| REQ-033, REQ-034, REQ-035, REQ-036, REQ-060 | 7.4, 7.7, 10, 12, 13, 14 | Project Scheduler、executor job 调度、触发模式、worktree 生命周期和恢复启动是调度运行时核心。 |
 | REQ-037, REQ-038, REQ-039, REQ-065, REQ-066 | 5, 7.8, 9, 11, 12, 13 | Runner CLI Adapter 受 Runner Policy、Safety Gate、workspace root、JSON 配置和审批策略约束。 |
 | REQ-040, REQ-041, REQ-042 | 7.9, 9, 10, 12, 14 | Status Checker 执行 diff、测试、安全、Spec Alignment 和状态判断。 |
 | REQ-043, REQ-044, REQ-045 | 7.10, 10, 11, 12, 14 | Recovery Manager 管理恢复任务、回滚、拆分、重试退避和失败指纹。 |
@@ -158,7 +158,7 @@ Rejected / deferred alternatives:
 |---|---|---|
 | Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区。 |
 | Control Plane | 项目、Spec、Skill、调度、状态、审批、证据和查询 API | 是状态与调度决策的协调层。 |
-| Orchestration | Project Scheduler、Feature Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
+| Orchestration | Project Scheduler、Executor Job Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
 | Execution | Subagent Runtime、Context Broker、Codex Runner、Status Checker、Recovery Manager | 每次执行都受 Run Contract、Runner Policy 和 Evidence schema 约束。 |
 | Workspace | Git repository、worktree、branch、merge readiness、rollback | 写任务以独立 worktree 和分支隔离。 |
 | Evidence and Governance | Evidence Pack、Audit Timeline、Metrics、Review、Delivery Report、Spec Evolution | 支撑审计、审批、恢复和交付闭环。 |
@@ -168,7 +168,7 @@ Rejected / deferred alternatives:
 | Data | Source of Truth | Projection / Consumer |
 |---|---|---|
 | Feature 候选集 | Feature Spec Pool | Project Memory 只保存最近选择快照。 |
-| Feature / Task 状态 | Persistent Store 中的内部状态机 | Dashboard、Project Memory、Delivery Report。 |
+| Feature / Execution 状态 | Persistent Store 中的内部状态机与 Execution Record | Dashboard、Project Memory、Delivery Report。 |
 | Git 事实 | 目标仓库与 worktree 的实时 Git 状态 | Repository Adapter、Workspace Manager、Status Checker。 |
 | 当前项目上下文 | Project Management 持久层和用户选择状态 | Product Console、Scheduler、Project Memory Injector、Control Plane 命令网关。 |
 | Project Memory | `.autobuild/memory/project.md` + 版本元数据 | Codex CLI 会话恢复上下文。 |
@@ -204,7 +204,7 @@ Responsibilities:
 - 拆解原子化、可测试、可追踪的 EARS Requirement。
 - 自动扫描 PRD、EARS、requirements、HLD、design、已有 Feature Spec、tasks 和 README / 索引等 Spec Sources，并识别已有规格产物、来源追踪、缺失项和冲突。
 - 维护 Clarification Log、Requirement Checklist、Spec Version、Spec Slice 和来源追踪。
-- 为计划流水线提供 Feature Spec、需求、验收、数据域、契约和任务图输入。
+- 为计划流水线提供 Feature Spec、需求、验收、数据域、契约和 `tasks.md` 输入。
 
 Spec Sources 扫描只读取和归类已有事实源，不在阶段 2 生成 HLD、拆分 Feature Spec 或启动规划流水线；这些写入性规划动作由选中 Feature 在阶段 3 通过受控操作触发。
 
@@ -240,13 +240,14 @@ Responsibilities:
 - Scheduler Trigger 从 `feature-pool-queue.json` 读取已规划 Feature 队列，并接收立即执行、指定时间、周期巡检、依赖完成、CI 失败和审批通过等触发模式。
 - Scheduler Trigger 创建 `<executor>.run` Job；当前为 `cli.run`，后续可扩展 `native.run`。
 - Feature/Task/Project 不作为 Job 顶层属性，只进入 payload context。
-- 平台不维护 Feature 内 TaskGraph 表；Feature 内任务排序、并行和 task 状态由 LLM 与 Feature Spec `tasks.md` 管理。
-- Feature Aggregator 根据任务状态、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
-- 维护 Feature 与 Task 的内部状态机。
+- 平台不维护 Feature 内 TaskGraph / tasks 执行表；Feature 内任务排序、并行和完成状态由执行 LLM 读取 Feature Spec 目录中的 `requirements.md`、`design.md` 和 `tasks.md` 后自行管理。
+- Feature 执行的唯一受控输入是当前项目 workspace 中的 Feature Spec 目录；`feature_execution` 不依赖 `task_graph_tasks` / `tasks` 表是否存在。
+- Feature Aggregator 根据 Execution Record、Evidence、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
+- 维护 Feature、Execution Record 与受控命令的状态；Task Board 仅作为兼容展示或手动状态入口，不是编码执行的必需事实源。
 
 Owns:
 
-- FeatureSelectionDecision、ScheduleTrigger、SchedulerJobRecord、TaskGraph、TaskSchedule、StateTransition。
+- ScheduleTrigger、SchedulerJobRecord、ExecutionRecord、StateTransition。
 
 Collaborates With:
 
@@ -302,7 +303,7 @@ Owns:
 
 Collaborates With:
 
-- Repository Adapter、Feature Scheduler、Codex Runner、Status Checker、Recovery Manager。
+- Repository Adapter、Executor Job Scheduler、Codex Runner、Status Checker、Recovery Manager。
 
 ### 7.8 Codex Runner
 
@@ -361,7 +362,7 @@ Responsibilities:
 - Dashboard 展示项目健康度、活跃 Feature、看板数量、运行中 Subagent、失败任务、待审批任务、成本、最近 PR 和风险提醒。
 - 提供项目创建入口、项目列表和当前项目切换控件，并将所有页面查询限定在当前项目。
 - Dashboard Board 支持受状态机约束的拖拽、批量排期、批量运行，以及依赖、diff、测试结果、审批状态和失败恢复历史入口。
-- Spec Workspace 展示 Feature、Spec、澄清、Checklist、计划、数据模型、契约、任务图和版本 diff。
+- Spec Workspace 展示 Feature、Spec、澄清、Checklist、计划、数据模型、契约、Feature Spec `tasks.md` 覆盖情况和版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
 - Subagent Console 展示 Run Contract、上下文切片、Evidence、token 使用、运行状态，并支持终止和重试。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、日志、心跳和 CLI Adapter 配置健康摘要。
@@ -432,8 +433,8 @@ Collaborates With:
 | Project and Repository | Project Management | Project、ProjectSelectionContext、RepositoryConnection、ProjectHealthCheck | SQLite + project artifact projection。 |
 | Spec Protocol | Spec Protocol Engine | Feature、Requirement、ClarificationLog、Checklist、SpecVersion、SpecSlice | SQLite + Markdown/JSON artifact。 |
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
-| Orchestration State | Orchestration and State Machine | Task、TaskGraph、StateTransition、FeatureSelectionDecision、ScheduleTrigger、SchedulerJobRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
-| Runtime Execution | Codex Runner | Run、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发。 |
+| Orchestration State | Orchestration and State Machine | Feature、StateTransition、ScheduleTrigger、SchedulerJobRecord、ExecutionRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
+| Runtime Execution | Codex Runner | ExecutionRecord、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Evidence and Audit | Evidence Store | EvidencePack、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/evidence/` artifact。 |
@@ -442,10 +443,10 @@ Collaborates With:
 
 Data ownership rules:
 
-- Feature / Task 状态只由内部状态机写入。
+- Feature / Execution 状态只由内部状态机写入；兼容 Task Board 状态不得成为编码执行前置条件。
 - Project Memory 是恢复投影，不能覆盖 Feature Spec Pool、Persistent Store 或 Git 事实。
 - SchedulerJobRecord 必须记录 BullMQ job id、queue、job type、target、payload、attempts、status 和 error；Redis 队列不是业务事实源。
-- Evidence Pack 必须能追踪到 Run、Task、Feature、scheduler job 和状态判断。
+- Evidence Pack 必须能追踪到 Execution Record、Feature、scheduler job 和状态判断。
 - 仓库凭据、密钥和连接串不得写入 Project Memory、Evidence 或普通日志。
 
 ## 9. Integration and Interface Strategy
@@ -454,7 +455,7 @@ Data ownership rules:
 
 - Control Plane 通过同步命令处理用户动作、调度触发、审批动作和查询。
 - Scheduler、Runner、Status Checker、Recovery 和 Delivery 之间通过 SQLite 状态、BullMQ job 和 Evidence 解耦。
-- Planning 类 Skill 仍由 Codex CLI 工作流执行；平台在 planning bridge 未实现前不得伪造 Skill 输出或任务图。
+- Planning 类 Skill 仍由 Codex CLI 工作流执行；平台在 planning bridge 未实现前不得伪造 Skill 输出或 Feature Spec `tasks.md` 覆盖结果。
 
 ### External Integrations
 
@@ -477,7 +478,7 @@ MVP 项目级 artifact root 使用 `.autobuild/`：
 
 - 默认位置为目标仓库根目录下的 `.autobuild/`；Control Plane `AppConfig.artifactRoot` 以启动时的目标仓库根目录解析相对路径。
 - `.autobuild/memory/project.md`：Project Memory 当前版本。
-- `.autobuild/specs/`：Feature Spec、Requirement、Checklist、Plan 和 Task Graph 的文件投影。
+- `.autobuild/specs/`：Feature Spec、Requirement、Checklist、Plan 和 Feature Spec `tasks.md` 的文件投影。
 - `.autobuild/evidence/`：Evidence Pack 和检查结果附件。
 - `.autobuild/reports/`：Delivery Report 和 Spec Evolution 建议。
 - `.autobuild/runs/`：Run 元数据、日志摘要和恢复索引。
@@ -567,8 +568,8 @@ flowchart TD
   Checklist -->|通过| Ready["[Code] Feature 状态 → ready"]
   Checklist -->|歧义| Draft["[Code] Feature → draft / review_needed\n写入 ClarificationLog"]
   Draft -->|澄清完成| Ready
-  Ready --> QueueJob["[Code] <executor>.run Job\noperation=feature_execution"]
-  QueueJob --> ExecRecord["[Code] Execution Record\npayload context"]
+  Ready --> QueueJob["[Code] <executor>.run Job\noperation=feature_execution\nFeature Spec 目录作为执行输入"]
+  QueueJob --> ExecRecord["[Code] Execution Record\npayload context + Feature Spec sourcePaths"]
   ExecRecord --> MemInject["[Code] Project Memory 注入\n+ CLI/native executor 执行"]
   MemInject --> Evidence["[Code] Evidence Pack 生成"]
   Evidence --> StatusCheck["[Code] Status Checker\ndiff / build / test / lint / security\n+ [Skill] Spec Alignment 语义比对"]
@@ -591,9 +592,9 @@ flowchart TD
 | HLD 生成 | EARS 完成后手动或受控命令触发 | **Skill**（内容）+ **Code**（artifact 落地） | PRD + EARS Requirements | HLD 文档（`docs/zh-CN/hld.md`）+ **一级页面清单** | `create-project-hld` |
 | UI Spec + 主要页面概念图 | HLD 完成后触发（含 UI 的产品） | **Skill** | PRD + EARS Requirements + HLD + 一级页面清单 | UI Spec 文档（`docs/ui/ui-spec.md` 或 Feature 级 `ui-spec.md`）+ 主要页面概念图（`docs/ui/concepts/*.svg`） | `ui-spec-skill` |
 | Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill** | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`） | `task-slicing-skill`（Feature 级） |
-| 推入 Feature Spec Pool | Feature Spec 拆分完成后触发 | **Code** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` | SQLite Feature 候选记录 + BullMQ `<executor>.run` Job + Execution Record | — |
+| 推入 Feature Spec Pool | Feature Spec 拆分完成后触发 | **Code** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` | SQLite Feature 候选记录 + BullMQ `<executor>.run` Job + Execution Record；Job payload 指向 Feature Spec 目录 | — |
 | 需求质量检查 | Feature Spec 创建后 | **Skill** | Feature Spec requirements.md | 通过 → `ready`；歧义 → ClarificationLog + `draft` | `requirements-checklist-skill`、`ambiguity-clarification-skill` |
-| Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Runner / Memory）+ **CLI/native** | Job payload + Project Memory | Execution Record、心跳、RawLog、Evidence Pack | — |
+| Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Runner / Memory）+ **CLI/native** | Job payload + Project Memory + Feature Spec `requirements.md` / `design.md` / `tasks.md` | 代码/测试/配置/文档变更、Execution Record、心跳、RawLog、Evidence Pack | `codex-coding-skill` |
 | Status 检查 | Execution Record 结束 | **Code**（确定性检查）+ **Skill**（Spec Alignment） | Evidence Pack | StatusCheckResult（Done / Review Needed / Failed / Blocked） | — |
 | Review / Recovery | Status 触发 | **Code**（状态）+ **Skill**（内容） | StatusCheckResult + Evidence | ReviewItem / RecoveryTask | `review-report-skill`、`failure-recovery-skill` |
 | Feature 交付 | Feature Aggregator 判断 done | **Code**（PR / Delivery）+ **Skill**（内容） | Evidence + Task 结果 | PR、Delivery Report、Spec Evolution 建议 | `pr-generation-skill`、`spec-evolution-skill` |
@@ -605,14 +606,14 @@ flowchart TD
 | 阶段 | 触发 | 实现归因 | 状态迁移 | 产出物 |
 |---|---|---|---|---|
 | **intake** | Feature Spec 创建（手动 / Skill 拆分） | Skill（EARS 内容 + Checklist + 澄清）+ Code（Feature 记录写入、状态迁移） | `draft` → `ready`（或 `review_needed`） | EARS Requirements、ClarificationLog、RequirementChecklist |
-| **execution** | `<executor>.run` job 被 Worker 消费 | Code（BullMQ Worker、Project Memory 注入、CLI/native executor、心跳、Execution Record） | `ready` → `implementing`；per-context：`running` → `done/failed/blocked` | Execution Record、RunnerHeartbeat、RawExecutionLog、Evidence Pack |
+| **execution** | `<executor>.run` job 被 Worker 消费 | Code（BullMQ Worker、Project Memory 注入、CLI/native executor、心跳、Execution Record）+ Skill（按 Feature Spec 执行） | `ready` → `implementing`；Execution Record：`running` → `completed/review_needed/failed/blocked` | 代码/测试/配置/文档变更、Execution Record、RunnerHeartbeat、RawExecutionLog、Evidence Pack |
 | **checking** | 每次 Execution Record 结束后 Status Checker 触发 | Code（diff/build/test/lint/security 命令执行）+ Skill（Spec Alignment 语义比对） | `running` → `done` / `review_needed` / `blocked` / `failed` | StatusCheckResult、SpecAlignmentResult、EvidencePack（更新） |
 | **closing** | Feature Aggregator 判断所有任务完成且验收通过 | Code（PR 创建、Delivery Record）+ Skill（PR 内容、Spec Evolution 建议） | `in-progress` → `done` → `delivered`；未通过 → `review_needed` | PullRequestRecord、Delivery Report、SpecEvolutionSuggestion |
 
 **状态机约束**：
 - `blocked`：任意阶段均可发生；恢复后回退到前一阶段的入口并重新入队 `<executor>.run` Job。
 - `review_needed`：任意阶段均可触发；审批通过后恢复到原阶段入口；拒绝或要求修改则回退到 `intake` 或 `planning`。
-- Feature 的 `done` 不能仅凭任务卡片状态判断，必须满足 Feature 验收标准、Spec Alignment 检查和必要测试覆盖。
+- Feature 的 `done` 不能仅凭任务卡片状态判断，必须满足 Feature Spec `tasks.md` 覆盖、Feature 验收标准、Spec Alignment 检查和必要测试覆盖。
 
 ## 11. Security, Privacy, and Governance
 
@@ -670,7 +671,7 @@ flowchart TB
   FeatureQueue --> Redis[(Redis)]
   CliQueue --> Redis
   API --> Files[.autobuild Artifact Root]
-  FeatureQueue --> FeatureWorker[Feature Scheduler Worker]
+  FeatureQueue --> FeatureWorker[Executor Job Scheduler Worker]
   CliQueue --> Runner[Local Runner Worker]
   Runner --> Codex[Codex CLI]
   Runner --> Repo[Target Repository]
@@ -722,7 +723,7 @@ Quality gates:
 | Project and Repository Foundation | 项目创建、项目目录与切换上下文、仓库连接、项目宪章、健康检查、项目配置。 | REQ-001 至 REQ-003、REQ-059、REQ-063 |
 | Spec Protocol Foundation | Feature Spec、EARS 拆解、Spec Sources 扫描、澄清、Checklist、版本和切片。 | REQ-004 至 REQ-009、REQ-064 |
 | Skill Center and Schema Governance | Skill 注册、内置 Skill、schema 校验、版本管理。 | REQ-010 至 REQ-013 |
-| Orchestration and State Machine | Feature/Task 状态机、任务图、Feature 选择、计划流水线、调度触发模式、看板列。 | REQ-024 至 REQ-034、REQ-060 |
+| Orchestration and State Machine | Feature/Execution 状态机、Feature Spec `tasks.md` 覆盖、Feature 选择、计划流水线、调度触发模式、兼容看板列。 | REQ-024 至 REQ-034、REQ-060 |
 | Subagent Runtime and Context Broker | Agent 类型、Run Contract、最小上下文、Subagent Console 后端数据层。 | REQ-014 至 REQ-018（REQ-017 写入隔离实现于 feat-007，feat-005 依赖其结果）、REQ-055（后端数据层主导实现于此，UI 由 feat-013 交付）。 |
 | Project Memory and Recovery Projection | Memory 初始化、注入、更新、压缩、版本和状态冲突修复。 | REQ-019 至 REQ-023、REQ-036 |
 | Workspace Isolation | worktree、分支、并行写入隔离、冲突检测和回滚边界。 | REQ-017（主导实现）、REQ-032、REQ-035；REQ-017 同时被 Subagent Runtime and Context Broker 依赖。 |
@@ -782,14 +783,14 @@ Decomposition rules:
 | Project Scheduler 选择 ready Feature | **Code**（BullMQ job + SQLite 事实源） | 优先级算法 + 去重 + 崩溃恢复，不能靠 LLM 推理替代 |
 | Feature 状态 → `planning` | **Code** | 状态机迁移 |
 | 生成技术计划、研究结论、数据模型、接口契约 | **Skill**（bridge 未实现时 blocked） | 规划流水线应通过 Codex 执行 `technical-context-skill` → `research-decision-skill` → `architecture-plan-skill` → `data-model-skill` → `contract-design-skill` → `quickstart-validation-skill` → `spec-consistency-analysis-skill`；未接 bridge 前不得伪造输出 |
-| 生成任务图 | **Skill**（任务分解）+ **Code**（任务图写入） | `task-slicing-skill` 生成内容；任务图读取后写入 SQLite 是 Code |
-| Feature 状态 → `tasked`，任务进入看板 | **Code** | 状态机迁移 + 看板持久化 |
-| Feature Scheduler 调度任务 | **Code**（状态迁移 + `cli.run` 入队） | 依赖图解析、串行锁、重试限制，是结构不变式 |
+| 维护 Feature Spec `tasks.md` | **Skill**（任务分解） | `task-slicing-skill` 生成或更新 `tasks.md`；平台不再写入 Feature 内 TaskGraph / tasks 执行表 |
+| Feature 状态 → `tasked`，兼容看板展示 | **Code** | 状态机迁移 + 兼容看板投影持久化 |
+| 调度 Feature 执行 | **Code**（状态迁移 + `cli.run` 入队） | 完整 Feature Spec 目录校验、去重、重试限制和 Job/Execution Record 创建，是结构不变式 |
 | Project Memory 注入 CLI 上下文 | **Code** | 会话启动前注入文件，是触发侧副作用 |
-| Codex Runner 执行编码、测试、修复 | **CLI 原生**（执行）+ **Code**（BullMQ Worker / run 记录 / 心跳 / 日志 / Evidence） | CLI 负责执行和上下文；Code 记录并回写 run/task 状态 |
+| Codex Runner 执行编码、测试、修复 | **CLI 原生**（执行）+ **Code**（BullMQ Worker / Execution Record / 心跳 / 日志 / Evidence） | CLI 读取 Feature Spec 目录并执行；Code 记录并回写 Execution Record / Feature 状态 |
 | Project Memory 更新 | **Code** | Evidence Pack 驱动的结构化文件更新，含 token 预算压缩逻辑 |
 | Status Checker 判断任务状态 | **Code**（diff / build / test / lint / security 命令执行）+ **Skill**（Spec Alignment 语义比对） | 确定性检查是 Code；语义对齐是 LLM 推理 |
-| Done → 更新任务图 | **Code** | 状态机迁移 |
+| Done → 更新 Feature / Execution 状态 | **Code** | 状态机迁移 |
 | Review Needed → 审批流 | **Code**（状态记录 + 通知）+ **Skill**（`review-report-skill` 生成 review 内容） | 状态和入口是 Code；review 分析内容是 Skill |
 | Blocked → 记录阻塞 | **Code** | 阻塞持久化；无法解除时任务回退是状态机 |
 | Failed → 生成恢复任务 | **Code**（指纹 / 去重 / 退避）+ **Skill**（`failure-recovery-skill` 恢复策略推理） | 重试不变式是 Code；恢复推理是 Skill |
@@ -809,7 +810,7 @@ invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`
 
 1. 项目 / 仓库 / Spec Protocol 初始化存储
 2. 所有状态机迁移（`ready` / `planning` / `tasked` / `done` / `review_needed` / `blocked` / `failed`）
-3. Project Scheduler / Feature Scheduler（优先级、依赖、去重、退避）
+3. Project Scheduler / Executor Job Scheduler（优先级、依赖、去重、退避）
 4. Run 记录、心跳、Evidence 捕获
 5. Project Memory 文件读写（注入 + 更新）
 6. Status Checker 命令执行（diff / build / test / lint / security）

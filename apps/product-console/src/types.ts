@@ -158,6 +158,23 @@ export type SpecSourceItem = {
   detail?: string;
 };
 
+export type SkillOutputModel = {
+  parseStatus: "found" | "missing" | "invalid";
+  stdoutJsonPath?: string;
+  error?: string;
+  status?: string;
+  summary?: string;
+  tokenUsage?: unknown;
+  inputContract?: unknown;
+  outputContract?: unknown;
+  producedArtifacts: unknown[];
+  evidence: unknown[];
+  traceability?: unknown;
+  result?: unknown;
+  raw?: unknown;
+  recordCount?: number;
+};
+
 export type SpecWorkspaceModel = {
   features: Array<{ id: string; title: string; folder?: string; status: string; primaryRequirements: string[] }>;
   prdWorkflow?: {
@@ -201,13 +218,30 @@ export type SpecWorkspaceModel = {
     title: string;
     requirements: Array<{ id: string; body: string; acceptanceCriteria?: string; priority?: string }>;
     taskGraph?: unknown;
+    documents: FeatureSpecDocumentsModel;
     clarificationRecords: unknown[];
     qualityChecklist: Array<{ item: string; passed: boolean }>;
     technicalPlan?: unknown;
     dataModels: unknown[];
     contracts: unknown[];
     versionDiffs: unknown[];
+    skillOutput?: SkillOutputModel;
   };
+};
+
+export type FeatureSpecDocumentsModel = {
+  requirements?: FeatureSpecDocumentModel;
+  design?: FeatureSpecDocumentModel;
+  tasks?: FeatureSpecDocumentModel;
+};
+
+export type FeatureSpecDocumentModel = {
+  path: string;
+  exists: boolean;
+  title?: string;
+  sections: Array<{ heading: string; level: number; body: string }>;
+  raw?: string;
+  error?: string;
 };
 
 export type RunnerModel = {
@@ -242,6 +276,7 @@ export type RunnerModel = {
     blockedReason?: string;
     status: string;
     evidenceSummary?: string;
+    output?: SkillOutputModel;
     updatedAt?: string;
   }>;
   factSources?: string[];
@@ -279,6 +314,7 @@ export type RunnerSchedulerJob = {
   projectId?: string;
   workspaceRoot?: string;
   context?: Record<string, unknown>;
+  skillOutput?: SkillOutputModel;
 };
 
 export type CliAdapterConfigModel = {

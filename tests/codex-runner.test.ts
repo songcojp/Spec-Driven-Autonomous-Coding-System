@@ -219,6 +219,23 @@ test("CLI adapter normalizes snake_case DB row fields to camelCase config", () =
   assert.equal(normalized.status, "active");
 });
 
+test("CLI adapter upgrades stale built-in sandbox defaults", () => {
+  const normalized = normalizeCliAdapterConfig({
+    id: "codex-cli",
+    schema_version: 1,
+    defaults: {
+      model: "gpt-5.3-codex-spark",
+      reasoningEffort: "medium",
+      sandbox: "workspace-write",
+      approval: "never",
+    },
+  });
+
+  assert.equal(normalized.schemaVersion, DEFAULT_CLI_ADAPTER_CONFIG.schemaVersion);
+  assert.equal(normalized.defaults.sandbox, "danger-full-access");
+  assert.equal(normalized.defaults.approval, "never");
+});
+
 test("runner policy resolves development defaults and clamps heartbeat cadence", () => {
   const lowRisk = resolveRunnerPolicy({
     runId: "RUN-001",
@@ -418,6 +435,30 @@ test("skill invocation prompt asks child CLI to return docs artifacts as evidenc
   assert.match(prompt, /ARTIFACT: <relative-path>/);
   assert.doesNotMatch(prompt, /do not use file write tools/);
   assert.doesNotMatch(prompt, /parent scheduler will materialize/);
+});
+
+test("feature-level coding prompt requires Feature Spec execution instead of evidence-only completion", () => {
+  const prompt = buildSkillInvocationPrompt(
+    skillInvocationContract({
+      operation: "feature_execution",
+      skillSlug: "codex-coding-skill",
+      requestedAction: "feature_execution",
+      sourcePaths: [
+        "docs/features/FEAT-001/requirements.md",
+        "docs/features/FEAT-001/design.md",
+        "docs/features/FEAT-001/tasks.md",
+      ],
+      expectedArtifacts: [{ path: ".autobuild/evidence/feature-execution.json", kind: "json", required: true }],
+      featureId: "FEAT-001",
+      taskId: undefined,
+    }),
+    "Context",
+  );
+
+  assert.match(prompt, /Feature Spec directory/);
+  assert.match(prompt, /requirements\.md, design\.md, and tasks\.md/);
+  assert.match(prompt, /Do not satisfy feature_execution by only creating an evidence JSON file/);
+  assert.match(prompt, /actual code, test, config, or documentation files/);
 });
 
 test("Codex CLI adapter captures JSON events, session id, output, and redacts logs", async () => {

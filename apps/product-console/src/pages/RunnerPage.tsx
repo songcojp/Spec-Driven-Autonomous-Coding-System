@@ -17,8 +17,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { UiStrings } from "../lib/i18n";
-import { statusTone } from "../lib/utils";
-import type { CommandReceipt, ConsoleData, RunnerSchedulerJob } from "../types";
+import { formatSpecValue, statusTone } from "../lib/utils";
+import type { CommandReceipt, ConsoleData, RunnerSchedulerJob, SkillOutputModel } from "../types";
 import { Button, Chip, EmptyState, Panel, SectionTitle } from "../components/ui/primitives";
 import { FactList } from "../components/ui/helpers";
 
@@ -158,6 +158,7 @@ function JobDetailDrawer({
   }
   const runId = job.executionId ?? job.runId;
   const recentLogText = recentLog?.stderr || recentLog?.stdout || text.none;
+  const skillOutput = job.skillOutput ?? invocation?.output;
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -208,6 +209,8 @@ function JobDetailDrawer({
               </div>
             </section>
 
+            <SkillOutputPanel output={skillOutput} text={text} />
+
             <details className="rounded-md border border-line bg-white p-3">
               <summary className="cursor-pointer text-[12px] font-semibold text-ink">{text.technicalTrace}</summary>
               <FactList
@@ -226,6 +229,77 @@ function JobDetailDrawer({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: UiStrings }) {
+  if (!output) {
+    return (
+      <section className="rounded-md border border-line bg-white p-3">
+        <div className="text-[12px] font-semibold text-ink">{text.skillOutput}</div>
+        <div className="mt-2 text-muted">{text.stdoutJsonNotFound}</div>
+      </section>
+    );
+  }
+  const tone = output.parseStatus === "found" ? "green" : output.parseStatus === "invalid" ? "red" : "amber";
+  return (
+    <section className="rounded-md border border-line bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[12px] font-semibold text-ink">{text.skillOutput}</div>
+        <Chip tone={tone}>{output.parseStatus}</Chip>
+      </div>
+      <div className="mt-3 space-y-3 text-[12px]">
+        <FactList
+          rows={[
+            [text.status, output.status ?? text.none],
+            [text.summary, output.summary ?? output.error ?? text.stdoutJsonNotFound],
+            [text.stdoutJsonPath, output.stdoutJsonPath ?? text.none],
+          ]}
+        />
+        {output.producedArtifacts.length > 0 ? (
+          <div>
+            <div className="mb-1 font-semibold text-ink">{text.producedArtifacts}</div>
+            <div className="space-y-1">
+              {output.producedArtifacts.map((artifact, index) => (
+                <pre key={index} className="overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
+                  {formatSpecValue(artifact)}
+                </pre>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {output.evidence.length > 0 ? (
+          <div>
+            <div className="mb-1 font-semibold text-ink">{text.evidence}</div>
+            <div className="space-y-1">
+              {output.evidence.map((entry, index) => (
+                <pre key={index} className="overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
+                  {formatSpecValue(entry)}
+                </pre>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {output.traceability ? (
+          <details className="rounded-md border border-line p-2">
+            <summary className="cursor-pointer font-semibold text-ink">{text.traceability}</summary>
+            <pre className="mt-2 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.traceability)}</pre>
+          </details>
+        ) : null}
+        {output.result ? (
+          <details className="rounded-md border border-line p-2">
+            <summary className="cursor-pointer font-semibold text-ink">{text.result}</summary>
+            <pre className="mt-2 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.result)}</pre>
+          </details>
+        ) : null}
+        {output.raw ? (
+          <details className="rounded-md border border-line p-2">
+            <summary className="cursor-pointer font-semibold text-ink">{text.rawJson}</summary>
+            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.raw)}</pre>
+          </details>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

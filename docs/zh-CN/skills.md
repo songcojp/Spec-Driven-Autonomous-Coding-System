@@ -49,14 +49,14 @@
 | `data-model-skill` | 基础骨架 | Feature 涉及持久化、迁移、状态记录、视图模型、事件、证据或审计时。 | requirements、feature design、HLD 数据域、现有 schema/model。 | 实体字段、迁移计划、生命周期规则、测试和证据要求。 |
 | `contract-design-skill` | 基础骨架 | 需要 API、CLI、事件、文件、ViewModel、Skill 输入或证据契约时。 | requirements、design、HLD 接口策略、技术上下文、现有接口模式。 | 契约摘要、字段形状、校验与错误行为、兼容性说明、契约测试。 |
 | `quickstart-validation-skill` | 基础骨架 | 任务拆分前确认实现路径可启动、可测试、符合项目宪法时。 | 架构计划、数据模型、契约计划、仓库命令、`memory/constitution.md` 或等价文件。 | go/blocked 决策、命令检查、测试可行性、宪法合规结论、阻塞项。 |
-| `task-slicing-skill` | 较完整 | 将 PRD/EARS/HLD 拆成 Feature Specs，或将已规划 Feature 切成任务图时。 | PRD、EARS、HLD、Feature planning 输出、现有 Feature Spec。 | `docs/features/<feature-id>/requirements.md`、`design.md`、`tasks.md`、Feature 索引和 `feature-pool-queue.json`。 |
+| `task-slicing-skill` | 较完整 | 将 PRD/EARS/HLD 拆成 Feature Specs，或维护 Feature Spec 内的 `tasks.md` 执行清单时。 | PRD、EARS、HLD、Feature planning 输出、现有 Feature Spec。 | `docs/features/<feature-id>/requirements.md`、`design.md`、`tasks.md`、Feature 索引和 `feature-pool-queue.json`。 |
 | `spec-consistency-analysis-skill` | 基础骨架 | 规划结束或实现前，检查 requirements、design、tasks、数据模型、契约和 quickstart 是否一致。 | Feature requirements、design、tasks、HLD、全部规划输出。 | 一致性结论、需求到任务覆盖表、矛盾或陈旧假设、修复项。 |
 
 ### 实现、测试与恢复类
 
 | Skill | 当前内容状态 | 何时使用 | 主要输入 | 主要输出 |
 | --- | --- | --- | --- | --- |
-| `codex-coding-skill` | 基础骨架 | 有已批准 Feature Spec、设计约束、允许文件范围和验证命令的受控实现任务。 | 任务、Feature Spec、限制性需求、设计约束、允许文件范围。 | 代码变更、测试证据、残余风险、`SkillOutputContractV1`。 |
+| `codex-coding-skill` | 基础骨架 | 有已批准 Feature Spec、设计约束、允许文件范围和验证命令的受控实现；Feature 级执行可直接读取 Feature Spec 目录，不要求平台 task 表。 | Feature Spec 目录（`requirements.md`、`design.md`、`tasks.md`）、限制性需求、设计约束、允许文件范围、验证命令。 | 代码/测试/配置/必要文档变更、测试证据、残余风险、`SkillOutputContractV1`。 |
 | `test-execution-skill` | 基础骨架 | 需要目标测试、回归测试、浏览器测试、构建或验收验证时。 | 任务/Feature 验收标准、仓库测试命令、运行环境。 | 命令结果、失败分类、Status Checker 可消费证据、下一步建议。 |
 | `failure-recovery-skill` | 基础骨架 | 任务失败、命令失败、状态检查失败或 Runner 报错后，需要受限恢复时。 | 失败类型、失败命令、摘要、相关文件、fingerprint、历史尝试、重试上限。 | 恢复分类、执行动作、变更文件或重试命令、验证证据、剩余重试预算。 |
 

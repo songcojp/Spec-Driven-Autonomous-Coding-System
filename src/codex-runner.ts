@@ -373,7 +373,7 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
 export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "codex-cli",
   displayName: "Codex CLI",
-  schemaVersion: 1,
+  schemaVersion: 2,
   executable: "codex",
   argumentTemplate: [
     "-a",
@@ -646,7 +646,7 @@ function stripWorkspaceContextBundle(prompt: string): string {
 export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Record<string, unknown>): CliAdapterConfig {
   const defaults = isRecord(input.defaults) ? input.defaults : {};
   const outputMapping = isRecord(input.outputMapping) ? input.outputMapping : {};
-  return {
+  const normalized: CliAdapterConfig = {
     ...DEFAULT_CLI_ADAPTER_CONFIG,
     id: optionalConfigString(input.id) ?? DEFAULT_CLI_ADAPTER_CONFIG.id,
     displayName: optionalConfigString(input.displayName) ?? optionalConfigString(input.display_name) ?? DEFAULT_CLI_ADAPTER_CONFIG.displayName,
@@ -671,6 +671,22 @@ export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Rec
     },
     status: normalizeAdapterStatus(input.status) ?? DEFAULT_CLI_ADAPTER_CONFIG.status,
     updatedAt: optionalConfigString(input.updatedAt) ?? optionalConfigString(input.updated_at) ?? new Date().toISOString(),
+  };
+  return upgradeBuiltInCodexAdapterConfig(normalized);
+}
+
+function upgradeBuiltInCodexAdapterConfig(config: CliAdapterConfig): CliAdapterConfig {
+  if (config.id !== DEFAULT_CLI_ADAPTER_CONFIG.id || config.schemaVersion >= DEFAULT_CLI_ADAPTER_CONFIG.schemaVersion) {
+    return config;
+  }
+  return {
+    ...config,
+    schemaVersion: DEFAULT_CLI_ADAPTER_CONFIG.schemaVersion,
+    defaults: {
+      ...config.defaults,
+      sandbox: DEFAULT_CLI_ADAPTER_CONFIG.defaults.sandbox,
+      approval: DEFAULT_CLI_ADAPTER_CONFIG.defaults.approval,
+    },
   };
 }
 
@@ -810,6 +826,15 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
         "- Write Feature Spec packages under docs/features/<feature-id>/ with requirements.md, design.md, tasks.md, and update docs/features/README.md.",
       ]
     : [];
+  const featureCodingRules = contract.skillSlug === "codex-coding-skill" && contract.operation === "feature_execution" && !contract.traceability.taskId
+    ? [
+        "- For feature_execution without taskId, treat the Feature Spec directory in sourcePaths as the implementation scope.",
+        "- Read requirements.md, design.md, and tasks.md from that Feature Spec directory, then implement the concrete tasks described there.",
+        "- Do not satisfy feature_execution by only creating an evidence JSON file or by only summarizing planned work.",
+        "- If the Feature Spec tasks cannot be implemented from the available source paths, return status blocked with the missing decision or file scope.",
+        "- producedArtifacts must list the actual code, test, config, or documentation files created or updated while executing the Feature Spec.",
+      ]
+    : [];
   return [
     "Execute this SpecDrive CLI skill invocation inside the current workspace.",
     "",
@@ -828,6 +853,7 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- ARTIFACT evidence is only a last-resort file materialization fallback; it does not replace the required SkillOutputContractV1 fields.",
     "- Do not assume a platform Skill Registry or Skill Center exists.",
     ...taskSlicingRules,
+    ...featureCodingRules,
     "",
     "Context:",
     context,

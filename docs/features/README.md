@@ -21,7 +21,7 @@
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 | FEAT-015 | Chat Interface | `feat-015-chat-interface` | in-progress | REQ-069 至 REQ-073 | M7 | FEAT-013、FEAT-004、FEAT-014 |
 
-FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、Evidence 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃。
+FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、Evidence 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃；Feature 级编码执行由 `codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md`，不再依赖平台 `task_graph_tasks` / `tasks` 表。
 
 ## Dependency Tree
 
@@ -77,7 +77,7 @@ FEAT-000 System Bootstrap
 
 1. FEAT-000 bootstraps the control-plane runtime, artifact root and schema foundation.
 2. FEAT-001, FEAT-002, FEAT-003 and FEAT-014 establish the project, spec, CLI skill discovery and persistence foundations.
-3. FEAT-004 turns ready specs into schedulable task graphs and state transitions.
+3. FEAT-004 turns ready Feature Specs into auditable executor jobs, Execution Records and state transitions.
 4. FEAT-005, FEAT-006 and FEAT-007 provide CLI delegation observation, memory projection and workspace isolation.
 5. FEAT-008 enables Codex execution.
 6. FEAT-009 and FEAT-010 close the check and recovery loop.
@@ -102,6 +102,7 @@ FEAT-000 System Bootstrap
 | CHG-017 | FEAT-008 / FEAT-013 | 实现过程发现 Runner Queue Worker 在 `cli_adapter_configs` 表非空但无 active row 时不阻断新 Run，且 SettingsPage 缺少 `disable_cli_adapter_config` 按鈕。 | 已在 `src/scheduler.ts` `loadRunnerTaskContext` 补充适配器数龐查询并添加阻断逻辑；已在 SettingsPage 添加禁用按鈕；已补充 CLI Adapter 校验、normalize 和阻断行为单测；全部 298 测试通过。 |
 | CHG-015 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 | 调度系统升级为 BullMQ + Redis；SQLite 仍是业务事实源。当前模型由 CHG-018 收敛为 `<executor>.run` Job + Execution Record，`run_board_tasks` / Spec 操作入队 `cli.run` 后由 Worker 执行。 | 已执行 FEAT-004、FEAT-008、FEAT-013、FEAT-014 scheduler job / execution record 持久化与控制台展示。 |
 | CHG-016 | FEAT-004 / FEAT-008 / FEAT-013 | Product Console / Spec 操作转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中调用 Codex；平台不恢复 Skill Registry 或 Skill Center。 | 已执行 FEAT-004 `TASK-017`、FEAT-008 `TASK-014` 至 `TASK-016`、FEAT-013 `TASK-035` 至 `TASK-036`。 |
+| CHG-019 | FEAT-004 / FEAT-008 / FEAT-013 | Feature 级编码执行改为 Feature Spec 目录驱动；`codex-coding-skill` 读取 `requirements.md`、`design.md`、`tasks.md` 后直接执行，不依赖 `task_graph_tasks` / `tasks` 表。 | 已同步 FEAT-004 `TASK-020`、FEAT-008 `TASK-017`、FEAT-013 `TASK-043`，并补充 feature-level `schedule_run` blocked/入队测试。 |
 | CHG-009 | FEAT-013 | 当前 Product Console 实现只覆盖 Control Plane API 和 ViewModel，不能替代 PRD 第 8 节要求的用户可操作 UI。 | 已补真实前端应用、页面路由、shadcn/ui 组件体系和浏览器级验收。 |
 | CHG-007 | FEAT-010 | 失败重试上限、2/4/8 分钟退避和失败指纹已由现有实现与测试覆盖。 | 无需重新执行 Feature Spec。 |
 | CHG-006 / CHG-008 | Mainline Docs | Issue Tracker 非目标和性能阈值基线记录是文档约束，不形成实现任务。 | 无需执行 Feature Spec。 |

@@ -278,14 +278,48 @@ export type SpecWorkspaceViewModel = {
     title: string;
     requirements: Array<{ id: string; body: string; acceptanceCriteria?: string; priority?: string }>;
     taskGraph?: unknown;
+    documents: FeatureSpecDocumentsViewModel;
     clarificationRecords: unknown[];
     qualityChecklist: Array<{ item: string; passed: boolean }>;
     technicalPlan?: unknown;
     dataModels: unknown[];
     contracts: unknown[];
     versionDiffs: unknown[];
+    skillOutput?: SkillOutputViewModel;
   };
   commands: Array<{ action: ConsoleCommandAction; entityType: ConsoleCommandInput["entityType"] }>;
+};
+
+export type FeatureSpecDocumentsViewModel = {
+  requirements?: FeatureSpecDocumentViewModel;
+  design?: FeatureSpecDocumentViewModel;
+  tasks?: FeatureSpecDocumentViewModel;
+};
+
+export type FeatureSpecDocumentViewModel = {
+  path: string;
+  exists: boolean;
+  title?: string;
+  sections: Array<{ heading: string; level: number; body: string }>;
+  raw?: string;
+  error?: string;
+};
+
+export type SkillOutputViewModel = {
+  parseStatus: "found" | "missing" | "invalid";
+  stdoutJsonPath?: string;
+  error?: string;
+  status?: string;
+  summary?: string;
+  tokenUsage?: unknown;
+  inputContract?: unknown;
+  outputContract?: unknown;
+  producedArtifacts: unknown[];
+  evidence: unknown[];
+  traceability?: unknown;
+  result?: unknown;
+  raw?: unknown;
+  recordCount?: number;
 };
 
 type SpecWorkspaceFeatureListItem = SpecWorkspaceViewModel["features"][number];
@@ -322,6 +356,76 @@ function listFeatureSpecsFromDocs(
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id, undefined, { numeric: true }));
+}
+
+function readFeatureSpecDocuments(projectPath: string, folder: string): FeatureSpecDocumentsViewModel {
+  const safeFolder = basename(folder);
+  return {
+    requirements: readFeatureSpecDocument(projectPath, safeFolder, "requirements.md"),
+    design: readFeatureSpecDocument(projectPath, safeFolder, "design.md"),
+    tasks: readFeatureSpecDocument(projectPath, safeFolder, "tasks.md"),
+  };
+}
+
+function readFeatureSpecDocument(projectPath: string, folder: string, filename: string): FeatureSpecDocumentViewModel {
+  const path = `docs/features/${folder}/${filename}`;
+  const fullPath = join(projectPath, "docs", "features", folder, filename);
+  if (!existsSync(fullPath)) {
+    return { path, exists: false, sections: [] };
+  }
+
+  try {
+    const raw = readFileSync(fullPath, "utf8");
+    const sections = parseMarkdownSections(raw);
+    return {
+      path,
+      exists: true,
+      title: sections[0]?.level === 1 ? sections[0].heading : undefined,
+      sections,
+      raw,
+    };
+  } catch (error) {
+    return {
+      path,
+      exists: false,
+      sections: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function parseMarkdownSections(markdown: string): FeatureSpecDocumentViewModel["sections"] {
+  const sections: FeatureSpecDocumentViewModel["sections"] = [];
+  let current: { heading: string; level: number; bodyLines: string[] } | undefined;
+
+  for (const line of markdown.split(/\r?\n/)) {
+    const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      if (current) {
+        sections.push({
+          heading: current.heading,
+          level: current.level,
+          body: current.bodyLines.join("\n").trim(),
+        });
+      }
+      current = { heading: heading[2].trim(), level: heading[1].length, bodyLines: [] };
+      continue;
+    }
+    if (!current && line.trim()) {
+      current = { heading: "Overview", level: 1, bodyLines: [] };
+    }
+    current?.bodyLines.push(line);
+  }
+
+  if (current) {
+    sections.push({
+      heading: current.heading,
+      level: current.level,
+      body: current.bodyLines.join("\n").trim(),
+    });
+  }
+
+  return sections;
 }
 
 function featureIdFromFolder(folder: string): string {
@@ -529,6 +633,7 @@ export type RunnerConsoleViewModel = {
     projectId?: string;
     workspaceRoot?: string;
     context?: Record<string, unknown>;
+    skillOutput?: SkillOutputViewModel;
   }>;
   recentTriggers: Array<{
     id: string;
@@ -546,6 +651,7 @@ export type RunnerConsoleViewModel = {
     blockedReason?: string;
     status: string;
     evidenceSummary?: string;
+    output?: SkillOutputViewModel;
     updatedAt?: string;
   }>;
   factSources: string[];
@@ -1131,6 +1237,14 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       params: selectedFeatureParams,
     },
     {
+      name: "featureExecutions",
+      sql: `SELECT id, project_id, context_json, metadata_json, status, started_at, completed_at, updated_at
+        FROM execution_records ${projectId ? "WHERE project_id = ?" : ""}
+        ORDER BY COALESCE(updated_at, completed_at, started_at, '') DESC, rowid DESC
+        LIMIT 50`,
+      params: projectId ? [projectId] : [],
+    },
+    {
       name: "workflowAudit",
       sql: `SELECT id, entity_type, entity_id, event_type, reason, payload_json, created_at
         FROM audit_timeline_events
@@ -1173,6 +1287,12 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
     ? featureId
     : features[0]?.id;
   const feature = selectedFeatureId ? features.find((entry) => entry.id === selectedFeatureId) : undefined;
+  const featureSkillOutput = selectedFeatureId
+    ? latestSkillOutputForFeature(result.queries.featureExecutions, selectedFeatureId, projectPath)
+    : undefined;
+  const featureDocuments = projectPath && feature?.folder
+    ? readFeatureSpecDocuments(projectPath, feature.folder)
+    : {};
   const evidence = result.queries.featureEvidence.map((row) => ({
     id: String(row.id),
     kind: String(row.kind),
@@ -1205,11 +1325,14 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
             priority: optionalString(row.priority),
           })),
           taskGraph: parseJson(result.queries.taskGraphs[0]?.graph_json),
+          documents: featureDocuments,
           clarificationRecords: evidence.filter((entry) => entry.kind === "clarification"),
           qualityChecklist: [
-            { item: "requirements_present", passed: result.queries.requirements.length > 0 },
-            { item: "task_graph_present", passed: result.queries.taskGraphs.length > 0 },
-            { item: "status_ready_for_scheduling", passed: Boolean(feature.status) && result.queries.taskGraphs.length > 0 },
+            { item: "requirements_present", passed: result.queries.requirements.length > 0 || featureDocuments.requirements?.exists === true },
+            { item: "requirements_md_present", passed: featureDocuments.requirements?.exists === true },
+            { item: "design_md_present", passed: featureDocuments.design?.exists === true },
+            { item: "tasks_md_present", passed: featureDocuments.tasks?.exists === true },
+            { item: "status_ready_for_scheduling", passed: Boolean(feature.status) && featureDocuments.requirements?.exists === true && featureDocuments.design?.exists === true && featureDocuments.tasks?.exists === true },
           ],
           dataModels: evidence.filter((entry) => entry.kind === "data_model"),
           contracts: evidence.filter((entry) => entry.kind === "contract"),
@@ -1222,6 +1345,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
               createdAt: String(row.created_at),
             })),
           ],
+          skillOutput: featureSkillOutput,
         }
       : undefined,
     commands: [
@@ -1663,6 +1787,11 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       params: schedulerProjectParams,
     },
     {
+      name: "repositoryConnections",
+      sql: `SELECT project_id, local_path FROM repository_connections ${projectId ? "WHERE project_id = ?" : ""} ORDER BY connected_at DESC`,
+      params: projectParams,
+    },
+    {
       name: "audit",
       sql: "SELECT id, entity_type, entity_id, event_type, payload_json, created_at FROM audit_timeline_events ORDER BY created_at DESC, rowid DESC LIMIT 20",
     },
@@ -1673,6 +1802,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
   const taskById = new Map(taskRows.map((row) => [String(row.id), row]));
   const latestRunsByTask = latestRunsForTasks(result.queries.executionRecords);
   const latestHeartbeatsByRun = latestHeartbeatByRun(result.queries.heartbeats);
+  const workspaceRootByProject = latestWorkspaceRootByProject(result.queries.repositoryConnections);
   const laneTasks = buildRunnerScheduleLanes({
     taskRows,
     taskById,
@@ -1717,7 +1847,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       failureRate: latestMetric(result.queries.metrics, "failure_rate"),
     },
     lanes: laneTasks,
-    schedulerJobs: buildRunnerSchedulerJobs(result.queries.schedulerJobs, result.queries.executionRecords, taskRows),
+    schedulerJobs: buildRunnerSchedulerJobs(result.queries.schedulerJobs, result.queries.executionRecords, taskRows, workspaceRootByProject),
     recentTriggers: [
       ...result.queries.schedulerJobs.map((row) => ({
         id: String(row.id),
@@ -1764,7 +1894,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       { action: "schedule_board_tasks", entityType: "feature" },
       { action: "run_board_tasks", entityType: "feature" },
     ],
-    skillInvocations: buildSkillInvocationFeedback(result.queries.executionRecords, result.queries.schedulerJobs, result.queries.evidence),
+    skillInvocations: buildSkillInvocationFeedback(result.queries.executionRecords, result.queries.schedulerJobs, result.queries.evidence, workspaceRootByProject),
   };
 }
 
@@ -2115,6 +2245,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const blockedReasons = [
     ...boardValidation.blockedReasons,
     ...(settingsValidation?.blockedReasons ?? []),
+    ...(scheduleResult?.blockedReasons ?? []),
     ...(boardResult?.blockedReasons ?? []),
     ...(projectInitializationResult?.blockedReasons ?? []),
     ...(specIntakeResult?.blockedReasons ?? []),
@@ -2293,7 +2424,7 @@ function executeScheduleCommand(
   input: ConsoleCommandInput,
   acceptedAt: string,
   scheduler: SchedulerClient,
-): { triggerId: string; schedulerJobId?: string; executionId?: string } | undefined {
+): { triggerId: string; schedulerJobId?: string; executionId?: string; blockedReasons?: string[] } | undefined {
   if (input.action !== "schedule_run") {
     return undefined;
   }
@@ -2326,10 +2457,17 @@ function executeScheduleCommand(
   const taskId = optionalString(payload.taskId) ?? (input.entityType === "task" ? input.entityId : undefined);
   const executionId = randomUUID();
   const operation = optionalString(payload.operation) ?? "feature_execution";
+  const skillSlug = optionalString(payload.skillSlug) ?? (operation === "feature_execution" ? "codex-coding-skill" : undefined);
   const projectId = trigger.projectId ?? optionalString(payload.projectId);
   const project = projectId ? getProject(dbPath, projectId) : undefined;
   const workspaceRoot = scheduleRunWorkspaceRoot(dbPath, projectId, project?.targetRepoPath);
   const featureSpecPath = featureSpecPathForScheduleRun(dbPath, workspaceRoot, featureId);
+  if (operation === "feature_execution" && skillSlug === "codex-coding-skill") {
+    const readiness = validateFeatureSpecExecutionInput(workspaceRoot, featureSpecPath);
+    if (readiness.length > 0) {
+      return { triggerId: trigger.id, blockedReasons: readiness };
+    }
+  }
   const context = {
     featureId,
     taskId,
@@ -2337,7 +2475,7 @@ function executeScheduleCommand(
     sourcePaths: scheduleRunSourcePaths(payload, featureSpecPath),
     expectedArtifacts: scheduleRunExpectedArtifacts(payload),
     workspaceRoot,
-    skillSlug: optionalString(payload.skillSlug) ?? (operation === "feature_execution" ? "codex-coding-skill" : undefined),
+    skillSlug,
     skillPhase: optionalString(payload.skillPhase) ?? operation,
   };
   const job = scheduler.enqueueCliRun({
@@ -2358,6 +2496,20 @@ function executeScheduleCommand(
     acceptedAt,
   });
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId };
+}
+
+function validateFeatureSpecExecutionInput(workspaceRoot?: string, featureSpecPath?: string): string[] {
+  if (!workspaceRoot) return ["Feature execution requires a project workspace root."];
+  if (!featureSpecPath) return ["Feature execution requires a Feature Spec directory."];
+  const normalized = featureSpecPath.replaceAll("\\", "/");
+  if (isAbsolute(normalized) || normalized.startsWith("..") || normalized.includes("/../")) {
+    return [`Feature Spec path must stay inside the workspace: ${featureSpecPath}`];
+  }
+  const required = ["requirements.md", "design.md", "tasks.md"];
+  const missing = required.filter((file) => !existsSync(join(workspaceRoot, normalized, file)));
+  return missing.length > 0
+    ? [`Feature execution requires a complete Feature Spec directory: ${normalized} is missing ${missing.join(", ")}.`]
+    : [];
 }
 
 function scheduleRunWorkspaceRoot(dbPath: string, projectId?: string, targetRepoPath?: string): string | undefined {
@@ -3705,6 +3857,7 @@ function buildSkillInvocationFeedback(
   executionRows: Record<string, unknown>[],
   schedulerRows: Record<string, unknown>[],
   evidenceRows: Record<string, unknown>[],
+  workspaceRootByProject = new Map<string, string>(),
 ): RunnerConsoleViewModel["skillInvocations"] {
   const evidenceByRun = new Map<string, Record<string, unknown>>();
   for (const row of evidenceRows) {
@@ -3725,15 +3878,19 @@ function buildSkillInvocationFeedback(
       const executionId = String(execution.id);
       const schedulerJob = schedulerRows.find((row) => row.id === execution.scheduler_job_id || optionalString(parseJsonObject(row.payload_json).executionId) === executionId);
       const evidence = evidenceByRun.get(executionId);
+      const workspaceRoot = optionalString(metadata.workspaceRoot)
+        ?? optionalString(context.workspaceRoot)
+        ?? workspaceRootByProject.get(String(execution.project_id));
       return {
         runId: executionId,
         schedulerJobId: optionalString(schedulerJob?.id),
-        workspaceRoot: optionalString(metadata.workspaceRoot) ?? optionalString(context.workspaceRoot),
+        workspaceRoot,
         skillSlug: skillSlug ?? optionalString(context.skillSlug),
         skillPhase,
         blockedReason: optionalString(metadata.blockedReason) ?? (String(execution.status) === "blocked" ? optionalString(execution.summary) : undefined),
         status: String(execution.status),
         evidenceSummary: optionalString(evidence?.summary),
+        output: readSkillOutputViewModel(workspaceRoot, executionId),
         updatedAt: optionalString(execution.completed_at) ?? optionalString(execution.started_at) ?? optionalString(execution.updated_at),
       };
     })
@@ -3741,10 +3898,42 @@ function buildSkillInvocationFeedback(
     .slice(0, 12);
 }
 
+function latestSkillOutputForFeature(
+  executionRows: Record<string, unknown>[],
+  featureId: string,
+  projectWorkspaceRoot: string | undefined,
+): SkillOutputViewModel | undefined {
+  const execution = executionRows.find((row) => {
+    const context = parseJsonObject(row.context_json);
+    const metadata = parseJsonObject(row.metadata_json);
+    return optionalString(context.featureId) === featureId || optionalString(metadata.featureId) === featureId;
+  });
+  if (!execution) return undefined;
+  const context = parseJsonObject(execution.context_json);
+  const metadata = parseJsonObject(execution.metadata_json);
+  return readSkillOutputViewModel(
+    optionalString(metadata.workspaceRoot) ?? optionalString(context.workspaceRoot) ?? projectWorkspaceRoot,
+    String(execution.id),
+  );
+}
+
+function latestWorkspaceRootByProject(rows: Record<string, unknown>[]): Map<string, string> {
+  const byProject = new Map<string, string>();
+  for (const row of rows) {
+    const projectId = optionalString(row.project_id);
+    const workspaceRoot = optionalString(row.local_path);
+    if (projectId && workspaceRoot && !byProject.has(projectId)) {
+      byProject.set(projectId, workspaceRoot);
+    }
+  }
+  return byProject;
+}
+
 function buildRunnerSchedulerJobs(
   schedulerRows: Record<string, unknown>[],
   executionRows: Record<string, unknown>[],
   taskRows: Record<string, unknown>[],
+  workspaceRootByProject = new Map<string, string>(),
 ): RunnerConsoleViewModel["schedulerJobs"] {
   const executionsByJob = new Map<string, Record<string, unknown>>();
   const executionsById = new Map<string, Record<string, unknown>>();
@@ -3764,6 +3953,11 @@ function buildRunnerSchedulerJobs(
     const mergedContext = { ...payloadContext, ...context };
     const taskId = optionalString(mergedContext.taskId);
     const featureId = optionalString(mergedContext.featureId);
+    const projectId = optionalString(payload.projectId) ?? optionalString(execution?.project_id);
+    const workspaceRoot = optionalString(metadata.workspaceRoot)
+      ?? optionalString(mergedContext.workspaceRoot)
+      ?? (projectId ? workspaceRootByProject.get(projectId) : undefined);
+    const skillOutput = readSkillOutputViewModel(workspaceRoot, executionId);
     return {
       id: String(row.id),
       name: schedulerJobName(row, payload, mergedContext, tasksById),
@@ -3781,9 +3975,10 @@ function buildRunnerSchedulerJobs(
       runId: executionId,
       taskId,
       featureId,
-      projectId: optionalString(payload.projectId),
-      workspaceRoot: optionalString(metadata.workspaceRoot) ?? optionalString(mergedContext.workspaceRoot),
+      projectId,
+      workspaceRoot,
       context: mergedContext,
+      skillOutput,
     };
   });
 }
@@ -4153,6 +4348,168 @@ function latestAdapterDryRun(rows: Record<string, unknown>[], adapterId: string)
 
 function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
+}
+
+function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId: string | undefined): SkillOutputViewModel | undefined {
+  if (!executionId) return undefined;
+  if (!workspaceRoot) {
+    return {
+      parseStatus: "missing",
+      error: "workspace_root_missing",
+      producedArtifacts: [],
+      evidence: [],
+    };
+  }
+
+  const runDir = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(executionId));
+  const cliOutputTokenUsage = readCliOutputTokenUsage(runDir);
+  const stdoutJsonPath = join(runDir, "stdout.json");
+  if (!existsSync(stdoutJsonPath)) {
+    return {
+      parseStatus: "missing",
+      stdoutJsonPath,
+      error: "stdout_json_not_found",
+      tokenUsage: cliOutputTokenUsage,
+      producedArtifacts: [],
+      evidence: [],
+    };
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(stdoutJsonPath, "utf8"));
+  } catch (error) {
+    return {
+      parseStatus: "invalid",
+      stdoutJsonPath,
+      error: error instanceof Error ? error.message : String(error),
+      tokenUsage: cliOutputTokenUsage,
+      producedArtifacts: [],
+      evidence: [],
+    };
+  }
+
+  const output = findSkillOutputRecord(raw);
+  const recordCount = Array.isArray(raw) ? raw.length : undefined;
+  return {
+    parseStatus: "found",
+    stdoutJsonPath,
+    status: optionalString(output?.status),
+    summary: optionalString(output?.summary),
+    tokenUsage: skillOutputTokenUsage(output, raw) ?? cliOutputTokenUsage,
+    inputContract: skillInputContract(output, raw),
+    outputContract: skillOutputContract(output),
+    producedArtifacts: arrayValue(output?.producedArtifacts),
+    evidence: arrayValue(output?.evidence),
+    traceability: output?.traceability,
+    result: output?.result,
+    raw,
+    recordCount,
+  };
+}
+
+function readCliOutputTokenUsage(runDir: string): unknown {
+  const cliOutputPath = join(runDir, "cli-output.json");
+  if (!existsSync(cliOutputPath)) return undefined;
+  try {
+    return tokenUsageFromValue(JSON.parse(readFileSync(cliOutputPath, "utf8")));
+  } catch {
+    return undefined;
+  }
+}
+
+function skillInputContract(output: Record<string, unknown> | undefined, raw: unknown): unknown {
+  const rawRecord = isRecord(raw) ? raw : undefined;
+  return output?.inputContract
+    ?? output?.input
+    ?? output?.request
+    ?? rawRecord?.inputContract
+    ?? rawRecord?.input
+    ?? rawRecord?.request;
+}
+
+function skillOutputTokenUsage(output: Record<string, unknown> | undefined, raw: unknown): unknown {
+  return tokenUsageFromRecord(output) ?? tokenUsageFromValue(raw);
+}
+
+function tokenUsageFromValue(value: unknown): unknown {
+  const direct = tokenUsageFromRecord(isRecord(value) ? value : undefined);
+  if (direct) return direct;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const usage = tokenUsageFromValue(item);
+      if (usage) return usage;
+    }
+  }
+  return undefined;
+}
+
+function tokenUsageFromRecord(record: Record<string, unknown> | undefined): unknown {
+  if (!record) return undefined;
+  return record.tokenUsage
+    ?? record.usage
+    ?? record.tokens
+    ?? record.metrics
+    ?? tokenUsageFromValue(record.output)
+    ?? tokenUsageFromValue(record.item);
+}
+
+function skillOutputContract(output: Record<string, unknown> | undefined): unknown {
+  if (!output) return undefined;
+  return output.outputContract
+    ?? output.contract
+    ?? output.schema
+    ?? {
+      contractVersion: output.contractVersion ?? "skill-contract/v1",
+      fields: [
+        "status",
+        "summary",
+        "producedArtifacts",
+        "evidence",
+        "traceability",
+        "result",
+        "raw",
+      ],
+      required: ["status"],
+      resultShape: output.result ? inferJsonShape(output.result) : "unknown",
+    };
+}
+
+function inferJsonShape(value: unknown): unknown {
+  if (Array.isArray(value)) return "array";
+  if (!isRecord(value)) return typeof value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, Array.isArray(entry) ? "array" : typeof entry]));
+}
+
+function findSkillOutputRecord(value: unknown): Record<string, unknown> | undefined {
+  const record = isRecord(value) ? value : undefined;
+  if (record?.contractVersion === "skill-contract/v1") return record;
+  if (record && ("summary" in record || "producedArtifacts" in record || "evidence" in record || "traceability" in record || "result" in record)) return record;
+  if (!Array.isArray(value)) return record;
+
+  for (const item of value) {
+    const direct = findSkillOutputRecordFromEvent(item);
+    if (direct) return direct;
+  }
+  return undefined;
+}
+
+function findSkillOutputRecordFromEvent(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.contractVersion === "skill-contract/v1") return value;
+  const output = findSkillOutputRecord(value.output);
+  if (output) return output;
+  const item = isRecord(value.item) ? value.item : undefined;
+  if (typeof item?.text === "string") {
+    const parsed = parseJson(item.text);
+    const fromText = findSkillOutputRecord(parsed);
+    if (fromText) return fromText;
+  }
+  return undefined;
+}
+
+function sanitizeRunPathSegment(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]+/g, "-") || "run";
 }
 
 function elapsedMs(started: bigint): number {

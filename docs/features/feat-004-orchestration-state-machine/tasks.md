@@ -1,21 +1,22 @@
 # Tasks: FEAT-004 Scheduler and State Maintenance
 
 - [x] TASK-001: 定义 Feature 和 Task 状态机枚举、合法迁移表和 review_needed reason。
-- [x] TASK-002: 实现 Task Graph Builder，生成 task_id、标题、描述、来源需求、验收、允许文件、依赖、并行性、风险、预估工作量和状态。
+- [x] TASK-002: 历史实现：Task Graph Builder 曾生成 task_id、标题、描述、来源需求、验收、允许文件、依赖、并行性、风险、预估工作量和状态；当前由 Feature Spec `tasks.md` + Execution Record 取代。
 - [x] TASK-003: 实现 Board State Machine，限定 Backlog、Ready、Scheduled、Running、Checking、Review Needed、Blocked、Failed、Done 和 Delivered。
 - [x] TASK-004: 实现 Project Scheduler 和 Feature Selector，动态读取 ready Feature 并记录候选摘要和选择原因。
 - [x] TASK-005: 移除平台 Planning Pipeline 执行入口和持久化表。
-- [x] TASK-006: 实现 Feature Scheduler，基于任务依赖、风险、文件范围、Runner、worktree、预算、窗口和审批推进任务。
+- [x] TASK-006: 历史实现：Feature Scheduler 曾基于任务依赖、风险、文件范围、Runner、worktree、预算、窗口和审批推进任务；当前调度器直接校验 Feature Spec 目录并创建 `<executor>.run` Job。
 - [x] TASK-007: 实现 Feature Aggregator，聚合任务状态和验收结果。
 - [x] TASK-008: 添加状态机测试，覆盖合法迁移、非法迁移、review_needed reason、blocked 和 failed。
 - [x] TASK-009: 添加调度测试，验证 Project Memory 不是候选真实来源。
 - [x] TASK-010: 定义 Schedule Trigger 模型、触发模式枚举和触发结果，覆盖手动、指定时间、周期和受控事件触发。
 - [x] TASK-011: 实现调度触发记录与受控入口，持久化触发模式、触发时间、来源、对象、结果和阻塞原因，并让 accepted 手动/时间触发进入 Feature 选择。
 - [x] TASK-012: 添加调度触发测试，验证手动/时间类触发可进入选择，CI/审批/依赖事件不会绕过边界。
-- [x] TASK-013: 任务图和调度状态移除 Skill/Subagent 字段。
+- [x] TASK-013: 历史实现：任务图和调度状态移除 Skill/Subagent 字段；当前不再维护平台 TaskGraph / tasks 执行表。
 - [x] TASK-014: 将调度入口重构为 BullMQ + Redis job，固定 queue 为 `specdrive:feature-scheduler` / `specdrive:cli-runner`，并新增 `scheduler_job_records` SQLite 审计事实。
 - [x] TASK-015: 历史实现：`schedule_run` 登记 trigger 后进入旧 Feature 选择队列；该行为已由 TASK-018/TASK-019 废弃。
 - [x] TASK-016: 历史实现：旧 Feature Plan bridge-missing blocked 语义；该行为已由 TASK-018/TASK-019 废弃。
 - [x] TASK-017: 历史实现：旧 Workspace-aware planning CLI bridge；当前统一通过 `<executor>.run` + payload operation 表达执行入口。
 - [x] TASK-018: 将队列模型重构为 `<executor>.run` Job + Execution Record；取消 `feature.select`、`feature.plan`、FeatureSelectionDecision 和平台 TaskGraph 调度表，Feature/Task/Project 只进入 payload context。
 - [x] TASK-019: 将 `push_feature_spec_pool` 改为读取 `feature-pool-queue.json` 后直接入队 `cli.run` / 后续 `native.run`，Feature 执行统一使用 `operation = "feature_execution"`。
+- [x] TASK-020: 将 Feature 级 `schedule_run` 改为完整 Feature Spec 目录驱动；调度器校验 `requirements.md` / `design.md` / `tasks.md` 后直接入队 `feature_execution`，不再要求平台 `task_graph_tasks` / `tasks` 表存在。
