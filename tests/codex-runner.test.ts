@@ -90,6 +90,27 @@ function skillOutputEvent(overrides: Partial<{
   return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
 }
 
+function assertStrictSchemaObjects(schema: unknown, path = "$"): void {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return;
+  const record = schema as Record<string, unknown>;
+  if (record.type === "object") {
+    assert.equal(record.additionalProperties, false, `${path} should reject additional properties`);
+    const properties = record.properties && typeof record.properties === "object" && !Array.isArray(record.properties)
+      ? record.properties as Record<string, unknown>
+      : {};
+    const required = Array.isArray(record.required) ? record.required.map(String).sort() : [];
+    assert.deepEqual(required, Object.keys(properties).sort(), `${path} required should include every property`);
+  }
+
+  const properties = record.properties && typeof record.properties === "object" && !Array.isArray(record.properties)
+    ? record.properties as Record<string, unknown>
+    : {};
+  for (const [key, value] of Object.entries(properties)) {
+    assertStrictSchemaObjects(value, `${path}.properties.${key}`);
+  }
+  assertStrictSchemaObjects(record.items, `${path}.items`);
+}
+
 test("schema includes Codex runner policies, heartbeats, sessions, and logs", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
@@ -111,6 +132,35 @@ test("CLI adapter dry-run validates JSON-managed command templates", () => {
   assert.equal(result.command, "codex");
   assert.equal(result.args?.includes("--output-schema"), true);
   assert.equal(result.args?.includes("/tmp/runner-output.schema.json"), true);
+});
+
+test("default SkillOutputContract schema is valid for Codex strict JSON schema", () => {
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-SCHEMA",
+    risk: "low",
+    workspaceRoot: "/workspace/project",
+    now: stableDate,
+  });
+  const schema = policy.outputSchema as {
+    properties: {
+      contractVersion: Record<string, unknown>;
+      status: Record<string, unknown>;
+      producedArtifacts: { items: { required: string[]; properties: { status: Record<string, unknown>; checksum: Record<string, unknown>; summary: Record<string, unknown> } } };
+      traceability: { required: string[]; properties: { featureId: Record<string, unknown>; taskId: Record<string, unknown> } };
+    };
+  };
+
+  assert.deepEqual(schema.properties.contractVersion, { type: "string", const: "skill-contract/v1" });
+  assert.deepEqual(schema.properties.status, { type: "string", enum: ["completed", "review_needed", "blocked", "failed"] });
+  assert.deepEqual(schema.properties.producedArtifacts.items.properties.status, {
+    type: "string",
+    enum: ["created", "updated", "unchanged", "missing", "skipped"],
+  });
+  assert.deepEqual(schema.properties.producedArtifacts.items.properties.checksum, { type: ["string", "null"] });
+  assert.deepEqual(schema.properties.producedArtifacts.items.properties.summary, { type: ["string", "null"] });
+  assert.deepEqual(schema.properties.traceability.properties.featureId, { type: ["string", "null"] });
+  assert.deepEqual(schema.properties.traceability.properties.taskId, { type: ["string", "null"] });
+  assertStrictSchemaObjects(policy.outputSchema);
 });
 
 test("CLI adapter validation rejects configs with missing or empty executable", () => {
