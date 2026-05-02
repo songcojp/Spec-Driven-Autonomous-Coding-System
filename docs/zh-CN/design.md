@@ -86,7 +86,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-065 | 4.9, 5, 6.4, 7.5, 11 | Runner CLI Adapter 以 JSON 配置解析 CLI 命令、输出映射、session resume 和安全能力。 |
 | REQ-066 | 4.9, 4.16, 6.1, 6.4, 11, 12 | 系统设置用同一份 JSON 配置驱动 CLI Adapter 原始 JSON 编辑和 JSON Schema 表单编辑，并提供 dry-run 校验与审计反馈。 |
 | REQ-067 | 4.16, 6.1, 11 | Product Console 提供系统设置入口，并将 CLI 配置放到系统设置下。 |
-| NFR-001 | 4.9, 10 | Runner 默认禁用 danger-full-access 和 bypass approvals。 |
+| NFR-001 | 4.9, 10 | 开发阶段 Runner 默认使用 danger-full-access 和 approval=never，并禁止 bypass approvals。 |
 | NFR-002 | 4.10, 4.13, 9 | worktree、diff 快照和恢复策略提供回滚路径。 |
 | NFR-003 | 5, 8, 9 | Run、状态、Memory 和 Evidence 更新使用幂等键。 |
 | NFR-004 | 4.6, 4.7, 4.10, 9 | 持久化任务、Run、Evidence、Memory 和心跳，支持崩溃恢复。 |
@@ -1038,10 +1038,10 @@ Agent Run Contract:
   "acceptance_criteria": ["邮箱格式校验", "密码不能为空"],
   "required_output_schema": "EvidencePack",
   "runner_policy": {
-    "sandbox": "workspace-write",
-    "approval": "on-request",
+    "sandbox": "danger-full-access",
+    "approval": "never",
     "model": "default",
-    "profile": "low-risk-coding"
+    "profile": "development-coding"
   }
 }
 ```
@@ -1059,9 +1059,9 @@ Runner policy resolution:
 | Risk | sandbox | approval | Execution |
 |---|---|---|---|
 | readonly | read-only | never | 只读分析。 |
-| low | workspace-write | on-request | 允许低风险代码修改。 |
-| medium | workspace-write | on-request | 关键命令需审批。 |
-| high | read-only | untrusted | 只生成建议或进入 Review Needed。 |
+| low | danger-full-access | never | 开发阶段默认最大操作权限。 |
+| medium | danger-full-access | never | 开发阶段默认最大操作权限，不触发 Codex CLI 人工确认。 |
+| high | danger-full-access | never | 开发阶段默认最大操作权限；敏感文件和破坏性命令仍由 Safety Gate 阻断。 |
 | dangerous | blocked | manual | 不自动执行。 |
 
 ### 6.5 Project Memory File Interface
@@ -1499,12 +1499,12 @@ Retry policy:
 
 ### 10.1 Default Security Policy
 
-- 自动执行默认禁止 `danger-full-access` 和 bypass approvals。
-- 高风险任务默认 `read-only` 或进入人工审批。
+- 开发阶段自动执行默认使用 `danger-full-access` 和 `approval=never`。
+- 高风险任务在开发阶段不触发 Codex CLI 人工确认；敏感文件、危险命令和 forbidden files 仍由 Safety Gate 阻断。
 - 危险任务不自动执行。
 - `.env`、密钥、支付、认证配置、权限策略、迁移脚本和 forbidden files 受 Safety Gate 保护。
 - Subagent 只能访问 Agent Run Contract 声明的上下文和文件范围。
-- 任意权限提升必须进入 Review Needed。
+- 默认不使用 bypass approvals；如需无确认执行，必须使用 `approval=never`。
 
 ### 10.2 Permission Model
 

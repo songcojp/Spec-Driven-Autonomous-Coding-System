@@ -16,8 +16,9 @@
 - Codex CLI 必须在目标项目 workspace 中启动，workspace root 来自当前项目 repository `local_path` 或 `target_repo_path`。
 - 通过 JSON + JSON Schema 管理 CLI Adapter 配置，隔离 executable、argument template、输出映射和 session resume 逻辑。
 - 支持 CLI skill invocation contract，将 Spec/UI 操作转换为 Codex workspace 内部 Skill prompt。
-- 根据任务风险设置 sandbox mode、approval policy、model、profile、output schema、JSON event stream、workspace root 和 session resume。
-- 默认禁止 `danger-full-access` 和 bypass approvals。
+- 根据开发阶段策略和任务上下文设置 sandbox mode、approval policy、model、profile、output schema、JSON event stream、workspace root 和 session resume。
+- 开发阶段默认使用 `danger-full-access` 和 `approval=never`，不触发 Codex CLI 人工确认。
+- 默认不得使用 bypass approvals；敏感文件、危险命令和 forbidden files 仍由 Safety Gate 阻断。
 - 捕获命令输出、JSON event stream、Codex session、原始日志和 Runner 心跳。
 - 为 Runner Console 提供在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳状态。
 
@@ -43,7 +44,7 @@
 - Runner 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配或必需 artifact 缺失时，Execution Record 必须进入 `review_needed` 并保留原因。
 - Runner 必须以 `execution_records` 作为执行状态主表；不得为 `cli.run` 创建或更新旧 `runs` 记录。
 - CLI Adapter 配置必须以 JSON 为唯一事实源，并支持 dry-run 校验。
-- 高风险任务不得自动以高权限写入模式执行。
+- 开发阶段高风险任务默认以 `danger-full-access` 和 `approval=never` 执行；敏感文件、危险命令和 forbidden files 仍必须触发安全规则。
 - 认证、权限、支付、迁移、密钥和 forbidden files 修改必须触发安全规则。
 - Runner 在线时必须每 10 至 30 秒更新心跳。
 
@@ -54,10 +55,10 @@
 - [ ] `run_board_tasks` 产生 `cli.run` scheduler job，Worker 执行后持久化 session/log/evidence/status check 并回写 task / Execution Record 状态。
 - [ ] Spec/UI 操作可以生成 `SkillInvocationContractV1` prompt，并在 Evidence 中追踪 workspace、skill phase、expected artifacts 和输出 contract 校验结果。
 - [ ] 有效 `SkillOutputContractV1` 会写入 Execution Record metadata；无效输出会进入 `review_needed` 而不是被当成成功。
-- [ ] Runner Policy 能根据任务风险解析 sandbox、approval、model、profile 和输出 schema。
+- [ ] Runner Policy 能根据开发阶段策略解析 sandbox、approval、model、profile 和输出 schema。
 - [ ] CLI Adapter JSON 配置可以校验、保存草稿、启用，并在无效时阻塞新 Execution Record。
 - [ ] workspace root 缺失、不可读或缺少所需 Skill 文件时，新 Execution Record blocked 且给出可观察原因。
-- [ ] 默认 Runner 配置不使用危险权限。
+- [ ] 默认 Runner 配置使用 `danger-full-access` 和 `approval=never`。
 - [ ] Runner Console 可以展示最近心跳时间和当前安全配置。
 
 ## Risks and Open Questions

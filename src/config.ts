@@ -42,7 +42,7 @@ type LoadConfigOptions = {
 const DEFAULT_RUNNER_CONFIG: RunnerConfig = {
   command: "codex",
   args: ["exec"],
-  sandboxMode: "workspace-write",
+  sandboxMode: "danger-full-access",
 };
 
 const LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);

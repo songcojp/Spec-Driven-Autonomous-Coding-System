@@ -30,7 +30,7 @@ Runner 不接收 Product Console 的直接 CLI 执行请求。Console、Spec Wor
 1. Scheduler Trigger 创建 Execution Record 并 enqueue `cli.run` job；payload `operation` 区分 `feature_execution`、`generate_ears`、`generate_hld`、`generate_ui_spec`、`split_feature_specs` 等操作。
 2. Runner Policy Resolver 从当前项目 repository `local_path` / `target_repo_path` 解析 workspace root 并生成执行配置。
 3. CLI Adapter Registry 读取 active adapter 配置并合并 Runner Policy 约束。
-4. Skill Invocation Prompt Builder 根据 payload context 生成 `SkillInvocationContractV1`，其中 expected artifacts 为 `{ path, kind, required }` 对象，constraints 记录 allowed files、risk、sandbox 和 approval policy。
+4. Skill Invocation Prompt Builder 根据 payload context 生成 `SkillInvocationContractV1`，其中 expected artifacts 为 `{ path, kind, required }` 对象，constraints 记录 allowed files、risk、sandbox 和 approval policy；开发阶段默认 sandbox 为 `danger-full-access`，approval policy 为 `never`。
 5. Safety Gate 检查是否允许执行。
 6. Codex CLI Adapter 在目标项目 workspace root 中运行。
 7. Heartbeat 周期更新。

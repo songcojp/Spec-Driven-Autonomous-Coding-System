@@ -618,8 +618,9 @@ flowchart TD
 
 Security posture:
 
-- 自动执行默认不允许 `danger-full-access` 和 bypass approvals。
-- 高风险任务默认只读或进入 Review Needed。
+- 开发阶段自动执行默认使用 `danger-full-access` 和 `approval=never`，避免 Codex CLI 人工确认阻塞开发流。
+- 自动执行默认不使用 bypass approvals；需要无确认执行时使用 `approval=never`。
+- 高风险任务在开发阶段默认不触发 Codex CLI 人工确认；敏感文件、危险命令和 forbidden files 仍进入 Review Needed 或 blocked。
 - 危险任务禁止自动执行。
 - `.env`、密钥、支付、认证配置、权限策略、迁移脚本和 forbidden files 受 Safety Gate 保护。
 - Subagent 只能访问 Agent Run Contract 声明的上下文和文件范围。
@@ -846,7 +847,7 @@ invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`
 | 共享运行时资源污染 | 数据库、缓存、队列、外部 API 等必须 mock、命名空间隔离、临时实例或串行。 |
 | Agent 偏离需求 | Status Checker 执行 Spec Alignment，无法映射需求的 diff 不得 Done。 |
 | 自动恢复反复失败 | 使用失败指纹、禁止重复策略、最大 3 次重试和人工 Review 路由。 |
-| Codex 权限过高 | 默认安全策略禁止危险权限，高风险任务只读或进入审批。 |
+| Codex 权限过高 | 开发阶段默认最大 Codex CLI 权限，通过 Safety Gate、审计日志和回滚约束兜底。 |
 | Codex workspace 错误 | CLI Adapter 必须使用当前项目 repository `local_path` / `target_repo_path` 作为 workspace root；缺失、不可读或缺少所需 Skill 文件时 blocked。 |
 | Evidence 不完整导致不可审计 | Run、Status、Review、Recovery 和 Delivery 都必须引用 Evidence Pack。 |
 

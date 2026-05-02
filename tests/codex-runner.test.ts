@@ -169,7 +169,7 @@ test("CLI adapter normalizes snake_case DB row fields to camelCase config", () =
   assert.equal(normalized.status, "active");
 });
 
-test("runner policy resolves safe defaults and clamps heartbeat cadence", () => {
+test("runner policy resolves development defaults and clamps heartbeat cadence", () => {
   const lowRisk = resolveRunnerPolicy({
     runId: "RUN-001",
     risk: "low",
@@ -178,12 +178,11 @@ test("runner policy resolves safe defaults and clamps heartbeat cadence", () => 
     now: stableDate,
   });
 
-  assert.equal(lowRisk.sandboxMode, "workspace-write");
-  assert.equal(lowRisk.approvalPolicy, "on-request");
+  assert.equal(lowRisk.sandboxMode, "danger-full-access");
+  assert.equal(lowRisk.approvalPolicy, "never");
   assert.equal(lowRisk.model, "gpt-5.3-codex-spark");
   assert.equal(lowRisk.reasoningEffort, "medium");
   assert.equal(lowRisk.heartbeatIntervalSeconds, 10);
-  assert.notEqual(lowRisk.sandboxMode, "danger-full-access");
 
   const highRisk = resolveRunnerPolicy({
     runId: "RUN-002",
@@ -195,8 +194,8 @@ test("runner policy resolves safe defaults and clamps heartbeat cadence", () => 
     now: stableDate,
   });
 
-  assert.equal(highRisk.sandboxMode, "read-only");
-  assert.equal(highRisk.approvalPolicy, "on-request");
+  assert.equal(highRisk.sandboxMode, "danger-full-access");
+  assert.equal(highRisk.approvalPolicy, "never");
   assert.equal(highRisk.heartbeatIntervalSeconds, 30);
 
   const defaultHighRisk = resolveRunnerPolicy({
@@ -205,8 +204,8 @@ test("runner policy resolves safe defaults and clamps heartbeat cadence", () => 
     workspaceRoot: "/workspace/project",
     now: stableDate,
   });
-  assert.equal(defaultHighRisk.sandboxMode, "read-only");
-  assert.equal(defaultHighRisk.approvalPolicy, "untrusted");
+  assert.equal(defaultHighRisk.sandboxMode, "danger-full-access");
+  assert.equal(defaultHighRisk.approvalPolicy, "never");
 
   const mediumRisk = resolveRunnerPolicy({
     runId: "RUN-002C",
@@ -214,8 +213,8 @@ test("runner policy resolves safe defaults and clamps heartbeat cadence", () => 
     workspaceRoot: "/workspace/project",
     now: stableDate,
   });
-  assert.equal(mediumRisk.sandboxMode, "workspace-write");
-  assert.equal(mediumRisk.approvalPolicy, "on-request");
+  assert.equal(mediumRisk.sandboxMode, "danger-full-access");
+  assert.equal(mediumRisk.approvalPolicy, "never");
 
   const isolated = resolveRunnerPolicy({
     runId: "RUN-002D",
@@ -251,7 +250,6 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
 
   assert.equal(result.allowed, false);
   assert.equal(result.reviewNeeded, true);
-  assert.equal(result.reasons.some((reason) => reason.includes("high-risk runner tasks")), true);
   assert.equal(result.reasons.some((reason) => reason.includes(".env")), true);
   assert.equal(result.reasons.some((reason) => reason.includes("dangerous command")), true);
   assert.equal(result.reasons.some((reason) => reason.includes("task text")), true);
@@ -314,8 +312,8 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       requestedAction: "task_execution",
     }),
   });
-  assert.equal(unboundedCodingDirectWrite.allowed, false);
-  assert.equal(unboundedCodingDirectWrite.reasons.some((reason) => reason.includes("bounded write scope")), true);
+  assert.equal(unboundedCodingDirectWrite.allowed, true);
+  assert.equal(unboundedCodingDirectWrite.reviewNeeded, false);
 
   const unsafeArtifactDirectWrite = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
@@ -326,15 +324,15 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       requestedAction: "feature_planning",
     }),
   });
-  assert.equal(unsafeArtifactDirectWrite.allowed, false);
-  assert.equal(unsafeArtifactDirectWrite.reasons.some((reason) => reason.includes("bounded write scope")), true);
+  assert.equal(unsafeArtifactDirectWrite.allowed, true);
+  assert.equal(unsafeArtifactDirectWrite.reviewNeeded, false);
 
   const unscopedDanger = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Run a normal task.",
   });
-  assert.equal(unscopedDanger.allowed, false);
-  assert.equal(unscopedDanger.reasons.some((reason) => reason.includes("danger-full-access")), true);
+  assert.equal(unscopedDanger.allowed, true);
+  assert.equal(unscopedDanger.reviewNeeded, false);
 });
 
 test("safety gate ignores high-risk words inside bundled source context", () => {
@@ -405,9 +403,9 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.equal(calls[0].command, "codex");
   assert.deepEqual(calls[0].args.slice(0, 13), [
     "-a",
-    "on-request",
+    "never",
     "--sandbox",
-    "workspace-write",
+    "danger-full-access",
     "-c",
     'model_reasoning_effort="medium"',
     "--cd",
@@ -488,7 +486,7 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
 
   assert.deepEqual(calls[0].args.slice(0, 14), [
     "-a",
-    "on-request",
+    "never",
     "-c",
     'model_reasoning_effort="medium"',
     "--cd",
@@ -497,7 +495,7 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
     "--ignore-user-config",
     "--json",
     "--sandbox",
-    "workspace-write",
+    "danger-full-access",
     "--model",
     "gpt-5.3-codex-spark",
     "--output-schema",
@@ -1898,8 +1896,8 @@ test("heartbeat and console snapshot expose current safety configuration", () =>
 
   assert.equal(snapshot.online, true);
   assert.equal(snapshot.heartbeatStale, false);
-  assert.equal(snapshot.sandboxMode, "workspace-write");
-  assert.equal(snapshot.approvalPolicy, "on-request");
+  assert.equal(snapshot.sandboxMode, "danger-full-access");
+  assert.equal(snapshot.approvalPolicy, "never");
   assert.equal(snapshot.queue[0].status, "running");
   assert.equal(snapshot.recentLogs[0].stdout, "ok");
 });
@@ -1942,8 +1940,8 @@ test("runner artifacts persist for audit and console lookup", async () => {
     { name: "log", sql: "SELECT events_json FROM raw_execution_logs WHERE id = ?", params: [adapter.rawLog.id] },
   ]);
 
-  assert.equal(rows.queries.policy[0].sandbox_mode, "workspace-write");
-  assert.equal(rows.queries.policy[0].approval_policy, "on-request");
+  assert.equal(rows.queries.policy[0].sandbox_mode, "danger-full-access");
+  assert.equal(rows.queries.policy[0].approval_policy, "never");
   assert.equal(rows.queries.policy[0].model, "gpt-5.3-codex-spark");
   assert.equal(rows.queries.policy[0].reasoning_effort, "medium");
   assert.equal(rows.queries.heartbeat[0].queue_status, "completed");

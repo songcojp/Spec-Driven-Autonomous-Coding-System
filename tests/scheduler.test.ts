@@ -147,7 +147,7 @@ test("cli.run uses danger-full-access for trusted direct-write runs with bounded
   assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
 });
 
-test("cli.run keeps coding skills sandboxed when allowed file scope is missing", async () => {
+test("cli.run uses development sandbox defaults when allowed file scope is missing", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();
@@ -174,8 +174,8 @@ test("cli.run keeps coding skills sandboxed when allowed file scope is missing",
   ]).queries;
 
   assert.equal(result.status, "completed");
-  assert.equal(rows.policy[0].sandbox_mode, "workspace-write");
-  assert.match(calls[0].args.join("\n"), /--sandbox\nworkspace-write/);
+  assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
+  assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
 });
 
 test("cli.run blocks when target project workspace is missing or lacks workspace skills", async () => {
