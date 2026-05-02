@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as vscode from "vscode";
 
 type SpecDriveIdeDocument = {
@@ -78,6 +79,42 @@ type ControlledCommandInput = {
   reason: string;
 };
 
+type SpecChangeRequestIntent =
+  | "clarification"
+  | "requirement_intake"
+  | "spec_evolution"
+  | "generate_ears"
+  | "update_design"
+  | "split_feature";
+
+type SpecChangeRequestV1 = {
+  schemaVersion: 1;
+  projectId: string;
+  workspaceRoot: string;
+  source: {
+    file: string;
+    range: {
+      startLine: number;
+      endLine: number;
+      startCharacter?: number;
+      endCharacter?: number;
+    };
+    textHash: string;
+  };
+  intent: SpecChangeRequestIntent;
+  comment: string;
+  targetRequirementId?: string;
+  traceability?: string[];
+};
+
+type SpecChangeCommandInput = {
+  intent: SpecChangeRequestIntent;
+  comment: string;
+  targetRequirementId?: string;
+  traceability?: string[];
+  line?: number;
+};
+
 type SpecExplorerItem =
   | { type: "root"; id: string; label: string; description?: string; children: SpecExplorerItem[] }
   | { type: "document"; id: string; label: string; description?: string; path: string; exists: boolean }
@@ -93,6 +130,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openItem", (item: unknown) => openItem(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecution", (item: unknown) => openExecution(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.runControlledCommand", (input: unknown) => runControlledCommand(input, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.submitSpecChangeRequest", (input: unknown) => submitSpecChangeRequest(input, provider)));
+  context.subscriptions.push(createSpecCommentController(context, provider));
   context.subscriptions.push(vscode.languages.registerHoverProvider({ language: "markdown", scheme: "file" }, new SpecHoverProvider(provider)));
   context.subscriptions.push(vscode.languages.registerCodeLensProvider({ language: "markdown", scheme: "file" }, new SpecCodeLensProvider(provider)));
   void provider.refresh();
@@ -210,9 +249,11 @@ class SpecHoverProvider implements vscode.HoverProvider {
     if (requirementId) contents.appendMarkdown(`Requirement: \`${requirementId}\`\n\n`);
     if (feature) {
       contents.appendMarkdown(`Feature: \`${feature.id}\` (${feature.status})\n\n`);
+      contents.appendMarkdown(`Traceability: \`${feature.dependencies.length > 0 ? feature.dependencies.join(", ") : "none"}\`\n\n`);
       if (feature.nextAction) contents.appendMarkdown(`Next action: ${feature.nextAction}\n\n`);
       if (feature.blockedReasons.length > 0) contents.appendMarkdown(`Blocked: ${feature.blockedReasons.join("; ")}\n\n`);
     }
+    contents.appendMarkdown(`Actions: Add clarification, generate/update EARS, update design, split Feature, execute task.\n\n`);
     if (!requirementId && !feature) return undefined;
     return new vscode.Hover(contents);
   }
@@ -230,16 +271,55 @@ class SpecCodeLensProvider implements vscode.CodeLensProvider {
     const projectId = view.project?.id;
     if (projectId && /(^|\/)PRD\.md$/.test(relativePath)) {
       lenses.push(new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
-        command: "specdrive.runControlledCommand",
+        command: "specdrive.submitSpecChangeRequest",
         title: "SpecDrive: Generate / Update EARS",
         arguments: [{
-          action: "generate_ears",
-          entityType: "project",
-          entityId: projectId,
-          reason: "Generate or update EARS requirements from VSCode PRD CodeLens.",
-          payload: { sourcePath: relativePath },
+          intent: "generate_ears",
+          comment: "Generate or update EARS requirements from VSCode PRD CodeLens.",
+          line: 0,
         }],
       }));
+      for (let lineNumber = 0; lineNumber < document.lineCount; lineNumber += 1) {
+        const text = document.lineAt(lineNumber).text.trim();
+        if (!text || text.startsWith("#")) continue;
+        lenses.push(new vscode.CodeLens(new vscode.Range(lineNumber, 0, lineNumber, 0), {
+          command: "specdrive.submitSpecChangeRequest",
+          title: "SpecDrive: Add Clarification",
+          arguments: [{
+            intent: "clarification",
+            comment: "Clarification requested from VSCode CodeLens.",
+            line: lineNumber,
+          }],
+        }));
+      }
+    }
+    if (projectId && /(^|\/)requirements\.md$/.test(relativePath)) {
+      for (let lineNumber = 0; lineNumber < document.lineCount; lineNumber += 1) {
+        const requirementId = document.lineAt(lineNumber).text.match(/\b(REQ-[A-Z0-9-]+|REQ-\d+|NFR-\d+|EDGE-\d+)\b/)?.[1];
+        if (!requirementId) continue;
+        lenses.push(new vscode.CodeLens(new vscode.Range(lineNumber, 0, lineNumber, 0), {
+          command: "specdrive.submitSpecChangeRequest",
+          title: "SpecDrive: Update Design",
+          arguments: [{
+            intent: "update_design",
+            comment: `Update design for ${requirementId} from VSCode CodeLens.`,
+            targetRequirementId: requirementId,
+            traceability: [requirementId],
+            line: lineNumber,
+          }],
+        }));
+        lenses.push(new vscode.CodeLens(new vscode.Range(lineNumber, 0, lineNumber, 0), {
+          command: "specdrive.submitSpecChangeRequest",
+          title: "SpecDrive: Split Feature",
+          arguments: [{
+            intent: "split_feature",
+            comment: `Split Feature Spec for ${requirementId} from VSCode CodeLens.`,
+            targetRequirementId: requirementId,
+            traceability: [requirementId],
+            line: lineNumber,
+          }],
+        }));
+      }
     }
     const feature = featureForPath(view, relativePath);
     if (projectId && feature && /\/tasks\.md$/.test(relativePath)) {
@@ -281,6 +361,26 @@ class SpecCodeLensProvider implements vscode.CodeLensProvider {
             },
           }],
         }));
+        lenses.push(new vscode.CodeLens(new vscode.Range(lineNumber, 0, lineNumber, 0), {
+          command: "specdrive.submitSpecChangeRequest",
+          title: `SpecDrive: Mark ${taskId} Blocked`,
+          arguments: [{
+            intent: "spec_evolution",
+            comment: `Mark ${taskId} blocked from VSCode CodeLens.`,
+            traceability: [feature.id, taskId],
+            line: lineNumber,
+          }],
+        }));
+        lenses.push(new vscode.CodeLens(new vscode.Range(lineNumber, 0, lineNumber, 0), {
+          command: "specdrive.submitSpecChangeRequest",
+          title: `SpecDrive: Request ${taskId} Recovery`,
+          arguments: [{
+            intent: "spec_evolution",
+            comment: `Request recovery for ${taskId} from VSCode CodeLens.`,
+            traceability: [feature.id, taskId],
+            line: lineNumber,
+          }],
+        }));
       }
     }
     return lenses;
@@ -318,7 +418,36 @@ async function runControlledCommand(input: unknown, provider: SpecExplorerProvid
   }
 }
 
-async function postIdeCommand(input: ControlledCommandInput & { requestedBy: string }): Promise<Record<string, unknown>> {
+async function submitSpecChangeRequest(input: unknown, provider: SpecExplorerProvider): Promise<void> {
+  if (!isSpecChangeCommandInput(input)) {
+    await vscode.window.showErrorMessage("SpecDrive Spec change input is invalid.");
+    return;
+  }
+  const view = provider.currentView();
+  const editor = vscode.window.activeTextEditor;
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!view?.project?.id || !workspaceRoot || !editor) {
+    await vscode.window.showErrorMessage("SpecDrive Spec change requires an active Spec document and recognized project.");
+    return;
+  }
+  const relativePath = workspaceRelativePath(editor.document.fileName);
+  if (!relativePath || !isSpecMarkdown(relativePath)) {
+    await vscode.window.showErrorMessage("SpecDrive Spec change requires a Spec Markdown document.");
+    return;
+  }
+  try {
+    const request = buildSpecChangeRequest(view.project.id, workspaceRoot, editor.document, relativePath, input);
+    const response = await postIdeCommand(request);
+    const status = typeof response.status === "string" ? response.status : "unknown";
+    const stale = response.error === "stale_source" ? " stale_source" : "";
+    await vscode.window.showInformationMessage(`SpecDrive Spec change ${status}.${stale}`);
+    await provider.refresh();
+  } catch (error) {
+    await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function postIdeCommand(input: (ControlledCommandInput & { requestedBy: string }) | SpecChangeRequestV1): Promise<Record<string, unknown>> {
   const controlPlaneUrl = vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4000");
   const response = await fetch(new URL("/ide/commands", controlPlaneUrl), {
     method: "POST",
@@ -330,6 +459,94 @@ async function postIdeCommand(input: ControlledCommandInput & { requestedBy: str
     throw new Error(typeof body.error === "string" ? body.error : `SpecDrive command failed: ${response.status}`);
   }
   return body;
+}
+
+function buildSpecChangeRequest(
+  projectId: string,
+  workspaceRoot: string,
+  document: vscode.TextDocument,
+  relativePath: string,
+  input: SpecChangeCommandInput,
+): SpecChangeRequestV1 {
+  const lineNumber = Math.max(0, Math.min(input.line ?? 0, document.lineCount - 1));
+  const line = document.lineAt(lineNumber).text;
+  const range = {
+    startLine: lineNumber,
+    endLine: lineNumber,
+    startCharacter: 0,
+    endCharacter: line.length,
+  };
+  const requirementId = input.targetRequirementId ?? line.match(/\b(REQ-[A-Z0-9-]+|REQ-\d+|NFR-\d+|EDGE-\d+)\b/)?.[1];
+  const featureId = featureIdForPath(relativePath);
+  return {
+    schemaVersion: 1,
+    projectId,
+    workspaceRoot,
+    source: {
+      file: relativePath,
+      range,
+      textHash: hashText(line),
+    },
+    intent: input.intent,
+    comment: input.comment,
+    targetRequirementId: requirementId,
+    traceability: [
+      ...(input.traceability ?? []),
+      ...(requirementId ? [requirementId] : []),
+      ...(featureId ? [featureId] : []),
+    ],
+  };
+}
+
+function createSpecCommentController(
+  context: vscode.ExtensionContext,
+  provider: SpecExplorerProvider,
+): vscode.Disposable {
+  const controller = vscode.comments.createCommentController("specdrive-comments", "SpecDrive");
+  controller.commentingRangeProvider = {
+    provideCommentingRanges(document: vscode.TextDocument): vscode.Range[] {
+      const relativePath = workspaceRelativePath(document.fileName);
+      if (!relativePath || !isSpecMarkdown(relativePath)) return [];
+      return Array.from({ length: document.lineCount }, (_, line) => new vscode.Range(line, 0, line, document.lineAt(line).text.length));
+    },
+  };
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.submitCommentDraft", (thread: unknown) =>
+    submitCommentDraft(thread, provider)));
+  return controller;
+}
+
+async function submitCommentDraft(thread: unknown, provider: SpecExplorerProvider): Promise<void> {
+  if (!isCommentThread(thread)) {
+    await vscode.window.showErrorMessage("SpecDrive comment draft is invalid.");
+    return;
+  }
+  const view = provider.currentView();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!view?.project?.id || !workspaceRoot) {
+    await vscode.window.showErrorMessage("SpecDrive comment submission requires a recognized project.");
+    return;
+  }
+  const relativePath = workspaceRelativePath(thread.uri.fsPath);
+  if (!relativePath || !isSpecMarkdown(relativePath)) {
+    await vscode.window.showErrorMessage("SpecDrive comment submission requires a Spec Markdown document.");
+    return;
+  }
+  const document = await vscode.workspace.openTextDocument(thread.uri) as vscode.TextDocument;
+  const comment = thread.comments[0];
+  const body = typeof comment.body === "string" ? comment.body : comment.body.value;
+  const request = buildSpecChangeRequest(view.project.id, workspaceRoot, document, relativePath, {
+    intent: "clarification",
+    comment: body,
+    line: thread.range.start.line,
+  });
+  const response = await postIdeCommand(request);
+  const status = typeof response.status === "string" ? response.status : "unknown";
+  if (status === "accepted") {
+    thread.collapsibleState = vscode.CommentThreadCollapsibleState.Collapsed;
+    thread.comments = thread.comments.map((entry) => ({ ...entry, mode: vscode.CommentMode.Preview }));
+  }
+  await vscode.window.showInformationMessage(`SpecDrive comment ${status}.`);
+  await provider.refresh();
 }
 
 function buildItems(view: SpecDriveIdeView): SpecExplorerItem[] {
@@ -427,6 +644,30 @@ function isControlledCommandInput(input: unknown): input is ControlledCommandInp
     && typeof record.reason === "string";
 }
 
+function isSpecChangeCommandInput(input: unknown): input is SpecChangeCommandInput {
+  if (typeof input !== "object" || input === null) return false;
+  const record = input as Partial<SpecChangeCommandInput>;
+  return isSpecChangeRequestIntent(record.intent) && typeof record.comment === "string";
+}
+
+function isSpecChangeRequestIntent(value: unknown): value is SpecChangeRequestIntent {
+  return value === "clarification"
+    || value === "requirement_intake"
+    || value === "spec_evolution"
+    || value === "generate_ears"
+    || value === "update_design"
+    || value === "split_feature";
+}
+
+function isCommentThread(value: unknown): value is vscode.CommentThread {
+  return typeof value === "object"
+    && value !== null
+    && "uri" in value
+    && "range" in value
+    && Array.isArray((value as { comments?: unknown }).comments)
+    && ((value as unknown) as { comments: unknown[] }).comments.length > 0;
+}
+
 function workspaceRelativePath(fileName: string): string | undefined {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   if (!workspaceRoot || !fileName.startsWith(workspaceRoot)) return undefined;
@@ -441,6 +682,15 @@ function featureForPath(view: SpecDriveIdeView, path: string): SpecDriveIdeFeatu
   const match = path.match(/^docs\/features\/([^/]+)\//);
   if (!match) return undefined;
   return view.features.find((feature) => feature.folder === match[1]);
+}
+
+function featureIdForPath(path: string): string | undefined {
+  const match = path.match(/^docs\/features\/feat-(\d+)/i);
+  return match ? `FEAT-${match[1]}` : undefined;
+}
+
+function hashText(text: string): string {
+  return `sha256:${createHash("sha256").update(text).digest("hex")}`;
 }
 
 function messageItem(id: string, label: string, description?: string): SpecExplorerItem {

@@ -1,5 +1,8 @@
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { submitConsoleCommand, type ConsoleCommandInput, type ConsoleCommandReceipt } from "./product-console.ts";
+import type { SchedulerClient } from "./scheduler.ts";
 import { runSqlite } from "./sqlite.ts";
 
 export type SpecDriveIdeDocument = {
@@ -72,6 +75,57 @@ export type SpecDriveIdeView = {
   factSources: string[];
 };
 
+export type SpecChangeRequestIntent =
+  | "clarification"
+  | "requirement_intake"
+  | "spec_evolution"
+  | "generate_ears"
+  | "update_design"
+  | "split_feature";
+
+export type SpecChangeRequestV1 = {
+  schemaVersion: 1;
+  projectId: string;
+  workspaceRoot: string;
+  source: {
+    file: string;
+    range: {
+      startLine: number;
+      endLine: number;
+      startCharacter?: number;
+      endCharacter?: number;
+    };
+    textHash: string;
+  };
+  intent: SpecChangeRequestIntent;
+  comment: string;
+  targetRequirementId?: string;
+  traceability?: string[];
+};
+
+export type IdeSpecChangeReceipt =
+  | (ConsoleCommandReceipt & {
+    ideCommandType: "spec_change_request";
+    routedIntent: SpecChangeRequestIntent;
+    specChangeRequestId: string;
+    currentTextHash?: string;
+  })
+  | {
+    id: string;
+    action: "submit_spec_change_request";
+    status: "blocked";
+    entityType: "spec";
+    entityId: string;
+    acceptedAt: string;
+    ideCommandType: "spec_change_request";
+    routedIntent: SpecChangeRequestIntent;
+    specChangeRequestId: string;
+    error: "stale_source" | "invalid_source" | "project_not_found" | "workspace_mismatch";
+    blockedReasons: string[];
+    expectedTextHash?: string;
+    currentTextHash?: string;
+  };
+
 type BuildSpecDriveIdeViewOptions = {
   workspaceRoot?: string;
   projectId?: string;
@@ -135,6 +189,87 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
   };
 }
 
+export function isSpecChangeRequestV1(value: unknown): value is SpecChangeRequestV1 {
+  if (!isRecord(value)) return false;
+  const source = isRecord(value.source) ? value.source : {};
+  const range = isRecord(source.range) ? source.range : {};
+  return value.schemaVersion === 1
+    && typeof value.projectId === "string"
+    && typeof value.workspaceRoot === "string"
+    && typeof source.file === "string"
+    && typeof source.textHash === "string"
+    && typeof range.startLine === "number"
+    && typeof range.endLine === "number"
+    && isSpecChangeRequestIntent(value.intent)
+    && typeof value.comment === "string";
+}
+
+export function submitIdeSpecChangeRequest(
+  dbPath: string,
+  request: SpecChangeRequestV1,
+  options: { scheduler?: SchedulerClient; now?: Date } = {},
+): IdeSpecChangeReceipt {
+  const now = options.now ?? new Date();
+  const acceptedAt = now.toISOString();
+  const specChangeRequestId = randomUUID();
+  const routedIntent = routeSpecChangeIntent(request);
+  const project = resolveProject(dbPath, { projectId: request.projectId });
+  if (!project?.id) {
+    return blockedSpecChangeReceipt(request, {
+      acceptedAt,
+      specChangeRequestId,
+      routedIntent,
+      error: "project_not_found",
+      blockedReasons: [`Project not found: ${request.projectId}`],
+    });
+  }
+  const workspaceRoot = resolve(request.workspaceRoot);
+  const projectWorkspace = optionalString(project.target_repo_path);
+  if (projectWorkspace && resolve(projectWorkspace) !== workspaceRoot) {
+    return blockedSpecChangeReceipt(request, {
+      acceptedAt,
+      specChangeRequestId,
+      routedIntent,
+      error: "workspace_mismatch",
+      blockedReasons: [`SpecChangeRequest workspace does not match project workspace: ${request.workspaceRoot}`],
+    });
+  }
+  const sourceValidation = readSourceSelection(workspaceRoot, request);
+  if (!sourceValidation.ok) {
+    return blockedSpecChangeReceipt(request, {
+      acceptedAt,
+      specChangeRequestId,
+      routedIntent,
+      error: "invalid_source",
+      blockedReasons: [sourceValidation.reason],
+    });
+  }
+  if (sourceValidation.textHash !== request.source.textHash) {
+    return blockedSpecChangeReceipt(request, {
+      acceptedAt,
+      specChangeRequestId,
+      routedIntent,
+      error: "stale_source",
+      blockedReasons: ["stale_source: source text changed; refresh the document and confirm the request again."],
+      expectedTextHash: request.source.textHash,
+      currentTextHash: sourceValidation.textHash,
+    });
+  }
+  const command = commandForSpecChangeRequest(request, routedIntent, sourceValidation.text, acceptedAt);
+  const receipt = submitConsoleCommand(dbPath, command, { scheduler: options.scheduler });
+  return {
+    ...receipt,
+    ideCommandType: "spec_change_request",
+    routedIntent,
+    specChangeRequestId,
+    currentTextHash: sourceValidation.textHash,
+  };
+}
+
+export function hashSpecSourceText(text: string): string {
+  return `sha256:${createHash("sha256").update(text).digest("hex")}`;
+}
+
 function resolveProject(dbPath: string, options: BuildSpecDriveIdeViewOptions): ProjectRow | undefined {
   if (options.projectId) {
     const result = runSqlite(dbPath, [], [
@@ -170,6 +305,177 @@ function resolveProject(dbPath: string, options: BuildSpecDriveIdeViewOptions): 
     { name: "first", sql: "SELECT id, name, target_repo_path FROM projects ORDER BY rowid LIMIT 1" },
   ]);
   return (result.queries.selected[0] ?? result.queries.first[0]) as ProjectRow | undefined;
+}
+
+function commandForSpecChangeRequest(
+  request: SpecChangeRequestV1,
+  routedIntent: SpecChangeRequestIntent,
+  selectedText: string,
+  acceptedAt: string,
+): ConsoleCommandInput {
+  const commonPayload = {
+    projectId: request.projectId,
+    workspaceRoot: request.workspaceRoot,
+    source: request.source,
+    sourcePath: request.source.file,
+    selectedText,
+    comment: request.comment,
+    targetRequirementId: request.targetRequirementId,
+    requirementIds: request.targetRequirementId ? [request.targetRequirementId] : [],
+    traceability: request.traceability ?? [],
+    specChangeRequest: request,
+    acceptedAt,
+  };
+  if (routedIntent === "requirement_intake") {
+    return {
+      action: "intake_requirement",
+      entityType: "project",
+      entityId: request.projectId,
+      requestedBy: "vscode-extension",
+      reason: request.comment,
+      payload: {
+        ...commonPayload,
+        requirementText: request.comment,
+        sourcePaths: [request.source.file],
+        skillPhase: "requirement_intake",
+      },
+      now: new Date(acceptedAt),
+    };
+  }
+  if (routedIntent === "generate_ears") {
+    return {
+      action: "generate_ears",
+      entityType: "project",
+      entityId: request.projectId,
+      requestedBy: "vscode-extension",
+      reason: request.comment,
+      payload: {
+        ...commonPayload,
+        sourcePaths: [request.source.file],
+      },
+      now: new Date(acceptedAt),
+    };
+  }
+  if (routedIntent === "split_feature") {
+    return {
+      action: "split_feature_specs",
+      entityType: "project",
+      entityId: request.projectId,
+      requestedBy: "vscode-extension",
+      reason: request.comment,
+      payload: {
+        ...commonPayload,
+        sourcePaths: [request.source.file],
+      },
+      now: new Date(acceptedAt),
+    };
+  }
+  const featureId = request.traceability?.find((item) => /^FEAT-\d+/i.test(item));
+  return {
+    action: routedIntent === "clarification" ? "update_spec" : "write_spec_evolution",
+    entityType: "spec",
+    entityId: request.targetRequirementId ?? request.source.file.replace(/[^A-Za-z0-9_.-]+/g, "-"),
+    requestedBy: "vscode-extension",
+    reason: request.comment,
+    payload: {
+      ...commonPayload,
+      featureId,
+      changeType: routedIntent,
+      summary: request.comment,
+    },
+    now: new Date(acceptedAt),
+  };
+}
+
+function routeSpecChangeIntent(request: SpecChangeRequestV1): SpecChangeRequestIntent {
+  if (request.targetRequirementId && (request.intent === "requirement_intake" || request.intent === "clarification")) {
+    return "spec_evolution";
+  }
+  return request.intent;
+}
+
+function blockedSpecChangeReceipt(
+  request: SpecChangeRequestV1,
+  input: {
+    acceptedAt: string;
+    specChangeRequestId: string;
+    routedIntent: SpecChangeRequestIntent;
+    error: IdeSpecChangeReceipt extends infer T ? T extends { error: infer E } ? E : never : never;
+    blockedReasons: string[];
+    expectedTextHash?: string;
+    currentTextHash?: string;
+  },
+): IdeSpecChangeReceipt {
+  return {
+    id: randomUUID(),
+    action: "submit_spec_change_request",
+    status: "blocked",
+    entityType: "spec",
+    entityId: request.targetRequirementId ?? request.source.file,
+    acceptedAt: input.acceptedAt,
+    ideCommandType: "spec_change_request",
+    routedIntent: input.routedIntent,
+    specChangeRequestId: input.specChangeRequestId,
+    error: input.error,
+    blockedReasons: input.blockedReasons,
+    expectedTextHash: input.expectedTextHash,
+    currentTextHash: input.currentTextHash,
+  };
+}
+
+function readSourceSelection(
+  workspaceRoot: string,
+  request: SpecChangeRequestV1,
+): { ok: true; text: string; textHash: string } | { ok: false; reason: string } {
+  const sourcePath = request.source.file.replaceAll("\\", "/");
+  if (!sourcePath || sourcePath.startsWith("../") || sourcePath.includes("/../") || isAbsolute(sourcePath)) {
+    return { ok: false, reason: `SpecChangeRequest source must stay inside workspace: ${request.source.file}` };
+  }
+  const fullPath = join(workspaceRoot, sourcePath);
+  if (!existsSync(fullPath)) {
+    return { ok: false, reason: `SpecChangeRequest source file does not exist: ${request.source.file}` };
+  }
+  const relativePath = relative(workspaceRoot, fullPath).replaceAll("\\", "/");
+  if (relativePath.startsWith("../") || isAbsolute(relativePath)) {
+    return { ok: false, reason: `SpecChangeRequest source must stay inside workspace: ${request.source.file}` };
+  }
+  const content = readFileSync(fullPath, "utf8");
+  const lines = content.split(/\r?\n/);
+  const startLine = Math.trunc(request.source.range.startLine);
+  const endLine = Math.trunc(request.source.range.endLine);
+  if (startLine < 0 || endLine < startLine || startLine >= lines.length) {
+    return { ok: false, reason: `SpecChangeRequest source range is invalid: ${startLine}-${endLine}` };
+  }
+  const selected = lines.slice(startLine, Math.min(endLine, lines.length - 1) + 1);
+  if (selected.length === 1) {
+    const startCharacter = numberOrZero(request.source.range.startCharacter);
+    const endCharacter = typeof request.source.range.endCharacter === "number"
+      ? Math.max(startCharacter, Math.trunc(request.source.range.endCharacter))
+      : selected[0].length;
+    selected[0] = selected[0].slice(startCharacter, endCharacter);
+  } else {
+    if (typeof request.source.range.startCharacter === "number") {
+      selected[0] = selected[0].slice(Math.trunc(request.source.range.startCharacter));
+    }
+    if (typeof request.source.range.endCharacter === "number") {
+      selected[selected.length - 1] = selected[selected.length - 1].slice(0, Math.trunc(request.source.range.endCharacter));
+    }
+  }
+  const text = selected.join("\n");
+  return { ok: true, text, textHash: hashSpecSourceText(text) };
+}
+
+function isSpecChangeRequestIntent(value: unknown): value is SpecChangeRequestIntent {
+  return value === "clarification"
+    || value === "requirement_intake"
+    || value === "spec_evolution"
+    || value === "generate_ears"
+    || value === "update_design"
+    || value === "split_feature";
+}
+
+function numberOrZero(value: unknown): number {
+  return typeof value === "number" ? Math.max(0, Math.trunc(value)) : 0;
 }
 
 function detectSpecLanguage(workspaceRoot: string): string | undefined {

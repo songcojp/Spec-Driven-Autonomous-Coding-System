@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
-import { buildSpecDriveIdeView } from "../src/specdrive-ide.ts";
+import { buildSpecDriveIdeView, hashSpecSourceText, submitIdeSpecChangeRequest } from "../src/specdrive-ide.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
 import { createMemoryScheduler } from "../src/scheduler.ts";
 import type { AppConfig } from "../src/config.ts";
@@ -119,6 +119,85 @@ test("SpecDrive IDE HTTP routes expose spec tree and controlled command receipts
       controlPlane.server.close((error) => error ? reject(error) : resolve());
     });
   }
+});
+
+test("SpecDrive IDE SpecChangeRequest validates textHash and routes requirement intake", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+  const sourceText = "# PRD";
+
+  const receipt = submitIdeSpecChangeRequest(dbPath, {
+    schemaVersion: 1,
+    projectId: "project-ide",
+    workspaceRoot,
+    source: {
+      file: "docs/zh-CN/PRD.md",
+      range: { startLine: 0, endLine: 0 },
+      textHash: hashSpecSourceText(sourceText),
+    },
+    intent: "requirement_intake",
+    comment: "Add a new IDE requirement from a comment draft.",
+    traceability: ["PRD-IDE"],
+  }, { scheduler, now: new Date("2026-05-02T12:10:00.000Z") });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.routedIntent, "requirement_intake");
+  assert.equal(receipt.action, "intake_requirement");
+  assert.equal(receipt.schedulerJobId, scheduler.jobs[0].schedulerJobId);
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE id = ?", params: [scheduler.jobs[0].schedulerJobId] },
+  ]);
+  assert.equal(JSON.parse(String(result.queries.jobs[0].payload_json)).operation, "intake_requirement");
+
+  const staleReceipt = submitIdeSpecChangeRequest(dbPath, {
+    schemaVersion: 1,
+    projectId: "project-ide",
+    workspaceRoot,
+    source: {
+      file: "docs/zh-CN/PRD.md",
+      range: { startLine: 0, endLine: 0 },
+      textHash: hashSpecSourceText("old text"),
+    },
+    intent: "requirement_intake",
+    comment: "This should be stale.",
+  }, { scheduler, now: new Date("2026-05-02T12:11:00.000Z") });
+
+  assert.equal(staleReceipt.status, "blocked");
+  assert.equal("error" in staleReceipt ? staleReceipt.error : undefined, "stale_source");
+  assert.equal(staleReceipt.currentTextHash, hashSpecSourceText(sourceText));
+  assert.equal(scheduler.jobs.length, 1);
+});
+
+test("SpecDrive IDE SpecChangeRequest routes existing requirement changes to spec evolution", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+  const sourceText = "# Requirements";
+
+  const receipt = submitIdeSpecChangeRequest(dbPath, {
+    schemaVersion: 1,
+    projectId: "project-ide",
+    workspaceRoot,
+    source: {
+      file: "docs/zh-CN/requirements.md",
+      range: { startLine: 0, endLine: 0 },
+      textHash: hashSpecSourceText(sourceText),
+    },
+    intent: "requirement_intake",
+    comment: "Change REQ-076 wording.",
+    targetRequirementId: "REQ-076",
+    traceability: ["FEAT-017"],
+  }, { scheduler, now: new Date("2026-05-02T12:12:00.000Z") });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.routedIntent, "spec_evolution");
+  assert.equal(receipt.action, "write_spec_evolution");
+  assert.equal(receipt.schedulerJobId, undefined);
 });
 
 function makeDbPath(): string {

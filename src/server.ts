@@ -31,7 +31,7 @@ import {
 import type { SchedulerClient } from "./scheduler.ts";
 import { getOrCreateSession, processChatMessage, getChatHistory } from "./chat.ts";
 import { runCommand } from "./codex-runner.ts";
-import { buildSpecDriveIdeView } from "./specdrive-ide.ts";
+import { buildSpecDriveIdeView, isSpecChangeRequestV1, submitIdeSpecChangeRequest } from "./specdrive-ide.ts";
 
 
 export type ControlPlaneServer = {
@@ -233,7 +233,10 @@ async function routeRequest(
     }
 
     if (request.method === "POST" && url.pathname === "/ide/commands") {
-      writeJson(response, 202, submitConsoleCommand(config.dbPath, await readJsonBody(request) as ConsoleCommandInput, { scheduler: options.scheduler }));
+      const body = await readJsonBody(request);
+      writeJson(response, 202, isSpecChangeRequestV1(body)
+        ? submitIdeSpecChangeRequest(config.dbPath, body, { scheduler: options.scheduler })
+        : submitConsoleCommand(config.dbPath, body as ConsoleCommandInput, { scheduler: options.scheduler }));
       return;
     }
 

@@ -61,6 +61,7 @@ export type ConsoleCommandAction =
   | "initialize_project_memory"
   | "scan_prd_source"
   | "upload_prd_source"
+  | "intake_requirement"
   | "generate_ears"
   | "generate_hld"
   | "generate_ui_spec"
@@ -94,6 +95,7 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "initialize_project_memory",
   "scan_prd_source",
   "upload_prd_source",
+  "intake_requirement",
   "generate_ears",
   "generate_hld",
   "generate_ui_spec",
@@ -2942,7 +2944,7 @@ function executeSpecSkillCommand(
   scheduler: SchedulerClient,
   specIntakeResult?: ({ blockedReasons: string[] } & Record<string, unknown>),
 ): { executionId: string; schedulerJobId: string; skillSlug: string; workspaceRoot?: string } | undefined {
-  if (!["generate_ears", "generate_hld", "generate_ui_spec", "split_feature_specs"].includes(input.action)) {
+  if (!["intake_requirement", "generate_ears", "generate_hld", "generate_ui_spec", "split_feature_specs"].includes(input.action)) {
     return undefined;
   }
   const payload = parseJsonObject(input.payload);
@@ -3007,6 +3009,7 @@ function executeSpecSkillCommand(
 }
 
 function skillSlugForSpecAction(action: ConsoleCommandAction): string {
+  if (action === "intake_requirement") return "requirement-intake-skill";
   if (action === "generate_ears") return "pr-ears-requirement-decomposition-skill";
   if (action === "generate_hld") return "create-project-hld";
   if (action === "generate_ui_spec") return "ui-spec-skill";
@@ -3026,7 +3029,7 @@ function sourcePathsForSpecAction(
     optionalString(payload.resolvedSourcePath),
     workspaceRoot,
   );
-  if (action === "generate_ears") {
+  if (action === "intake_requirement" || action === "generate_ears") {
     return [payloadSourcePath ?? "docs/zh-CN/PRD.md"];
   }
   if (action === "split_feature_specs") {
@@ -3092,7 +3095,7 @@ function expectedArtifactsForSpecAction(
   sourcePaths: string[] = [],
   workspaceRoot?: string,
 ): string[] {
-  if (action === "generate_ears") {
+  if (action === "intake_requirement" || action === "generate_ears") {
     return [requirementsArtifactForSource(sourcePaths[0], workspaceRoot)];
   }
   if (action === "split_feature_specs") {
@@ -4301,6 +4304,7 @@ function schedulerJobName(
 function schedulerOperationName(operation?: string, skillSlug?: string, skillPhase?: string): string | undefined {
   if (skillSlug === "codex-coding-skill" || skillPhase === "task_execution") return "Execute task";
   if (skillSlug === "create-project-hld" || operation === "generate_hld") return "Generate project HLD";
+  if (skillSlug === "requirement-intake-skill" || operation === "intake_requirement") return "Intake requirement";
   if (skillSlug === "pr-ears-requirement-decomposition-skill" || operation === "generate_ears") return "Generate EARS requirements";
   if (skillSlug === "task-slicing-skill" || operation === "split_feature_specs") return "Split Feature Specs";
   if (skillSlug === "ui-spec-skill" || operation === "generate_ui_spec") return "Generate UI Spec";

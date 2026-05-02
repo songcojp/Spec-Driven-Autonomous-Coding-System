@@ -2,7 +2,7 @@
 
 Feature ID: FEAT-017
 Feature 名称: IDE Spec Interaction
-状态: todo
+状态: done
 里程碑: M8
 依赖: FEAT-016、FEAT-002、FEAT-012
 
@@ -20,8 +20,8 @@ Feature 名称: IDE Spec Interaction
 
 ## 验收标准
 
-- [ ] Hover 展示 requirement、Feature、traceability、状态和可用动作。
-- [ ] CodeLens 动作转换为受控命令，不直接修改运行状态。
-- [ ] Comment 草稿可提交为 `SpecChangeRequestV1`。
-- [ ] `textHash` 不匹配时返回 `stale_source` 并要求用户重新确认。
-- [ ] 新需求路由到 requirement intake；既有 requirement id 修改路由到 spec evolution。
+- [x] Hover 展示 requirement、Feature、traceability、状态和可用动作。
+- [x] CodeLens 动作转换为受控命令，不直接修改运行状态。
+- [x] Comment 草稿可提交为 `SpecChangeRequestV1`。
+- [x] `textHash` 不匹配时返回 `stale_source` 并要求用户重新确认。
+- [x] 新需求路由到 requirement intake；既有 requirement id 修改路由到 spec evolution。

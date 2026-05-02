@@ -1,3 +1,9 @@
+declare module "node:crypto" {
+  export function createHash(algorithm: string): {
+    update(data: string): { digest(encoding: "hex"): string };
+  };
+}
+
 declare module "vscode" {
   export type Disposable = { dispose(): void };
 
@@ -28,6 +34,8 @@ declare module "vscode" {
     end: Position;
     constructor(startLine: number, startCharacter: number, endLine: number, endCharacter: number);
   }
+
+  export class Selection extends Range {}
 
   export class EventEmitter<T> {
     event: Event<T>;
@@ -113,6 +121,41 @@ declare module "vscode" {
     lineAt(line: number): TextLine;
   };
 
+  export type TextEditor = {
+    document: TextDocument;
+    selection: Selection;
+  };
+
+  export enum CommentMode {
+    Editing = 0,
+    Preview = 1
+  }
+
+  export enum CommentThreadCollapsibleState {
+    Collapsed = 0,
+    Expanded = 1
+  }
+
+  export type Comment = {
+    body: string | MarkdownString;
+    mode: CommentMode;
+  };
+
+  export type CommentThread = {
+    uri: Uri;
+    range: Range;
+    comments: Comment[];
+    collapsibleState?: CommentThreadCollapsibleState;
+  };
+
+  export type CommentingRangeProvider = {
+    provideCommentingRanges(document: TextDocument): ProviderResult<Range[]>;
+  };
+
+  export interface CommentController extends Disposable {
+    commentingRangeProvider?: CommentingRangeProvider;
+  }
+
   export interface HoverProvider {
     provideHover(document: TextDocument, position: Position): ProviderResult<Hover>;
   }
@@ -124,6 +167,7 @@ declare module "vscode" {
   export type ProviderResult<T> = T | undefined | null | Thenable<T | undefined | null>;
 
   export namespace window {
+    const activeTextEditor: TextEditor | undefined;
     function createTreeView<T>(viewId: string, options: { treeDataProvider: TreeDataProvider<T> }): Disposable;
     function showErrorMessage(message: string): Thenable<string | undefined>;
   }
@@ -133,8 +177,8 @@ declare module "vscode" {
     function getConfiguration(section?: string): {
       get<T>(key: string, defaultValue: T): T;
     };
-    function openTextDocument(uri: Uri): Thenable<unknown>;
-    function openTextDocument(options: { content: string; language?: string }): Thenable<unknown>;
+    function openTextDocument(uri: Uri): Thenable<TextDocument>;
+    function openTextDocument(options: { content: string; language?: string }): Thenable<TextDocument>;
   }
 
   export namespace window {
@@ -150,6 +194,10 @@ declare module "vscode" {
     function createDiagnosticCollection(name: string): DiagnosticCollection;
     function registerHoverProvider(selector: unknown, provider: HoverProvider): Disposable;
     function registerCodeLensProvider(selector: unknown, provider: CodeLensProvider): Disposable;
+  }
+
+  export namespace comments {
+    function createCommentController(id: string, label: string): CommentController;
   }
 
   export type ExtensionContext = {
