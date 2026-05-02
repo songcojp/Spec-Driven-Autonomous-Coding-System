@@ -19,6 +19,7 @@
 | ADD-003 | Dashboard Board 操作能力 | PRD 第 8.5 节 | 已写入 `REQ-061`、HLD、FEAT-013 | 人工确认拖拽、批量排期、批量运行的 MVP 范围；建议先做受控命令，不直接改状态。 |
 | ADD-004 | Product Console UI 多语言切换，默认中文 | 用户指令；PRD 第 8.8 节 | 已写入 `REQ-062`、HLD / Feature Spec design、FEAT-013 | 作为已完成 FEAT-013 的 Product Console patch 处理；需实现语言切换、默认中文、语言偏好持久化和浏览器级验证。 |
 | ADD-005 | 项目创建、现有项目导入与多项目切换 | 用户指令；PRD 第 6.1 节 FR-001；PRD 第 8.1 节 | 已写入 `REQ-063`、HLD / Feature Spec design、FEAT-001、FEAT-013 | 作为 FEAT-001 + FEAT-013 联合 patch：FEAT-001 补项目目录、workspace 初始化规则和当前项目上下文，FEAT-013 补导入/新建表单、项目列表和项目切换 UI。 |
+| ADD-007 | SpecDrive VSCode 插件作为 IDE 原生入口 | 用户指令；`docs/zh-CN/vscode-codex-app-server-prd.md`；`docs/zh-CN/vscode-app-plan.md` | 已写入 `REQ-074` 至 `REQ-083`、PRD、HLD、Feature Index、FEAT-016 至 FEAT-020 | 按新增 Feature 链路处理：先交付 VSCode 只读入口，再交付文档交互、Codex app-server Adapter、执行闭环和 Diagnostics / UX refinement。 |
 
 ## 变更清单
 
@@ -41,6 +42,8 @@
 | CHG-017 | CLI Adapter 逐步阻断与系统设置禁用按鈕补充 | 实现发现：ADD-006 任务执行期间发现 Runner Worker 在 `cli_adapter_configs` 表有记录但无 active 行时未阶断新 Run，且 SettingsPage 缺少 `disable_cli_adapter_config` 受控命令按鈕 | FEAT-008 全部 16 项任务已完成（TASK-001 至 TASK-016）；FEAT-013 TASK-029–032 已完成，TASK-026–028、033 待执行 | 已将 FEAT-008 标记为 done；已更新 Feature Index ADD-006 follow-up；巻 FEAT-013 TASK-029–032 认知为已完成。 |
 | CHG-018 | 任务执行队列重构为 Job 与 Execution Record | 用户指令：Job 与 Feature 解耦、`runs` 改名为 `execution_records`、取消 `feature.select` / `feature.plan` / `feature_planning`，并要求文档同步 | 已写入 PRD、requirements、HLD、历史 design、FEAT-004、FEAT-008、FEAT-013、FEAT-014 和 Feature Index | 作为 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 联合重构：`push_feature_spec_pool` 读取 `feature-pool-queue.json` 后直接入队 `<executor>.run`；Product Console 调度中心展示 Job 列表和执行详情。 |
 | CHG-020 | Spec 状态文件化与审计简化 | 用户反馈：调度状态不友好、审计复杂但低频、Spec 文档查看编辑不方便 | 已写入 research、PRD、requirements、HLD、skills、FEAT-002、FEAT-004、FEAT-008、FEAT-013、FEAT-014 和 Feature Index | 作为跨 Feature patch：`spec-state.json` 成为 Spec/Feature 流程状态事实源；Scheduler 支持 blocked/resume/skip/next；Runner 将 Skill 输出投影回状态文件；Audit 降级为轻量活动记录。 |
+| CHG-021 | 日常 Spec 操作主入口从 Product Console 扩展到 VSCode IDE | 用户指令；`docs/zh-CN/vscode-codex-app-server-prd.md` 第 1、2、6、7 节；`docs/zh-CN/vscode-app-plan.md` | 已写入 PRD、`REQ-074` 至 `REQ-083`、HLD、Feature Index | Product Console 不删除，保留系统设置、adapter 配置、队列调试和全局状态；VSCode 插件承担日常 Spec 阅读、澄清、任务队列管理、执行观察和 app-server 审批。 |
+| CHG-022 | Runner 增加 Codex app-server Adapter，与 CLI Adapter 并存 | `docs/zh-CN/vscode-codex-app-server-prd.md` 第 7.7 至 7.9 节；`docs/zh-CN/vscode-app-plan.md` Key Changes | 已写入 `REQ-080` 至 `REQ-083`、HLD、FEAT-018、FEAT-019 | 新增 `codex.app_server.run` executor/adapter；Runner 是唯一调用 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt` 的组件，Execution Record 扩展记录 thread/turn/transport/raw logs/approval/output schema。 |
 
 ## 人工处置顺序建议
 
@@ -83,6 +86,9 @@
 | CHG-016 | 进入 FEAT-004 / FEAT-008 / FEAT-013 patch；Spec Workspace、Stage 3 planning 和 Task Board 运行动作必须转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中启动 Codex。 | 已同步 PRD、REQ-037、REQ-065、新增 REQ-068、HLD / Feature Spec design、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks 和 FEAT-013 requirements/design/tasks；实现已覆盖 workspace root 校验、planning CLI run、Skill invocation prompt、UI 回执、单测和浏览器级验证。 | 已同步实现 |
 | CHG-017 | 在 `src/scheduler.ts` `loadRunnerTaskContext` 补充 adapter 数龐查询：若表有记录但无 active row，抛出阶断错误；若表为空，回退到 DEFAULT_CLI_ADAPTER_CONFIG。在 SettingsPage 添加禁用按鈕，调用 `disable_cli_adapter_config` 受控命令。新增 CLI Adapter 校验、normalize 和阶断单测。 | 已同步 FEAT-008 tasks.md（TASK-009–012 全部 ☑）、FEAT-013 tasks.md（TASK-029–032 ☑）、Feature Index（FEAT-008 done，ADD-006 follow-up 更新）；全部 298 项测试通过。 | 已同步实现 |
 | CHG-019 | Feature 编码执行改为 Feature Spec 目录驱动；`task_graph_tasks` / `tasks` 不再是编码执行前置条件。 | 已同步 HLD、Feature Index、FEAT-004 requirements/tasks、FEAT-008 requirements/design/tasks、FEAT-013 requirements/design/tasks 和 Skill 说明；实现已覆盖完整 Feature Spec 目录入队、缺失三件套 blocked、prompt 禁止 evidence-only completion。 | 已同步实现 |
+| ADD-007 | 进入 FEAT-016 至 FEAT-020；SpecDrive 增加 VSCode 插件作为 IDE 原生日常入口，先按文档和 Feature Spec 分解，不进入代码实现。 | 已同步 PRD、requirements、HLD、Feature Index，并创建 FEAT-016 至 FEAT-020 requirements/design/tasks 三件套。 | 需同步实现 |
+| CHG-021 | 日常 Spec 操作入口从 Product Console 扩展到 VSCode IDE；Product Console 保留系统设置、adapter 配置、队列调试和全局状态总览。 | 已同步 PRD、requirements、HLD、Feature Index、FEAT-016、FEAT-017、FEAT-019、FEAT-020。 | 需同步实现 |
+| CHG-022 | Runner 增加 `codex.app_server.run` Adapter，与 `cli.run` 并存；Runner 是唯一 app-server thread/turn API 调用方。 | 已同步 requirements、HLD、Feature Index、FEAT-018、FEAT-019。 | 需同步实现 |
 
 ## Feature Spec Execute 评估
 
@@ -96,5 +102,6 @@
 | P1 | FEAT-008 Codex Runner / FEAT-013 System Settings | CHG-017 | 已执行 patch | FEAT-008 全部 16 项任务完成，FEAT-008 标记为 done；FEAT-013 TASK-029–032 完成（System Settings 框架、CLI 配置页、JSON 编辑器、受控命令 disable）；298 项单测全部通过。 |
 | P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `codex-coding-skill` patch | 并行写入和测试资源隔离属于执行安全边界。 |
 | P2 | FEAT-013 Product Console | ADD-003、ADD-005、CHG-005、CHG-009 | 执行 `codex-coding-skill` patch | 必须交付真实浏览器 UI、页面路由、组件系统、项目切换入口和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |
+| P2 | FEAT-016 至 FEAT-020 SpecDrive IDE | ADD-007、CHG-021、CHG-022 | 先执行 FEAT-016 文档/只读入口，再逐步执行 FEAT-017、FEAT-018、FEAT-019、FEAT-020 | VSCode IDE 入口和 Codex app-server Adapter 是新增 M8 能力；本次仅完成文档变更，后续按 Feature Spec 执行。 |
 | - | FEAT-010 Failure Recovery | CHG-007 | 不执行 | 已实现且测试覆盖。 |
 | - | 主线文档一致性 | CHG-006、CHG-008 | 不执行 | 非目标和性能基线约束已在文档中表达。 |

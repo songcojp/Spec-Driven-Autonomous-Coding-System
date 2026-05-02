@@ -20,6 +20,11 @@
 | FEAT-013 | Product Console | `feat-013-product-console` | in-progress | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066 至 REQ-068 | M2-M7 | FEAT-001、FEAT-004、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 | FEAT-015 | Chat Interface | `feat-015-chat-interface` | in-progress | REQ-069 至 REQ-073 | M7 | FEAT-013、FEAT-004、FEAT-014 |
+| FEAT-016 | SpecDrive IDE Foundation | `feat-016-specdrive-ide-foundation` | todo | REQ-074、REQ-075 | M8 | FEAT-001、FEAT-002、FEAT-004、FEAT-014 |
+| FEAT-017 | IDE Spec Interaction | `feat-017-ide-spec-interaction` | todo | REQ-076 至 REQ-078 | M8 | FEAT-016、FEAT-002、FEAT-012 |
+| FEAT-018 | Codex App Server Adapter | `feat-018-codex-app-server-adapter` | todo | REQ-080、REQ-081 | M8 | FEAT-004、FEAT-008、FEAT-014 |
+| FEAT-019 | IDE Execution Loop | `feat-019-ide-execution-loop` | todo | REQ-079、REQ-081、REQ-082 | M8 | FEAT-016、FEAT-018、FEAT-004、FEAT-008、FEAT-014 |
+| FEAT-020 | IDE Diagnostics and UX Refinement | `feat-020-ide-diagnostics-ux` | todo | REQ-083 | M8 | FEAT-016、FEAT-017、FEAT-019 |
 
 FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、Evidence 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃；Feature 级编码执行由 `codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md`，不再依赖平台 `task_graph_tasks` / `tasks` 表。
 
@@ -52,6 +57,16 @@ FEAT-000 System Bootstrap
     │       │           (also requires FEAT-009)
     │       └── FEAT-013 Product Console
     │           (also requires FEAT-001, FEAT-004)
+    └── FEAT-016 SpecDrive IDE Foundation
+        (also requires FEAT-001, FEAT-002, FEAT-014)
+        ├── FEAT-017 IDE Spec Interaction
+        │   (also requires FEAT-002, FEAT-012)
+        ├── FEAT-018 Codex App Server Adapter
+        │   (also requires FEAT-008, FEAT-014)
+        │   └── FEAT-019 IDE Execution Loop
+        │       (also requires FEAT-008, FEAT-014, FEAT-016)
+        │       └── FEAT-020 IDE Diagnostics and UX Refinement
+        │           (also requires FEAT-017)
 ```
 
 ### Direct Dependencies
@@ -74,6 +89,11 @@ FEAT-000 System Bootstrap
 | FEAT-013 | FEAT-001、FEAT-004、FEAT-008 |
 | FEAT-014 | FEAT-000 |
 | FEAT-015 | FEAT-013、FEAT-004、FEAT-014 |
+| FEAT-016 | FEAT-001、FEAT-002、FEAT-004、FEAT-014 |
+| FEAT-017 | FEAT-016、FEAT-002、FEAT-012 |
+| FEAT-018 | FEAT-004、FEAT-008、FEAT-014 |
+| FEAT-019 | FEAT-016、FEAT-018、FEAT-004、FEAT-008、FEAT-014 |
+| FEAT-020 | FEAT-016、FEAT-017、FEAT-019 |
 
 ## Delivery Order
 
@@ -85,6 +105,7 @@ FEAT-000 System Bootstrap
 6. FEAT-009 and FEAT-010 close the check and recovery loop.
 7. FEAT-011 and FEAT-012 provide approval and delivery closure.
 8. FEAT-013 exposes the operational surfaces over the control-plane state.
+9. FEAT-016 to FEAT-020 add the VSCode IDE surface, Codex app-server adapter, IDE execution loop, and diagnostics refinement after Product Console and Runner foundations exist.
 
 ## Spec Evolution Notes
 
@@ -106,5 +127,8 @@ FEAT-000 System Bootstrap
 | CHG-016 | FEAT-004 / FEAT-008 / FEAT-013 | Product Console / Spec 操作转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中调用 Codex；平台不恢复 Skill Registry 或 Skill Center。 | 已执行 FEAT-004 `TASK-017`、FEAT-008 `TASK-014` 至 `TASK-016`、FEAT-013 `TASK-035` 至 `TASK-036`。 |
 | CHG-019 | FEAT-004 / FEAT-008 / FEAT-013 | Feature 级编码执行改为 Feature Spec 目录驱动；`codex-coding-skill` 读取 `requirements.md`、`design.md`、`tasks.md` 后直接执行，不依赖 `task_graph_tasks` / `tasks` 表。 | 已同步 FEAT-004 `TASK-020`、FEAT-008 `TASK-017`、FEAT-013 `TASK-043`，并补充 feature-level `schedule_run` blocked/入队测试。 |
 | CHG-009 | FEAT-013 | 当前 Product Console 实现只覆盖 Control Plane API 和 ViewModel，不能替代 PRD 第 8 节要求的用户可操作 UI。 | 已补真实前端应用、页面路由、shadcn/ui 组件体系和浏览器级验收。 |
+| ADD-007 | FEAT-016 至 FEAT-020 | SpecDrive 增加 VSCode 插件作为 IDE 原生日常入口，不替代 Product Console，也不复用 Codex VS 插件私有 UI。 | 先执行 FEAT-016 只读入口，再执行 FEAT-017 文档交互、FEAT-018 app-server Adapter、FEAT-019 执行闭环、FEAT-020 Diagnostics / UX refinement。 |
+| CHG-021 | FEAT-016、FEAT-017、FEAT-019、FEAT-020 | 日常 Spec 操作入口从 Product Console 扩展到 VSCode IDE；Product Console 保留系统设置、adapter 配置、队列调试和全局状态总览。 | IDE 动作必须走 Control Plane command API，状态事实源仍为 workspace 文件、scheduler_job_records、execution_records 和 command receipt。 |
+| CHG-022 | FEAT-018、FEAT-019 | Runner 增加 `codex.app_server.run` adapter，与 `cli.run` 并存。 | Runner 是唯一调用 app-server thread/turn API 的组件；Execution Record 扩展 thread/turn/transport/raw logs/approval/output schema 投影。 |
 | CHG-007 | FEAT-010 | 失败重试上限、2/4/8 分钟退避和失败指纹已由现有实现与测试覆盖。 | 无需重新执行 Feature Spec。 |
 | CHG-006 / CHG-008 | Mainline Docs | Issue Tracker 非目标和性能阈值基线记录是文档约束，不形成实现任务。 | 无需执行 Feature Spec。 |

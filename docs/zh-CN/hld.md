@@ -18,6 +18,8 @@ SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。
 
 2026-05-02 Spec 状态文件化：Spec / Feature 流程状态以当前项目 workspace 内文件为准。`docs/features/feature-pool-queue.json` 保存全局 Feature 队列，`docs/features/<feature-id>/spec-state.json` 保存单 Feature 的机器可读状态、依赖、blocked reason、当前 Job、最近 Skill 输出和下一步动作。SQLite 不再作为 Spec 状态主事实源，只保存 Scheduler Job、Execution Record、heartbeat、logs、adapter config、command receipt、Evidence 和轻量活动记录。
 
+2026-05-02 VSCode IDE 入口：新增 VSCode SpecDrive Extension 作为 IDE 原生日常入口。插件只负责工作区识别、Spec Explorer、Hover、CodeLens、Comments、Diagnostics、状态面板、受控命令提交和状态订阅；不直接写运行事实源，不直接调用 Codex turn API。Runner 新增 Codex app-server Adapter，与 CLI Adapter 并存，负责 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt`、approval response、事件流 raw logs 和 Execution Record 投影。
+
 本 HLD 定义项目级架构边界、技术栈、核心子系统、数据域、集成方式、运行拓扑、安全治理、可观测性和 Feature Spec 拆分方向。本文不定义具体接口字段、数据库迁移、函数签名、任务实现步骤或单个 Feature 的低层设计。
 
 MVP 采用本地优先的控制面架构：
@@ -88,6 +90,8 @@ MVP 采用本地优先的控制面架构：
 | REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换、Spec Sources 扫描状态、系统设置、CLI Adapter JSON 表单配置和默认中文的界面语言切换。 |
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | REQ-069, REQ-070, REQ-071, REQ-072, REQ-073 | 7.14, 8, 9 | Chat Interface 提供悬浮面板、意图分类、受控命令派发、高风险二次确认和会话/消息持久化。 |
+| REQ-074, REQ-075, REQ-076, REQ-077, REQ-078, REQ-079 | 7.15, 8, 9, 10, 15 | VSCode Extension 提供工作区识别、Spec Explorer、文档交互、SpecChangeRequest、IDE command receipt 和 Task Queue 管理。 |
+| REQ-080, REQ-081, REQ-082, REQ-083 | 7.8, 7.15, 8, 9, 10, 11, 13, 15 | Codex app-server Adapter、Execution Projection、app-server approval 和 VSCode Diagnostics 属于 Runner + IDE 联合边界。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
 | NFR-007, NFR-008, NFR-009, NFR-011 | 11, 12, 13, 14 | 性能指标作为基线记录，只读 Subagent 并发作为受控并行能力。 |
@@ -136,11 +140,12 @@ flowchart LR
 | Layer / Concern | Decision | Rationale | Constraints / Notes |
 |---|---|---|---|
 | Frontend | TypeScript + React + Next.js 或 Vite React，MVP 优先单页 Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 都是状态密集型工作台，React 生态适合看板、表格、日志、实时状态 UI 和界面多语言切换。 | 当前仓库没有既有实现栈；若实现阶段已有宿主框架，以宿主框架优先；Product Console 首次打开默认中文，语言选择应可持久化。 |
+| IDE Extension | TypeScript + VSCode Extension API | VSCode 已提供文件树、编辑器、Markdown 预览、CodeLens、Hover、Comments、Diagnostics、Terminal、Output Channel、Webview、Status Bar 和 Git 集成，适合作为 SpecDrive 的日常操作入口。 | 插件只调用 Control Plane query/command API；不依赖 Codex VS 插件私有 Webview 协议，不模拟其输入框。 |
 | UI Component System | shadcn/ui + Tailwind CSS + Radix UI primitives | Product Console 需要稳定、可组合、可审计的工作台组件体系；shadcn/ui 以源码方式进入项目，便于定制表格、表单、弹窗、标签页、命令菜单、状态徽标和 Review 操作面板，同时保留无障碍基础能力。 | 不引入重型封闭组件库；组件主题、设计 token、暗色模式和状态语义应在 Product Console Feature Spec 中细化。 |
 | Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
 | Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、Evidence、审计、通用指标和 token 消费明细。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
-| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter | UI、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 CLI 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；TypeScript 可用 Zod 生成或校验 schema。 |
+| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter 和 Codex app-server adapter | UI、IDE、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 adapter 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；app-server Adapter 负责 JSON-RPC protocol/capability/schema detection。 |
 | Background Jobs / Scheduler | BullMQ + Redis queue + Worker；SQLite 保存 scheduler job record、Run、心跳、状态和 Evidence | 长时间任务不能只存在内存；延迟/周期/Worker 执行交给成熟队列，业务事实仍可恢复。 | Redis 不可用时 scheduler health 为 blocked；写任务默认串行，写入型并行必须绑定 worktree。 |
 | Testing | Vitest/Jest 覆盖服务与状态机；Playwright 覆盖 Console；CLI adapter 使用 fixture 和本地集成测试 | 核心风险在状态机、schema、Runner policy、工作区隔离和 UI 状态展示，测试应围绕这些边界。 | 目标仓库的测试命令由项目健康检查发现，不由本系统固定。 |
 | Deployment / Operations | MVP 本地进程：Control Plane + Runner Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合 Codex CLI、Git worktree 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Runner 池。 |
@@ -158,7 +163,8 @@ Rejected / deferred alternatives:
 
 | Layer | Responsibility | Key Decision |
 |---|---|---|
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区。 |
+| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区；保留系统设置、adapter 配置、队列调试和全局状态总览。 |
+| VSCode SpecDrive Extension | Spec Explorer、文档 Hover/CodeLens/Comments/Diagnostics、Task Queue、Execution Record 面板、approval pending 面板 | IDE 原生入口；只提交受控命令和订阅状态，不直接写运行事实源或调用 Codex turn API。 |
 | Control Plane | 项目、Spec、Skill、调度、状态、审批、证据和查询 API | 是状态与调度决策的协调层。 |
 | Orchestration | Project Scheduler、Executor Job Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
 | Execution | Subagent Runtime、Context Broker、Codex Runner、Status Checker、Recovery Manager | 每次执行都受 Run Contract、Runner Policy 和 Evidence schema 约束。 |
@@ -428,6 +434,31 @@ Collaborates With:
 
 - Product Console（UI 挂载）、submitConsoleCommand（命令派发）、Codex Runner（意图分类调用）、Evidence Store（查询上下文构建）。
 
+### 7.15 VSCode SpecDrive Extension
+
+Responsibilities:
+
+- 识别 VSCode workspace 中的 SpecDrive 文档结构、Feature 队列、`spec-state.json` 和 `.autobuild` 运行状态。
+- 提供 Spec Explorer，展示 PRD、requirements、HLD、Feature Specs、Task Queue、Execution Record 和最近 Codex 会话。
+- 在 Spec 文档中提供 Hover、CodeLens、Comments 和 Diagnostics，支持行级/段落级澄清、需求新增、需求变更、EARS 生成、设计更新和 Feature 拆分意图。
+- 将所有有副作用的 IDE action 转换为 Control Plane command API 请求，接收 `IdeCommandReceiptV1` 并刷新 UI。
+- 展示 app-server 事件流、diff 摘要、raw logs、approval pending 和 `SkillOutputContractV1` 校验结果。
+- 在插件重载后恢复 Spec Explorer、Task Queue、pending approval 和最近执行状态。
+
+Owns:
+
+- VSCode UI state、SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1 view model、Diagnostics projection。
+
+Collaborates With:
+
+- Control Plane query/command API、Scheduler、Runner Codex app-server Adapter、Execution Record Store、Workspace Files、Product Console。
+
+Boundary:
+
+- 插件不得直接写 `spec-state.json`、`execution_records` 或 `scheduler_job_records`。
+- 插件不得直接调用 `thread/start`、`thread/resume`、`turn/start` 或 `turn/interrupt`。
+- 查询类动作可以读取 workspace 文件或调用 query API；落盘、调度、取消、重试、审批和配置修改必须走受控命令。
+
 ## 8. Data Domains and Ownership
 
 | Data Domain | Primary Owner | Key Entities | Persistence Strategy |
@@ -437,6 +468,7 @@ Collaborates With:
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
 | Orchestration State | Orchestration and State Machine | Feature、StateTransition、ScheduleTrigger、SchedulerJobRecord、ExecutionRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
 | Runtime Execution | Codex Runner | ExecutionRecord、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog、TokenConsumptionRecord | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发；token/cost 只从 `.autobuild/runs/<runId>/stdout.log` 提取消费事实。 |
+| IDE Integration | VSCode SpecDrive Extension / Control Plane | SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1、AppServerExecutionProjectionV1 | Workspace 文件 + Control Plane query/command API；IDE 本地只缓存 UI 状态。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Evidence and Audit | Evidence Store | EvidencePack、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/evidence/` artifact。 |
@@ -465,6 +497,7 @@ Data ownership rules:
 |---|---|---|
 | BullMQ + Redis | `specdrive:feature-scheduler` 和 `specdrive:cli-runner` 两个 queue 承担 delayed、repeatable 和 Worker job 执行。 | Redis 不保存业务事实；断连时 scheduler health 为 blocked，SQLite 保留 trigger/job/audit。 |
 | Codex CLI | 由 Runner CLI Adapter 调用 `codex exec` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行；命令模板和输出映射来自 active JSON adapter 配置。 |
+| Codex app-server | 由 Runner Codex app-server Adapter 连接或启动 `codex app-server`，执行 initialize、thread/start、thread/resume、turn/start、turn/interrupt 和 approval response。 | Runner 是唯一调用 app-server turn API 的组件；VSCode 插件只能提交受控命令和订阅状态。 |
 | Git CLI | 由 Repository Adapter 和 Workspace Manager 读取状态、创建分支和管理 worktree。 | Git 状态是代码事实来源。 |
 | GitHub `gh` CLI | 由 Delivery Manager 创建 PR，读取必要 PR 状态。 | MVP 不单独建模 Git 平台权限矩阵。 |
 | Local filesystem | 保存 Project Memory、Spec artifact、Evidence artifact 和 Delivery Report。 | Artifact root 统一为 `.autobuild/`。 |
@@ -473,6 +506,14 @@ Data ownership rules:
 ### CLI Adapter Configuration
 
 CLI Adapter 配置是 Runner 的机器可查询事实源，使用 JSON 持久化并由 JSON Schema 校验。配置变更流程为 draft -> dry-run validated -> active；启用失败时保留上一份 active 配置。Product Console 系统设置中的 JSON 表单只编辑该 JSON，不创建第二套配置事实源。模型 token 价格表属于 active CLI Adapter defaults，用于将 TokenConsumptionRecord 的 token usage 转换为成本；缺失价格时记录 token 且成本为 0。
+
+### Codex App Server Adapter
+
+Codex app-server Adapter 是 Runner 的第二类执行 adapter，job type 为 `codex.app_server.run`。它与 `cli.run` 并存，不替换现有 CLI Adapter。Runner 消费 Job 后读取 active adapter config，连接已有 app-server 或启动 `codex app-server`，完成 protocol initialize，再根据 Execution Record / payload context 选择 `thread/start` 或 `thread/resume`，随后调用 `turn/start`。
+
+Adapter 输入至少包含 `workspaceRoot`、`featureId`、`taskId`、`sourcePaths`、`expectedArtifacts`、`specState`、`skillSlug`、`requestedAction` 和 `outputSchema`。输出投影为 `AppServerExecutionProjectionV1`，包含 `executionId`、`threadId`、`turnId`、`eventRefs`、`approvalState`、`producedArtifacts`、`summary` 和 `error`。
+
+app-server 事件流持续写入 raw logs，并投影到 Execution Record progress。`SkillOutputContractV1` 校验通过后，Control Plane 更新 `docs/features/<feature-id>/spec-state.json.lastResult`、next action 和 history；校验失败时保留 raw output 并将 Execution Record 标记为 failed。审批请求必须写入 pending approval，等待 VSCode 插件或其他 UI 通过 Control Plane approval command 返回决策。
 
 ### Artifact Root Decision
 
@@ -737,6 +778,11 @@ Quality gates:
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
 | Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Spec Sources 扫描状态、Skill Center、Subagent Console UI、Runner Console、系统设置、CLI Adapter JSON 表单、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066、REQ-067（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
+| SpecDrive IDE Foundation | VSCode 插件骨架、Control Plane client、workspace 识别、Spec Explorer 只读树、文件导航和 Task Queue 只读展示。 | REQ-074、REQ-075 |
+| IDE Spec Interaction | Hover、CodeLens、Comments 草稿与提交、`SpecChangeRequestV1`、textHash 校验、stale source 处理和 IDE command receipt。 | REQ-076、REQ-077、REQ-078 |
+| Codex App Server Adapter | `codex.app_server.run` executor/adapter、app-server lifecycle、initialize、thread/turn、capability/schema 检测和事件流 raw logs。 | REQ-080、REQ-081 |
+| IDE Execution Loop | Feature/Task 执行闭环、Execution Record 状态面板、approval pending 恢复、取消/重试/恢复、输出校验和状态投影。 | REQ-079、REQ-081、REQ-082 |
+| IDE Diagnostics and UX Refinement | Diagnostics、日志增量渲染、diff 摘要、状态过滤、Product Console 跳转、插件重载恢复、性能优化和多语言 UI 预留。 | REQ-083 |
 
 Decomposition rules:
 
