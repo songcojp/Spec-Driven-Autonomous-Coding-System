@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -1071,6 +1071,32 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_token_consumption_project_recorded ON token_consumption_records(project_id, recorded_at)",
       "CREATE INDEX IF NOT EXISTS idx_token_consumption_feature_recorded ON token_consumption_records(feature_id, recorded_at)",
       "CREATE INDEX IF NOT EXISTS idx_token_consumption_task_recorded ON token_consumption_records(task_id, recorded_at)",
+    ],
+  },
+  {
+    version: 23,
+    description: "Add Codex app-server adapter configuration schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS codex_app_server_adapter_configs (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        executable TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        endpoint TEXT,
+        request_timeout_ms INTEGER NOT NULL,
+        config_schema_json TEXT NOT NULL,
+        form_schema_json TEXT NOT NULL,
+        defaults_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        last_probe_status TEXT,
+        last_probe_errors_json TEXT NOT NULL DEFAULT '[]',
+        last_probe_at TEXT,
+        activated_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_codex_app_server_adapter_configs_status ON codex_app_server_adapter_configs(status, updated_at)",
     ],
   },
 ];

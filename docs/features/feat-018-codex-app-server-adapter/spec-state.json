@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "featureId": "FEAT-018",
+  "status": "done",
+  "updatedAt": "2026-05-02T00:00:00.000Z",
+  "blockedReasons": [],
+  "dependencies": [
+    "FEAT-004",
+    "FEAT-008",
+    "FEAT-014"
+  ],
+  "nextAction": "Use FEAT-019 to connect IDE execution controls and app-server approval interaction to the completed Runner adapter.",
+  "history": [
+    {
+      "at": "2026-05-02T00:00:00.000Z",
+      "status": "done",
+      "summary": "Codex app-server adapter configuration, JSON-RPC lifecycle, event projection, raw logs, Execution Record metadata, startup failure handling, and SkillOutputContractV1 validation are complete.",
+      "source": "implementation"
+    }
+  ]
+}

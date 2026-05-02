@@ -20,7 +20,7 @@ test("current schema includes review center approval context", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 22);
+  assert.equal(SCHEMA_VERSION, 23);
   assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   assert.equal(tables.includes("review_items"), true);

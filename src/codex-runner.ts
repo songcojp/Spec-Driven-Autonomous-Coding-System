@@ -1150,7 +1150,7 @@ function parseOutputEvidence(value: unknown): SkillOutputEvidence[] {
   });
 }
 
-function validateSkillOutputContract(invocation: SkillInvocationContract | undefined, output: SkillOutputContract | undefined): SkillContractValidationResult {
+export function validateSkillOutputContract(invocation: SkillInvocationContract | undefined, output: SkillOutputContract | undefined): SkillContractValidationResult {
   if (!invocation) return { valid: true, reasons: [] };
   const reasons: string[] = [];
   if (!output) {

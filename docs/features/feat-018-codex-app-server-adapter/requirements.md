@@ -2,7 +2,7 @@
 
 Feature ID: FEAT-018
 Feature 名称: Codex App Server Adapter
-状态: todo
+状态: done
 里程碑: M8
 依赖: FEAT-004、FEAT-008、FEAT-014
 
@@ -19,8 +19,8 @@ Feature 名称: Codex App Server Adapter
 
 ## 验收标准
 
-- [ ] Runner 可消费 `codex.app_server.run` Job。
-- [ ] Adapter 支持 initialize/initialized、thread/start、thread/resume、turn/start、turn/interrupt。
-- [ ] thread id、turn id、transport、model、cwd、output schema 写入 Execution Record。
-- [ ] turn/item 事件持续写入 raw logs。
-- [ ] app-server 无法启动、未登录或协议不兼容时 Execution Record 标记 failed。
+- [x] Runner 可消费 `codex.app_server.run` Job。
+- [x] Adapter 支持 initialize/initialized、thread/start、thread/resume、turn/start、turn/interrupt。
+- [x] thread id、turn id、transport、model、cwd、output schema 写入 Execution Record。
+- [x] turn/item 事件持续写入 raw logs。
+- [x] app-server 无法启动、未登录或协议不兼容时 Execution Record 标记 failed。

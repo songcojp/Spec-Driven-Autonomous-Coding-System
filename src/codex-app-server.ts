@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
+import { validateSkillOutputContract } from "./codex-runner.ts";
 import type {
   CodexAdapterResult,
   CodexJsonEvent,
@@ -53,6 +54,7 @@ export type CodexAppServerProjection = {
   diffUpdated: boolean;
   approvalRequests: CodexJsonEvent[];
   skillOutput?: SkillOutputContract;
+  contractValidation: ReturnType<typeof validateSkillOutputContract>;
   error?: string;
 };
 
@@ -91,6 +93,29 @@ export type CodexAppServerStdioTransportInput = {
   cwd: string;
   requestTimeoutMs?: number;
   process?: JsonRpcStdioProcess;
+};
+
+export type CodexAppServerAdapterConfig = {
+  id: string;
+  displayName: string;
+  executable: string;
+  args: string[];
+  transport: "stdio" | "unix" | "websocket";
+  endpoint?: string;
+  requestTimeoutMs: number;
+  status: "active" | "disabled";
+  updatedAt?: string;
+};
+
+export const DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG: CodexAppServerAdapterConfig = {
+  id: "codex-app-server-default",
+  displayName: "Built-in Codex app-server",
+  executable: "codex",
+  args: ["app-server", "--listen", "stdio://"],
+  transport: "stdio",
+  endpoint: "stdio://",
+  requestTimeoutMs: 120_000,
+  status: "active",
 };
 
 export type JsonRpcStdioProcess = {
@@ -211,6 +236,21 @@ export function createCodexAppServerStdioTransport(input: CodexAppServerStdioTra
   };
 }
 
+export function createCodexAppServerTransportFromConfig(
+  config: CodexAppServerAdapterConfig,
+  cwd: string,
+): CodexAppServerTransport {
+  if (config.transport !== "stdio") {
+    throw new Error(`Codex app-server transport is not supported yet: ${config.transport}`);
+  }
+  return createCodexAppServerStdioTransport({
+    command: config.executable,
+    args: config.args,
+    cwd,
+    requestTimeoutMs: config.requestTimeoutMs,
+  });
+}
+
 export function buildCodexAppServerRequestSequence(input: CodexAppServerRequestSequenceInput): CodexAppServerRequestSequence {
   const threadMethod = input.threadId ? "thread/resume" : "thread/start";
   const threadParams = input.threadId
@@ -270,8 +310,17 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
 
   const threadMethod = input.threadId ? "thread/resume" : "thread/start";
   const threadResult = await input.transport.request(threadMethod, input.threadId
-    ? { threadId: input.threadId, cwd: input.workspaceRoot }
-    : { cwd: input.workspaceRoot });
+    ? {
+        threadId: input.threadId,
+        cwd: input.workspaceRoot,
+        persistExtendedHistory: true,
+        excludeTurns: true,
+      }
+    : {
+        cwd: input.workspaceRoot,
+        experimentalRawEvents: true,
+        persistExtendedHistory: true,
+      });
   const threadId = input.threadId ?? threadIdFromResult(threadResult);
   if (!threadId) {
     throw new Error("Codex app-server did not return a thread id.");
@@ -288,6 +337,9 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
       }] : []),
     ],
     outputSchema: input.policy.outputSchema,
+    model: input.policy.model,
+    effort: input.policy.reasoningEffort,
+    approvalPolicy: input.policy.approvalPolicy,
   });
   const turnId = turnIdFromResult(turnResult);
   const events: CodexJsonEvent[] = [];
@@ -295,7 +347,8 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
   if (turnId) events.push({ type: "turn/started", id: turnId, threadId });
   for await (const event of input.transport.events()) {
     events.push(event);
-    if (String(event.type ?? event.method ?? "") === "turn/completed") {
+    const type = String(event.type ?? event.method ?? "");
+    if (type === "turn/completed" || type === "error") {
       break;
     }
   }
@@ -311,6 +364,14 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
   });
 }
 
+export async function interruptCodexAppServerTurn(
+  transport: CodexAppServerTransport,
+  threadId: string,
+  turnId: string,
+): Promise<Record<string, unknown>> {
+  return transport.request("turn/interrupt", { threadId, turnId });
+}
+
 export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppServerProjection {
   let threadId: string | undefined;
   let turnId: string | undefined;
@@ -321,7 +382,6 @@ export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppS
   let error: string | undefined;
   const approvalRequests: CodexJsonEvent[] = [];
   let skillOutput: SkillOutputContract | undefined;
-
   for (const event of events) {
     const type = String(event.type ?? event.method ?? "");
     threadId = optionalString(event.threadId) ?? optionalString(event.thread_id) ?? threadId;
@@ -348,10 +408,19 @@ export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppS
       approvalRequests.push(event);
     }
     if (type === "turn/completed") {
-      const terminalStatus = optionalString(event.status) ?? optionalString((event.result as Record<string, unknown> | undefined)?.status);
+      const turn = isRecord(event.turn) ? event.turn : undefined;
+      const terminalStatus = optionalString(event.status)
+        ?? optionalString((event.result as Record<string, unknown> | undefined)?.status)
+        ?? optionalString(turn?.status);
       status = terminalStatus === "failed" ? "failed" : "completed";
       error = optionalString(event.error) ?? optionalString((event.result as Record<string, unknown> | undefined)?.error);
       skillOutput = extractSkillOutput(event) ?? skillOutput;
+    }
+    if (type === "error") {
+      status = "failed";
+      error = optionalString(event.message)
+        ?? optionalString((event.error as Record<string, unknown> | undefined)?.message)
+        ?? JSON.stringify(event.error ?? event);
     }
   }
 
@@ -364,17 +433,22 @@ export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppS
     diffUpdated,
     approvalRequests,
     skillOutput,
+    contractValidation: validateSkillOutputContract(undefined, undefined),
     error,
   };
 }
 
 export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterResultInput): CodexAdapterResult {
   const projection = projectCodexAppServerEvents(input.events);
+  const contractValidation = validateSkillOutputContract(input.skillInvocation, projection.skillOutput);
+  const failedContract = input.skillInvocation && !contractValidation.valid;
+  const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
+  const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
   const rawLog: RawExecutionLog = {
     id: `${input.runId}:app-server-log`,
     runId: input.runId,
     stdout: projection.assistantMessage,
-    stderr: projection.error ?? "",
+    stderr,
     events: input.events,
     createdAt: input.completedAt,
   };
@@ -386,7 +460,7 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
       workspaceRoot: input.workspaceRoot,
       command: "codex",
       args: ["app-server"],
-      exitCode: projection.status === "failed" ? 1 : 0,
+      exitCode,
       startedAt: input.startedAt,
       completedAt: input.completedAt,
     },
@@ -396,12 +470,13 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
       taskId: input.skillInvocation?.traceability.taskId,
       featureId: input.skillInvocation?.traceability.featureId,
       sessionId: projection.threadId,
-      exitCode: projection.status === "failed" ? 1 : 0,
+      exitCode,
       events: input.events,
       stdout: projection.assistantMessage,
-      stderr: projection.error ?? "",
+      stderr,
       skillInvocation: input.skillInvocation,
       skillOutput: projection.skillOutput,
+      contractValidation,
     },
   };
 }
@@ -410,6 +485,8 @@ function extractSkillOutput(event: CodexJsonEvent): SkillOutputContract | undefi
   const candidates = [
     event.output,
     event.result,
+    isRecord(event.turn) ? event.turn.output : undefined,
+    isRecord(event.turn) ? event.turn.finalOutput : undefined,
     isRecord(event.result) ? event.result.output : undefined,
     isRecord(event.result) ? event.result.finalOutput : undefined,
   ];
@@ -461,6 +538,7 @@ function normalizeServerEvent(message: Record<string, unknown>): CodexJsonEvent 
   if (typeof message.method === "string") {
     return {
       type: message.method,
+      requestId: optionalString(message.id),
       ...(isRecord(message.params) ? message.params : {}),
     };
   }
@@ -478,12 +556,12 @@ function threadIdFromResult(result: Record<string, unknown>): string | undefined
   return optionalString(result.threadId)
     ?? optionalString(result.thread_id)
     ?? optionalString(result.id)
-    ?? (isRecord(result.thread) ? optionalString(result.thread.id) : undefined);
+    ?? (isRecord(result.thread) ? optionalString(result.thread.id) ?? optionalString(result.thread.threadId) : undefined);
 }
 
 function turnIdFromResult(result: Record<string, unknown>): string | undefined {
   return optionalString(result.turnId)
     ?? optionalString(result.turn_id)
     ?? optionalString(result.id)
-    ?? (isRecord(result.turn) ? optionalString(result.turn.id) : undefined);
+    ?? (isRecord(result.turn) ? optionalString(result.turn.id) ?? optionalString(result.turn.turnId) : undefined);
 }

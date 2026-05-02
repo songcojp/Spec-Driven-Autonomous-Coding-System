@@ -31,7 +31,10 @@ import {
   type SkillOutputContract,
 } from "./codex-runner.ts";
 import {
+  createCodexAppServerTransportFromConfig,
+  DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
   runCodexAppServerSession,
+  type CodexAppServerAdapterConfig,
   type CodexAppServerTransport,
 } from "./codex-app-server.ts";
 import {
@@ -420,11 +423,10 @@ export async function runCodexAppServerRunJob(
   const skillSlug = optionalString(context.skillSlug);
   const skillPhase = optionalString(context.skillPhase) ?? payload.operation;
   let loaded: ReturnType<typeof loadRunnerTaskContext>;
+  let adapterConfig: CodexAppServerAdapterConfig | undefined;
   try {
-    if (!transport) {
-      throw new Error("Codex app-server transport is not configured.");
-    }
     loaded = loadRunnerTaskContext(dbPath, payload);
+    adapterConfig = loadAppServerAdapterConfig(dbPath);
   } catch (error) {
     const reason = errorMessage(error);
     runSqlite(dbPath, [
@@ -542,6 +544,17 @@ export async function runCodexAppServerRunJob(
           skillPhase: loaded.skillInvocation?.requestedAction,
           skillInvocationContract: loaded.skillInvocation,
           threadId: payload.threadId,
+          transport: adapterConfig?.transport,
+          model: policy.model,
+          cwd: loaded.workspaceRoot,
+          outputSchema: policy.outputSchema,
+          adapterConfig: {
+            id: adapterConfig?.id,
+            displayName: adapterConfig?.displayName,
+            executable: adapterConfig?.executable,
+            args: adapterConfig?.args,
+            endpoint: adapterConfig?.endpoint,
+          },
         }),
       ],
     },
@@ -557,16 +570,79 @@ export async function runCodexAppServerRunJob(
     executionId: payload.executionId,
   });
 
-  const adapterResult = await runCodexAppServerSession({
-    runId: payload.executionId,
-    workspaceRoot: loaded.workspaceRoot,
-    prompt: loaded.prompt,
-    policy,
-    transport,
-    skillInvocation: loaded.skillInvocation,
-    threadId: payload.threadId,
-    startedAt: now.toISOString(),
-  });
+  const activeTransport = transport ?? createCodexAppServerTransportFromConfig(adapterConfig ?? DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG, loaded.workspaceRoot);
+  let adapterResult: Awaited<ReturnType<typeof runCodexAppServerSession>>;
+  try {
+    adapterResult = await runCodexAppServerSession({
+      runId: payload.executionId,
+      workspaceRoot: loaded.workspaceRoot,
+      prompt: loaded.prompt,
+      policy,
+      transport: activeTransport,
+      skillInvocation: loaded.skillInvocation,
+      threadId: payload.threadId,
+      startedAt: now.toISOString(),
+    });
+  } catch (error) {
+    await activeTransport.close?.();
+    const reason = errorMessage(error);
+    const completedAt = new Date().toISOString();
+    persistCodexRunnerArtifacts(dbPath, {
+      policy,
+      heartbeat: recordRunnerHeartbeat({
+        runId: payload.executionId,
+        runnerId: "bullmq-app-server-runner",
+        policy,
+        queueStatus: "failed",
+        message: reason,
+      }),
+    });
+    runSqlite(dbPath, [
+      {
+        sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        params: [
+          "failed",
+          completedAt,
+          reason,
+          JSON.stringify({
+            scheduler: "bullmq",
+            jobType: "codex.app_server.run",
+            workspaceRoot: loaded.workspaceRoot,
+            skillSlug: loaded.skillInvocation?.skillSlug,
+            skillPhase: loaded.skillInvocation?.requestedAction,
+            skillInvocationContract: loaded.skillInvocation,
+            threadId: payload.threadId,
+            transport: adapterConfig?.transport,
+            model: policy.model,
+            cwd: loaded.workspaceRoot,
+            outputSchema: policy.outputSchema,
+            adapterConfig: {
+              id: adapterConfig?.id,
+              displayName: adapterConfig?.displayName,
+              executable: adapterConfig?.executable,
+              args: adapterConfig?.args,
+              endpoint: adapterConfig?.endpoint,
+            },
+            error: reason,
+          }),
+          payload.executionId,
+        ],
+      },
+    ]);
+    updateFeatureSpecFileState({
+      workspaceRoot: loaded.workspaceRoot,
+      featureId: loaded.featureId ?? featureId,
+      context,
+      status: "failed",
+      summary: reason,
+      source: "codex.app_server.run",
+      schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+      executionId: payload.executionId,
+    });
+    return { executionId: payload.executionId, status: "failed" };
+  } finally {
+    if (!transport) await activeTransport.close?.();
+  }
   persistCodexRunnerArtifacts(dbPath, {
     policy,
     session: adapterResult.session,
@@ -597,7 +673,9 @@ export async function runCodexAppServerRunJob(
     },
   ]);
   const finalStatus = appServerResultStatus(adapterResult);
-  const finalSummary = adapterResult.evidence.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex app-server ${finalStatus}.`);
+  const finalSummary = finalStatus === "failed" && adapterResult.evidence.contractValidation && !adapterResult.evidence.contractValidation.valid
+    ? `Skill output contract validation failed: ${adapterResult.evidence.contractValidation.reasons.join("; ")}`
+    : adapterResult.evidence.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex app-server ${finalStatus}.`);
   runSqlite(dbPath, [
     {
       sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -615,6 +693,26 @@ export async function runCodexAppServerRunJob(
           skillOutputContract: adapterResult.evidence.skillOutput,
           producedArtifacts: adapterResult.evidence.skillOutput?.producedArtifacts ?? [],
           threadId: adapterResult.session.sessionId,
+          turnId: eventTurnId(adapterResult.rawLog.events),
+          transport: adapterConfig?.transport,
+          model: policy.model,
+          cwd: loaded.workspaceRoot,
+          outputSchema: policy.outputSchema,
+          contractValidation: adapterResult.evidence.contractValidation,
+          approvalState: approvalStateFromEvents(adapterResult.rawLog.events),
+          eventRefs: adapterResult.rawLog.events.map((event, index) => ({
+            index,
+            type: optionalString(event.type),
+            threadId: optionalString(event.threadId) ?? optionalString(event.thread_id),
+            turnId: optionalString(event.turnId) ?? optionalString(event.turn_id),
+          })),
+          adapterConfig: {
+            id: adapterConfig?.id,
+            displayName: adapterConfig?.displayName,
+            executable: adapterConfig?.executable,
+            args: adapterConfig?.args,
+            endpoint: adapterConfig?.endpoint,
+          },
         }),
         payload.executionId,
       ],
@@ -968,8 +1066,59 @@ function adapterFromRow(row?: Record<string, unknown>): CliAdapterConfig {
   });
 }
 
+function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig {
+  const result = runSqlite(dbPath, [], [
+    { name: "adapter", sql: "SELECT * FROM codex_app_server_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM codex_app_server_adapter_configs" },
+  ]);
+  const row = result.queries.adapter[0];
+  const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
+  if (!row && adapterCount > 0) {
+    throw new Error("No active Codex app-server adapter configured. Activate an adapter in System Settings before starting app-server runs.");
+  }
+  if (!row) return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  return {
+    id: String(row.id),
+    displayName: String(row.display_name),
+    executable: String(row.executable),
+    args: parseJsonArray(row.args_json).map(String),
+    transport: normalizeAppServerTransport(row.transport),
+    endpoint: optionalString(row.endpoint),
+    requestTimeoutMs: Number(row.request_timeout_ms ?? DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG.requestTimeoutMs),
+    status: String(row.status) === "disabled" ? "disabled" : "active",
+    updatedAt: optionalString(row.updated_at),
+  };
+}
+
+function normalizeAppServerTransport(value: unknown): CodexAppServerAdapterConfig["transport"] {
+  if (value === "unix" || value === "websocket") return value;
+  return "stdio";
+}
+
 function resolveWorkspaceRoot(row?: Record<string, unknown>): string | undefined {
   return optionalString(row?.repository_local_path) ?? optionalString(row?.target_repo_path);
+}
+
+function eventTurnId(events: Array<Record<string, unknown>>): string | undefined {
+  for (const event of events) {
+    const turnId = optionalString(event.turnId)
+      ?? optionalString(event.turn_id)
+      ?? (String(event.type ?? "") === "turn/started" ? optionalString(event.id) : undefined)
+      ?? (typeof event.turn === "object" && event.turn !== null ? optionalString((event.turn as Record<string, unknown>).id) : undefined);
+    if (turnId) return turnId;
+  }
+  return undefined;
+}
+
+function approvalStateFromEvents(events: Array<Record<string, unknown>>): "none" | "pending" {
+  return events.some((event) => {
+    const type = String(event.type ?? "");
+    return type === "approval/request"
+      || type.endsWith("/approval/request")
+      || type === "item/commandExecution/requestApproval"
+      || type === "item/fileChange/requestApproval"
+      || type === "item/permissions/requestApproval";
+  }) ? "pending" : "none";
 }
 
 function buildCliSkillInvocation(input: {

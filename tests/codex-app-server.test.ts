@@ -6,6 +6,7 @@ import {
   buildCodexAppServerAdapterResult,
   buildCodexAppServerRequestSequence,
   createCodexAppServerStdioTransport,
+  interruptCodexAppServerTurn,
   projectCodexAppServerEvents,
   runCodexAppServerSession,
   type CodexAppServerTransport,
@@ -178,9 +179,31 @@ test("Codex app-server session resumes supplied thread id", async () => {
   });
 
   assert.equal(calls[2].method, "thread/resume");
-  assert.deepEqual(calls[2].params, { threadId: "thread-existing", cwd: "/repo" });
+  assert.deepEqual(calls[2].params, {
+    threadId: "thread-existing",
+    cwd: "/repo",
+    persistExtendedHistory: true,
+    excludeTurns: true,
+  });
   assert.equal((calls[3].params as { threadId?: string }).threadId, "thread-existing");
   assert.equal(result.session.sessionId, "thread-existing");
+});
+
+test("Codex app-server adapter can interrupt a running turn", async () => {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const transport: CodexAppServerTransport = {
+    async request(method, params) {
+      calls.push({ method, params });
+      return {};
+    },
+    notify() {},
+    async *events() {},
+  };
+
+  const result = await interruptCodexAppServerTurn(transport, "thread-1", "turn-1");
+
+  assert.deepEqual(result, {});
+  assert.deepEqual(calls, [{ method: "turn/interrupt", params: { threadId: "thread-1", turnId: "turn-1" } }]);
 });
 
 test("Codex app-server session fails before turn start when thread id is missing", async () => {

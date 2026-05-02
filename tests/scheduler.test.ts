@@ -290,7 +290,7 @@ test("codex.app_server.run executes mocked app-server transport and persists run
             featureId: "FEAT-CLI",
             taskId: "TASK-CLI",
             requirementIds: [],
-            changeIds: [],
+            changeIds: ["CHG-016"],
           },
         },
       };
@@ -308,7 +308,13 @@ test("codex.app_server.run executes mocked app-server transport and persists run
   assert.equal(result.status, "completed");
   assert.deepEqual(calls, ["initialize", "initialized", "thread/start", "turn/start"]);
   assert.equal(rows.run[0].status, "completed");
-  assert.equal(JSON.parse(String(rows.run[0].metadata_json)).threadId, "THREAD-APP");
+  const metadata = JSON.parse(String(rows.run[0].metadata_json));
+  assert.equal(metadata.threadId, "THREAD-APP");
+  assert.equal(metadata.turnId, "TURN-APP");
+  assert.equal(metadata.transport, "stdio");
+  assert.equal(metadata.model, "gpt-5.3-codex-spark");
+  assert.equal(metadata.cwd, root);
+  assert.equal(metadata.contractValidation.valid, true);
   assert.equal(rows.session[0].session_id, "THREAD-APP");
   assert.equal(rows.session[0].command, "codex");
   assert.deepEqual(JSON.parse(String(rows.session[0].args_json)), ["app-server"]);
@@ -317,20 +323,112 @@ test("codex.app_server.run executes mocked app-server transport and persists run
   assert.equal(rows.evidence[0].kind, "codex_runner");
 });
 
-test("codex.app_server.run blocks when app-server transport is unavailable", async () => {
+test("codex.app_server.run fails when app-server cannot be started", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();
   seedCliRunData(dbPath, root);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO codex_app_server_adapter_configs (
+        id, display_name, schema_version, executable, args_json, transport, endpoint,
+        request_timeout_ms, config_schema_json, form_schema_json, defaults_json, status
+      ) VALUES ('bad-app-server', 'Bad app-server', 1, '/tmp/specdrive-missing-codex-app-server',
+        '["app-server","--listen","stdio://"]', 'stdio', 'stdio://', 1000, '{}', '{}', '{}', 'active')`,
+    },
+  ]);
 
   const result = await runCodexAppServerRunJob(dbPath, cliRunPayload("RUN-NO-APP-SERVER"));
   const rows = runSqlite(dbPath, [], [
     { name: "run", sql: "SELECT status, summary FROM execution_records WHERE id = 'RUN-NO-APP-SERVER'" },
   ]).queries.run;
 
+  assert.equal(result.status, "failed");
+  assert.equal(rows[0].status, "failed");
+  assert.match(String(rows[0].summary), /ENOENT|spawn/);
+});
+
+test("codex.app_server.run blocks when configured app-server adapters are disabled", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO codex_app_server_adapter_configs (
+        id, display_name, schema_version, executable, args_json, transport, endpoint,
+        request_timeout_ms, config_schema_json, form_schema_json, defaults_json, status
+      ) VALUES ('disabled-app-server', 'Disabled app-server', 1, 'codex',
+        '["app-server","--listen","stdio://"]', 'stdio', 'stdio://', 1000, '{}', '{}', '{}', 'disabled')`,
+    },
+  ]);
+
+  const result = await runCodexAppServerRunJob(dbPath, cliRunPayload("RUN-DISABLED-APP-SERVER"), {
+    async request() {
+      throw new Error("transport should not be called");
+    },
+    notify() {
+      throw new Error("transport should not be called");
+    },
+    async *events() {},
+  });
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status, summary FROM execution_records WHERE id = 'RUN-DISABLED-APP-SERVER'" },
+  ]).queries.run;
+
   assert.equal(result.status, "blocked");
   assert.equal(rows[0].status, "blocked");
-  assert.match(String(rows[0].summary), /transport is not configured/);
+  assert.match(String(rows[0].summary), /No active Codex app-server adapter/);
+});
+
+test("codex.app_server.run fails when SkillOutputContractV1 validation fails", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const transport: CodexAppServerTransport = {
+    async request(method) {
+      if (method === "thread/start") return { thread: { id: "THREAD-BAD-CONTRACT" } };
+      if (method === "turn/start") return { turn: { id: "TURN-BAD-CONTRACT" } };
+      return {};
+    },
+    notify() {},
+    async *events() {
+      yield {
+        type: "turn/completed",
+        status: "completed",
+        output: {
+          contractVersion: "skill-contract/v1",
+          executionId: "WRONG-RUN",
+          skillSlug: "codex-coding-skill",
+          requestedAction: "feature_execution",
+          status: "completed",
+          summary: "Bad contract.",
+          producedArtifacts: [],
+          evidence: [],
+          traceability: {
+            featureId: "FEAT-CLI",
+            taskId: "TASK-CLI",
+            requirementIds: [],
+            changeIds: ["CHG-016"],
+          },
+        },
+      };
+    },
+  };
+
+  const result = await runCodexAppServerRunJob(dbPath, cliRunPayload("RUN-BAD-CONTRACT"), transport);
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status, summary, metadata_json FROM execution_records WHERE id = 'RUN-BAD-CONTRACT'" },
+    { name: "log", sql: "SELECT stderr FROM raw_execution_logs WHERE run_id = 'RUN-BAD-CONTRACT'" },
+  ]).queries;
+  const metadata = JSON.parse(String(rows.run[0].metadata_json));
+
+  assert.equal(result.status, "failed");
+  assert.equal(rows.run[0].status, "failed");
+  assert.match(String(rows.run[0].summary), /executionId mismatch/);
+  assert.equal(metadata.contractValidation.valid, false);
+  assert.match(String(rows.log[0].stderr), /executionId mismatch/);
 });
 
 function makeDbPath(): string {
