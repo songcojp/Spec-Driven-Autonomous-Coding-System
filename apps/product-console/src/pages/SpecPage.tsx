@@ -814,6 +814,7 @@ function SkillExecutionResult({ output, text }: { output?: SkillOutputModel; tex
             [text.status, output?.status ?? text.none],
             [text.summary, output?.summary ?? output?.error ?? text.stdoutJsonNotFound],
             [text.tokenUsage, output?.tokenUsage ? formatSpecValue(output.tokenUsage) : text.none],
+            ["Cost", output?.tokenConsumption ? `$${output.tokenConsumption.costUsd.toFixed(6)} ${output.tokenConsumption.pricingStatus}` : text.none],
             [text.stdoutJsonPath, output?.stdoutJsonPath ?? text.none],
           ]}
         />

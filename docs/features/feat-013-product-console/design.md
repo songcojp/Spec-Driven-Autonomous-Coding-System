@@ -33,16 +33,16 @@ CHG-016 update：Spec Workspace、Task Board 和 Runner Console 必须展示 wor
 | Component | Responsibility |
 |---|---|
 | Project Switcher | 展示项目列表、当前项目、项目健康摘要、导入入口和新建表单，并触发项目切换。 |
-| Dashboard View | 聚合项目健康、Feature、任务、活跃外部运行、失败、审批、成本、PR 和风险。 |
+| Dashboard View | 聚合项目健康、Feature、任务、活跃外部运行、失败、审批、来自 `token_consumption_records` 的成本、PR 和风险。 |
 | Project Home View | 作为单个当前项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并承载 Task Board 分区。 |
 | Task Board Section | 展示兼容任务状态、diff、测试结果、审批状态和失败恢复历史，并发起受控拖拽、兼容排期和执行入口命令；编码执行事实源是 Feature Spec 目录，不是 Task Board 任务表。 |
 | Spec Workspace View | 展示阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 扫描、Feature Spec、澄清、Checklist、计划、数据模型、契约、Feature Spec `tasks.md` 覆盖情况和版本 diff。 |
 | Runner Console View | 展示 Runner 在线、Codex 版本、安全配置、executor queue、日志、心跳、CLI Adapter 配置健康摘要和系统设置跳转入口。 |
 | Scheduler Job List | 展示 `cli.run` 与后续 `native.run` Job 的执行名称、执行类型、operation、status、execution id、attempts 和 updatedAt。 |
 | Scheduler Job Inspector | 展示选中 job 的 scheduler job id、BullMQ job id、queue、job type、payload context、Execution Record、workspace、CLI Adapter / native handler、heartbeat、blocked reason 和 Evidence 摘要。 |
-| Skill Invocation Feedback | 在 Spec Workspace、Task Board 和 Runner Console 展示 scheduler job、execution id、workspace、skill phase、blocked reason 和 Evidence 摘要。 |
+| Skill Invocation Feedback | 在 Spec Workspace、Task Board 和 Runner Console 展示 scheduler job、execution id、workspace、skill phase、blocked reason、token 消费明细和 Evidence 摘要。 |
 | System Settings View | 承载跨页面、跨 Execution Record 的系统级配置，MVP 至少包含 CLI 配置页。 |
-| CLI Adapter Config Panel | 位于 System Settings，展示 active adapter、原始 JSON、JSON Schema 表单、dry-run 结果、字段级错误、保存草稿和启用/禁用操作。 |
+| CLI Adapter Config Panel | 位于 System Settings，展示 active adapter、原始 JSON、JSON Schema 表单、token 价格表、dry-run 结果、字段级错误、保存草稿和启用/禁用操作。 |
 | Review Center View | 展示 ReviewItem、风险筛选、diff、Evidence 和审批动作。 |
 | Audit Center View | 展示 audit timeline、命令回执、阻塞原因、状态转换、Evidence、Execution Record、Job 和 Approval 关联事实。 |
 | Console Command Gateway | 将 UI 动作转换为 Control Plane 命令。 |
@@ -53,7 +53,7 @@ CHG-016 update：Spec Workspace、Task Board 和 Runner Console 必须展示 wor
 ## Data Ownership
 
 - Owns: 前端应用入口、页面路由、UI 组件、UI View Model、Dashboard Query Model、Console Action Command、System Settings View Model、CLI Adapter Form View Model、UI locale preference、UI project selection state。
-- Reads: Control Plane API、Audit/Metrics、Evidence、Memory 投影、Review 查询。
+- Reads: Control Plane API、Audit/Metrics、TokenConsumption、Evidence、Memory 投影、Review 查询。
 - Writes: 受控命令请求；不直接写 Git、worktree 或 artifact。
 
 ## Controlled Command Boundary
@@ -68,7 +68,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 
 1. 用户在浏览器打开 Product Console。
 2. Frontend App Shell 读取持久化语言偏好；没有偏好时默认中文，并加载项目列表、当前项目上下文、导航和默认 Dashboard 页面。
-3. Dashboard Query Service 按当前 `project_id` 聚合状态并通过页面组件展示真实数据、加载态、空态或错误态。
+3. Dashboard Query Service 按当前 `project_id` 聚合状态，并从 `token_consumption_records` 聚合 token / cost 后通过页面组件展示真实数据、加载态、空态或错误态。
 4. 用户进入具体工作台查看证据、diff、日志、Feature Spec `tasks.md` 覆盖情况或执行命令。
 5. Spec Workspace 从项目、仓库连接、项目宪章、Project Memory、Feature、Requirement 和审计事件派生 Spec 流程阶段状态；阶段 1 / 阶段 2 / 阶段 3 Feature 执行在工作台头部默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；流程说明栏用标签显示当前 Spec 来源、版本、扫描模式、最后扫描时间和阻塞数量，不再在流程后方展示独立提示信息栏。用户点击标签后展开自动项目初始化事实、阻塞原因、Spec 扫描与上传（同一步骤内两个按钮）、格式识别、已有 HLD / Feature Spec / tasks 盘点、EARS 文档生成、澄清、质量检查、Feature Spec Pool 推入、执行队列和状态检查状态。
 6. Console Command Gateway 将拖拽、批量排期、批量运行、暂停、恢复和 Spec 流程动作连同当前 `project_id` 提交为受控命令；Feature Spec 拆分使用独立 Skill 操作并产出队列规划，推入 Feature Spec Pool 只读取已拆分 Feature Spec 和机器可读规划结果，按规划写入 Pool 并创建 scheduler 队列。
@@ -76,7 +76,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 8. 用户切换语言后，App Shell 保存偏好并重新渲染界面文案；事实数据保持 API 返回原文。
 9. 用户切换项目后，App Shell 更新当前项目上下文，重新查询所有项目级页面；若命令返回 `project_id` 缺失或不匹配，展示阻塞反馈并保留原页面状态。
 10. 用户在导入现有项目表单设置目录后，Console 调用只读 `/projects/scan` 扫描 Git、包管理器、SpecDrive 目录和仓库来源，并把扫描结果作为导入项目默认信息。
-11. 用户从 App Shell 打开 System Settings，或从 Runner Console 的配置健康摘要跳转到系统设置中的 CLI 配置页；Console 加载 active/draft JSON 配置、JSON Schema 和 form schema，并在原始 JSON 编辑器与表单之间保持同一份待保存配置状态。
+11. 用户从 App Shell 打开 System Settings，或从 Runner Console 的配置健康摘要跳转到系统设置中的 CLI 配置页；Console 加载 active/draft JSON 配置、JSON Schema、token 价格表和 form schema，并在原始 JSON 编辑器与表单之间保持同一份待保存配置状态。
 12. 用户执行 dry-run 或保存配置时，Console 调用 Control Plane 受控命令；校验失败展示字段级错误和命令模板错误，校验通过后允许保存草稿或启用配置。
 13. 用户从 Spec Workspace 或 Task Board 发起执行类操作时，Console 展示 Control Plane 返回的 command receipt，并在后续刷新中显示 scheduler job、execution id、workspace、skill phase、blocked reason 和最近 Evidence；Feature 级 `schedule_run` 必须以当前项目 workspace 中完整 Feature Spec 目录作为输入，目录缺少 `requirements.md`、`design.md` 或 `tasks.md` 时展示 blocked 反馈而不是依赖平台 task 表兜底。
 14. 用户进入 Runner Console 时，Console 先展示 executor queue 健康，再展示 Job 列表；用户选择 Job 后，右侧 inspector 显示该 Job 关联的 Execution Record、payload context、workspace、CLI Adapter / native handler、Runner heartbeat、阻塞原因、Evidence 和日志，所有调度/运行动作仍通过受控命令提交。
@@ -85,7 +85,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 
 - FEAT-001 至 FEAT-012 提供各自查询模型和命令入口。
 - FEAT-001 提供项目目录、项目创建、ProjectSelectionContext 和项目级查询隔离。
-- FEAT-014 提供指标、审计和持久状态。
+- FEAT-014 提供 token 消费明细、指标、审计和持久状态。
 - FEAT-008 提供 `CliAdapterConfig`、dry-run 校验、active 配置回退和 Runner 执行接入。
 - HLD 指定 React + Next.js 或 Vite React、shadcn/ui、Tailwind CSS 和 Radix UI primitives 作为默认 UI 栈；如实现阶段已有宿主框架，必须在本设计中记录替代栈与验收影响。
 

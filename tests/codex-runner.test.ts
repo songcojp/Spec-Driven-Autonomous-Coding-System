@@ -177,6 +177,25 @@ test("CLI adapter validation rejects configs with missing or empty executable", 
   assert.equal(valid.errors.length, 0);
 });
 
+test("CLI adapter validation rejects invalid token pricing rates", () => {
+  const invalid = validateCliAdapterConfig({
+    ...DEFAULT_CLI_ADAPTER_CONFIG,
+    defaults: {
+      ...DEFAULT_CLI_ADAPTER_CONFIG.defaults,
+      costRates: {
+        "gpt-5.5": {
+          inputUsdPer1M: -1,
+          outputUsdPer1M: Number.NaN,
+        },
+      },
+    },
+  });
+
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.errors.some((error) => error.includes("inputUsdPer1M")));
+  assert.ok(invalid.errors.some((error) => error.includes("outputUsdPer1M")));
+});
+
 test("CLI adapter dry-run returns errors and invalid command for missing executable", () => {
   const result = dryRunCliAdapterConfig({
     config: { ...DEFAULT_CLI_ADAPTER_CONFIG, executable: "" },

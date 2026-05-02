@@ -14,7 +14,7 @@
 - 支持 Execution Record、状态、Memory 和 Evidence 更新的幂等重放。
 - 保留任务、Execution Record、Evidence Pack 和 Project Memory 状态以支持崩溃恢复。
 - 记录任务、Execution Record、审批和状态变化的审计时间线。
-- 统计 token、成本、成功率、失败率、看板加载耗时、状态刷新耗时、Evidence 写入耗时和 Runner 心跳。
+- 使用独立 token 消费明细记录每次 CLI run 的 token、成本、模型、价格快照和来源 `stdout.json`；通用 Metrics 仅记录成功率、失败率、看板加载耗时、状态刷新耗时、Evidence 写入耗时和 Runner 心跳。
 - 追踪 MVP 自动化成功指标。
 
 ## Non-Scope
@@ -35,7 +35,7 @@
 - 相同 Execution Record 或恢复流程被重放时，必须避免重复产生不可控副作用。
 - 调度器或 Runner 崩溃后恢复时，任务不能静默丢失。
 - 用户可以查看每次状态变化的时间、原因和来源。
-- Dashboard 或相关控制台可以展示成本与成功率指标。
+- Dashboard 或相关控制台可以从 token 消费明细展示成本，并从 Metrics 展示成功率指标。
 - 系统能报告 PRD 第 10 节列出的 MVP 目标指标。
 
 ## Acceptance Criteria
@@ -44,10 +44,10 @@
 - [ ] 调度 job record 能展示 `cli.run` 与后续 `native.run` executor job 的当前状态。
 - [ ] 幂等键覆盖 Execution Record、状态、Memory 和 Evidence 更新。
 - [ ] Audit Timeline 记录状态变化、Execution Record、审批、恢复、Memory 压缩、worktree 生命周期和交付事件。
-- [ ] Metrics 可以记录成本、成功率、失败率、性能基线和心跳。
+- [ ] token 消费明细可以记录每次 run 的 token 和成本；Metrics 可以记录成功率、失败率、性能基线和心跳。
 - [ ] 崩溃恢复测试不会丢失未完成任务。
 
 ## Risks and Open Questions
 
 - SQLite 足够支撑 MVP，但团队协作和远程 Runner 需要后续迁移 PostgreSQL。
-- 指标采样不能影响核心状态机的可靠性。
+- token 消费明细和指标采样不能影响核心状态机的可靠性。

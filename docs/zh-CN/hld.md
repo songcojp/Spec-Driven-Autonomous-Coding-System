@@ -136,7 +136,7 @@ flowchart LR
 | Frontend | TypeScript + React + Next.js 或 Vite React，MVP 优先单页 Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 都是状态密集型工作台，React 生态适合看板、表格、日志、实时状态 UI 和界面多语言切换。 | 当前仓库没有既有实现栈；若实现阶段已有宿主框架，以宿主框架优先；Product Console 首次打开默认中文，语言选择应可持久化。 |
 | UI Component System | shadcn/ui + Tailwind CSS + Radix UI primitives | Product Console 需要稳定、可组合、可审计的工作台组件体系；shadcn/ui 以源码方式进入项目，便于定制表格、表单、弹窗、标签页、命令菜单、状态徽标和 Review 操作面板，同时保留无障碍基础能力。 | 不引入重型封闭组件库；组件主题、设计 token、暗色模式和状态语义应在 Product Console Feature Spec 中细化。 |
 | Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
-| Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、Evidence、审计和指标。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
+| Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、Evidence、审计、通用指标和 token 消费明细。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
 | API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter | UI、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 CLI 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；TypeScript 可用 Zod 生成或校验 schema。 |
 | Background Jobs / Scheduler | BullMQ + Redis queue + Worker；SQLite 保存 scheduler job record、Run、心跳、状态和 Evidence | 长时间任务不能只存在内存；延迟/周期/Worker 执行交给成熟队列，业务事实仍可恢复。 | Redis 不可用时 scheduler health 为 blocked；写任务默认串行，写入型并行必须绑定 worktree。 |
@@ -161,7 +161,7 @@ Rejected / deferred alternatives:
 | Orchestration | Project Scheduler、Executor Job Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
 | Execution | Subagent Runtime、Context Broker、Codex Runner、Status Checker、Recovery Manager | 每次执行都受 Run Contract、Runner Policy 和 Evidence schema 约束。 |
 | Workspace | Git repository、worktree、branch、merge readiness、rollback | 写任务以独立 worktree 和分支隔离。 |
-| Evidence and Governance | Evidence Pack、Audit Timeline、Metrics、Review、Delivery Report、Spec Evolution | 支撑审计、审批、恢复和交付闭环。 |
+| Evidence and Governance | Evidence Pack、Audit Timeline、Metrics、Token Consumption、Review、Delivery Report、Spec Evolution | 支撑审计、审批、恢复、成本追踪和交付闭环。 |
 
 核心事实源：
 
@@ -434,7 +434,7 @@ Collaborates With:
 | Spec Protocol | Spec Protocol Engine | Feature、Requirement、ClarificationLog、Checklist、SpecVersion、SpecSlice | SQLite + Markdown/JSON artifact。 |
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
 | Orchestration State | Orchestration and State Machine | Feature、StateTransition、ScheduleTrigger、SchedulerJobRecord、ExecutionRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
-| Runtime Execution | Codex Runner | ExecutionRecord、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发。 |
+| Runtime Execution | Codex Runner | ExecutionRecord、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog、TokenConsumptionRecord | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发；token/cost 只从 `.autobuild/runs/<runId>/stdout.json` 提取消费事实。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Evidence and Audit | Evidence Store | EvidencePack、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/evidence/` artifact。 |
@@ -470,7 +470,7 @@ Data ownership rules:
 
 ### CLI Adapter Configuration
 
-CLI Adapter 配置是 Runner 的机器可查询事实源，使用 JSON 持久化并由 JSON Schema 校验。配置变更流程为 draft -> dry-run validated -> active；启用失败时保留上一份 active 配置。Product Console 系统设置中的 JSON 表单只编辑该 JSON，不创建第二套配置事实源。
+CLI Adapter 配置是 Runner 的机器可查询事实源，使用 JSON 持久化并由 JSON Schema 校验。配置变更流程为 draft -> dry-run validated -> active；启用失败时保留上一份 active 配置。Product Console 系统设置中的 JSON 表单只编辑该 JSON，不创建第二套配置事实源。模型 token 价格表属于 active CLI Adapter defaults，用于将 TokenConsumptionRecord 的 token usage 转换为成本；缺失价格时记录 token 且成本为 0。
 
 ### Artifact Root Decision
 
@@ -648,8 +648,9 @@ Observability:
 - 每个 Run、Task、Feature、Evidence Pack、Review Item 和 State Transition 必须有可追踪 ID。
 - Runner 每 10 至 30 秒更新心跳，Runner Console 展示最近心跳时间。
 - Audit Timeline 记录状态变化、触发原因、执行者、来源证据和时间。
-- Metrics 记录 token、成本、成功率、失败率、看板加载耗时、状态刷新耗时和 Evidence 写入耗时。
-- Dashboard 展示项目健康、任务状态、Subagent 状态、失败、审批、成本、最近 PR 和风险。
+- Token Consumption 记录每次 CLI run 的 token、成本、模型、价格快照和 `stdout.json` 来源路径，并以 `run_id` 唯一约束防止重复计数。
+- Metrics 记录成功率、失败率、看板加载耗时、状态刷新耗时和 Evidence 写入耗时；不承载 token 或成本消费事实。
+- Dashboard 展示项目健康、任务状态、Subagent 状态、失败、审批、来自 token 消费明细的成本、最近 PR 和风险。
 
 Operability:
 

@@ -24,6 +24,7 @@ import {
   type RunnerApprovalPolicy,
   type RunnerQueueStatus,
   type RunnerSandboxMode,
+  type TokenCostRate,
 } from "./codex-runner.ts";
 import {
   createUnavailableScheduler,
@@ -312,6 +313,7 @@ export type SkillOutputViewModel = {
   status?: string;
   summary?: string;
   tokenUsage?: unknown;
+  tokenConsumption?: TokenConsumptionViewModel;
   inputContract?: unknown;
   outputContract?: unknown;
   producedArtifacts: unknown[];
@@ -320,6 +322,21 @@ export type SkillOutputViewModel = {
   result?: unknown;
   raw?: unknown;
   recordCount?: number;
+};
+
+export type TokenConsumptionViewModel = {
+  runId: string;
+  model?: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  currency: string;
+  pricingStatus: string;
+  sourcePath: string;
+  recordedAt: string;
 };
 
 type SpecWorkspaceFeatureListItem = SpecWorkspaceViewModel["features"][number];
@@ -804,6 +821,7 @@ const BOARD_COLUMNS = new Set([
 ]);
 
 export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
+  ensureTokenConsumptionRecords(dbPath);
   const result = runSqlite(dbPath, [], [
     {
       name: "projects",
@@ -866,6 +884,7 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
         ORDER BY ri.created_at DESC`,
     },
     { name: "metrics", sql: "SELECT metric_name, metric_value, labels_json FROM metric_samples ORDER BY sampled_at, rowid" },
+    { name: "tokenConsumption", sql: "SELECT project_id, total_tokens, cost_usd FROM token_consumption_records ORDER BY recorded_at, rowid" },
   ]);
 
   const projectRows = result.queries.projects;
@@ -875,6 +894,7 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
   const runsByProject = groupByProject(result.queries.runs);
   const reviewsByProject = groupByProject(result.queries.reviews);
   const metricsByProject = groupMetricsByProject(result.queries.metrics);
+  const tokenConsumptionByProject = groupByProject(result.queries.tokenConsumption);
   const latestHeartbeats = latestRunnerStatuses(result.queries.heartbeats);
   const heartbeatsByProject = groupByProject(latestHeartbeats);
 
@@ -887,6 +907,7 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
     const reviewRows = reviewsByProject.get(projectId) ?? [];
     const runRows = runsByProject.get(projectId) ?? [];
     const metricRows = metricsByProject.get(projectId) ?? [];
+    const tokenRows = tokenConsumptionByProject.get(projectId) ?? [];
     const riskRows = overviewRisks(reviewRows, runRows);
     const activeFeature = featureRows.find((row) => !["done", "delivered"].includes(String(row.status)));
     const health = normalizeProjectHealth(project.status);
@@ -905,7 +926,7 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
       pendingReviews: reviewRows.filter((row) => pendingReviewStatuses.has(String(row.status))).length,
       activeRuns: countBy(runRows, "status", "running"),
       runnerSuccessRate: latestMetric(metricRows, "success_rate"),
-      costUsd: sumMetrics(metricRows, "cost_usd"),
+      costUsd: sumColumn(tokenRows, "cost_usd"),
       latestRisk: riskRows[0],
       lastActivityAt: latestActivityAt([
         project.updated_at,
@@ -951,11 +972,12 @@ export function buildProjectOverview(dbPath: string): ProjectOverviewModel {
         message: `${onlineRunners}/${latestHeartbeats.length} runner${latestHeartbeats.length === 1 ? "" : "s"} online.`,
       },
     ],
-    factSources: ["projects", "features", "task_graph_tasks", "tasks", "execution_records", "runner_heartbeats", "review_items", "metric_samples"],
+    factSources: ["projects", "features", "task_graph_tasks", "tasks", "execution_records", "runner_heartbeats", "review_items", "metric_samples", "token_consumption_records"],
   };
 }
 
 export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptions = {}): DashboardQueryModel {
+  ensureTokenConsumptionRecords(dbPath, options.projectId);
   const started = process.hrtime.bigint();
   const now = options.now ?? new Date();
   const todayPrefix = now.toISOString().slice(0, 10);
@@ -1013,6 +1035,11 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       params: metricParams,
     },
     {
+      name: "tokenConsumption",
+      sql: `SELECT total_tokens, cost_usd FROM token_consumption_records ${projectFilter} ORDER BY recorded_at, rowid`,
+      params: projectParams,
+    },
+    {
       name: "reviews",
       sql: `SELECT id, severity, status, body, feature_id FROM review_items ${reviewProjectFilter} ORDER BY created_at DESC`,
       params: reviewParams,
@@ -1033,6 +1060,7 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
   const tasks = result.queries.graphTasks.length > 0 ? result.queries.graphTasks : result.queries.tasks;
   const runs = result.queries.runs;
   const metrics = result.queries.metrics;
+  const tokenConsumption = result.queries.tokenConsumption;
   const reviews = result.queries.reviews;
   const heartbeats = result.queries.heartbeats;
   const loadMs = elapsedMs(started);
@@ -1063,8 +1091,8 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       .map((row) => ({ id: String(row.id), title: String(row.title), status: String(row.status), featureId: optionalString(row.feature_id) })),
     pendingApprovals: reviews.filter((row) => pendingReviewStatuses.has(String(row.status))).length,
     cost: {
-      totalUsd: sumMetrics(metrics, "cost_usd"),
-      tokensUsed: sumMetrics(metrics, "tokens_used"),
+      totalUsd: sumColumn(tokenConsumption, "cost_usd"),
+      tokensUsed: sumColumn(tokenConsumption, "total_tokens"),
     },
     runner: {
       heartbeats: heartbeats.length,
@@ -1082,6 +1110,7 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       "execution_records",
       "runner_heartbeats",
       "metric_samples",
+      "token_consumption_records",
       "review_items",
       "evidence_packs",
     ],
@@ -1180,6 +1209,7 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
 }
 
 export function buildSpecWorkspaceView(dbPath: string, featureId?: string, projectId?: string): SpecWorkspaceViewModel {
+  ensureTokenConsumptionRecords(dbPath, projectId);
   const eligibleFeatureWhere = "id NOT LIKE 'FEAT-INTAKE-%'";
   const featureFilter = projectId ? `WHERE project_id = ? AND ${eligibleFeatureWhere}` : `WHERE ${eligibleFeatureWhere}`;
   const featureParams = projectId ? [projectId] : [];
@@ -1245,6 +1275,11 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       params: projectId ? [projectId] : [],
     },
     {
+      name: "tokenConsumption",
+      sql: `SELECT * FROM token_consumption_records ${projectId ? "WHERE project_id = ?" : ""} ORDER BY recorded_at DESC, rowid DESC`,
+      params: projectId ? [projectId] : [],
+    },
+    {
       name: "workflowAudit",
       sql: `SELECT id, entity_type, entity_id, event_type, reason, payload_json, created_at
         FROM audit_timeline_events
@@ -1281,6 +1316,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
   }));
   const projectPath = optionalString(result.queries.repositoryConnections[0]?.local_path)
     ?? optionalString(result.queries.projects[0]?.target_repo_path);
+  const tokenConsumptionByRun = tokenConsumptionByRunId(result.queries.tokenConsumption);
   const docsFeatures = projectPath ? listFeatureSpecsFromDocs(projectPath, dbFeatures) : [];
   const features = docsFeatures.length > 0 ? docsFeatures : dbFeatures;
   const selectedFeatureId = featureId && features.some((entry) => entry.id === featureId)
@@ -1288,7 +1324,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
     : features[0]?.id;
   const feature = selectedFeatureId ? features.find((entry) => entry.id === selectedFeatureId) : undefined;
   const featureSkillOutput = selectedFeatureId
-    ? latestSkillOutputForFeature(result.queries.featureExecutions, selectedFeatureId, projectPath)
+    ? latestSkillOutputForFeature(result.queries.featureExecutions, selectedFeatureId, projectPath, tokenConsumptionByRun)
     : undefined;
   const featureDocuments = projectPath && feature?.folder
     ? readFeatureSpecDocuments(projectPath, feature.folder)
@@ -1706,6 +1742,7 @@ function resolveExistingSourcePath(
 }
 
 export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), projectId?: string): RunnerConsoleViewModel {
+  ensureTokenConsumptionRecords(dbPath, projectId);
   const runProjectFilter = projectId ? "WHERE run_id IN (SELECT id FROM execution_records WHERE project_id = ?)" : "";
   const runProjectParams = projectId ? [projectId] : [];
   const featureProjectFilter = projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
@@ -1775,6 +1812,11 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     },
     { name: "metrics", sql: `SELECT metric_name, metric_value, labels_json FROM metric_samples ${metricProjectFilter} ORDER BY sampled_at, rowid`, params: metricParams },
     {
+      name: "tokenConsumption",
+      sql: `SELECT * FROM token_consumption_records ${projectId ? "WHERE project_id = ?" : ""} ORDER BY recorded_at DESC, rowid DESC`,
+      params: projectParams,
+    },
+    {
       name: "triggers",
       sql: `SELECT id, mode, target_type, target_id, result, created_at FROM schedule_triggers ${triggerProjectFilter} ORDER BY created_at DESC, rowid DESC LIMIT 8`,
       params: triggerParams,
@@ -1803,6 +1845,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
   const latestRunsByTask = latestRunsForTasks(result.queries.executionRecords);
   const latestHeartbeatsByRun = latestHeartbeatByRun(result.queries.heartbeats);
   const workspaceRootByProject = latestWorkspaceRootByProject(result.queries.repositoryConnections);
+  const tokenConsumptionByRun = tokenConsumptionByRunId(result.queries.tokenConsumption);
   const laneTasks = buildRunnerScheduleLanes({
     taskRows,
     taskById,
@@ -1847,7 +1890,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       failureRate: latestMetric(result.queries.metrics, "failure_rate"),
     },
     lanes: laneTasks,
-    schedulerJobs: buildRunnerSchedulerJobs(result.queries.schedulerJobs, result.queries.executionRecords, taskRows, workspaceRootByProject),
+    schedulerJobs: buildRunnerSchedulerJobs(result.queries.schedulerJobs, result.queries.executionRecords, taskRows, workspaceRootByProject, tokenConsumptionByRun),
     recentTriggers: [
       ...result.queries.schedulerJobs.map((row) => ({
         id: String(row.id),
@@ -1884,6 +1927,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       "approval_records",
       "audit_timeline_events",
       "metric_samples",
+      "token_consumption_records",
     ],
     runners,
     adapterSummary,
@@ -1894,7 +1938,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       { action: "schedule_board_tasks", entityType: "feature" },
       { action: "run_board_tasks", entityType: "feature" },
     ],
-    skillInvocations: buildSkillInvocationFeedback(result.queries.executionRecords, result.queries.schedulerJobs, result.queries.evidence, workspaceRootByProject),
+    skillInvocations: buildSkillInvocationFeedback(result.queries.executionRecords, result.queries.schedulerJobs, result.queries.evidence, workspaceRootByProject, tokenConsumptionByRun),
   };
 }
 
@@ -3709,6 +3753,10 @@ function sumMetrics(rows: Record<string, unknown>[], name: string): number {
   return rows.filter((row) => row.metric_name === name).reduce((sum, row) => sum + Number(row.metric_value), 0);
 }
 
+function sumColumn(rows: Record<string, unknown>[], column: string): number {
+  return rows.reduce((sum, row) => sum + Number(row[column] ?? 0), 0);
+}
+
 function latestMetric(rows: Record<string, unknown>[], name: string): number {
   const row = [...rows].reverse().find((entry) => entry.metric_name === name);
   return row ? Number(row.metric_value) : 0;
@@ -3858,6 +3906,7 @@ function buildSkillInvocationFeedback(
   schedulerRows: Record<string, unknown>[],
   evidenceRows: Record<string, unknown>[],
   workspaceRootByProject = new Map<string, string>(),
+  tokenConsumptionByRun = new Map<string, TokenConsumptionViewModel>(),
 ): RunnerConsoleViewModel["skillInvocations"] {
   const evidenceByRun = new Map<string, Record<string, unknown>>();
   for (const row of evidenceRows) {
@@ -3881,6 +3930,10 @@ function buildSkillInvocationFeedback(
       const workspaceRoot = optionalString(metadata.workspaceRoot)
         ?? optionalString(context.workspaceRoot)
         ?? workspaceRootByProject.get(String(execution.project_id));
+      const output = readSkillOutputViewModel(workspaceRoot, executionId);
+      if (output && tokenConsumptionByRun.has(executionId)) {
+        output.tokenConsumption = tokenConsumptionByRun.get(executionId);
+      }
       return {
         runId: executionId,
         schedulerJobId: optionalString(schedulerJob?.id),
@@ -3890,7 +3943,7 @@ function buildSkillInvocationFeedback(
         blockedReason: optionalString(metadata.blockedReason) ?? (String(execution.status) === "blocked" ? optionalString(execution.summary) : undefined),
         status: String(execution.status),
         evidenceSummary: optionalString(evidence?.summary),
-        output: readSkillOutputViewModel(workspaceRoot, executionId),
+        output,
         updatedAt: optionalString(execution.completed_at) ?? optionalString(execution.started_at) ?? optionalString(execution.updated_at),
       };
     })
@@ -3902,6 +3955,7 @@ function latestSkillOutputForFeature(
   executionRows: Record<string, unknown>[],
   featureId: string,
   projectWorkspaceRoot: string | undefined,
+  tokenConsumptionByRun = new Map<string, TokenConsumptionViewModel>(),
 ): SkillOutputViewModel | undefined {
   const execution = executionRows.find((row) => {
     const context = parseJsonObject(row.context_json);
@@ -3911,10 +3965,14 @@ function latestSkillOutputForFeature(
   if (!execution) return undefined;
   const context = parseJsonObject(execution.context_json);
   const metadata = parseJsonObject(execution.metadata_json);
-  return readSkillOutputViewModel(
+  const output = readSkillOutputViewModel(
     optionalString(metadata.workspaceRoot) ?? optionalString(context.workspaceRoot) ?? projectWorkspaceRoot,
     String(execution.id),
   );
+  if (output && tokenConsumptionByRun.has(String(execution.id))) {
+    output.tokenConsumption = tokenConsumptionByRun.get(String(execution.id));
+  }
+  return output;
 }
 
 function latestWorkspaceRootByProject(rows: Record<string, unknown>[]): Map<string, string> {
@@ -3934,6 +3992,7 @@ function buildRunnerSchedulerJobs(
   executionRows: Record<string, unknown>[],
   taskRows: Record<string, unknown>[],
   workspaceRootByProject = new Map<string, string>(),
+  tokenConsumptionByRun = new Map<string, TokenConsumptionViewModel>(),
 ): RunnerConsoleViewModel["schedulerJobs"] {
   const executionsByJob = new Map<string, Record<string, unknown>>();
   const executionsById = new Map<string, Record<string, unknown>>();
@@ -3958,6 +4017,9 @@ function buildRunnerSchedulerJobs(
       ?? optionalString(mergedContext.workspaceRoot)
       ?? (projectId ? workspaceRootByProject.get(projectId) : undefined);
     const skillOutput = readSkillOutputViewModel(workspaceRoot, executionId);
+    if (skillOutput && executionId && tokenConsumptionByRun.has(executionId)) {
+      skillOutput.tokenConsumption = tokenConsumptionByRun.get(executionId);
+    }
     return {
       id: String(row.id),
       name: schedulerJobName(row, payload, mergedContext, tasksById),
@@ -4218,6 +4280,154 @@ function extractRisks(reviewRows: Record<string, unknown>[], runRows: Record<str
   return [...reviewRisks, ...failedRuns].slice(0, 10);
 }
 
+function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void {
+  const projectFilter = projectId ? "WHERE er.project_id = ?" : "";
+  const projectParams = projectId ? [projectId] : [];
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "executions",
+      sql: `SELECT er.id, er.scheduler_job_id, er.operation, er.project_id, er.context_json, er.metadata_json,
+          json_extract(er.context_json, '$.featureId') AS feature_id,
+          json_extract(er.context_json, '$.taskId') AS task_id,
+          rp.model AS policy_model
+        FROM execution_records er
+        LEFT JOIN runner_policies rp ON rp.run_id = er.id
+        ${projectFilter}
+        ORDER BY COALESCE(er.completed_at, er.updated_at, er.started_at, '') DESC`,
+      params: projectParams,
+    },
+    {
+      name: "projects",
+      sql: `SELECT p.id, p.target_repo_path, rc.local_path
+        FROM projects p
+        LEFT JOIN repository_connections rc ON rc.project_id = p.id
+          AND rc.connected_at = (
+            SELECT MAX(connected_at) FROM repository_connections latest WHERE latest.project_id = p.id
+          )
+        ${projectId ? "WHERE p.id = ?" : ""}`,
+      params: projectParams,
+    },
+    { name: "adapters", sql: "SELECT * FROM cli_adapter_configs ORDER BY updated_at DESC" },
+  ]);
+  const activeAdapter = adapterFromRows(result.queries.adapters, "active");
+  const workspaceRootByProject = new Map(
+    result.queries.projects
+      .map((row) => [String(row.id), optionalString(row.local_path) ?? optionalString(row.target_repo_path)] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[1])),
+  );
+
+  for (const execution of result.queries.executions) {
+    const runId = String(execution.id);
+    const context = parseJsonObject(execution.context_json);
+    const metadata = parseJsonObject(execution.metadata_json);
+    const project = optionalString(execution.project_id);
+    const workspaceRoot = optionalString(metadata.workspaceRoot)
+      ?? optionalString(context.workspaceRoot)
+      ?? (project ? workspaceRootByProject.get(project) : undefined);
+    if (!workspaceRoot) continue;
+    const stdoutJsonPath = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(runId), "stdout.json");
+    if (!existsSync(stdoutJsonPath)) continue;
+    const raw = parseJson(readFileSync(stdoutJsonPath, "utf8"));
+    const usage = tokenUsageFromValue(raw);
+    if (!usage) continue;
+    const normalized = normalizeTokenUsage(usage);
+    if (normalized.totalTokens <= 0) continue;
+    const model = optionalString(execution.policy_model)
+      ?? optionalString(metadata.model)
+      ?? optionalString(context.model)
+      ?? activeAdapter?.defaults.model;
+    const pricing = calculateTokenCost(normalized, model, activeAdapter?.defaults.costRates ?? {});
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT OR IGNORE INTO token_consumption_records (
+            id, run_id, scheduler_job_id, project_id, feature_id, task_id, operation, model,
+            input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens,
+            cost_usd, currency, pricing_status, usage_json, pricing_json, source_path
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        params: [
+          randomUUID(),
+          runId,
+          optionalString(execution.scheduler_job_id) ?? null,
+          project ?? null,
+          optionalString(execution.feature_id) ?? optionalString(context.featureId) ?? null,
+          optionalString(execution.task_id) ?? optionalString(context.taskId) ?? null,
+          optionalString(execution.operation) ?? null,
+          model ?? null,
+          normalized.inputTokens,
+          normalized.cachedInputTokens,
+          normalized.outputTokens,
+          normalized.reasoningOutputTokens,
+          normalized.totalTokens,
+          pricing.costUsd,
+          "USD",
+          pricing.pricingStatus,
+          JSON.stringify(usage),
+          JSON.stringify(pricing.pricingSnapshot),
+          stdoutJsonPath,
+        ],
+      },
+    ]);
+  }
+}
+
+function normalizeTokenUsage(value: unknown): Omit<TokenConsumptionViewModel, "runId" | "model" | "costUsd" | "currency" | "pricingStatus" | "sourcePath" | "recordedAt"> {
+  const record = parseJsonObject(value);
+  const inputTokens = nonNegativeInteger(record.inputTokens ?? record.input_tokens ?? record.promptTokens ?? record.prompt_tokens);
+  const cachedInputTokens = nonNegativeInteger(record.cachedInputTokens ?? record.cached_input_tokens ?? record.cacheReadInputTokens ?? record.cache_read_input_tokens);
+  const outputTokens = nonNegativeInteger(record.outputTokens ?? record.output_tokens ?? record.completionTokens ?? record.completion_tokens);
+  const reasoningOutputTokens = nonNegativeInteger(record.reasoningOutputTokens ?? record.reasoning_output_tokens);
+  const explicitTotal = nonNegativeInteger(record.totalTokens ?? record.total_tokens);
+  return {
+    inputTokens,
+    cachedInputTokens,
+    outputTokens,
+    reasoningOutputTokens,
+    totalTokens: explicitTotal > 0 ? explicitTotal : inputTokens + outputTokens + reasoningOutputTokens,
+  };
+}
+
+function calculateTokenCost(
+  usage: ReturnType<typeof normalizeTokenUsage>,
+  model: string | undefined,
+  costRates: Record<string, TokenCostRate>,
+): { costUsd: number; pricingStatus: "priced" | "missing_rate"; pricingSnapshot: Record<string, unknown> } {
+  const rate = model ? costRates[model] : undefined;
+  if (!rate) {
+    return { costUsd: 0, pricingStatus: "missing_rate", pricingSnapshot: { model, reason: "missing_rate" } };
+  }
+  const cachedInputTokens = Math.min(usage.cachedInputTokens, usage.inputTokens);
+  const billableInputTokens = Math.max(usage.inputTokens - cachedInputTokens, 0);
+  const costUsd = (
+    billableInputTokens * rate.inputUsdPer1M
+    + cachedInputTokens * (rate.cachedInputUsdPer1M ?? rate.inputUsdPer1M)
+    + usage.outputTokens * rate.outputUsdPer1M
+    + usage.reasoningOutputTokens * (rate.reasoningOutputUsdPer1M ?? rate.outputUsdPer1M)
+  ) / 1_000_000;
+  return { costUsd, pricingStatus: "priced", pricingSnapshot: { model, ...rate } };
+}
+
+function tokenConsumptionByRunId(rows: Record<string, unknown>[]): Map<string, TokenConsumptionViewModel> {
+  const entries = rows.map((row) => [String(row.run_id), tokenConsumptionFromRow(row)] as const);
+  return new Map(entries);
+}
+
+function tokenConsumptionFromRow(row: Record<string, unknown>): TokenConsumptionViewModel {
+  return {
+    runId: String(row.run_id),
+    model: optionalString(row.model),
+    inputTokens: Number(row.input_tokens ?? 0),
+    cachedInputTokens: Number(row.cached_input_tokens ?? 0),
+    outputTokens: Number(row.output_tokens ?? 0),
+    reasoningOutputTokens: Number(row.reasoning_output_tokens ?? 0),
+    totalTokens: Number(row.total_tokens ?? 0),
+    costUsd: Number(row.cost_usd ?? 0),
+    currency: String(row.currency ?? "USD"),
+    pricingStatus: String(row.pricing_status),
+    sourcePath: String(row.source_path ?? ""),
+    recordedAt: String(row.recorded_at ?? ""),
+  };
+}
+
 function readCliAdapterRows(dbPath: string): Record<string, unknown>[] {
   return runSqlite(dbPath, [], [
     { name: "adapters", sql: "SELECT * FROM cli_adapter_configs ORDER BY updated_at DESC" },
@@ -4362,14 +4572,12 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
   }
 
   const runDir = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(executionId));
-  const cliOutputTokenUsage = readCliOutputTokenUsage(runDir);
   const stdoutJsonPath = join(runDir, "stdout.json");
   if (!existsSync(stdoutJsonPath)) {
     return {
       parseStatus: "missing",
       stdoutJsonPath,
       error: "stdout_json_not_found",
-      tokenUsage: cliOutputTokenUsage,
       producedArtifacts: [],
       evidence: [],
     };
@@ -4383,7 +4591,6 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
       parseStatus: "invalid",
       stdoutJsonPath,
       error: error instanceof Error ? error.message : String(error),
-      tokenUsage: cliOutputTokenUsage,
       producedArtifacts: [],
       evidence: [],
     };
@@ -4396,7 +4603,7 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
     stdoutJsonPath,
     status: optionalString(output?.status),
     summary: optionalString(output?.summary),
-    tokenUsage: skillOutputTokenUsage(output, raw) ?? cliOutputTokenUsage,
+    tokenUsage: skillOutputTokenUsage(output, raw),
     inputContract: skillInputContract(output, raw),
     outputContract: skillOutputContract(output),
     producedArtifacts: arrayValue(output?.producedArtifacts),
@@ -4406,16 +4613,6 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
     raw,
     recordCount,
   };
-}
-
-function readCliOutputTokenUsage(runDir: string): unknown {
-  const cliOutputPath = join(runDir, "cli-output.json");
-  if (!existsSync(cliOutputPath)) return undefined;
-  try {
-    return tokenUsageFromValue(JSON.parse(readFileSync(cliOutputPath, "utf8")));
-  } catch {
-    return undefined;
-  }
 }
 
 function skillInputContract(output: Record<string, unknown> | undefined, raw: unknown): unknown {
@@ -4449,7 +4646,6 @@ function tokenUsageFromRecord(record: Record<string, unknown> | undefined): unkn
   return record.tokenUsage
     ?? record.usage
     ?? record.tokens
-    ?? record.metrics
     ?? tokenUsageFromValue(record.output)
     ?? tokenUsageFromValue(record.item);
 }
@@ -4549,6 +4745,11 @@ function parseJsonObject(value: unknown): Record<string, unknown> {
 
 function optionalString(value: unknown): string | undefined {
   return value === null || value === undefined || value === "" ? undefined : String(value);
+}
+
+function nonNegativeInteger(value: unknown): number {
+  const numeric = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : 0;
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
 }
 
 function requirePayloadString(payload: Record<string, unknown>, key: string): string {

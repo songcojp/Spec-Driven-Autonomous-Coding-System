@@ -89,6 +89,7 @@ test("bootstrap creates artifact tree, schema, and health state", async () => {
     "delivery_reports",
     "audit_timeline_events",
     "metric_samples",
+    "token_consumption_records",
     "schema_migrations",
     "task_graphs",
     "task_graph_tasks",

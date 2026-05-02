@@ -27,6 +27,7 @@ Spec Evolution:
 ## Scope
 
 - Dashboard 展示项目健康度、当前活跃 Feature、看板任务数量、活跃外部运行、今日自动执行次数、失败任务、待审批任务、成本消耗、最近 PR 和风险提醒。
+- Dashboard、Project Home、Runner Console 和 Spec Workspace 的成本与 token 展示必须来自 `token_consumption_records`；不得从 `metric_samples` 读取或累计 token / cost。
 - Product Console App Shell 提供导入现有项目入口、新建项目表单、项目列表和当前项目切换控件；当前项目上下文驱动所有页面查询和受控命令，Spec 流程的文件读写、命令执行、状态检查、Evidence 和 Project Memory 操作必须解析到当前项目目录，而不是 Product Console / AutoBuild 进程运行目录。
 - Project Home 是当前单个项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并在页面内提供 Task Board 分区。
 - Task Board 分区支持受状态机约束的兼容看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史；编码执行的主路径以 Feature Spec 目录为输入，不依赖 Task Board 任务表。
@@ -45,7 +46,7 @@ Spec Evolution:
 - Runner Console 的任务列表必须优先展示可读执行意图；scheduler job id、BullMQ job id、execution id 等 GUID 只能作为辅助事实。
 - Runner Console 必须提供 scheduler job / execution detail，展示 Job 基础信息、payload/context、Execution Record、CLI skill 或 native handler、Evidence、logs、error/blocked reason。
 - Spec Workspace 和 Runner Console 必须展示 workspace-aware skill invocation 反馈，包括 scheduler job、execution id、workspace、skill phase、blocked reason 和最近 Evidence。
-- System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
+- System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、token 价格表配置、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
 - Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler / Execution Record、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Audit Center 页面展示审计摘要、Audit Timeline、命令回执、阻塞原因、状态转换、Evidence、Execution Record、Job 和 Approval 关联记录，并使用 `docs/ui/audit-center-concept.png` 作为实现基线。
@@ -75,6 +76,7 @@ Spec Evolution:
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。
 - 用户可以判断 Runner 是否可执行新任务。
 - 用户可以通过系统设置查看 active CLI Adapter，并通过原始 JSON 或 JSON Schema 表单编辑 adapter 配置。
+- 用户可以通过系统设置维护 active CLI Adapter 的模型 token 价格表，用于 token 消费明细成本计算。
 - 用户保存或启用 CLI Adapter 配置前可以看到 dry-run 校验结果；无效配置不得影响正在运行的 Execution Record。
 - 高风险、阻塞或需澄清任务能从 Review Center 被处理。
 - 用户可以在浏览器中打开 Product Console，并在 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center 之间切换。
@@ -94,7 +96,7 @@ Spec Evolution:
 - [ ] Dashboard、Project Home、Spec Workspace、Runner Console、Review Center 和 System Settings 的普通接口只提供查询、schema 或只读预览；会落库、调度、执行、审批、配置生效或写 Evidence 的动作均有 command receipt 和审计事件。
 - [ ] 批量排期和批量运行保留审计记录，并对高风险、依赖未满足或审批缺失任务给出阻塞原因。
 - [ ] 看板加载和状态刷新耗时被记录为性能基线。
-- [ ] Runner 心跳、成本、成功率和失败率可展示。
+- [ ] Runner 心跳、token 消费成本、成功率和失败率可展示。
 - [ ] Dashboard 不覆盖 Persistent Store、Project Memory 或 Git 事实。
 - [ ] 仓库包含可运行的前端应用入口、路由和页面组件，至少覆盖 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center。
 - [ ] Product Console 接入 HLD 指定的 React + Next.js 或 Vite React，以及 shadcn/ui + Tailwind CSS + Radix UI primitives，若因宿主框架调整必须在设计中记录替代方案。
@@ -113,7 +115,7 @@ Spec Evolution:
 - [ ] 阶段 2 扫描结果展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等来源类型，并标记缺失项、冲突项和需要澄清的问题。
 - [ ] Spec Workspace 阶段流程默认不展开阶段内步骤；用户点击阶段状态标签后才展开对应阶段详情，且头部流程只以标签承载状态和提示信息。
 - [ ] Product Console 提供系统设置入口，系统设置至少包含 CLI 配置页。
-- [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖原始 JSON 编辑、JSON Schema 表单编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
+- [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖原始 JSON 编辑、JSON Schema 表单编辑、token 价格表编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
 - [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
 - [ ] Runner Console 浏览器级验证覆盖 `cli.run` / `native.run` 执行队列、Job 列表、execution detail、payload context、workspace、Runner heartbeat、blocked reason 或 Evidence 摘要。
 - [ ] Runner Console 浏览器级验证覆盖 Job 队列筛选、执行详情、可读执行描述，以及详情来自真实 ViewModel 字段而不是静态 demo 文案。

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureArtifactDirectories } from "../src/artifacts.ts";
 import { initializeSchema, listTables } from "../src/schema.ts";
+import { runSqlite } from "../src/sqlite.ts";
 import {
   applyIdempotentOperation,
   ensureAutobuildArtifactLayout,
@@ -38,6 +39,7 @@ test("schema includes persistence, audit, metrics, idempotency, and recovery tab
     "evidence_packs",
     "audit_timeline_events",
     "metric_samples",
+    "token_consumption_records",
     "idempotency_keys",
     "recovery_index_entries",
   ]) {
@@ -184,13 +186,11 @@ test("audit timeline records source, reason, and sanitized payload for required 
   assert.equal(JSON.stringify(events).includes("hunter2"), false);
 });
 
-test("metrics collector records cost, success, failure, performance, evidence, and heartbeat samples", () => {
+test("metrics collector records success, failure, performance, evidence, and heartbeat samples", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
 
   for (const metric of [
-    { name: "tokens_used", value: 1000, unit: "tokens" },
-    { name: "cost_usd", value: 0.42, unit: "usd" },
     { name: "success_rate", value: 0.9, unit: "ratio" },
     { name: "failure_rate", value: 0.1, unit: "ratio" },
     { name: "dashboard_load_ms", value: 120, unit: "ms" },
@@ -203,8 +203,6 @@ test("metrics collector records cost, success, failure, performance, evidence, a
 
   const metrics = listMetricSamples(dbPath);
   assert.deepEqual(metrics.map((metric) => metric.name), [
-    "tokens_used",
-    "cost_usd",
     "success_rate",
     "failure_rate",
     "dashboard_load_ms",
@@ -212,6 +210,32 @@ test("metrics collector records cost, success, failure, performance, evidence, a
     "evidence_write_ms",
     "runner_heartbeat",
   ]);
+});
+
+test("token consumption records store run-level token and cost facts outside metrics", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO token_consumption_records (
+          id, run_id, scheduler_job_id, project_id, feature_id, task_id, operation, model,
+          input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens,
+          cost_usd, currency, pricing_status, usage_json, pricing_json, source_path
+        ) VALUES (
+          'TOKEN-001', 'RUN-001', 'JOB-001', 'project-1', 'FEAT-014', 'TASK-001', 'feature_execution', 'gpt-5.5',
+          1000, 100, 200, 50, 1250, 0.42, 'USD', 'priced',
+          '{"inputTokens":1000,"outputTokens":200}', '{"model":"gpt-5.5"}', '.autobuild/runs/RUN-001/stdout.json'
+        )`,
+    },
+  ]);
+
+  const result = runSqlite(dbPath, [], [
+    { name: "tokens", sql: "SELECT run_id, total_tokens, cost_usd FROM token_consumption_records" },
+    { name: "metrics", sql: "SELECT metric_name FROM metric_samples WHERE metric_name IN ('tokens_used', 'cost_usd')" },
+  ]);
+  assert.deepEqual(result.queries.tokens.map((row) => [row.run_id, row.total_tokens, row.cost_usd]), [["RUN-001", 1250, 0.42]]);
+  assert.deepEqual(result.queries.metrics, []);
 });
 
 test("artifact layout covers memory, specs, evidence, reports, and runs with sanitized writes", () => {

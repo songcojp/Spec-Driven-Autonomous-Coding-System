@@ -75,6 +75,28 @@ export function SettingsPage({
     }));
   }
 
+  function updateCostRate(key: string, value: string) {
+    const numeric = value.trim() ? Number(value) : 0;
+    const model = String(defaults?.model ?? "default");
+    updateConfig((config) => {
+      const nextDefaults = {
+        ...((typeof config.defaults === "object" && config.defaults !== null)
+          ? (config.defaults as Record<string, unknown>)
+          : {}),
+      };
+      const costRates = {
+        ...((typeof nextDefaults.costRates === "object" && nextDefaults.costRates !== null)
+          ? (nextDefaults.costRates as Record<string, unknown>)
+          : {}),
+      };
+      const currentRate = typeof costRates[model] === "object" && costRates[model] !== null
+        ? (costRates[model] as Record<string, unknown>)
+        : {};
+      costRates[model] = { ...currentRate, [key]: Number.isFinite(numeric) && numeric >= 0 ? numeric : value };
+      return { ...config, defaults: { ...nextDefaults, costRates } };
+    });
+  }
+
   function submit(action: CommandReceipt["action"]) {
     if (!parsed.config) {
       return;
@@ -86,6 +108,13 @@ export function SettingsPage({
   const validation = data.settings.cliAdapter.validation;
   const lastDryRun = data.settings.cliAdapter.lastDryRun;
   const defaults = parsed.config?.defaults as Record<string, unknown> | undefined;
+  const defaultModel = String(defaults?.model ?? "");
+  const costRates = typeof defaults?.costRates === "object" && defaults.costRates !== null
+    ? defaults.costRates as Record<string, unknown>
+    : {};
+  const defaultRate = defaultModel && typeof costRates[defaultModel] === "object" && costRates[defaultModel] !== null
+    ? costRates[defaultModel] as Record<string, unknown>
+    : {};
 
   return (
     <div className="space-y-4">
@@ -208,6 +237,31 @@ export function SettingsPage({
                     value={String(defaults?.approval ?? "")}
                     onChange={(value) => updateDefaults("approval", value)}
                   />
+                  <div className="border-t border-line pt-3">
+                    <div className="mb-2 text-[12px] font-semibold text-ink">Token pricing per 1M ({defaultModel || "model"})</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <SettingsInput
+                        label="Input USD"
+                        value={String(defaultRate.inputUsdPer1M ?? "")}
+                        onChange={(value) => updateCostRate("inputUsdPer1M", value)}
+                      />
+                      <SettingsInput
+                        label="Cached USD"
+                        value={String(defaultRate.cachedInputUsdPer1M ?? "")}
+                        onChange={(value) => updateCostRate("cachedInputUsdPer1M", value)}
+                      />
+                      <SettingsInput
+                        label="Output USD"
+                        value={String(defaultRate.outputUsdPer1M ?? "")}
+                        onChange={(value) => updateCostRate("outputUsdPer1M", value)}
+                      />
+                      <SettingsInput
+                        label="Reasoning USD"
+                        value={String(defaultRate.reasoningOutputUsdPer1M ?? "")}
+                        onChange={(value) => updateCostRate("reasoningOutputUsdPer1M", value)}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="rounded-lg border border-line bg-white">

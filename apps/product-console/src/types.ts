@@ -165,6 +165,20 @@ export type SkillOutputModel = {
   status?: string;
   summary?: string;
   tokenUsage?: unknown;
+  tokenConsumption?: {
+    runId: string;
+    model?: string;
+    inputTokens: number;
+    cachedInputTokens: number;
+    outputTokens: number;
+    reasoningOutputTokens: number;
+    totalTokens: number;
+    costUsd: number;
+    currency: string;
+    pricingStatus: string;
+    sourcePath: string;
+    recordedAt: string;
+  };
   inputContract?: unknown;
   outputContract?: unknown;
   producedArtifacts: unknown[];

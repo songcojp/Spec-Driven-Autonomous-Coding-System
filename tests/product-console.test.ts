@@ -608,7 +608,7 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   assert.equal(otherProject.runners.some((entry) => entry.runnerId === "runner-main"), false);
 });
 
-test("runner and spec workspace visualize skill output from stdout.json and execution usage from cli-output", () => {
+test("runner and spec workspace record token consumption only from stdout.json", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const projectPath = mkdtempSync(join(tmpdir(), "skill-output-"));
@@ -621,7 +621,7 @@ test("runner and spec workspace visualize skill output from stdout.json and exec
     requestedAction: "split_feature_specs",
     status: "completed",
     summary: "Feature specs split and queue plan created.",
-    tokenUsage: { inputTokens: 1200, outputTokens: 320, totalTokens: 1520 },
+    tokenUsage: { inputTokens: 1200, cachedInputTokens: 200, outputTokens: 320, reasoningOutputTokens: 80, totalTokens: 1600 },
     inputContract: { skillSlug: "task-slicing-skill", required: ["featureId", "workspaceRoot"] },
     outputContract: { contractVersion: "skill-contract/v1", required: ["status"], resultShape: { featureCount: "number" } },
     producedArtifacts: [{ path: "docs/features/feature-pool-queue.json", kind: "json", status: "created" }],
@@ -632,6 +632,29 @@ test("runner and spec workspace visualize skill output from stdout.json and exec
   writeFileSync(join(runDir, "stdout.json"), JSON.stringify(skillOutput, null, 2));
   writeFileSync(join(runDir, "stdout.log"), "this must not be used");
   runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO cli_adapter_configs (
+          id, display_name, schema_version, executable, argument_template_json, resume_argument_template_json,
+          config_schema_json, form_schema_json, defaults_json, environment_allowlist_json, output_mapping_json, status, updated_at
+        ) VALUES (
+          'codex-cli', 'Codex CLI', 2, 'codex', '["{{prompt}}","{{output_schema}}"]', '[]',
+          '{}', '{}', ?, '[]', '{"eventStream":"json","evidenceSchema":"evidence.schema.json","sessionIdPath":"session_id"}', 'active', '2026-04-28T12:00:00.000Z'
+        )`,
+      params: [JSON.stringify({
+        model: "gpt-5.5",
+        reasoningEffort: "medium",
+        sandbox: "danger-full-access",
+        approval: "never",
+        costRates: {
+          "gpt-5.5": {
+            inputUsdPer1M: 2,
+            cachedInputUsdPer1M: 0.2,
+            outputUsdPer1M: 8,
+            reasoningOutputUsdPer1M: 8,
+          },
+        },
+      })],
+    },
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     {
@@ -656,12 +679,20 @@ test("runner and spec workspace visualize skill output from stdout.json and exec
   assert.equal(jobOutput?.parseStatus, "found");
   assert.equal(jobOutput?.summary, "Feature specs split and queue plan created.");
   assert.deepEqual(jobOutput?.tokenUsage, skillOutput.tokenUsage);
+  assert.equal(jobOutput?.tokenConsumption?.totalTokens, 1600);
+  assert.equal(jobOutput?.tokenConsumption?.pricingStatus, "priced");
+  assert.equal(jobOutput?.tokenConsumption?.costUsd, 0.00524);
   assert.deepEqual(jobOutput?.inputContract, skillOutput.inputContract);
   assert.deepEqual(jobOutput?.outputContract, skillOutput.outputContract);
   assert.deepEqual(jobOutput?.producedArtifacts, skillOutput.producedArtifacts);
   assert.equal(runner.skillInvocations.find((entry) => entry.runId === "RUN-SKILL")?.output?.parseStatus, "found");
   assert.equal(workspace.selectedFeature?.skillOutput?.parseStatus, "found");
   assert.deepEqual(workspace.selectedFeature?.skillOutput?.result, skillOutput.result);
+  assert.equal(workspace.selectedFeature?.skillOutput?.tokenConsumption?.runId, "RUN-SKILL");
+  const afterRepeatedViews = runSqlite(dbPath, [], [
+    { name: "records", sql: "SELECT run_id FROM token_consumption_records WHERE run_id = 'RUN-SKILL'" },
+  ]).queries.records;
+  assert.equal(afterRepeatedViews.length, 1);
 
   const otherProject = buildRunnerConsoleView(dbPath, stableDate, "project-2");
   assert.equal(otherProject.schedulerJobs.some((job) => job.id === "JOB-SKILL"), false);
@@ -690,12 +721,11 @@ test("runner and spec workspace visualize skill output from stdout.json and exec
   }));
   const missing = buildRunnerConsoleView(dbPath, stableDate, "project-1").schedulerJobs.find((job) => job.id === "JOB-MISSING")?.skillOutput;
   assert.equal(missing?.parseStatus, "missing");
-  assert.deepEqual(missing?.tokenUsage, {
-    input_tokens: 6201837,
-    cached_input_tokens: 6086784,
-    output_tokens: 46721,
-    reasoning_output_tokens: 22274,
-  });
+  assert.equal(missing?.tokenUsage, undefined);
+  assert.equal(missing?.tokenConsumption, undefined);
+  assert.equal(runSqlite(dbPath, [], [
+    { name: "records", sql: "SELECT run_id FROM token_consumption_records WHERE run_id = 'RUN-MISSING'" },
+  ]).queries.records.length, 0);
 
   const invalidDir = join(projectPath, ".autobuild", "runs", "RUN-INVALID");
   mkdirSync(invalidDir, { recursive: true });
@@ -1804,10 +1834,25 @@ function seedConsoleData(dbPath: string): void {
       sql: `INSERT INTO worktree_records (id, project_id, path, branch, status, feature_id, runner_id, base_commit, target_branch, cleanup_status)
         VALUES ('WT-1', 'project-1', '/workspace/feat-013', 'feat/feat-013-product-console', 'active', 'FEAT-013', 'runner-main', 'abc123', 'main', 'active')`,
     },
-    { sql: `INSERT INTO metric_samples (id, metric_name, metric_value, unit, labels_json) VALUES ('M-1', 'cost_usd', 1.25, 'usd', '{"projectId":"project-1"}')` },
-    { sql: `INSERT INTO metric_samples (id, metric_name, metric_value, unit, labels_json) VALUES ('M-2', 'tokens_used', 9000, 'tokens', '{"projectId":"project-1"}')` },
     { sql: `INSERT INTO metric_samples (id, metric_name, metric_value, unit, labels_json) VALUES ('M-3', 'success_rate', 0.8, 'ratio', '{"projectId":"project-1"}')` },
     { sql: `INSERT INTO metric_samples (id, metric_name, metric_value, unit, labels_json) VALUES ('M-4', 'failure_rate', 0.2, 'ratio', '{"projectId":"project-1"}')` },
-    { sql: `INSERT INTO metric_samples (id, metric_name, metric_value, unit, labels_json) VALUES ('M-OTHER', 'cost_usd', 99, 'usd', '{"projectId":"project-2"}')` },
+    {
+      sql: `INSERT INTO token_consumption_records (
+          id, run_id, project_id, feature_id, task_id, operation, model, input_tokens, output_tokens, total_tokens,
+          cost_usd, currency, pricing_status, usage_json, pricing_json, source_path, recorded_at
+        ) VALUES (
+          'TOKEN-1', 'RUN-MANUAL', 'project-1', 'FEAT-013', 'TASK-RUNNING', 'feature_execution', 'gpt-5.5',
+          8000, 1000, 9000, 1.25, 'USD', 'priced', '{}', '{}', '/workspace/specdrive/.autobuild/runs/RUN-MANUAL/stdout.json', '2026-04-28T10:00:00.000Z'
+        )`,
+    },
+    {
+      sql: `INSERT INTO token_consumption_records (
+          id, run_id, project_id, feature_id, task_id, operation, model, input_tokens, output_tokens, total_tokens,
+          cost_usd, currency, pricing_status, usage_json, pricing_json, source_path, recorded_at
+        ) VALUES (
+          'TOKEN-OTHER', 'RUN-OTHER', 'project-2', 'FEAT-OTHER', 'TASK-OTHER', 'feature_execution', 'gpt-5.5',
+          900000, 100000, 1000000, 99, 'USD', 'priced', '{}', '{}', '/workspace/other/.autobuild/runs/RUN-OTHER/stdout.json', '2026-04-28T10:30:00.000Z'
+        )`,
+    },
   ]);
 }

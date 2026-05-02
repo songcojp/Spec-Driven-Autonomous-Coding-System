@@ -98,6 +98,13 @@ export type CodexJsonEvent = {
 
 export type CliAdapterStatus = "draft" | "active" | "disabled" | "invalid";
 
+export type TokenCostRate = {
+  inputUsdPer1M: number;
+  cachedInputUsdPer1M?: number;
+  outputUsdPer1M: number;
+  reasoningOutputUsdPer1M?: number;
+};
+
 export type CliAdapterConfig = {
   id: string;
   displayName: string;
@@ -114,6 +121,7 @@ export type CliAdapterConfig = {
     profile?: string;
     sandbox?: RunnerSandboxMode;
     approval?: RunnerApprovalPolicy;
+    costRates?: Record<string, TokenCostRate>;
   };
   environmentAllowlist: string[];
   outputMapping: {
@@ -425,6 +433,7 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
       { path: "defaults.reasoningEffort", label: "Default reasoning effort", type: "select" },
       { path: "defaults.sandbox", label: "Sandbox", type: "select" },
       { path: "defaults.approval", label: "Approval", type: "select" },
+      { path: "defaults.costRates", label: "Token cost rates", type: "object" },
       { path: "outputMapping.sessionIdPath", label: "Session id path", type: "text" },
     ],
   },
@@ -433,6 +442,7 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
     reasoningEffort: DEFAULT_REASONING_EFFORT,
     sandbox: "danger-full-access",
     approval: "never",
+    costRates: {},
   },
   environmentAllowlist: [],
   outputMapping: {
@@ -662,6 +672,7 @@ export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Rec
       profile: optionalConfigString(defaults.profile),
       sandbox: normalizeSandbox(defaults.sandbox) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.sandbox,
       approval: normalizeApproval(defaults.approval) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.approval,
+      costRates: normalizeCostRates(defaults.costRates ?? defaults.cost_rates),
     },
     environmentAllowlist: stringArray(input.environmentAllowlist ?? input.environment_allowlist, []),
     outputMapping: {
@@ -704,6 +715,17 @@ export function validateCliAdapterConfig(config: CliAdapterConfig): CliAdapterVa
   if (!config.outputMapping.sessionIdPath.trim()) errors.push("outputMapping.sessionIdPath is required");
   if (config.defaults.approval === "bypass") errors.push("default approval may not bypass approvals");
   if (!normalizeReasoningEffort(config.defaults.reasoningEffort)) errors.push("default reasoning effort must be low, medium, high, or xhigh");
+  for (const [model, rate] of Object.entries(config.defaults.costRates ?? {})) {
+    if (!model.trim()) errors.push("costRates model key is required");
+    if (!isNonNegativeNumber(rate.inputUsdPer1M)) errors.push(`costRates.${model}.inputUsdPer1M must be a non-negative number`);
+    if (rate.cachedInputUsdPer1M !== undefined && !isNonNegativeNumber(rate.cachedInputUsdPer1M)) {
+      errors.push(`costRates.${model}.cachedInputUsdPer1M must be a non-negative number`);
+    }
+    if (!isNonNegativeNumber(rate.outputUsdPer1M)) errors.push(`costRates.${model}.outputUsdPer1M must be a non-negative number`);
+    if (rate.reasoningOutputUsdPer1M !== undefined && !isNonNegativeNumber(rate.reasoningOutputUsdPer1M)) {
+      errors.push(`costRates.${model}.reasoningOutputUsdPer1M must be a non-negative number`);
+    }
+  }
   return { valid: errors.length === 0, errors };
 }
 
@@ -2153,6 +2175,37 @@ function stringArray(value: unknown, fallback: string[]): string[] {
   }
   const strings = value.filter((entry): entry is string => typeof entry === "string");
   return strings.length > 0 ? strings : fallback;
+}
+
+function normalizeCostRates(value: unknown): Record<string, TokenCostRate> {
+  if (!isRecord(value)) return {};
+  const normalized: Record<string, TokenCostRate> = {};
+  for (const [model, rawRate] of Object.entries(value)) {
+    if (!model.trim() || !isRecord(rawRate)) continue;
+    const inputUsdPer1M = numberValue(rawRate.inputUsdPer1M ?? rawRate.input_usd_per_1m);
+    const outputUsdPer1M = numberValue(rawRate.outputUsdPer1M ?? rawRate.output_usd_per_1m);
+    const cachedInputUsdPer1M = optionalNumberValue(rawRate.cachedInputUsdPer1M ?? rawRate.cached_input_usd_per_1m);
+    const reasoningOutputUsdPer1M = optionalNumberValue(rawRate.reasoningOutputUsdPer1M ?? rawRate.reasoning_output_usd_per_1m);
+    normalized[model] = {
+      inputUsdPer1M,
+      outputUsdPer1M,
+      ...(cachedInputUsdPer1M === undefined ? {} : { cachedInputUsdPer1M }),
+      ...(reasoningOutputUsdPer1M === undefined ? {} : { reasoningOutputUsdPer1M }),
+    };
+  }
+  return normalized;
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
+}
+
+function optionalNumberValue(value: unknown): number | undefined {
+  return value === undefined || value === null || value === "" ? undefined : numberValue(value);
+}
+
+function isNonNegativeNumber(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -1040,6 +1040,37 @@ export const MIGRATIONS: Migration[] = [
       "CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_queue_status ON scheduler_job_records(queue_name, status, updated_at)",
       "CREATE INDEX IF NOT EXISTS idx_execution_records_project_status ON execution_records(project_id, status, updated_at)",
       "CREATE INDEX IF NOT EXISTS idx_execution_records_scheduler_job ON execution_records(scheduler_job_id)",
+    ],
+  },
+  {
+    version: 22,
+    description: "Add token consumption records",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS token_consumption_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL UNIQUE,
+        scheduler_job_id TEXT,
+        project_id TEXT,
+        feature_id TEXT,
+        task_id TEXT,
+        operation TEXT,
+        model TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        reasoning_output_tokens INTEGER NOT NULL DEFAULT 0,
+        total_tokens INTEGER NOT NULL DEFAULT 0,
+        cost_usd REAL NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        pricing_status TEXT NOT NULL,
+        usage_json TEXT NOT NULL DEFAULT '{}',
+        pricing_json TEXT NOT NULL DEFAULT '{}',
+        source_path TEXT NOT NULL,
+        recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_token_consumption_project_recorded ON token_consumption_records(project_id, recorded_at)",
+      "CREATE INDEX IF NOT EXISTS idx_token_consumption_feature_recorded ON token_consumption_records(feature_id, recorded_at)",
+      "CREATE INDEX IF NOT EXISTS idx_token_consumption_task_recorded ON token_consumption_records(task_id, recorded_at)",
     ],
   },
 ];
