@@ -44,8 +44,111 @@
       {
         "command": "specdrive.openExecution",
         "title": "SpecDrive: Open Execution"
+      },
+      {
+        "command": "specdrive.queueRunNow",
+        "title": "SpecDrive: Run Now"
+      },
+      {
+        "command": "specdrive.queuePause",
+        "title": "SpecDrive: Pause"
+      },
+      {
+        "command": "specdrive.queueResume",
+        "title": "SpecDrive: Resume"
+      },
+      {
+        "command": "specdrive.queueRetry",
+        "title": "SpecDrive: Retry"
+      },
+      {
+        "command": "specdrive.queueCancel",
+        "title": "SpecDrive: Cancel"
+      },
+      {
+        "command": "specdrive.queueSkip",
+        "title": "SpecDrive: Skip"
+      },
+      {
+        "command": "specdrive.queueReprioritize",
+        "title": "SpecDrive: Reprioritize"
+      },
+      {
+        "command": "specdrive.approveAccept",
+        "title": "SpecDrive: Accept Approval"
+      },
+      {
+        "command": "specdrive.approveAcceptForSession",
+        "title": "SpecDrive: Accept Approval for Session"
+      },
+      {
+        "command": "specdrive.approveDecline",
+        "title": "SpecDrive: Decline Approval"
+      },
+      {
+        "command": "specdrive.approveCancel",
+        "title": "SpecDrive: Cancel Approval"
       }
     ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "specdrive.queueRunNow",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item/",
+          "group": "queue@1"
+        },
+        {
+          "command": "specdrive.queuePause",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:(queued|running)/",
+          "group": "queue@2"
+        },
+        {
+          "command": "specdrive.queueResume",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:(paused|blocked|approval_needed)/",
+          "group": "queue@3"
+        },
+        {
+          "command": "specdrive.queueRetry",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:(failed|blocked|cancelled|skipped)/",
+          "group": "queue@4"
+        },
+        {
+          "command": "specdrive.queueCancel",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:(queued|running|approval_needed|paused)/",
+          "group": "queue@5"
+        },
+        {
+          "command": "specdrive.queueSkip",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:(queued|blocked|failed|paused)/",
+          "group": "queue@6"
+        },
+        {
+          "command": "specdrive.queueReprioritize",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:(queued|paused)/",
+          "group": "queue@7"
+        },
+        {
+          "command": "specdrive.approveAccept",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:approval_needed/",
+          "group": "approval@1"
+        },
+        {
+          "command": "specdrive.approveAcceptForSession",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:approval_needed/",
+          "group": "approval@2"
+        },
+        {
+          "command": "specdrive.approveDecline",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:approval_needed/",
+          "group": "approval@3"
+        },
+        {
+          "command": "specdrive.approveCancel",
+          "when": "view == specdrive.specExplorer && viewItem =~ /queue-item:approval_needed/",
+          "group": "approval@4"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {

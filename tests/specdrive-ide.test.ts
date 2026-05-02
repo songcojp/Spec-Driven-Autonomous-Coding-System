@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
-import { buildSpecDriveIdeView, hashSpecSourceText, submitIdeSpecChangeRequest } from "../src/specdrive-ide.ts";
+import {
+  buildSpecDriveIdeExecutionDetail,
+  buildSpecDriveIdeView,
+  hashSpecSourceText,
+  submitIdeQueueCommand,
+  submitIdeSpecChangeRequest,
+} from "../src/specdrive-ide.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
 import { createMemoryScheduler } from "../src/scheduler.ts";
 import type { AppConfig } from "../src/config.ts";
@@ -200,6 +206,96 @@ test("SpecDrive IDE SpecChangeRequest routes existing requirement changes to spe
   assert.equal(receipt.schedulerJobId, undefined);
 });
 
+test("SpecDrive IDE queue actions retry failed executions and preserve previous execution linkage", async () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedFailedRuntimeState(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+
+  const receipt = await submitIdeQueueCommand(dbPath, {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: "project-ide",
+    workspaceRoot,
+    queueAction: "retry",
+    entityType: "run",
+    entityId: "RUN-FAILED",
+    requestedBy: "vscode-extension",
+    reason: "Retry failed app-server turn from VSCode.",
+  }, { scheduler, now: new Date("2026-05-02T12:20:00.000Z") });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.previousExecutionId, "RUN-FAILED");
+  assert.equal(typeof receipt.executionId, "string");
+  assert.equal(scheduler.jobs[0].jobType, "codex.app_server.run");
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT scheduler_job_id, status, context_json, metadata_json FROM execution_records WHERE id = ?", params: [receipt.executionId] },
+  ]).queries.run;
+  assert.equal(rows[0].scheduler_job_id, receipt.schedulerJobId);
+  assert.equal(rows[0].status, "queued");
+  assert.equal(JSON.parse(String(rows[0].context_json)).previousExecutionId, "RUN-FAILED");
+  assert.equal(JSON.parse(String(rows[0].metadata_json)).previousExecutionId, "RUN-FAILED");
+});
+
+test("SpecDrive IDE running cancel calls app-server turn interrupt before marking cancelled", async () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedRuntimeState(dbPath);
+  const interrupts: Array<{ threadId: string; turnId: string; executionId: string }> = [];
+
+  const receipt = await submitIdeQueueCommand(dbPath, {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: "project-ide",
+    workspaceRoot,
+    queueAction: "cancel",
+    entityType: "run",
+    entityId: "RUN-IDE",
+    requestedBy: "vscode-extension",
+    reason: "Cancel running turn.",
+  }, {
+    now: new Date("2026-05-02T12:21:00.000Z"),
+    interruptTurn: async (input) => {
+      interrupts.push(input);
+      return { interrupted: true };
+    },
+  });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.interruptResult?.interrupted, true);
+  assert.deepEqual(interrupts.map((entry) => [entry.executionId, entry.threadId, entry.turnId]), [["RUN-IDE", "thread-1", "turn-1"]]);
+  const rows = runSqlite(dbPath, [], [
+    { name: "job", sql: "SELECT status FROM scheduler_job_records WHERE id = 'JOB-IDE'" },
+    { name: "run", sql: "SELECT status, completed_at, metadata_json FROM execution_records WHERE id = 'RUN-IDE'" },
+  ]).queries;
+  assert.equal(rows.job[0].status, "cancelled");
+  assert.equal(rows.run[0].status, "cancelled");
+  assert.equal(typeof rows.run[0].completed_at, "string");
+  assert.equal(JSON.parse(String(rows.run[0].metadata_json)).interruptResult.interrupted, true);
+});
+
+test("SpecDrive IDE execution detail includes projection logs, artifacts, contract validation, and approval requests", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedApprovalRuntimeState(dbPath);
+
+  const detail = buildSpecDriveIdeExecutionDetail(dbPath, "RUN-APPROVAL");
+
+  assert.equal(detail?.status, "approval_needed");
+  assert.equal(detail?.threadId, "thread-approval");
+  assert.equal(detail?.turnId, "turn-approval");
+  assert.equal(detail?.producedArtifacts.length, 1);
+  assert.equal(detail?.rawLogs[0].stdout, "approval requested");
+  assert.equal(detail?.approvalRequests.length, 1);
+  assert.deepEqual(detail?.contractValidation, { valid: true });
+});
+
 function makeDbPath(): string {
   return join(mkdtempSync(join(tmpdir(), "specdrive-ide-db-")), "autobuild.db");
 }
@@ -352,6 +448,52 @@ function seedFailedRuntimeState(dbPath: string): void {
         "2026-05-02T12:01:00.000Z",
         "Codex app-server turn failed.",
         JSON.stringify({ threadId: "thread-1", turnId: "turn-1" }),
+      ],
+    },
+  ]);
+}
+
+function seedApprovalRuntimeState(dbPath: string): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
+        VALUES ('JOB-APPROVAL', 'bull-approval', 'specdrive:cli-runner', 'codex.app_server.run', 'running', '{}')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, summary, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-APPROVAL",
+        "JOB-APPROVAL",
+        "codex.app_server",
+        "feature_execution",
+        "project-ide",
+        JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-001" }),
+        "approval_needed",
+        "2026-05-02T12:00:00.000Z",
+        "Approval requested.",
+        JSON.stringify({
+          threadId: "thread-approval",
+          turnId: "turn-approval",
+          skillSlug: "codex-coding-skill",
+          approvalState: "pending",
+          producedArtifacts: [{ path: "src/example.ts", kind: "typescript", status: "updated" }],
+          contractValidation: { valid: true },
+        }),
+      ],
+    },
+    {
+      sql: `INSERT INTO raw_execution_logs (id, run_id, stdout, stderr, events_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      params: [
+        "LOG-APPROVAL",
+        "RUN-APPROVAL",
+        "approval requested",
+        "",
+        JSON.stringify([{ type: "approval/request", threadId: "thread-approval", turnId: "turn-approval", requestId: "approval-1" }]),
+        "2026-05-02T12:00:05.000Z",
       ],
     },
   ]);

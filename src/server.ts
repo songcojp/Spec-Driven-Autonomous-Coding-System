@@ -31,7 +31,14 @@ import {
 import type { SchedulerClient } from "./scheduler.ts";
 import { getOrCreateSession, processChatMessage, getChatHistory } from "./chat.ts";
 import { runCommand } from "./codex-runner.ts";
-import { buildSpecDriveIdeView, isSpecChangeRequestV1, submitIdeSpecChangeRequest } from "./specdrive-ide.ts";
+import {
+  buildSpecDriveIdeExecutionDetail,
+  buildSpecDriveIdeView,
+  isIdeQueueCommandV1,
+  isSpecChangeRequestV1,
+  submitIdeQueueCommand,
+  submitIdeSpecChangeRequest,
+} from "./specdrive-ide.ts";
 
 
 export type ControlPlaneServer = {
@@ -232,11 +239,20 @@ async function routeRequest(
       return;
     }
 
+    const ideExecutionMatch = url.pathname.match(/^\/ide\/executions\/([^/]+)$/);
+    if (request.method === "GET" && ideExecutionMatch) {
+      const detail = buildSpecDriveIdeExecutionDetail(config.dbPath, decodeURIComponent(ideExecutionMatch[1]));
+      writeJson(response, detail ? 200 : 404, detail ?? { error: "execution_not_found" });
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/ide/commands") {
       const body = await readJsonBody(request);
       writeJson(response, 202, isSpecChangeRequestV1(body)
         ? submitIdeSpecChangeRequest(config.dbPath, body, { scheduler: options.scheduler })
-        : submitConsoleCommand(config.dbPath, body as ConsoleCommandInput, { scheduler: options.scheduler }));
+        : isIdeQueueCommandV1(body)
+          ? await submitIdeQueueCommand(config.dbPath, body, { scheduler: options.scheduler })
+          : submitConsoleCommand(config.dbPath, body as ConsoleCommandInput, { scheduler: options.scheduler }));
       return;
     }
 

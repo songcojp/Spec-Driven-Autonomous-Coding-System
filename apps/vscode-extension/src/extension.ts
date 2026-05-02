@@ -37,6 +37,18 @@ type SpecDriveIdeQueueItem = {
   summary?: string;
 };
 
+type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
+  context: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
+  producedArtifacts: unknown[];
+  evidence: Array<{ id: string; kind: string; path?: string; summary?: string; metadata: Record<string, unknown>; createdAt?: string }>;
+  diffSummary?: unknown;
+  contractValidation?: unknown;
+  outputSchema?: unknown;
+  approvalRequests: unknown[];
+};
+
 type SpecDriveIdeDiagnostic = {
   path: string;
   severity: "error" | "warning" | "info";
@@ -77,6 +89,23 @@ type ControlledCommandInput = {
   entityId: string;
   payload?: Record<string, unknown>;
   reason: string;
+};
+
+type QueueAction = "enqueue" | "run_now" | "pause" | "resume" | "retry" | "cancel" | "skip" | "reprioritize" | "refresh" | "approve";
+type ApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+
+type IdeQueueCommandV1 = {
+  schemaVersion: 1;
+  ideCommandType: "queue_action";
+  projectId?: string;
+  workspaceRoot?: string;
+  queueAction: QueueAction;
+  entityType: "run" | "job";
+  entityId: string;
+  requestedBy: string;
+  reason: string;
+  payload?: Record<string, unknown>;
+  approvalDecision?: ApprovalDecision;
 };
 
 type SpecChangeRequestIntent =
@@ -129,6 +158,17 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.refresh", () => provider.refresh()));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openItem", (item: unknown) => openItem(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecution", (item: unknown) => openExecution(item)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueRunNow", (item: unknown) => runQueueAction("run_now", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.queuePause", (item: unknown) => runQueueAction("pause", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueResume", (item: unknown) => runQueueAction("resume", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueRetry", (item: unknown) => runQueueAction("retry", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueCancel", (item: unknown) => runQueueAction("cancel", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueSkip", (item: unknown) => runQueueAction("skip", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueReprioritize", (item: unknown) => reprioritizeQueueItem(item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.approveAccept", (item: unknown) => approveQueueItem("accept", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.approveAcceptForSession", (item: unknown) => approveQueueItem("acceptForSession", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.approveDecline", (item: unknown) => approveQueueItem("decline", item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.approveCancel", (item: unknown) => approveQueueItem("cancel", item, provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.runControlledCommand", (input: unknown) => runControlledCommand(input, provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.submitSpecChangeRequest", (input: unknown) => submitSpecChangeRequest(input, provider)));
   context.subscriptions.push(createSpecCommentController(context, provider));
@@ -171,7 +211,7 @@ class SpecExplorerProvider implements vscode.TreeDataProvider<SpecExplorerItem> 
     const treeItem = new vscode.TreeItem(element.label, collapsible);
     treeItem.description = element.description;
     treeItem.tooltip = element.description;
-    treeItem.contextValue = element.type;
+    treeItem.contextValue = element.type === "queue-item" ? `queue-item:${element.item.status}` : element.type;
     treeItem.iconPath = iconFor(element);
     if (element.type === "document" && element.exists) {
       treeItem.command = {
@@ -447,7 +487,7 @@ async function submitSpecChangeRequest(input: unknown, provider: SpecExplorerPro
   }
 }
 
-async function postIdeCommand(input: (ControlledCommandInput & { requestedBy: string }) | SpecChangeRequestV1): Promise<Record<string, unknown>> {
+async function postIdeCommand(input: (ControlledCommandInput & { requestedBy: string }) | SpecChangeRequestV1 | IdeQueueCommandV1): Promise<Record<string, unknown>> {
   const controlPlaneUrl = vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4000");
   const response = await fetch(new URL("/ide/commands", controlPlaneUrl), {
     method: "POST",
@@ -459,6 +499,73 @@ async function postIdeCommand(input: (ControlledCommandInput & { requestedBy: st
     throw new Error(typeof body.error === "string" ? body.error : `SpecDrive command failed: ${response.status}`);
   }
   return body;
+}
+
+async function postQueueCommand(
+  queueAction: QueueAction,
+  item: SpecDriveIdeQueueItem,
+  provider: SpecExplorerProvider,
+  input: { reason: string; payload?: Record<string, unknown>; approvalDecision?: ApprovalDecision },
+): Promise<void> {
+  const view = provider.currentView();
+  const entityId = item.executionId ?? item.schedulerJobId;
+  if (!entityId) {
+    await vscode.window.showErrorMessage("SpecDrive queue action requires an execution or job id.");
+    return;
+  }
+  const body: IdeQueueCommandV1 = {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: view?.project?.id,
+    workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    queueAction,
+    entityType: item.executionId ? "run" : "job",
+    entityId,
+    requestedBy: "vscode-extension",
+    reason: input.reason,
+    payload: input.payload,
+    approvalDecision: input.approvalDecision,
+  };
+  const response = await postIdeCommand(body);
+  const status = typeof response.status === "string" ? response.status : "unknown";
+  const executionId = typeof response.executionId === "string" ? ` execution=${response.executionId}` : "";
+  await vscode.window.showInformationMessage(`SpecDrive queue ${queueAction} ${status}.${executionId}`);
+  await provider.refresh();
+}
+
+async function runQueueAction(queueAction: QueueAction, rawItem: unknown, provider: SpecExplorerProvider): Promise<void> {
+  if (!isQueueItem(rawItem)) return;
+  const reason = queueAction === "cancel" && rawItem.item.status === "running"
+    ? "Cancel running app-server turn from VSCode Task Queue."
+    : `Run ${queueAction} from VSCode Task Queue.`;
+  try {
+    await postQueueCommand(queueAction, rawItem.item, provider, { reason });
+  } catch (error) {
+    await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function reprioritizeQueueItem(rawItem: unknown, provider: SpecExplorerProvider): Promise<void> {
+  if (!isQueueItem(rawItem)) return;
+  const value = await vscode.window.showInputBox({ prompt: "Priority", value: "0" });
+  if (value === undefined) return;
+  const priority = Number(value);
+  if (!Number.isFinite(priority)) {
+    await vscode.window.showErrorMessage("SpecDrive priority must be a number.");
+    return;
+  }
+  await postQueueCommand("reprioritize", rawItem.item, provider, {
+    reason: "Reprioritize from VSCode Task Queue.",
+    payload: { priority },
+  });
+}
+
+async function approveQueueItem(decision: ApprovalDecision, rawItem: unknown, provider: SpecExplorerProvider): Promise<void> {
+  if (!isQueueItem(rawItem)) return;
+  await postQueueCommand("approve", rawItem.item, provider, {
+    reason: `Approval ${decision} from VSCode Task Queue.`,
+    approvalDecision: decision,
+  });
 }
 
 function buildSpecChangeRequest(
@@ -616,9 +723,8 @@ async function openItem(item: unknown): Promise<void> {
 
 async function openExecution(item: unknown): Promise<void> {
   if (!isQueueItem(item)) return;
-  const details = formatExecutionDetails(item.item);
-  const document = await vscode.workspace.openTextDocument({ content: details, language: "markdown" });
-  await vscode.window.showTextDocument(document);
+  const panel = vscode.window.createWebviewPanel("specdriveExecution", "SpecDrive Execution", vscode.ViewColumn.Active, { enableScripts: false });
+  panel.webview.html = renderExecutionWebview(await fetchExecutionDetail(item.item));
 }
 
 function isDocumentItem(item: unknown): item is Extract<SpecExplorerItem, { type: "document" }> {
@@ -736,4 +842,68 @@ function formatExecutionDetails(item: SpecDriveIdeQueueItem): string {
     item.summary ?? "No summary recorded yet.",
     "",
   ].join("\n");
+}
+
+async function fetchExecutionDetail(item: SpecDriveIdeQueueItem): Promise<SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem> {
+  if (!item.executionId) return item;
+  const controlPlaneUrl = vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4000");
+  const response = await fetch(new URL(`/ide/executions/${encodeURIComponent(item.executionId)}`, controlPlaneUrl));
+  if (!response.ok) return item;
+  return await response.json() as SpecDriveIdeExecutionDetail;
+}
+
+function renderExecutionWebview(item: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem): string {
+  const detail = "metadata" in item ? item : undefined;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:16px;line-height:1.45}
+    code,pre{font-family:var(--vscode-editor-font-family)}
+    pre{background:var(--vscode-textCodeBlock-background);padding:12px;overflow:auto}
+  </style></head><body>
+    <h1>SpecDrive Execution</h1>
+    ${executionFieldsHtml(item)}
+    <h2>Thread / Turn</h2>
+    <ul><li>Thread: <code>${escapeHtml(item.threadId ?? "none")}</code></li><li>Turn: <code>${escapeHtml(item.turnId ?? "none")}</code></li></ul>
+    <h2>Diff Summary</h2>
+    ${jsonBlock(detail?.diffSummary ?? null)}
+    <h2>Produced Artifacts</h2>
+    ${jsonBlock(detail?.producedArtifacts ?? [])}
+    <h2>Output Schema</h2>
+    ${jsonBlock(detail?.outputSchema ?? null)}
+    <h2>Contract Validation</h2>
+    ${jsonBlock(detail?.contractValidation ?? detail?.metadata?.contractValidation ?? null)}
+    <h2>Approval Requests</h2>
+    ${jsonBlock(detail?.approvalRequests ?? [])}
+    <h2>Raw Logs</h2>
+    ${(detail?.rawLogs ?? []).map((log, index) => `<h3>Log ${index + 1}</h3><p>Stdout</p>${textBlock(log.stdout)}<p>Stderr</p>${textBlock(log.stderr)}`).join("")}
+  </body></html>`;
+}
+
+function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
+  const fields = [
+    ["Status", item.status],
+    ["Operation", item.operation],
+    ["Job type", item.jobType],
+    ["Scheduler job", item.schedulerJobId],
+    ["Execution", item.executionId],
+    ["Feature", item.featureId],
+    ["Task", item.taskId],
+    ["Adapter", item.adapter],
+    ["Updated", item.updatedAt],
+  ];
+  return `<ul>${fields
+    .filter(([, value]) => typeof value === "string" && value.length > 0)
+    .map(([label, value]) => `<li>${escapeHtml(String(label))}: <code>${escapeHtml(String(value))}</code></li>`)
+    .join("")}</ul><h2>Summary</h2><p>${escapeHtml(item.summary ?? "No summary recorded yet.")}</p>`;
+}
+
+function jsonBlock(value: unknown): string {
+  return textBlock(JSON.stringify(value, null, 2));
+}
+
+function textBlock(value: string): string {
+  return `<pre>${escapeHtml(value)}</pre>`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }

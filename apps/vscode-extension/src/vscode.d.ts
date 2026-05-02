@@ -91,6 +91,12 @@ declare module "vscode" {
     Hint = 3
   }
 
+  export enum ViewColumn {
+    Active = -1,
+    Beside = -2,
+    One = 1
+  }
+
   export class Diagnostic {
     range: Range;
     message: string;
@@ -102,6 +108,14 @@ declare module "vscode" {
   export interface DiagnosticCollection extends Disposable {
     clear(): void;
     set(uri: Uri, diagnostics: Diagnostic[]): void;
+  }
+
+  export interface Webview {
+    html: string;
+  }
+
+  export interface WebviewPanel extends Disposable {
+    webview: Webview;
   }
 
   export interface TreeDataProvider<T> {
@@ -169,7 +183,9 @@ declare module "vscode" {
   export namespace window {
     const activeTextEditor: TextEditor | undefined;
     function createTreeView<T>(viewId: string, options: { treeDataProvider: TreeDataProvider<T> }): Disposable;
+    function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean }): WebviewPanel;
     function showErrorMessage(message: string): Thenable<string | undefined>;
+    function showInputBox(options?: { prompt?: string; value?: string }): Thenable<string | undefined>;
   }
 
   export namespace workspace {

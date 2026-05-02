@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  createCodexAppServerTransportFromConfig,
+  DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
+  interruptCodexAppServerTurn,
+  type CodexAppServerAdapterConfig,
+} from "./codex-app-server.ts";
 import { submitConsoleCommand, type ConsoleCommandInput, type ConsoleCommandReceipt } from "./product-console.ts";
 import type { SchedulerClient } from "./scheduler.ts";
 import { runSqlite } from "./sqlite.ts";
@@ -39,6 +45,18 @@ export type SpecDriveIdeQueueItem = {
   turnId?: string;
   updatedAt?: string;
   summary?: string;
+};
+
+export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
+  context: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
+  producedArtifacts: unknown[];
+  evidence: Array<{ id: string; kind: string; path?: string; summary?: string; metadata: Record<string, unknown>; createdAt?: string }>;
+  diffSummary?: unknown;
+  contractValidation?: unknown;
+  outputSchema?: unknown;
+  approvalRequests: unknown[];
 };
 
 export type SpecDriveIdeDiagnostic = {
@@ -126,9 +144,60 @@ export type IdeSpecChangeReceipt =
     currentTextHash?: string;
   };
 
+export type IdeQueueAction =
+  | "enqueue"
+  | "run_now"
+  | "pause"
+  | "resume"
+  | "retry"
+  | "cancel"
+  | "skip"
+  | "reprioritize"
+  | "refresh"
+  | "approve";
+
+export type IdeApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";
+
+export type IdeQueueCommandV1 = {
+  schemaVersion: 1;
+  ideCommandType: "queue_action";
+  projectId?: string;
+  workspaceRoot?: string;
+  queueAction: IdeQueueAction;
+  entityType: "project" | "feature" | "task" | "run" | "job";
+  entityId: string;
+  requestedBy?: string;
+  reason: string;
+  payload?: Record<string, unknown>;
+  approvalDecision?: IdeApprovalDecision;
+};
+
+export type IdeQueueCommandReceipt = {
+  id: string;
+  action: IdeQueueAction;
+  status: "accepted" | "blocked";
+  entityType: IdeQueueCommandV1["entityType"];
+  entityId: string;
+  acceptedAt: string;
+  ideCommandType: "queue_action";
+  schedulerJobId?: string;
+  schedulerJobIds?: string[];
+  executionId?: string;
+  previousExecutionId?: string;
+  interruptResult?: Record<string, unknown>;
+  blockedReasons?: string[];
+  detail?: SpecDriveIdeExecutionDetail;
+};
+
 type BuildSpecDriveIdeViewOptions = {
   workspaceRoot?: string;
   projectId?: string;
+};
+
+type SubmitIdeQueueCommandOptions = {
+  scheduler?: SchedulerClient;
+  now?: Date;
+  interruptTurn?: (input: { threadId: string; turnId: string; executionId: string; workspaceRoot?: string }) => Promise<Record<string, unknown>>;
 };
 
 type ProjectRow = {
@@ -202,6 +271,242 @@ export function isSpecChangeRequestV1(value: unknown): value is SpecChangeReques
     && typeof range.endLine === "number"
     && isSpecChangeRequestIntent(value.intent)
     && typeof value.comment === "string";
+}
+
+export function isIdeQueueCommandV1(value: unknown): value is IdeQueueCommandV1 {
+  if (!isRecord(value)) return false;
+  return value.schemaVersion === 1
+    && value.ideCommandType === "queue_action"
+    && isIdeQueueAction(value.queueAction)
+    && typeof value.entityType === "string"
+    && ["project", "feature", "task", "run", "job"].includes(value.entityType)
+    && typeof value.entityId === "string"
+    && typeof value.reason === "string";
+}
+
+export function buildSpecDriveIdeExecutionDetail(dbPath: string, executionId: string): SpecDriveIdeExecutionDetail | undefined {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "execution",
+      sql: `SELECT
+          er.id,
+          er.scheduler_job_id,
+          er.executor_type,
+          er.operation,
+          er.project_id,
+          er.context_json,
+          er.status,
+          er.summary,
+          er.metadata_json,
+          er.updated_at,
+          sj.job_type,
+          sj.status AS job_status
+        FROM execution_records er
+        LEFT JOIN scheduler_job_records sj ON sj.id = er.scheduler_job_id
+        WHERE er.id = ?
+        LIMIT 1`,
+      params: [executionId],
+    },
+    {
+      name: "logs",
+      sql: "SELECT stdout, stderr, events_json, created_at FROM raw_execution_logs WHERE run_id = ? ORDER BY created_at DESC LIMIT 10",
+      params: [executionId],
+    },
+    {
+      name: "evidence",
+      sql: "SELECT id, kind, path, summary, metadata_json, created_at FROM evidence_packs WHERE run_id = ? ORDER BY created_at DESC LIMIT 20",
+      params: [executionId],
+    },
+  ]);
+  const row = result.queries.execution[0];
+  if (!row) return undefined;
+  const context = parseJsonObject(optionalString(row.context_json));
+  const metadata = parseJsonObject(optionalString(row.metadata_json));
+  const rawLogs = result.queries.logs.map((log) => ({
+    stdout: String(log.stdout ?? ""),
+    stderr: String(log.stderr ?? ""),
+    events: parseJsonArray(log.events_json),
+    createdAt: optionalString(log.created_at),
+  }));
+  const evidence = result.queries.evidence.map((entry) => ({
+    id: String(entry.id),
+    kind: String(entry.kind),
+    path: optionalString(entry.path),
+    summary: optionalString(entry.summary),
+    metadata: parseJsonObject(optionalString(entry.metadata_json)),
+    createdAt: optionalString(entry.created_at),
+  }));
+  const metadataArtifacts = arrayValue(metadata.producedArtifacts);
+  const evidenceArtifacts = evidence.flatMap((entry) => arrayValue(entry.metadata.producedArtifacts));
+  const eventRefs = arrayValue(metadata.eventRefs);
+  const evidenceDiff = evidence.map((entry) => entry.metadata.diff ?? entry.metadata.diffSummary).find((entry) => entry !== undefined);
+  const approvalRequests = rawLogs
+    .flatMap((log) => log.events)
+    .filter((event) => isApprovalRequestEvent(event));
+  return {
+    schedulerJobId: optionalString(row.scheduler_job_id),
+    executionId: String(row.id),
+    status: optionalString(row.status) ?? optionalString(row.job_status) ?? "unknown",
+    operation: optionalString(row.operation),
+    jobType: optionalString(row.job_type) ?? optionalString(metadata.jobType),
+    featureId: optionalString(context.featureId),
+    taskId: optionalString(context.taskId),
+    adapter: optionalString(metadata.skillSlug) ?? optionalString(metadata.adapterId),
+    threadId: optionalString(metadata.threadId),
+    turnId: optionalString(metadata.turnId),
+    updatedAt: optionalString(row.updated_at),
+    summary: optionalString(row.summary),
+    context,
+    metadata,
+    rawLogs,
+    producedArtifacts: metadataArtifacts.length > 0 ? metadataArtifacts : evidenceArtifacts,
+    evidence,
+    diffSummary: metadata.diffSummary ?? metadata.diff ?? evidenceDiff,
+    contractValidation: metadata.contractValidation,
+    outputSchema: metadata.outputSchema,
+    approvalRequests: approvalRequests.length > 0 ? approvalRequests : eventRefs.filter(isApprovalRequestEvent),
+  };
+}
+
+export async function submitIdeQueueCommand(
+  dbPath: string,
+  command: IdeQueueCommandV1,
+  options: SubmitIdeQueueCommandOptions = {},
+): Promise<IdeQueueCommandReceipt> {
+  const acceptedAt = (options.now ?? new Date()).toISOString();
+  const id = randomUUID();
+  const blockedReasons: string[] = [];
+  const base = (): IdeQueueCommandReceipt => ({
+    id,
+    action: command.queueAction,
+    status: blockedReasons.length > 0 ? "blocked" : "accepted",
+    entityType: command.entityType,
+    entityId: command.entityId,
+    acceptedAt,
+    ideCommandType: "queue_action",
+    blockedReasons: blockedReasons.length > 0 ? blockedReasons : undefined,
+  });
+
+  if (command.queueAction === "refresh") {
+    return { ...base(), detail: command.entityType === "run" ? buildSpecDriveIdeExecutionDetail(dbPath, command.entityId) : undefined };
+  }
+
+  if (command.queueAction === "enqueue" || command.queueAction === "run_now") {
+    const receipt = submitConsoleCommand(dbPath, queueScheduleCommand(command, acceptedAt), { scheduler: options.scheduler });
+    return {
+      ...base(),
+      status: receipt.status,
+      schedulerJobId: receipt.schedulerJobId,
+      executionId: receipt.executionId,
+      blockedReasons: receipt.blockedReasons,
+    };
+  }
+
+  if (command.queueAction === "retry") {
+    const previous = findExecutionForQueueCommand(dbPath, command);
+    if (!previous) {
+      blockedReasons.push(`Execution not found for retry: ${command.entityId}`);
+      return base();
+    }
+    const payload = retryPayload(previous, command, acceptedAt);
+    const scheduler = options.scheduler;
+    const job = previous.jobType === "codex.app_server.run" && scheduler?.enqueueAppServerRun
+      ? scheduler.enqueueAppServerRun(payload)
+      : scheduler?.enqueueCliRun(payload);
+    if (!job) {
+      blockedReasons.push("Scheduler is required to retry an execution.");
+      return base();
+    }
+    persistQueuedExecution(dbPath, {
+      executionId: payload.executionId,
+      schedulerJobId: job.schedulerJobId,
+      executorType: previous.executorType,
+      operation: previous.operation,
+      projectId: previous.projectId,
+      context: payload.context ?? {},
+      metadata: {
+        ...previous.metadata,
+        previousExecutionId: previous.executionId,
+        retryReason: command.reason,
+        retriedAt: acceptedAt,
+      },
+      acceptedAt,
+    });
+    return {
+      ...base(),
+      schedulerJobId: job.schedulerJobId,
+      executionId: payload.executionId,
+      previousExecutionId: previous.executionId,
+    };
+  }
+
+  if (command.queueAction === "cancel") {
+    const target = findExecutionForQueueCommand(dbPath, command);
+    if (!target) {
+      blockedReasons.push(`Execution or job not found for cancel: ${command.entityId}`);
+      return base();
+    }
+    let interruptResult: Record<string, unknown> | undefined;
+    if (target.status === "running") {
+      const threadId = optionalString(target.metadata.threadId);
+      const turnId = optionalString(target.metadata.turnId);
+      if (!threadId || !turnId) {
+        blockedReasons.push("Running cancel requires threadId and turnId in Execution Record metadata.");
+        return base();
+      }
+      interruptResult = await interruptRunningTurn(dbPath, {
+        executionId: target.executionId,
+        threadId,
+        turnId,
+        workspaceRoot: optionalString(target.metadata.workspaceRoot) ?? optionalString(target.context.workspaceRoot),
+      }, options.interruptTurn);
+    }
+    updateQueueTarget(dbPath, target, "cancelled", acceptedAt, {
+      cancelReason: command.reason,
+      cancelledBy: command.requestedBy ?? "vscode-extension",
+      interruptResult,
+    });
+    return { ...base(), schedulerJobId: target.schedulerJobId, executionId: target.executionId, interruptResult };
+  }
+
+  if (command.queueAction === "skip") {
+    const target = findExecutionForQueueCommand(dbPath, command);
+    if (!target) {
+      blockedReasons.push(`Execution or job not found for skip: ${command.entityId}`);
+      return base();
+    }
+    updateQueueTarget(dbPath, target, "skipped", acceptedAt, { skipReason: command.reason });
+    return { ...base(), schedulerJobId: target.schedulerJobId, executionId: target.executionId };
+  }
+
+  if (command.queueAction === "pause" || command.queueAction === "resume" || command.queueAction === "reprioritize" || command.queueAction === "approve") {
+    const target = findExecutionForQueueCommand(dbPath, command);
+    if (!target) {
+      blockedReasons.push(`Execution or job not found for ${command.queueAction}: ${command.entityId}`);
+      return base();
+    }
+    if (command.queueAction === "pause") {
+      updateQueueTarget(dbPath, target, "paused", acceptedAt, { pausedReason: command.reason });
+    } else if (command.queueAction === "resume") {
+      updateQueueTarget(dbPath, target, "queued", acceptedAt, { resumedReason: command.reason, blockedReason: undefined });
+    } else if (command.queueAction === "reprioritize") {
+      updateQueuePriority(dbPath, target, command.payload, acceptedAt);
+    } else {
+      if (!isIdeApprovalDecision(command.approvalDecision)) {
+        blockedReasons.push("Approval command requires approvalDecision accept, acceptForSession, decline, or cancel.");
+        return base();
+      }
+      updateQueueTarget(dbPath, target, command.approvalDecision === "cancel" ? "cancelled" : "approval_answered", acceptedAt, {
+        approvalState: "answered",
+        approvalDecision: command.approvalDecision,
+        approvalReason: command.reason,
+      });
+    }
+    return { ...base(), schedulerJobId: target.schedulerJobId, executionId: target.executionId };
+  }
+
+  blockedReasons.push(`Unsupported IDE queue action: ${command.queueAction}`);
+  return base();
 }
 
 export function submitIdeSpecChangeRequest(
@@ -474,6 +779,23 @@ function isSpecChangeRequestIntent(value: unknown): value is SpecChangeRequestIn
     || value === "split_feature";
 }
 
+function isIdeQueueAction(value: unknown): value is IdeQueueAction {
+  return value === "enqueue"
+    || value === "run_now"
+    || value === "pause"
+    || value === "resume"
+    || value === "retry"
+    || value === "cancel"
+    || value === "skip"
+    || value === "reprioritize"
+    || value === "refresh"
+    || value === "approve";
+}
+
+function isIdeApprovalDecision(value: unknown): value is IdeApprovalDecision {
+  return value === "accept" || value === "acceptForSession" || value === "decline" || value === "cancel";
+}
+
 function numberOrZero(value: unknown): number {
   return typeof value === "number" ? Math.max(0, Math.trunc(value)) : 0;
 }
@@ -567,6 +889,217 @@ function readLatestExecutionsByFeature(dbPath: string): Map<string, { executionI
     }
   }
   return latest;
+}
+
+type QueueExecutionRow = {
+  executionId: string;
+  schedulerJobId?: string;
+  jobType?: string;
+  executorType: string;
+  operation: string;
+  projectId?: string;
+  context: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  status: string;
+};
+
+function findExecutionForQueueCommand(dbPath: string, command: IdeQueueCommandV1): QueueExecutionRow | undefined {
+  const lookup = command.entityType === "job"
+    ? { sql: "WHERE sj.id = ? OR sj.bullmq_job_id = ?", params: [command.entityId, command.entityId] }
+    : { sql: "WHERE er.id = ?", params: [command.entityId] };
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "target",
+      sql: `SELECT
+          er.id AS execution_id,
+          er.scheduler_job_id,
+          er.executor_type,
+          er.operation,
+          er.project_id,
+          er.context_json,
+          er.metadata_json,
+          er.status AS execution_status,
+          sj.job_type,
+          sj.payload_json,
+          sj.status AS job_status
+        FROM execution_records er
+        LEFT JOIN scheduler_job_records sj ON sj.id = er.scheduler_job_id
+        ${lookup.sql}
+        ORDER BY er.updated_at DESC
+        LIMIT 1`,
+      params: lookup.params,
+    },
+  ]);
+  const row = result.queries.target[0];
+  if (!row) return undefined;
+  return {
+    executionId: String(row.execution_id),
+    schedulerJobId: optionalString(row.scheduler_job_id),
+    jobType: optionalString(row.job_type),
+    executorType: optionalString(row.executor_type) ?? "cli",
+    operation: optionalString(row.operation) ?? "feature_execution",
+    projectId: optionalString(row.project_id),
+    context: parseJsonObject(optionalString(row.context_json)),
+    metadata: parseJsonObject(optionalString(row.metadata_json)),
+    payload: parseJsonObject(optionalString(row.payload_json)),
+    status: optionalString(row.execution_status) ?? optionalString(row.job_status) ?? "unknown",
+  };
+}
+
+function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string): ConsoleCommandInput {
+  const payload = parseJsonObject(command.payload);
+  const projectId = command.projectId ?? optionalString(payload.projectId) ?? (command.entityType === "project" ? command.entityId : undefined);
+  const featureId = optionalString(payload.featureId) ?? (command.entityType === "feature" ? command.entityId : undefined);
+  const taskId = optionalString(payload.taskId) ?? (command.entityType === "task" ? command.entityId : undefined);
+  return {
+    action: "schedule_run",
+    entityType: command.entityType === "task" ? "task" : command.entityType === "feature" ? "feature" : "project",
+    entityId: command.entityId,
+    requestedBy: command.requestedBy ?? "vscode-extension",
+    reason: command.reason,
+    payload: {
+      ...payload,
+      projectId,
+      featureId,
+      taskId,
+      mode: command.queueAction === "run_now" ? "manual" : optionalString(payload.mode) ?? "manual",
+      requestedFor: command.queueAction === "run_now" ? acceptedAt : optionalString(payload.requestedFor),
+      operation: optionalString(payload.operation) ?? "feature_execution",
+      requestedAction: optionalString(payload.requestedAction) ?? "feature_execution",
+      workspaceRoot: command.workspaceRoot ?? optionalString(payload.workspaceRoot),
+      ideQueueAction: command.queueAction,
+    },
+    now: new Date(acceptedAt),
+  };
+}
+
+function retryPayload(previous: QueueExecutionRow, command: IdeQueueCommandV1, acceptedAt: string) {
+  const context = {
+    ...previous.context,
+    previousExecutionId: previous.executionId,
+    retryReason: command.reason,
+    retriedAt: acceptedAt,
+  };
+  return {
+    executionId: randomUUID(),
+    operation: previous.operation,
+    projectId: command.projectId ?? previous.projectId,
+    context,
+    requestedAction: optionalString(previous.payload.requestedAction) ?? optionalString(previous.context.skillPhase) ?? previous.operation,
+  };
+}
+
+function persistQueuedExecution(dbPath: string, input: {
+  executionId: string;
+  schedulerJobId: string;
+  executorType: string;
+  operation: string;
+  projectId?: string;
+  context: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  acceptedAt: string;
+}): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO execution_records (
+          id, scheduler_job_id, executor_type, operation, project_id, context_json,
+          status, started_at, summary, metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        input.executionId,
+        input.schedulerJobId,
+        input.executorType,
+        input.operation,
+        input.projectId ?? null,
+        JSON.stringify(input.context),
+        "queued",
+        null,
+        "Retry queued from VSCode IDE.",
+        JSON.stringify(input.metadata),
+        input.acceptedAt,
+        input.acceptedAt,
+      ],
+    },
+  ]);
+}
+
+function updateQueueTarget(
+  dbPath: string,
+  target: QueueExecutionRow,
+  status: string,
+  acceptedAt: string,
+  metadataPatch: Record<string, unknown>,
+): void {
+  const metadata = { ...target.metadata };
+  for (const [key, value] of Object.entries(metadataPatch)) {
+    if (value === undefined) delete metadata[key];
+    else metadata[key] = value;
+  }
+  runSqlite(dbPath, [
+    ...(target.schedulerJobId ? [{
+      sql: "UPDATE scheduler_job_records SET status = ?, updated_at = ? WHERE id = ?",
+      params: [status, acceptedAt, target.schedulerJobId],
+    }] : []),
+    {
+      sql: "UPDATE execution_records SET status = ?, completed_at = CASE WHEN ? IN ('cancelled', 'skipped') THEN ? ELSE completed_at END, metadata_json = ?, updated_at = ? WHERE id = ?",
+      params: [status, status, acceptedAt, JSON.stringify(metadata), acceptedAt, target.executionId],
+    },
+  ]);
+}
+
+function updateQueuePriority(dbPath: string, target: QueueExecutionRow, payload: unknown, acceptedAt: string): void {
+  const priority = Number(parseJsonObject(payload).priority ?? parseJsonObject(payload).rank ?? 0);
+  const updatedPayload = { ...target.payload, priority, reprioritizedAt: acceptedAt };
+  runSqlite(dbPath, [
+    ...(target.schedulerJobId ? [{
+      sql: "UPDATE scheduler_job_records SET payload_json = ?, updated_at = ? WHERE id = ?",
+      params: [JSON.stringify(updatedPayload), acceptedAt, target.schedulerJobId],
+    }] : []),
+    {
+      sql: "UPDATE execution_records SET metadata_json = ?, updated_at = ? WHERE id = ?",
+      params: [JSON.stringify({ ...target.metadata, priority, reprioritizedAt: acceptedAt }), acceptedAt, target.executionId],
+    },
+  ]);
+}
+
+async function interruptRunningTurn(
+  dbPath: string,
+  input: { executionId: string; threadId: string; turnId: string; workspaceRoot?: string },
+  override?: SubmitIdeQueueCommandOptions["interruptTurn"],
+): Promise<Record<string, unknown>> {
+  if (override) return override(input);
+  const config = loadAppServerAdapterConfig(dbPath);
+  const transport = createCodexAppServerTransportFromConfig(config, input.workspaceRoot ?? process.cwd());
+  try {
+    return await interruptCodexAppServerTurn(transport, input.threadId, input.turnId);
+  } finally {
+    await transport.close?.();
+  }
+}
+
+function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig {
+  const result = runSqlite(dbPath, [], [
+    { name: "adapter", sql: "SELECT * FROM codex_app_server_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM codex_app_server_adapter_configs" },
+  ]);
+  const row = result.queries.adapter[0];
+  const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
+  if (!row && adapterCount > 0) {
+    throw new Error("No active Codex app-server adapter configured. Activate an adapter before cancelling a running turn.");
+  }
+  if (!row) return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  return {
+    id: String(row.id),
+    displayName: String(row.display_name),
+    executable: String(row.executable),
+    args: parseJsonArray(row.args_json).map(String),
+    transport: String(row.transport) === "unix" || String(row.transport) === "websocket" ? String(row.transport) as "unix" | "websocket" : "stdio",
+    endpoint: optionalString(row.endpoint),
+    requestTimeoutMs: Number(row.request_timeout_ms ?? DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG.requestTimeoutMs),
+    status: String(row.status) === "disabled" ? "disabled" : "active",
+    updatedAt: optionalString(row.updated_at),
+  };
 }
 
 function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<string, SpecDriveIdeQueueItem[]> } {
@@ -723,6 +1256,31 @@ function parseJsonObject(value?: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function isApprovalRequestEvent(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const type = String(value.type ?? value.method ?? "");
+  return type === "approval/request"
+    || type.endsWith("/approval/request")
+    || type === "item/commandExecution/requestApproval"
+    || type === "item/fileChange/requestApproval"
+    || type === "item/permissions/requestApproval";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
