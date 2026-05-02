@@ -180,12 +180,10 @@ export type SkillOutputModel = {
     recordedAt: string;
   };
   inputContract?: unknown;
-  outputContract?: unknown;
   producedArtifacts: unknown[];
   evidence: unknown[];
   traceability?: unknown;
   result?: unknown;
-  raw?: unknown;
   recordCount?: number;
 };
 

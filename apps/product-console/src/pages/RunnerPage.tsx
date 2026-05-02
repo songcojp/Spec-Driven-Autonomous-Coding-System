@@ -294,12 +294,6 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
             <pre className="mt-2 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.result)}</pre>
           </details>
         ) : null}
-        {output.raw ? (
-          <details className="rounded-md border border-line p-2">
-            <summary className="cursor-pointer font-semibold text-ink">{text.rawJson}</summary>
-            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.raw)}</pre>
-          </details>
-        ) : null}
       </div>
     </section>
   );

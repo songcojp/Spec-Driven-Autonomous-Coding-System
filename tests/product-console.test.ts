@@ -178,6 +178,22 @@ test("dashboard board exposes task facts, dependencies, diffs, tests, approvals,
   assert.equal(gatedBoard.tasks.find((task) => task.id === "TASK-READY")?.approvalStatus, "pending");
 });
 
+test("dashboard board does not load oversized evidence metadata blobs", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  seedBoardPatchData(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE evidence_packs SET metadata_json = ? WHERE id = 'EVID-TASK-READY'",
+      params: [JSON.stringify({ large: "x".repeat(11 * 1024 * 1024) })],
+    },
+  ]);
+
+  const board = buildDashboardBoardView(dbPath, "project-1");
+
+  assert.equal(board.tasks.find((task) => task.id === "TASK-READY")?.name, "Ready board task");
+});
+
 test("board commands validate state, dependency, risk, and approval gates before audit", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -608,6 +624,41 @@ test("runner console view model exposes scheduling lanes and recent triggers", (
   assert.equal(otherProject.runners.some((entry) => entry.runnerId === "runner-main"), false);
 });
 
+test("runner console does not load large policy output schemas", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE runner_policies SET output_schema_json = ? WHERE id = 'POLICY-1'",
+      params: ["x".repeat(11 * 1024 * 1024)],
+    },
+  ]);
+
+  const runner = buildRunnerConsoleView(dbPath, stableDate, "project-1");
+
+  assert.equal(runner.runners.find((entry) => entry.runnerId === "runner-main")?.codexVersion, "codex 1.2.3");
+});
+
+test("audit center does not load large run and evidence metadata blobs", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE execution_records SET metadata_json = ? WHERE id = 'RUN-013'",
+      params: [JSON.stringify({ large: "x".repeat(6 * 1024 * 1024) })],
+    },
+    {
+      sql: "UPDATE evidence_packs SET metadata_json = ? WHERE id = 'EVID-1'",
+      params: [JSON.stringify({ large: "x".repeat(6 * 1024 * 1024) })],
+    },
+  ]);
+
+  const audit = buildAuditCenterView(dbPath, "project-1");
+
+  assert.equal(audit.timeline.some((event) => event.eventType === "evidence_recorded" && event.evidenceId === "EVID-1"), true);
+  assert.equal(audit.linkedEvidence.some((entry) => entry.id === "EVID-1"), true);
+});
+
 test("runner and spec workspace record token consumption only from stdout.log", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -683,16 +734,18 @@ test("runner and spec workspace record token consumption only from stdout.log", 
   const workspace = buildSpecWorkspaceView(dbPath, "FEAT-013", "project-1");
 
   assert.equal(jobOutput?.parseStatus, "found");
+  assert.equal(Object.hasOwn(jobOutput ?? {}, "raw"), false);
   assert.equal(jobOutput?.summary, "Feature specs split and queue plan created.");
   assert.deepEqual(jobOutput?.tokenUsage, skillOutput.tokenUsage);
   assert.equal(jobOutput?.tokenConsumption?.totalTokens, 1600);
   assert.equal(jobOutput?.tokenConsumption?.pricingStatus, "priced");
   assert.equal(jobOutput?.tokenConsumption?.costUsd, 0.00524);
   assert.deepEqual(jobOutput?.inputContract, skillOutput.inputContract);
-  assert.deepEqual(jobOutput?.outputContract, skillOutput.outputContract);
+  assert.equal(Object.hasOwn(jobOutput ?? {}, "outputContract"), false);
   assert.deepEqual(jobOutput?.producedArtifacts, skillOutput.producedArtifacts);
   assert.equal(runner.skillInvocations.find((entry) => entry.runId === "RUN-SKILL")?.output?.parseStatus, "found");
   assert.equal(workspace.selectedFeature?.skillOutput?.parseStatus, "found");
+  assert.equal(Object.hasOwn(workspace.selectedFeature?.skillOutput ?? {}, "raw"), false);
   assert.deepEqual(workspace.selectedFeature?.skillOutput?.result, skillOutput.result);
   assert.equal(workspace.selectedFeature?.skillOutput?.tokenConsumption?.runId, "RUN-SKILL");
   const afterRepeatedViews = runSqlite(dbPath, [], [

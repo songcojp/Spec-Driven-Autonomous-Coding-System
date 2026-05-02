@@ -178,6 +178,7 @@ export type SpecSourceScanResult = {
   relativePath: string;
   fileType: SpecSourceFileType;
   traceIds: string[];
+  version?: string;
   hasAmbiguousContent: boolean;
   hasConflictContent: boolean;
   exists: boolean;
@@ -925,10 +926,27 @@ function scanSpecFile(absPath: string, relativePath: string, fileType: SpecSourc
     relativePath,
     fileType,
     traceIds: extractTraceIds(content),
+    version: extractVersion(content),
     hasAmbiguousContent: AMBIGUOUS_TERMS.test(content),
     hasConflictContent: CONFLICT_PATTERN.test(content),
     exists: true,
   };
+}
+
+export function extractVersion(content: string): string | undefined {
+  const versionPatterns = [
+    /^(?:版本|Version)\s*[：:]\s*(.+)$/im,
+    /^(?:Spec 版本|Spec Version)\s*[：:]\s*(.+)$/im,
+    /^(?:版本号|Version ID)\s*[：:]\s*(.+)$/im,
+  ];
+
+  for (const pattern of versionPatterns) {
+    const match = content.match(pattern);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return undefined;
 }
 
 function extractTraceIds(content: string): string[] {

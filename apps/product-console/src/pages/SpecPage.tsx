@@ -832,62 +832,46 @@ function SkillExecutionResult({ output, text }: { output?: SkillOutputModel; tex
 }
 
 function RunnerInputContractSection({ output, text }: { output?: SkillOutputModel; text: UiStrings }) {
+  const hasDetails = Boolean(
+    output?.inputContract
+    || output?.producedArtifacts.length
+    || output?.evidence.length
+    || output?.traceability,
+  );
   return (
     <div className="rounded-md border border-line bg-white">
       <div className="border-b border-line px-4 py-3 text-[15px] font-semibold">{text.runnerInputContract}</div>
-      <div className="space-y-3 p-4 text-[12px]">
-        {output?.inputContract ? (
-          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-slate-700">
-            {formatSpecValue(output.inputContract)}
-          </pre>
-        ) : (
-          <EmptyState title={text.noSpecSectionData} />
-        )}
-        {output?.producedArtifacts.length ? (
-          <div>
-            <div className="mb-1 font-semibold text-ink">{text.producedArtifacts}</div>
-            <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
-              {formatSpecValue(output.producedArtifacts)}
+      {hasDetails ? (
+        <div className="space-y-3 p-4 text-[12px]">
+          {output?.inputContract ? (
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-slate-700">
+              {formatSpecValue(output.inputContract)}
             </pre>
-          </div>
-        ) : null}
-        {output?.evidence.length ? (
-          <div>
-            <div className="mb-1 font-semibold text-ink">{text.evidence}</div>
-            <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
-              {formatSpecValue(output.evidence)}
-            </pre>
-          </div>
-        ) : null}
-        {output?.traceability ? (
-          <details className="rounded-md border border-line p-2">
-            <summary className="cursor-pointer font-semibold text-ink">{text.traceability}</summary>
-            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.traceability)}</pre>
-          </details>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function SkillOutputDetails({ output, text }: { output?: SkillOutputModel; text: UiStrings }) {
-  return (
-    <div className="rounded-md border border-line bg-white">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <div className="text-[15px] font-semibold">{text.detailedSkillOutput}</div>
-        <Chip tone={output?.parseStatus === "found" ? "green" : output?.parseStatus === "invalid" ? "red" : "amber"}>
-          {output?.parseStatus ?? "missing"}
-        </Chip>
-      </div>
-      <div className="space-y-3 p-4 text-[12px]">
-        {output?.raw ? (
-          <pre className="max-h-[560px] overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-[11px] leading-5 text-slate-700">
-            {formatSpecValue(output.raw)}
-          </pre>
-        ) : (
-          <EmptyState title={output?.error ?? text.stdoutLogNotFound} />
-        )}
-      </div>
+          ) : null}
+          {output?.producedArtifacts.length ? (
+            <div>
+              <div className="mb-1 font-semibold text-ink">{text.producedArtifacts}</div>
+              <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
+                {formatSpecValue(output.producedArtifacts)}
+              </pre>
+            </div>
+          ) : null}
+          {output?.evidence.length ? (
+            <div>
+              <div className="mb-1 font-semibold text-ink">{text.evidence}</div>
+              <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
+                {formatSpecValue(output.evidence)}
+              </pre>
+            </div>
+          ) : null}
+          {output?.traceability ? (
+            <details className="rounded-md border border-line p-2">
+              <summary className="cursor-pointer font-semibold text-ink">{text.traceability}</summary>
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[11px] text-slate-700">{formatSpecValue(output.traceability)}</pre>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -982,7 +966,6 @@ export function SpecPage({
     { key: "quality", label: text.qualityChecklist },
     { key: "input-contract", label: text.inputContract },
     { key: "execution-result", label: text.executionResult },
-    { key: "skill-output", label: text.detailedSkillOutput },
   ];
 
   if (!selected) {
@@ -1207,8 +1190,6 @@ export function SpecPage({
                 <RunnerInputContractSection output={selected.skillOutput} text={text} />
               ) : activeSection === "output" ? (
                 <RunnerInputContractSection output={selected.skillOutput} text={text} />
-              ) : activeSection === "skill-output" ? (
-                <SkillOutputDetails output={selected.skillOutput} text={text} />
               ) : (
                 <EmptyState title={text.noSpecSectionData} />
               )}

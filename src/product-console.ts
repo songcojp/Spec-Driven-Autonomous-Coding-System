@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { recordAuditEvent, recordMetricSample } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
-import { createFeatureSpec, projectSpecArtifact, scanSpecSources, type FeatureSpec, type SpecSourceScanSummary } from "./spec-protocol.ts";
+import { createFeatureSpec, extractVersion, projectSpecArtifact, scanSpecSources, type FeatureSpec, type SpecSourceScanSummary } from "./spec-protocol.ts";
 import {
   createScheduleTrigger,
   persistScheduleTrigger,
@@ -315,12 +315,10 @@ export type SkillOutputViewModel = {
   tokenUsage?: unknown;
   tokenConsumption?: TokenConsumptionViewModel;
   inputContract?: unknown;
-  outputContract?: unknown;
   producedArtifacts: unknown[];
   evidence: unknown[];
   traceability?: unknown;
   result?: unknown;
-  raw?: unknown;
   recordCount?: number;
 };
 
@@ -1134,7 +1132,11 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
     },
     {
       name: "evidence",
-      sql: `SELECT id, task_id, feature_id, kind, summary, path, metadata_json, created_at FROM evidence_packs ORDER BY created_at DESC`,
+      sql: `SELECT id, task_id, feature_id, kind, summary, path,
+          CASE WHEN LENGTH(metadata_json) <= 4000 THEN metadata_json ELSE '{}' END AS metadata_json,
+          created_at
+        FROM evidence_packs
+        ORDER BY created_at DESC`,
     },
     {
       name: "reviews",
@@ -1765,9 +1767,19 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     : "";
   const reviewParams = projectId ? [projectId, projectId, projectId, projectId, projectId] : [];
   const result = runSqlite(dbPath, [], [
-    { name: "policies", sql: `SELECT * FROM runner_policies ${runProjectFilter} ORDER BY created_at DESC`, params: runProjectParams },
+    {
+      name: "policies",
+      sql: `SELECT id, run_id, risk, sandbox_mode, approval_policy, model, workspace_root, heartbeat_interval_seconds, created_at, reasoning_effort
+        FROM runner_policies ${runProjectFilter} ORDER BY created_at DESC`,
+      params: runProjectParams,
+    },
     { name: "heartbeats", sql: `SELECT * FROM runner_heartbeats ${runProjectFilter} ORDER BY beat_at DESC`, params: runProjectParams },
-    { name: "logs", sql: `SELECT * FROM raw_execution_logs ${runProjectFilter} ORDER BY created_at DESC LIMIT 25`, params: runProjectParams },
+    {
+      name: "logs",
+      sql: `SELECT id, run_id, SUBSTR(stdout, 1, 4000) AS stdout, SUBSTR(stderr, 1, 4000) AS stderr, created_at
+        FROM raw_execution_logs ${runProjectFilter} ORDER BY created_at DESC LIMIT 25`,
+      params: runProjectParams,
+    },
     {
       name: "graphTasks",
       sql: `SELECT t.id, t.feature_id, f.title AS feature_title, t.title, t.status, t.dependencies_json, t.risk,
@@ -2013,6 +2025,7 @@ export function buildReviewCenterView(dbPath: string, projectId?: string): Revie
 
 export function buildAuditCenterView(dbPath: string, projectId?: string): AuditCenterViewModel {
   const featureFilter = projectId ? "WHERE project_id = ?" : "";
+  const runFilter = projectId ? "WHERE project_id = ?" : "";
   const result = runSqlite(dbPath, [], [
     { name: "features", sql: `SELECT id, project_id FROM features ${featureFilter}`, params: projectId ? [projectId] : [] },
     { name: "tasks", sql: "SELECT id, feature_id FROM tasks" },
@@ -2022,9 +2035,11 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
       sql: `SELECT id,
           json_extract(context_json, '$.taskId') AS task_id,
           json_extract(context_json, '$.featureId') AS feature_id,
-          project_id, status, metadata_json, started_at, completed_at
+          project_id, status, '{}' AS metadata_json, started_at, completed_at
         FROM execution_records
+        ${runFilter}
         ORDER BY COALESCE(completed_at, started_at, '') DESC, id`,
+      params: projectId ? [projectId] : [],
     },
     { name: "reviews", sql: "SELECT id, project_id, feature_id, task_id, status, severity, body, created_at FROM review_items ORDER BY created_at DESC, rowid DESC" },
     {
@@ -2043,7 +2058,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     },
     {
       name: "evidence",
-      sql: `SELECT id, run_id, task_id, feature_id, kind, summary, path, metadata_json, created_at
+      sql: `SELECT id, run_id, task_id, feature_id, kind, summary, path, '{}' AS metadata_json, created_at
         FROM evidence_packs
         ORDER BY created_at DESC, rowid DESC
         LIMIT 80`,
@@ -2428,6 +2443,7 @@ function executeSpecIntakeCommand(
         clarificationCount: scan.clarificationItems.length,
         sourcePath: source?.sourcePath,
         resolvedSourcePath: source?.resolvedSourcePath,
+        sourceVersion: source?.sourceVersion,
         blockedReasons: [],
       };
     }
@@ -2435,6 +2451,7 @@ function executeSpecIntakeCommand(
     if (input.action === "upload_prd_source") {
       const fileName = sanitizeArtifactName(optionalString(payload.fileName) ?? basename(optionalString(payload.sourcePath) ?? "uploaded-spec.md"));
       const content = optionalString(payload.contentPreview) ?? "";
+      const sourceVersion = extractVersion(content);
       const uploadPath = writeSpecTextArtifact(project.targetRepoPath, "specs/uploads", fileName, content);
       const evidenceId = recordSpecIntakeEvidence(dbPath, {
         path: uploadPath,
@@ -2443,17 +2460,16 @@ function executeSpecIntakeCommand(
         metadata: {
           fileName,
           contentLength: Number(payload.contentLength ?? content.length),
-          sourcePath: optionalString(payload.sourcePath),
-          uploadPath,
+          sourceVersion,
         },
       });
       return {
         evidenceId,
         evidencePath: uploadPath,
-        uploadedPath: uploadPath,
         fileName,
         sourcePath: uploadPath,
         resolvedSourcePath: join(project.targetRepoPath, uploadPath),
+        sourceVersion,
         blockedReasons: [],
       };
     }
@@ -2974,7 +2990,7 @@ function selectSpecSource(
   projectPath: string,
   payload: Record<string, unknown>,
   scan: SpecSourceScanSummary,
-): { sourcePath: string; resolvedSourcePath: string } | undefined {
+): { sourcePath: string; resolvedSourcePath: string; sourceVersion?: string } | undefined {
   const requestedSourcePath = optionalString(payload.sourcePath);
   const requestedSource = scan.sources.find((source) => source.relativePath === requestedSourcePath);
   const source = requestedSource
@@ -2988,6 +3004,7 @@ function selectSpecSource(
   return {
     sourcePath: source.relativePath,
     resolvedSourcePath: join(projectPath, source.relativePath),
+    sourceVersion: source.version,
   };
 }
 
@@ -4596,21 +4613,39 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
   const raw = stdoutLog.events;
   const output = findSkillOutputRecord(raw);
   const recordCount = Array.isArray(raw) ? raw.length : undefined;
+  const tokenUsage = skillOutputTokenUsage(output, raw);
   return {
     parseStatus: "found",
     stdoutLogPath,
     status: optionalString(output?.status),
     summary: optionalString(output?.summary),
-    tokenUsage: skillOutputTokenUsage(output, raw),
-    inputContract: skillInputContract(output, raw),
-    outputContract: skillOutputContract(output),
-    producedArtifacts: arrayValue(output?.producedArtifacts),
-    evidence: arrayValue(output?.evidence),
-    traceability: output?.traceability,
-    result: output?.result,
-    raw,
+    tokenUsage,
+    inputContract: compactSkillOutputValue(skillInputContract(output, raw)),
+    producedArtifacts: arrayValue(output?.producedArtifacts).map(compactSkillOutputValue),
+    evidence: arrayValue(output?.evidence).map(compactSkillOutputValue),
+    traceability: compactSkillOutputValue(output?.traceability),
+    result: compactSkillOutputValue(output?.result),
     recordCount,
   };
+}
+
+function compactSkillOutputValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    if (value.length <= 4000) return value;
+    return `${value.slice(0, 4000)}\n...[truncated ${value.length - 4000} chars]`;
+  }
+  if (value === null || value === undefined || typeof value !== "object") {
+    return value;
+  }
+  if (depth >= 8) {
+    return "[truncated nested value]";
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((entry) => compactSkillOutputValue(entry, depth + 1));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [key, compactSkillOutputValue(entry, depth + 1)]),
+  );
 }
 
 function readStdoutLogEvents(stdoutLogPath: string): { exists: boolean; events: unknown[]; error?: string } {
@@ -4667,33 +4702,6 @@ function tokenUsageFromRecord(record: Record<string, unknown> | undefined): unkn
     ?? record.tokens
     ?? tokenUsageFromValue(record.output)
     ?? tokenUsageFromValue(record.item);
-}
-
-function skillOutputContract(output: Record<string, unknown> | undefined): unknown {
-  if (!output) return undefined;
-  return output.outputContract
-    ?? output.contract
-    ?? output.schema
-    ?? {
-      contractVersion: output.contractVersion ?? "skill-contract/v1",
-      fields: [
-        "status",
-        "summary",
-        "producedArtifacts",
-        "evidence",
-        "traceability",
-        "result",
-        "raw",
-      ],
-      required: ["status"],
-      resultShape: output.result ? inferJsonShape(output.result) : "unknown",
-    };
-}
-
-function inferJsonShape(value: unknown): unknown {
-  if (Array.isArray(value)) return "array";
-  if (!isRecord(value)) return typeof value;
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, Array.isArray(entry) ? "array" : typeof entry]));
 }
 
 function findSkillOutputRecord(value: unknown): Record<string, unknown> | undefined {
