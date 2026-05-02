@@ -35,6 +35,11 @@ stop_services() {
   echo "Stopping services..."
   kill_port_process "$BACKEND_PORT"
   kill_port_process "$FRONTEND_PORT"
+
+  if command -v docker >/dev/null 2>&1; then
+    echo "Stopping Redis container..."
+    docker compose stop redis || true
+  fi
 }
 
 start_services() {
@@ -61,7 +66,30 @@ start_services() {
     npm install
   fi
 
+  if command -v docker >/dev/null 2>&1; then
+    echo "Starting Redis via Docker Compose..."
+    docker compose up -d redis
+
+    echo "Waiting for Redis to be healthy..."
+    MAX_RETRIES=10
+    RETRY_COUNT=0
+    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+      if docker compose ps redis --format json | grep -q '"Health":"healthy"'; then
+        echo "Redis is healthy."
+        break
+      fi
+      RETRY_COUNT=$((RETRY_COUNT + 1))
+      sleep 1
+    done
+    if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+      echo "Warning: Redis health check timed out. Proceeding anyway..."
+    fi
+  else
+    echo "Warning: docker command not found. Skipping Redis startup."
+  fi
+
   cleanup() {
+    echo "Cleaning up processes..."
     if [ "${BACKEND_PID:-}" ]; then
       kill "${BACKEND_PID}" >/dev/null 2>&1 || true
     fi
@@ -71,6 +99,8 @@ start_services() {
     if [ "${WORKER_PID:-}" ]; then
       kill "${WORKER_PID}" >/dev/null 2>&1 || true
     fi
+    # Optionally stop redis on exit, but usually better to keep it running for fast restarts
+    # docker compose stop redis >/dev/null 2>&1 || true
   }
 
   trap cleanup EXIT INT TERM
@@ -97,7 +127,7 @@ start_services() {
   echo
   echo "Product Console: http://localhost:${FRONTEND_PORT}"
   echo "Backend health:  http://localhost:${BACKEND_PORT}/health"
-  echo "Worker mode:     ${WORKER_MODE} (Redis is not started by this script)"
+  echo "Worker mode:     ${WORKER_MODE} (Redis started via Docker)"
   echo "Press Ctrl+C to stop all processes."
   echo
 
