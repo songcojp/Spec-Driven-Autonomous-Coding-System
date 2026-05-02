@@ -1168,7 +1168,12 @@ export function SpecPage({
                 <Button
                   className="w-full justify-start"
                   onClick={() =>
-                    onCommand("schedule_run", "feature", selected.id, { stage: "status_check" })
+                    onCommand("schedule_run", "feature", selected.id, {
+                      stage: "status_check",
+                      mode: "manual",
+                      requestedFor: new Date().toISOString(),
+                      featureId: selected.id,
+                    })
                   }
                 >
                   <ShieldCheck size={15} />

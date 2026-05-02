@@ -2326,33 +2326,87 @@ function executeScheduleCommand(
   const taskId = optionalString(payload.taskId) ?? (input.entityType === "task" ? input.entityId : undefined);
   const executionId = randomUUID();
   const operation = optionalString(payload.operation) ?? "feature_execution";
+  const projectId = trigger.projectId ?? optionalString(payload.projectId);
+  const project = projectId ? getProject(dbPath, projectId) : undefined;
+  const workspaceRoot = scheduleRunWorkspaceRoot(dbPath, projectId, project?.targetRepoPath);
+  const featureSpecPath = featureSpecPathForScheduleRun(dbPath, workspaceRoot, featureId);
   const context = {
     featureId,
     taskId,
-    featureSpecPath: featureId ? `docs/features/${featureId}` : undefined,
-    sourcePaths: optionalStringArray(payload.sourcePaths),
-    expectedArtifacts: optionalStringArray(payload.expectedArtifacts),
-    skillSlug: optionalString(payload.skillSlug),
+    featureSpecPath,
+    sourcePaths: scheduleRunSourcePaths(payload, featureSpecPath),
+    expectedArtifacts: scheduleRunExpectedArtifacts(payload),
+    workspaceRoot,
+    skillSlug: optionalString(payload.skillSlug) ?? (operation === "feature_execution" ? "codex-coding-skill" : undefined),
     skillPhase: optionalString(payload.skillPhase) ?? operation,
   };
   const job = scheduler.enqueueCliRun({
     executionId,
     operation,
-    projectId: trigger.projectId ?? optionalString(payload.projectId),
+    projectId,
     context,
-    requestedAction: optionalString(payload.requestedAction),
+    requestedAction: optionalString(payload.requestedAction) ?? operation,
   });
   persistExecutionRecord(dbPath, {
     executionId,
     schedulerJobId: job.schedulerJobId,
     executorType: "cli",
     operation,
-    projectId: trigger.projectId ?? optionalString(payload.projectId),
+    projectId,
     context,
     status: "queued",
     acceptedAt,
   });
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId };
+}
+
+function scheduleRunWorkspaceRoot(dbPath: string, projectId?: string, targetRepoPath?: string): string | undefined {
+  if (targetRepoPath) return targetRepoPath;
+  if (!projectId) return undefined;
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "repository",
+      sql: `SELECT local_path FROM repository_connections
+        WHERE project_id = ?
+        ORDER BY connected_at DESC
+        LIMIT 1`,
+      params: [projectId],
+    },
+  ]);
+  return optionalString(result.queries.repository[0]?.local_path);
+}
+
+function featureSpecPathForScheduleRun(dbPath: string, targetRepoPath?: string, featureId?: string): string | undefined {
+  if (!featureId) return undefined;
+  const docsFeature = targetRepoPath
+    ? listFeatureSpecsFromDocs(targetRepoPath, []).find((feature) => feature.id === featureId)
+    : undefined;
+  if (docsFeature?.folder) return `docs/features/${docsFeature.folder}`;
+  const result = runSqlite(dbPath, [], [
+    { name: "features", sql: "SELECT folder FROM features WHERE id = ? LIMIT 1", params: [featureId] },
+  ]);
+  const folder = optionalString(result.queries.features[0]?.folder);
+  return `docs/features/${folder ?? featureId}`;
+}
+
+function scheduleRunSourcePaths(payload: Record<string, unknown>, featureSpecPath?: string): string[] {
+  const requested = optionalStringArray(payload.sourcePaths);
+  if (requested.length > 0) return requested;
+  return [
+    "docs/zh-CN/PRD.md",
+    "docs/zh-CN/requirements.md",
+    "docs/zh-CN/hld.md",
+    ...(featureSpecPath ? [
+      `${featureSpecPath}/requirements.md`,
+      `${featureSpecPath}/design.md`,
+      `${featureSpecPath}/tasks.md`,
+    ] : []),
+  ];
+}
+
+function scheduleRunExpectedArtifacts(payload: Record<string, unknown>): string[] {
+  const requested = optionalStringArray(payload.expectedArtifacts);
+  return requested.length > 0 ? requested : [".autobuild/evidence/feature-execution.json"];
 }
 
 function executeFeatureSpecPoolCommand(
@@ -3327,10 +3381,37 @@ function overviewRisks(reviewRows: Record<string, unknown>[], runRows: Record<st
         source: String(row.id),
       };
     });
-  const failedRuns = runRows
+  const failedRuns = latestExecutionRowsByTarget(runRows)
     .filter((row) => String(row.status) === "failed")
     .map((row) => ({ level: "medium" as const, message: `Run ${String(row.id)} failed.`, source: String(row.id) }));
   return [...reviewRisks, ...failedRuns].filter((risk) => Boolean(risk.message));
+}
+
+function latestExecutionRowsByTarget(runRows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const latest = new Map<string, Record<string, unknown>>();
+  for (const row of [...runRows].sort(compareExecutionRowsDesc)) {
+    const key = executionTargetKey(row);
+    if (!latest.has(key)) {
+      latest.set(key, row);
+    }
+  }
+  return Array.from(latest.values());
+}
+
+function compareExecutionRowsDesc(left: Record<string, unknown>, right: Record<string, unknown>): number {
+  const rightStartedAt = optionalString(right.started_at) ?? "";
+  const leftStartedAt = optionalString(left.started_at) ?? "";
+  return rightStartedAt.localeCompare(leftStartedAt);
+}
+
+function executionTargetKey(row: Record<string, unknown>): string {
+  const taskId = optionalString(row.task_id);
+  if (taskId) return `task:${taskId}`;
+  const featureId = optionalString(row.feature_id);
+  if (featureId) return `feature:${featureId}`;
+  const projectId = optionalString(row.project_id);
+  if (projectId) return `project:${projectId}`;
+  return `run:${String(row.id)}`;
 }
 
 function boardBlockedReasons(
@@ -3936,7 +4017,7 @@ function extractRisks(reviewRows: Record<string, unknown>[], runRows: Record<str
         source: String(row.id),
       };
     });
-  const failedRuns = runRows
+  const failedRuns = latestExecutionRowsByTarget(runRows)
     .filter((row) => String(row.status) === "failed")
     .map((row) => ({ level: "medium" as const, message: `Run ${String(row.id)} failed.`, source: String(row.id) }));
   return [...reviewRisks, ...failedRuns].slice(0, 10);

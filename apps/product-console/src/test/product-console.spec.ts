@@ -146,6 +146,41 @@ test("global overview switches projects and opens the selected board", async ({ 
 });
 
 test("renders the Spec workspace workbench and submits controlled spec commands", async ({ page }) => {
+  const commandBodies: Array<{ action: string; entityId: string; projectId?: string; payload?: Record<string, unknown> }> = [];
+  await page.route("**/console/commands", async (route) => {
+    const body = route.request().postDataJSON() as { action: string; entityId: string; projectId?: string; payload?: Record<string, unknown> };
+    commandBodies.push(body);
+    const workflowActions = new Set([
+      "connect_git_repository",
+      "initialize_spec_protocol",
+      "import_or_create_constitution",
+      "initialize_project_memory",
+      "scan_prd_source",
+      "upload_prd_source",
+      "generate_ears",
+      "generate_hld",
+      "generate_ui_spec",
+      "split_feature_specs",
+      "push_feature_spec_pool",
+    ]);
+    const accepted = body.action === "create_project" || workflowActions.has(body.action);
+    await route.fulfill({
+      json: {
+        id: `receipt-${commandBodies.length}`,
+        action: body.action,
+        status: accepted ? "accepted" : "blocked",
+        entityType: "feature",
+        entityId: body.entityId,
+        projectId: body.projectId,
+        auditEventId: "audit-1",
+        acceptedAt: "2026-04-29T03:40:00.000Z",
+        schedulerJobId: body.action === "run_board_tasks" || body.action === "schedule_board_tasks" ? "JOB-709" : undefined,
+        runId: body.action === "run_board_tasks" ? "RUN-709" : undefined,
+        blockedReasons: accepted ? [] : ["Product approval is required for customer-facing refund decision copy."],
+      },
+    });
+  });
+
   await page.goto("/");
 
   await page.getByRole("button", { name: "Spec 工作台", exact: true }).click();
@@ -222,6 +257,11 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await page.locator("aside").filter({ hasText: "受控操作" }).getByRole("button", { name: "调度运行", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
+  await page.locator("aside").filter({ hasText: "受控操作" }).getByRole("button", { name: "运行检查", exact: true }).click();
+  await expect.poll(() => commandBodies.some((body) => body.action === "schedule_run" && body.payload?.stage === "status_check")).toBe(true);
+  const statusCheckCommand = commandBodies.find((body) => body.action === "schedule_run" && body.payload?.stage === "status_check");
+  expect(statusCheckCommand?.payload).toMatchObject({ mode: "manual", featureId: "FEAT-203" });
+  expect(typeof statusCheckCommand?.payload?.requestedFor).toBe("string");
 
   await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
   await page.getByRole("button", { name: "扫描", exact: true }).click();

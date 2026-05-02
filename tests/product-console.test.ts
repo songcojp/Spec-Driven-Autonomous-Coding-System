@@ -42,6 +42,26 @@ test("project overview aggregates all projects without current project filtering
   assert.equal(overview.factSources.includes("projects"), true);
 });
 
+test("project overview ignores failed runs superseded by newer target executions", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  runSqlite(dbPath, [
+    { sql: "UPDATE review_items SET status = 'resolved', severity = 'low' WHERE id IN ('REV-1', 'REV-OTHER', 'REV-GLOBAL')" },
+    {
+      sql: `INSERT INTO execution_records (id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
+        VALUES
+          ('RUN-FEATURE-OLD-FAILED', 'cli', 'feature_execution', 'project-1', '{"featureId":"FEAT-013"}', 'failed', '2026-04-28T10:40:00.000Z', '{}'),
+          ('RUN-FEATURE-LATEST-DONE', 'cli', 'feature_execution', 'project-1', '{"featureId":"FEAT-013"}', 'completed', '2026-04-28T10:45:00.000Z', '{}')`,
+    },
+  ]);
+
+  const overview = buildProjectOverview(dbPath);
+  const project = overview.projects.find((entry) => entry.id === "project-1");
+
+  assert.notEqual(project?.latestRisk?.source, "RUN-FEATURE-OLD-FAILED");
+  assert.equal(project?.latestRisk?.source, "RUN-FAILED");
+});
+
 test("dashboard aggregates control-plane facts and records performance baselines", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -76,6 +96,25 @@ test("dashboard aggregates control-plane facts and records performance baselines
   ]).queries.metrics;
   assert.deepEqual(metrics.slice(-2).map((row) => row.metric_name), ["dashboard_load_ms", "status_refresh_ms"]);
   assert.equal(metrics.every((row) => String(row.labels_json).includes('"projectId":"project-1"')), true);
+});
+
+test("dashboard risks ignore stale failed runs when the same target later completed", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  runSqlite(dbPath, [
+    { sql: "UPDATE review_items SET status = 'resolved', severity = 'low' WHERE id IN ('REV-1', 'REV-OTHER', 'REV-GLOBAL')" },
+    {
+      sql: `INSERT INTO execution_records (id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
+        VALUES
+          ('RUN-FEATURE-OLD-FAILED', 'cli', 'feature_execution', 'project-1', '{"featureId":"FEAT-013"}', 'failed', '2026-04-28T10:40:00.000Z', '{}'),
+          ('RUN-FEATURE-LATEST-DONE', 'cli', 'feature_execution', 'project-1', '{"featureId":"FEAT-013"}', 'completed', '2026-04-28T10:45:00.000Z', '{}')`,
+    },
+  ]);
+
+  const dashboard = buildDashboardQuery(dbPath, { projectId: "project-1", now: stableDate });
+
+  assert.equal(dashboard.risks.some((risk) => risk.source === "RUN-FEATURE-OLD-FAILED"), false);
+  assert.equal(dashboard.risks.some((risk) => risk.source === "RUN-FAILED"), true);
 });
 
 test("dashboard counts unresolved review decisions as pending approvals", () => {
@@ -1335,6 +1374,18 @@ test("console schedule command records scheduler triggers without bypassing boun
     ["feature", "FEAT-013"],
   ]);
   assert.equal(receipt.executionId, JSON.parse(String(result.queries.jobs[0].payload_json)).executionId);
+  const cliRunPayload = JSON.parse(String(result.queries.jobs[0].payload_json));
+  assert.equal(cliRunPayload.requestedAction, "feature_execution");
+  assert.equal(cliRunPayload.projectId, "project-1");
+  assert.equal(cliRunPayload.context.featureId, "FEAT-013");
+  assert.equal(cliRunPayload.context.featureSpecPath, "docs/features/feat-013-product-console");
+  assert.equal(cliRunPayload.context.skillSlug, "codex-coding-skill");
+  assert.equal(cliRunPayload.context.skillPhase, "feature_execution");
+  assert.equal(cliRunPayload.context.workspaceRoot, "/workspace/specdrive");
+  assert.deepEqual(cliRunPayload.context.expectedArtifacts, [".autobuild/evidence/feature-execution.json"]);
+  assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/requirements.md"), true);
+  assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/design.md"), true);
+  assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/tasks.md"), true);
   assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.status, JSON.parse(String(row.payload_json)).operation]), [
     ["cli.run", "specdrive:cli-runner", "queued", "feature_execution"],
   ]);
