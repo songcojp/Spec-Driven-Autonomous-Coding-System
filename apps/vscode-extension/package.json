@@ -1,0 +1,67 @@
+{
+  "name": "specdrive-ide",
+  "displayName": "SpecDrive IDE",
+  "description": "VSCode-native SpecDrive explorer for Spec documents, Feature Specs, and execution queue state.",
+  "version": "0.1.0",
+  "publisher": "specdrive",
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:specdrive.specExplorer",
+    "onCommand:specdrive.refresh",
+    "onLanguage:markdown"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "SpecDrive IDE",
+      "properties": {
+        "specdrive.controlPlaneUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:4000",
+          "description": "Local SpecDrive Control Plane URL."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "specdrive.refresh",
+        "title": "SpecDrive: Refresh"
+      },
+      {
+        "command": "specdrive.openItem",
+        "title": "SpecDrive: Open Item"
+      },
+      {
+        "command": "specdrive.runControlledCommand",
+        "title": "SpecDrive: Run Controlled Command"
+      },
+      {
+        "command": "specdrive.openExecution",
+        "title": "SpecDrive: Open Execution"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "specdrive",
+          "title": "SpecDrive",
+          "icon": "resources/specdrive.svg"
+        }
+      ]
+    },
+    "views": {
+      "specdrive": [
+        {
+          "id": "specdrive.specExplorer",
+          "name": "Spec Explorer"
+        }
+      ]
+    }
+  }
+}

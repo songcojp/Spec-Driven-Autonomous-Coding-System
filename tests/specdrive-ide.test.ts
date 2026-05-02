@@ -1,0 +1,295 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { initializeSchema } from "../src/schema.ts";
+import { runSqlite } from "../src/sqlite.ts";
+import { buildSpecDriveIdeView } from "../src/specdrive-ide.ts";
+import { createControlPlaneServer, listen } from "../src/server.ts";
+import { createMemoryScheduler } from "../src/scheduler.ts";
+import type { AppConfig } from "../src/config.ts";
+
+test("SpecDrive IDE view recognizes workspace specs, features, queue state, and active adapter", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedRuntimeState(dbPath);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.recognized, true);
+  assert.equal(view.workspaceRoot, workspaceRoot);
+  assert.equal(view.specRoot, "docs/zh-CN");
+  assert.equal(view.language, "zh-CN");
+  assert.equal(view.project?.id, "project-ide");
+  assert.equal(view.activeAdapter?.id, "codex-app-server");
+  assert.equal(view.documents.find((document) => document.kind === "prd")?.exists, true);
+  assert.equal(view.documents.find((document) => document.kind === "hld")?.path, "docs/zh-CN/hld.md");
+
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+  assert.equal(feature?.status, "ready");
+  assert.equal(feature?.priority, "P1");
+  assert.deepEqual(feature?.dependencies, ["FEAT-013"]);
+  assert.equal(feature?.latestExecutionId, "RUN-IDE");
+  assert.equal(feature?.latestExecutionStatus, "running");
+  assert.equal(feature?.documents.every((document) => document.exists), true);
+
+  assert.equal(view.queue.groups.running[0].executionId, "RUN-IDE");
+  assert.equal(view.queue.groups.running[0].featureId, "FEAT-016");
+  assert.deepEqual(view.diagnostics, []);
+  assert.equal(view.factSources.includes("execution_records"), true);
+});
+
+test("SpecDrive IDE view exposes diagnostics for blocked spec state and failed executions", () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "blocked",
+    updatedAt: "2026-05-02T12:00:00.000Z",
+    blockedReasons: ["Missing approval."],
+    dependencies: ["FEAT-013"],
+    history: [],
+  }));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedFailedRuntimeState(dbPath);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.diagnostics.length, 2);
+  assert.equal(view.diagnostics.some((diagnostic) => diagnostic.source === "spec-state" && diagnostic.message.includes("Missing approval")), true);
+  assert.equal(view.diagnostics.some((diagnostic) => diagnostic.source === "execution" && diagnostic.severity === "error"), true);
+  assert.equal(view.diagnostics.every((diagnostic) => diagnostic.path === "docs/features/feat-016-specdrive-ide-foundation/requirements.md"), true);
+});
+
+test("SpecDrive IDE view reports unrecognized workspace without mutating state", () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-plain-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.recognized, false);
+  assert.deepEqual(view.features, []);
+  assert.equal(view.missing.includes("docs/features"), true);
+});
+
+test("SpecDrive IDE HTTP routes expose spec tree and controlled command receipts", async () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+  const config = makeConfig(workspaceRoot, dbPath);
+  const controlPlane = createControlPlaneServer(config, {
+    status: "ready",
+    version: "test",
+    schemaVersion: 21,
+    artifactRoot: join(workspaceRoot, ".autobuild"),
+  }, { scheduler });
+
+  await listen(controlPlane.server, config);
+  const address = controlPlane.server.address();
+  const port = address && typeof address === "object" ? address.port : 0;
+
+  try {
+    const specTree = await getJson(`http://127.0.0.1:${port}/ide/spec-tree?workspaceRoot=${encodeURIComponent(workspaceRoot)}`);
+    assert.equal(specTree.recognized, true);
+    assert.equal(specTree.features[0].id, "FEAT-016");
+
+    const receipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "generate_ears",
+      entityType: "project",
+      entityId: "project-ide",
+      requestedBy: "vscode-extension",
+      reason: "Generate EARS from VSCode CodeLens.",
+      payload: { sourcePath: "docs/zh-CN/PRD.md" },
+    });
+
+    assert.equal(receipt.status, "accepted");
+    assert.equal(typeof receipt.executionId, "string");
+    assert.equal(receipt.schedulerJobId, scheduler.jobs[0].schedulerJobId);
+    assert.equal(scheduler.jobs[0].jobType, "cli.run");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      controlPlane.server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+function makeDbPath(): string {
+  return join(mkdtempSync(join(tmpdir(), "specdrive-ide-db-")), "autobuild.db");
+}
+
+function makeConfig(workspaceRoot: string, dbPath: string): AppConfig {
+  return {
+    projectRoot: workspaceRoot,
+    port: 0,
+    artifactRoot: join(workspaceRoot, ".autobuild"),
+    dbPath,
+    logLevel: "error",
+    runnerConfig: {
+      command: "codex",
+      args: ["exec"],
+      sandboxMode: "danger-full-access",
+    },
+    schedulerConfig: {
+      redisUrl: "redis://127.0.0.1:6379",
+      workerMode: "off",
+    },
+  };
+}
+
+function makeWorkspace(): string {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-ide-workspace-"));
+  mkdirSync(join(root, "docs/zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs/features/feat-016-specdrive-ide-foundation"), { recursive: true });
+  writeFileSync(join(root, "docs/zh-CN/PRD.md"), "# PRD\n");
+  writeFileSync(join(root, "docs/zh-CN/requirements.md"), "# Requirements\n");
+  writeFileSync(join(root, "docs/zh-CN/hld.md"), "# HLD\n");
+  writeFileSync(join(root, "docs/features/README.md"), "# Feature Spec Index\n");
+  writeFileSync(join(root, "docs/features/feature-pool-queue.json"), JSON.stringify({
+    schemaVersion: 1,
+    features: [
+      { id: "FEAT-016", priority: "P1", dependencies: ["FEAT-013"] },
+    ],
+  }));
+  for (const file of ["requirements.md", "design.md", "tasks.md"]) {
+    writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation", file), `# ${file}\n`);
+  }
+  writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "ready",
+    updatedAt: "2026-05-02T12:00:00.000Z",
+    blockedReasons: [],
+    dependencies: ["FEAT-013"],
+    nextAction: "Implement IDE foundation.",
+    history: [],
+  }));
+  return root;
+}
+
+function seedProject(dbPath: string, workspaceRoot: string): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO projects (
+        id, name, goal, project_type, tech_preferences_json, target_repo_path,
+        default_branch, trust_level, environment, automation_enabled, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "project-ide",
+        "SpecDrive IDE",
+        "Build VSCode-native SpecDrive workspace.",
+        "tooling",
+        "[]",
+        workspaceRoot,
+        "main",
+        "standard",
+        "local",
+        1,
+        "created",
+      ],
+    },
+    {
+      sql: `INSERT INTO repository_connections (id, project_id, provider, local_path, default_branch)
+        VALUES ('repo-ide', 'project-ide', 'local', ?, 'main')`,
+      params: [workspaceRoot],
+    },
+  ]);
+}
+
+function seedRuntimeState(dbPath: string): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO cli_adapter_configs (
+        id, display_name, schema_version, executable, argument_template_json,
+        config_schema_json, form_schema_json, defaults_json, environment_allowlist_json,
+        output_mapping_json, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "codex-app-server",
+        "Codex App Server",
+        1,
+        "codex",
+        "[]",
+        "{}",
+        "{}",
+        "{}",
+        "[]",
+        "{}",
+        "active",
+      ],
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
+        VALUES ('JOB-IDE', 'bull-ide', 'specdrive:cli-runner', 'codex.app_server.run', 'running', '{}')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, summary, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-IDE",
+        "JOB-IDE",
+        "codex.app_server",
+        "feature_execution",
+        "project-ide",
+        JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-001" }),
+        "running",
+        "2026-05-02T12:00:00.000Z",
+        "Running IDE foundation.",
+        JSON.stringify({ threadId: "thread-1", turnId: "turn-1", skillSlug: "codex-coding-skill" }),
+      ],
+    },
+  ]);
+}
+
+function seedFailedRuntimeState(dbPath: string): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
+        VALUES ('JOB-FAILED', 'bull-failed', 'specdrive:cli-runner', 'codex.app_server.run', 'failed', '{}')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, completed_at, summary, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-FAILED",
+        "JOB-FAILED",
+        "codex.app_server",
+        "feature_execution",
+        "project-ide",
+        JSON.stringify({ featureId: "FEAT-016" }),
+        "failed",
+        "2026-05-02T12:00:00.000Z",
+        "2026-05-02T12:01:00.000Z",
+        "Codex app-server turn failed.",
+        JSON.stringify({ threadId: "thread-1", turnId: "turn-1" }),
+      ],
+    },
+  ]);
+}
+
+async function getJson(url: string): Promise<Record<string, unknown>> {
+  const response = await fetch(url);
+  assert.equal(response.ok, true);
+  return await response.json() as Record<string, unknown>;
+}
+
+async function postJson(url: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  assert.equal(response.ok, true);
+  return await response.json() as Record<string, unknown>;
+}

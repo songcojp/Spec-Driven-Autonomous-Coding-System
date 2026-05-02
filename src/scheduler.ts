@@ -15,6 +15,7 @@ import {
   buildEvidencePackInput,
   buildSkillInvocationPrompt,
   DEFAULT_CLI_ADAPTER_CONFIG,
+  evaluateRunnerSafety,
   isTrustedDirectWriteInvocation,
   normalizeCliAdapterConfig,
   persistCodexRunnerArtifacts,
@@ -30,6 +31,10 @@ import {
   type SkillOutputContract,
 } from "./codex-runner.ts";
 import {
+  runCodexAppServerSession,
+  type CodexAppServerTransport,
+} from "./codex-app-server.ts";
+import {
   mergeFileSpecState,
   readFileSpecState,
   skillOutputToSpecStatePatch,
@@ -42,7 +47,7 @@ export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
 const MAX_CONTEXT_FILE_BYTES = 120_000;
 const MAX_CONTEXT_BUNDLE_BYTES = 360_000;
 
-export type SchedulerJobType = "cli.run" | "native.run";
+export type SchedulerJobType = "cli.run" | "codex.app_server.run" | "native.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "blocked" | "failed";
 
 export type SchedulerEnqueueResult = {
@@ -84,10 +89,12 @@ export type ExecutorRunJobPayload = {
 };
 
 export type CliRunJobPayload = ExecutorRunJobPayload;
+export type AppServerRunJobPayload = ExecutorRunJobPayload & { threadId?: string };
 export type NativeRunJobPayload = ExecutorRunJobPayload & { nativeHandler?: string };
 
 export type SchedulerClient = {
   enqueueCliRun(payload: CliRunJobPayload): SchedulerEnqueueResult;
+  enqueueAppServerRun?(payload: AppServerRunJobPayload): SchedulerEnqueueResult;
   enqueueNativeRun?(payload: NativeRunJobPayload): SchedulerEnqueueResult;
   health?: () => SchedulerHealth;
   close?: () => Promise<void>;
@@ -119,6 +126,16 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
         .catch((error) => markSchedulerJobFailed(dbPath, result.bullmqJobId, error));
       return result;
     },
+    enqueueAppServerRun(payload) {
+      const result = createQueuedJobRecord(dbPath, {
+        queueName: CLI_RUNNER_QUEUE,
+        jobType: "codex.app_server.run",
+        payload,
+      });
+      void cliQueue.add("codex.app_server.run", { ...payload, schedulerJobId: result.schedulerJobId }, { jobId: result.bullmqJobId, attempts: 1 })
+        .catch((error) => markSchedulerJobFailed(dbPath, result.bullmqJobId, error));
+      return result;
+    },
     health() {
       return connection.status === "ready"
         ? { status: "ready", redisUrl }
@@ -140,6 +157,9 @@ export function createUnavailableScheduler(dbPath: string, reason: string): Sche
     enqueueCliRun(payload) {
       return enqueue("cli.run", CLI_RUNNER_QUEUE, payload);
     },
+    enqueueAppServerRun(payload) {
+      return enqueue("codex.app_server.run", CLI_RUNNER_QUEUE, payload);
+    },
     health() {
       return { status: "blocked", reason };
     },
@@ -158,6 +178,9 @@ export function createMemoryScheduler(dbPath: string): SchedulerClient & { jobs:
     enqueueCliRun(payload) {
       return enqueue("cli.run", CLI_RUNNER_QUEUE, payload);
     },
+    enqueueAppServerRun(payload) {
+      return enqueue("codex.app_server.run", CLI_RUNNER_QUEUE, payload);
+    },
     health() {
       return { status: "ready" };
     },
@@ -169,6 +192,7 @@ export async function createSchedulerWorkers(input: {
   redisUrl: string;
   scheduler?: SchedulerClient;
   runner?: CodexCommandRunner;
+  appServerTransport?: CodexAppServerTransport;
 }): Promise<SchedulerWorkers> {
   const connection = new IORedis(input.redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
   connection.on("error", () => undefined);
@@ -176,7 +200,7 @@ export async function createSchedulerWorkers(input: {
   const cliWorkerOptions = workerOptions(connection, CLI_WORKER_LOCK_DURATION_MS);
   const cliWorker = new Worker(
     BULLMQ_CLI_RUNNER_QUEUE,
-    async (job) => dispatchCliJob(input.dbPath, job, input.runner),
+    async (job) => dispatchCliJob(input.dbPath, job, input.runner, input.appServerTransport),
     cliWorkerOptions,
   );
   return {
@@ -385,6 +409,231 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
   return { executionId: payload.executionId, status: result.status };
 }
 
+export async function runCodexAppServerRunJob(
+  dbPath: string,
+  payload: AppServerRunJobPayload,
+  transport?: CodexAppServerTransport,
+): Promise<{ executionId: string; status: RunnerQueueStatus }> {
+  const context = payload.context ?? {};
+  const featureId = optionalString(context.featureId);
+  const taskId = optionalString(context.taskId);
+  const skillSlug = optionalString(context.skillSlug);
+  const skillPhase = optionalString(context.skillPhase) ?? payload.operation;
+  let loaded: ReturnType<typeof loadRunnerTaskContext>;
+  try {
+    if (!transport) {
+      throw new Error("Codex app-server transport is not configured.");
+    }
+    loaded = loadRunnerTaskContext(dbPath, payload);
+  } catch (error) {
+    const reason = errorMessage(error);
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
+        params: [
+          payload.executionId,
+          optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+          "codex.app_server",
+          payload.operation,
+          payload.projectId ?? null,
+          JSON.stringify(context),
+          "blocked",
+          new Date().toISOString(),
+          reason,
+          JSON.stringify({
+            scheduler: "bullmq",
+            jobType: "codex.app_server.run",
+            skillSlug,
+            skillPhase,
+            blockedReason: reason,
+          }),
+        ],
+      },
+    ]);
+    recordAuditEvent(dbPath, {
+      entityType: taskId ? "task" : featureId ? "feature" : "project",
+      entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
+      eventType: "codex_app_server_run_blocked",
+      source: "codex_app_server_runner",
+      reason,
+      payload,
+    });
+    return { executionId: payload.executionId, status: "blocked" };
+  }
+
+  const now = new Date();
+  const policy = resolveRunnerPolicy({
+    runId: payload.executionId,
+    risk: loaded.risk,
+    workspaceRoot: loaded.workspaceRoot,
+    model: loaded.adapter.defaults.model,
+    reasoningEffort: loaded.adapter.defaults.reasoningEffort,
+    profile: loaded.adapter.defaults.profile,
+    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.skillInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
+    requestedApprovalPolicy: loaded.adapter.defaults.approval,
+    now,
+  });
+  const safety = evaluateRunnerSafety({
+    policy,
+    prompt: loaded.prompt,
+    files: loaded.allowedFiles,
+    taskText: loaded.description,
+    skillInvocation: loaded.skillInvocation,
+  });
+  if (!safety.allowed) {
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
+        params: [
+          payload.executionId,
+          optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+          "codex.app_server",
+          payload.operation,
+          loaded.projectId ?? payload.projectId ?? null,
+          JSON.stringify(loaded.skillInvocation ?? context),
+          "review_needed",
+          now.toISOString(),
+          safety.evidence,
+          JSON.stringify({
+            scheduler: "bullmq",
+            jobType: "codex.app_server.run",
+            workspaceRoot: loaded.workspaceRoot,
+            safety,
+            skillSlug: loaded.skillInvocation?.skillSlug,
+            skillPhase: loaded.skillInvocation?.requestedAction,
+          }),
+        ],
+      },
+    ]);
+    return { executionId: payload.executionId, status: "review_needed" };
+  }
+  const heartbeat = recordRunnerHeartbeat({
+    runId: payload.executionId,
+    runnerId: "bullmq-app-server-runner",
+    policy,
+    queueStatus: "running",
+    message: `Running ${taskId ?? payload.operation}`,
+    now,
+  });
+  persistCodexRunnerArtifacts(dbPath, { policy, heartbeat });
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, started_at = COALESCE(execution_records.started_at, excluded.started_at), metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
+      params: [
+        payload.executionId,
+        optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+        "codex.app_server",
+        payload.operation,
+        loaded.projectId ?? payload.projectId ?? null,
+        JSON.stringify(loaded.skillInvocation ?? { ...context, featureId: loaded.featureId ?? featureId, taskId }),
+        "running",
+        now.toISOString(),
+        JSON.stringify({
+          scheduler: "bullmq",
+          jobType: "codex.app_server.run",
+          workspaceRoot: loaded.workspaceRoot,
+          skillSlug: loaded.skillInvocation?.skillSlug,
+          skillPhase: loaded.skillInvocation?.requestedAction,
+          skillInvocationContract: loaded.skillInvocation,
+          threadId: payload.threadId,
+        }),
+      ],
+    },
+  ]);
+  updateFeatureSpecFileState({
+    workspaceRoot: loaded.workspaceRoot,
+    featureId: loaded.featureId ?? featureId,
+    context,
+    status: "running",
+    summary: "Codex app-server started feature execution.",
+    source: "codex.app_server.run",
+    schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+    executionId: payload.executionId,
+  });
+
+  const adapterResult = await runCodexAppServerSession({
+    runId: payload.executionId,
+    workspaceRoot: loaded.workspaceRoot,
+    prompt: loaded.prompt,
+    policy,
+    transport,
+    skillInvocation: loaded.skillInvocation,
+    threadId: payload.threadId,
+    startedAt: now.toISOString(),
+  });
+  persistCodexRunnerArtifacts(dbPath, {
+    policy,
+    session: adapterResult.session,
+    rawLog: adapterResult.rawLog,
+    heartbeat: recordRunnerHeartbeat({
+      runId: payload.executionId,
+      runnerId: "bullmq-app-server-runner",
+      policy,
+      queueStatus: appServerResultStatus(adapterResult),
+      message: adapterResult.evidence.skillOutput?.summary ?? adapterResult.rawLog.stderr,
+    }),
+  });
+  const evidence = buildEvidencePackInput(adapterResult.evidence);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      params: [
+        randomUUID(),
+        evidence.runId,
+        evidence.taskId ?? null,
+        evidence.featureId ?? null,
+        `.autobuild/evidence/${evidence.runId}.json`,
+        evidence.kind,
+        evidence.summary,
+        JSON.stringify(evidence.metadata),
+      ],
+    },
+  ]);
+  const finalStatus = appServerResultStatus(adapterResult);
+  const finalSummary = adapterResult.evidence.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex app-server ${finalStatus}.`);
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      params: [
+        finalStatus,
+        new Date().toISOString(),
+        finalSummary,
+        JSON.stringify({
+          scheduler: "bullmq",
+          jobType: "codex.app_server.run",
+          workspaceRoot: loaded.workspaceRoot,
+          skillSlug: loaded.skillInvocation?.skillSlug,
+          skillPhase: loaded.skillInvocation?.requestedAction,
+          skillInvocationContract: loaded.skillInvocation,
+          skillOutputContract: adapterResult.evidence.skillOutput,
+          producedArtifacts: adapterResult.evidence.skillOutput?.producedArtifacts ?? [],
+          threadId: adapterResult.session.sessionId,
+        }),
+        payload.executionId,
+      ],
+    },
+  ]);
+  updateFeatureSpecFileState({
+    workspaceRoot: loaded.workspaceRoot,
+    featureId: loaded.featureId ?? featureId,
+    context,
+    status: finalStatus,
+    summary: finalSummary,
+    source: "codex.app_server.run",
+    schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+    executionId: payload.executionId,
+    skillOutput: adapterResult.evidence.skillOutput,
+  });
+  return { executionId: payload.executionId, status: finalStatus };
+}
+
 function updateFeatureSpecFileState(input: {
   workspaceRoot?: string;
   featureId?: string;
@@ -481,15 +730,26 @@ export function updateSchedulerJobRecord(dbPath: string, bullmqJobId: string | u
   ]);
 }
 
-async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRunner): Promise<void> {
+async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRunner, appServerTransport?: CodexAppServerTransport): Promise<void> {
   updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
   try {
-    const result = await runCliRunJob(dbPath, job.data as CliRunJobPayload, runner);
+    const result = job.name === "codex.app_server.run"
+      ? await runCodexAppServerRunJob(dbPath, job.data as AppServerRunJobPayload, appServerTransport)
+      : await runCliRunJob(dbPath, job.data as CliRunJobPayload, runner);
     updateSchedulerJobRecord(dbPath, String(job.id), result.status === "blocked" ? "blocked" : "completed", undefined, job.attemptsMade);
   } catch (error) {
     updateSchedulerJobRecord(dbPath, String(job.id), "failed", error, job.attemptsMade);
     throw error;
   }
+}
+
+function appServerResultStatus(result: { session: { exitCode: number | null }; evidence: { skillOutput?: SkillOutputContract } }): RunnerQueueStatus {
+  if ((result.session.exitCode ?? 0) !== 0) return "failed";
+  const status = result.evidence.skillOutput?.status;
+  if (status === "review_needed" || status === "blocked" || status === "failed" || status === "completed") {
+    return status;
+  }
+  return "completed";
 }
 
 function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {

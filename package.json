@@ -11,6 +11,7 @@
     "console:dev": "vite --host 0.0.0.0 --config apps/product-console/vite.config.ts",
     "console:build": "vite build --config apps/product-console/vite.config.ts",
     "console:test": "playwright test --config apps/product-console/playwright.config.ts",
+    "ide:build": "tsc -p apps/vscode-extension/tsconfig.json",
     "update:codex": "bash scripts/update-codex.sh",
     "test": "node --test tests/*.test.ts"
   },

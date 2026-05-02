@@ -10,8 +10,10 @@ import {
   CLI_WORKER_LOCK_DURATION_MS,
   CLI_RUNNER_QUEUE,
   createMemoryScheduler,
+  runCodexAppServerRunJob,
   runCliRunJob,
 } from "../src/scheduler.ts";
+import type { CodexAppServerTransport } from "../src/codex-app-server.ts";
 
 test("BullMQ queue names avoid reserved colon separator while logical queue names stay traceable", () => {
   assert.equal(CLI_RUNNER_QUEUE, "specdrive:cli-runner");
@@ -35,17 +37,25 @@ test("scheduler schema records executor job metadata without feature target colu
     projectId: "project-1",
     context: { featureId: "FEAT-001", featureSpecPath: "docs/features/feat-001" },
   });
-  const rows = runSqlite(dbPath, [], [
-    { name: "jobs", sql: "SELECT id, queue_name, job_type, status, payload_json FROM scheduler_job_records" },
-    { name: "columns", sql: "PRAGMA table_info(scheduler_job_records)" },
-  ]).queries.jobs;
-  const columns = runSqlite(dbPath, [], [{ name: "columns", sql: "PRAGMA table_info(scheduler_job_records)" }]).queries.columns.map((row) => row.name);
-
   assert.equal(job.queueName, "specdrive:cli-runner");
+  const appServerJob = scheduler.enqueueAppServerRun?.({
+    executionId: "EXEC-APP",
+    operation: "feature_execution",
+    projectId: "project-1",
+    context: { featureId: "FEAT-001", featureSpecPath: "docs/features/feat-001" },
+  });
+  assert.equal(appServerJob?.jobType, "codex.app_server.run");
+  const query = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT id, queue_name, job_type, status, payload_json FROM scheduler_job_records ORDER BY rowid" },
+    { name: "columns", sql: "PRAGMA table_info(scheduler_job_records)" },
+  ]).queries;
+  const rows = query.jobs;
+  const columns = query.columns.map((row) => row.name);
   assert.equal(columns.includes("target_type"), false);
   assert.equal(columns.includes("target_id"), false);
-  assert.deepEqual(rows.map((row) => [row.id, row.queue_name, row.job_type, row.status, JSON.parse(String(row.payload_json)).operation]), [
-    [job.schedulerJobId, "specdrive:cli-runner", "cli.run", "queued", "feature_execution"],
+  assert.deepEqual(rows.map((row) => [row.queue_name, row.job_type, row.status, JSON.parse(String(row.payload_json)).operation]), [
+    ["specdrive:cli-runner", "cli.run", "queued", "feature_execution"],
+    ["specdrive:cli-runner", "codex.app_server.run", "queued", "feature_execution"],
   ]);
 });
 
@@ -244,6 +254,83 @@ test("cli.run uses default built-in adapter when cli_adapter_configs table is em
   }));
 
   assert.equal(result.status, "completed");
+});
+
+test("codex.app_server.run executes mocked app-server transport and persists runner artifacts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const calls: string[] = [];
+  const transport: CodexAppServerTransport = {
+    async request(method) {
+      calls.push(method);
+      if (method === "thread/start") return { threadId: "THREAD-APP" };
+      if (method === "turn/start") return { turnId: "TURN-APP" };
+      return {};
+    },
+    notify(method) {
+      calls.push(method);
+    },
+    async *events() {
+      yield { type: "item/agentMessage/delta", delta: "done" };
+      yield {
+        type: "turn/completed",
+        status: "completed",
+        output: {
+          contractVersion: "skill-contract/v1",
+          executionId: "RUN-APP-SERVER",
+          skillSlug: "codex-coding-skill",
+          requestedAction: "feature_execution",
+          status: "completed",
+          summary: "App server completed.",
+          producedArtifacts: [],
+          evidence: [{ kind: "command", summary: "Mock app-server completed.", status: "passed" }],
+          traceability: {
+            featureId: "FEAT-CLI",
+            taskId: "TASK-CLI",
+            requirementIds: [],
+            changeIds: [],
+          },
+        },
+      };
+    },
+  };
+
+  const result = await runCodexAppServerRunJob(dbPath, cliRunPayload("RUN-APP-SERVER"), transport);
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status, metadata_json FROM execution_records WHERE id = 'RUN-APP-SERVER'" },
+    { name: "session", sql: "SELECT session_id, command, args_json, exit_code FROM codex_session_records WHERE run_id = 'RUN-APP-SERVER'" },
+    { name: "log", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-APP-SERVER'" },
+    { name: "evidence", sql: "SELECT kind, summary FROM evidence_packs WHERE run_id = 'RUN-APP-SERVER'" },
+  ]).queries;
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(calls, ["initialize", "initialized", "thread/start", "turn/start"]);
+  assert.equal(rows.run[0].status, "completed");
+  assert.equal(JSON.parse(String(rows.run[0].metadata_json)).threadId, "THREAD-APP");
+  assert.equal(rows.session[0].session_id, "THREAD-APP");
+  assert.equal(rows.session[0].command, "codex");
+  assert.deepEqual(JSON.parse(String(rows.session[0].args_json)), ["app-server"]);
+  assert.equal(rows.session[0].exit_code, 0);
+  assert.equal(rows.log[0].stdout, "done");
+  assert.equal(rows.evidence[0].kind, "codex_runner");
+});
+
+test("codex.app_server.run blocks when app-server transport is unavailable", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+
+  const result = await runCodexAppServerRunJob(dbPath, cliRunPayload("RUN-NO-APP-SERVER"));
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status, summary FROM execution_records WHERE id = 'RUN-NO-APP-SERVER'" },
+  ]).queries.run;
+
+  assert.equal(result.status, "blocked");
+  assert.equal(rows[0].status, "blocked");
+  assert.match(String(rows[0].summary), /transport is not configured/);
 });
 
 function makeDbPath(): string {

@@ -31,6 +31,7 @@ import {
 import type { SchedulerClient } from "./scheduler.ts";
 import { getOrCreateSession, processChatMessage, getChatHistory } from "./chat.ts";
 import { runCommand } from "./codex-runner.ts";
+import { buildSpecDriveIdeView } from "./specdrive-ide.ts";
 
 
 export type ControlPlaneServer = {
@@ -220,6 +221,19 @@ async function routeRequest(
 
     if (request.method === "GET" && url.pathname === "/console/audit") {
       writeJson(response, 200, buildAuditCenterView(config.dbPath, url.searchParams.get("projectId") ?? undefined));
+      return;
+    }
+
+    if (request.method === "GET" && (url.pathname === "/ide/workspace" || url.pathname === "/ide/spec-tree")) {
+      writeJson(response, 200, buildSpecDriveIdeView(config.dbPath, {
+        projectId: url.searchParams.get("projectId") ?? undefined,
+        workspaceRoot: url.searchParams.get("workspaceRoot") ?? undefined,
+      }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/ide/commands") {
+      writeJson(response, 202, submitConsoleCommand(config.dbPath, await readJsonBody(request) as ConsoleCommandInput, { scheduler: options.scheduler }));
       return;
     }
 
