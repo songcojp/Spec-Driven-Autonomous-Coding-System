@@ -72,6 +72,21 @@ test("SpecDrive IDE view exposes diagnostics for blocked spec state and failed e
   assert.equal(view.diagnostics.every((diagnostic) => diagnostic.path === "docs/features/feat-016-specdrive-ide-foundation/requirements.md"), true);
 });
 
+test("SpecDrive IDE view warns when feature requirements miss traceability or acceptance criteria", () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/requirements.md"), "# Feature requirements\n\nNo stable ids yet.\n");
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.diagnostics.length, 2);
+  assert.equal(view.diagnostics.some((diagnostic) => diagnostic.message.includes("stable requirement id")), true);
+  assert.equal(view.diagnostics.some((diagnostic) => diagnostic.message.includes("acceptance criteria")), true);
+  assert.equal(view.diagnostics.every((diagnostic) => diagnostic.source === "workspace"), true);
+});
+
 test("SpecDrive IDE view reports unrecognized workspace without mutating state", () => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-plain-"));
   const dbPath = makeDbPath();
@@ -296,6 +311,36 @@ test("SpecDrive IDE execution detail includes projection logs, artifacts, contra
   assert.deepEqual(detail?.contractValidation, { valid: true });
 });
 
+test("SpecDrive IDE execution detail can read incremental raw logs", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedApprovalRuntimeState(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO raw_execution_logs (id, run_id, stdout, stderr, events_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`,
+      params: [
+        "LOG-APPROVAL-2",
+        "RUN-APPROVAL",
+        "second chunk",
+        "",
+        "[]",
+        "2026-05-02T12:00:10.000Z",
+      ],
+    },
+  ]);
+
+  const detail = buildSpecDriveIdeExecutionDetail(dbPath, "RUN-APPROVAL", {
+    logsAfter: "2026-05-02T12:00:05.000Z",
+    logLimit: 1,
+  });
+
+  assert.equal(detail?.rawLogs.length, 1);
+  assert.equal(detail?.rawLogs[0].stdout, "second chunk");
+});
+
 function makeDbPath(): string {
   return join(mkdtempSync(join(tmpdir(), "specdrive-ide-db-")), "autobuild.db");
 }
@@ -336,6 +381,16 @@ function makeWorkspace(): string {
   for (const file of ["requirements.md", "design.md", "tasks.md"]) {
     writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation", file), `# ${file}\n`);
   }
+  writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation/requirements.md"), [
+    "# FEAT-016 requirements",
+    "",
+    "REQ-074 supports a VSCode IDE foundation.",
+    "",
+    "## Acceptance Criteria",
+    "",
+    "- Spec Explorer renders workspace facts.",
+    "",
+  ].join("\n"));
   writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
     schemaVersion: 1,
     featureId: "FEAT-016",

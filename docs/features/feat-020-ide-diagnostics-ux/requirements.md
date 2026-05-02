@@ -2,7 +2,7 @@
 
 Feature ID: FEAT-020
 Feature 名称: IDE Diagnostics and UX Refinement
-状态: todo
+状态: done
 里程碑: M8
 依赖: FEAT-016、FEAT-017、FEAT-019
 
@@ -18,8 +18,8 @@ Feature 名称: IDE Diagnostics and UX Refinement
 
 ## 验收标准
 
-- [ ] 缺失 requirement id、acceptance criteria 或 Feature 三件套时显示 warning。
-- [ ] blocked / failed Feature 对应文件或节点显示 problem marker。
-- [ ] Diagnostics 来自文件扫描、spec-state 或 Control Plane 查询结果。
-- [ ] 插件重载后恢复 Spec Explorer、Task Queue、pending approval 和最近执行状态。
-- [ ] 日志和 diff 摘要可增量查看，并能跳转 Product Console。
+- [x] 缺失 requirement id、acceptance criteria 或 Feature 三件套时显示 warning。
+- [x] blocked / failed Feature 对应文件或节点显示 problem marker。
+- [x] Diagnostics 来自文件扫描、spec-state 或 Control Plane 查询结果。
+- [x] 插件重载后恢复 Spec Explorer、Task Queue、pending approval 和最近执行状态。
+- [x] 日志和 diff 摘要可增量查看，并能跳转 Product Console。

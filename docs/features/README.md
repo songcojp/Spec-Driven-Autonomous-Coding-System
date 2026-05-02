@@ -24,7 +24,7 @@
 | FEAT-017 | IDE Spec Interaction | `feat-017-ide-spec-interaction` | todo | REQ-076 至 REQ-078 | M8 | FEAT-016、FEAT-002、FEAT-012 |
 | FEAT-018 | Codex App Server Adapter | `feat-018-codex-app-server-adapter` | done | REQ-080、REQ-081 | M8 | FEAT-004、FEAT-008、FEAT-014 |
 | FEAT-019 | IDE Execution Loop | `feat-019-ide-execution-loop` | done | REQ-079、REQ-081、REQ-082 | M8 | FEAT-016、FEAT-018、FEAT-004、FEAT-008、FEAT-014 |
-| FEAT-020 | IDE Diagnostics and UX Refinement | `feat-020-ide-diagnostics-ux` | todo | REQ-083 | M8 | FEAT-016、FEAT-017、FEAT-019 |
+| FEAT-020 | IDE Diagnostics and UX Refinement | `feat-020-ide-diagnostics-ux` | done | REQ-083 | M8 | FEAT-016、FEAT-017、FEAT-019 |
 
 FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、Evidence 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃；Feature 级编码执行由 `codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md`，不再依赖平台 `task_graph_tasks` / `tasks` 表。
 

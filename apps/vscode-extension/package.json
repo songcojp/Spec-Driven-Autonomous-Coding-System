@@ -25,6 +25,11 @@
           "type": "string",
           "default": "http://127.0.0.1:4000",
           "description": "Local SpecDrive Control Plane URL."
+        },
+        "specdrive.productConsoleUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:4000",
+          "description": "Local SpecDrive Product Console URL."
         }
       }
     },
@@ -32,6 +37,14 @@
       {
         "command": "specdrive.refresh",
         "title": "SpecDrive: Refresh"
+      },
+      {
+        "command": "specdrive.filterQueue",
+        "title": "SpecDrive: Filter Task Queue"
+      },
+      {
+        "command": "specdrive.openProductConsole",
+        "title": "SpecDrive: Open Product Console"
       },
       {
         "command": "specdrive.openItem",
@@ -92,6 +105,11 @@
     ],
     "menus": {
       "view/item/context": [
+        {
+          "command": "specdrive.openProductConsole",
+          "when": "view == specdrive.specExplorer && viewItem =~ /(queue-item|feature)/",
+          "group": "navigation@1"
+        },
         {
           "command": "specdrive.queueRunNow",
           "when": "view == specdrive.specExplorer && viewItem =~ /queue-item/",

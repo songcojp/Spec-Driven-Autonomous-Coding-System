@@ -81,6 +81,13 @@ type SpecDriveIdeView = {
   diagnostics: SpecDriveIdeDiagnostic[];
   missing: string[];
   factSources: string[];
+  productConsole?: {
+    defaultUrl: string;
+    links: {
+      workspace: string;
+      queue: string;
+    };
+  };
 };
 
 type ControlledCommandInput = {
@@ -153,9 +160,11 @@ type SpecExplorerItem =
 export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection("specdrive");
   context.subscriptions.push(diagnostics);
-  const provider = new SpecExplorerProvider(diagnostics);
+  const provider = new SpecExplorerProvider(diagnostics, context);
   context.subscriptions.push(vscode.window.createTreeView("specdrive.specExplorer", { treeDataProvider: provider }));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.refresh", () => provider.refresh()));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.filterQueue", () => filterQueue(provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.openProductConsole", (item: unknown) => openProductConsole(item, provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openItem", (item: unknown) => openItem(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecution", (item: unknown) => openExecution(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueRunNow", (item: unknown) => runQueueAction("run_now", item, provider)));
@@ -186,15 +195,29 @@ class SpecExplorerProvider implements vscode.TreeDataProvider<SpecExplorerItem> 
   readonly onDidChangeTreeData = this.changed.event;
   private items: SpecExplorerItem[] = [messageItem("loading", "Loading SpecDrive workspace...")];
   private view: SpecDriveIdeView | undefined;
+  private queueStatusFilter: string | undefined;
 
-  constructor(private readonly diagnostics: vscode.DiagnosticCollection) {}
+  constructor(
+    private readonly diagnostics: vscode.DiagnosticCollection,
+    private readonly context: vscode.ExtensionContext,
+  ) {
+    const cachedView = context.workspaceState.get<SpecDriveIdeView>("specdrive.lastView");
+    const cachedFilter = context.workspaceState.get<string | undefined>("specdrive.queueStatusFilter");
+    this.queueStatusFilter = cachedFilter;
+    if (cachedView) {
+      this.view = cachedView;
+      this.items = buildItems(cachedView, cachedFilter);
+      updateDiagnostics(this.diagnostics, cachedView);
+    }
+  }
 
   async refresh(): Promise<void> {
     try {
       const view = await fetchSpecDriveView();
       this.view = view;
-      this.items = buildItems(view);
+      this.items = buildItems(view, this.queueStatusFilter);
       updateDiagnostics(this.diagnostics, view);
+      await this.context.workspaceState.update("specdrive.lastView", view);
       this.changed.fire(undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -248,6 +271,17 @@ class SpecExplorerProvider implements vscode.TreeDataProvider<SpecExplorerItem> 
 
   currentView(): SpecDriveIdeView | undefined {
     return this.view;
+  }
+
+  currentQueueStatusFilter(): string | undefined {
+    return this.queueStatusFilter;
+  }
+
+  async setQueueStatusFilter(status: string | undefined): Promise<void> {
+    this.queueStatusFilter = status;
+    if (this.view) this.items = buildItems(this.view, status);
+    await this.context.workspaceState.update("specdrive.queueStatusFilter", status);
+    this.changed.fire(undefined);
   }
 }
 
@@ -656,7 +690,7 @@ async function submitCommentDraft(thread: unknown, provider: SpecExplorerProvide
   await provider.refresh();
 }
 
-function buildItems(view: SpecDriveIdeView): SpecExplorerItem[] {
+function buildItems(view: SpecDriveIdeView, queueStatusFilter?: string): SpecExplorerItem[] {
   if (!view.recognized) {
     return [messageItem("unrecognized", "No SpecDrive workspace recognized", view.workspaceRoot ?? "Open a SpecDrive workspace or start the Control Plane.")];
   }
@@ -675,10 +709,12 @@ function buildItems(view: SpecDriveIdeView): SpecExplorerItem[] {
     description: [feature.status, feature.priority, feature.latestExecutionStatus].filter(Boolean).join(" · "),
     feature,
   }));
-  const queueGroups = Object.entries(view.queue.groups).map(([status, items]) => ({
+  const filteredGroups = Object.entries(view.queue.groups)
+    .filter(([status]) => !queueStatusFilter || status === queueStatusFilter);
+  const queueGroups = filteredGroups.map(([status, items]) => ({
     type: "root" as const,
-    id: `queue:${status}`,
-    label: status,
+      id: `queue:${status}`,
+      label: status,
     description: `${items.length}`,
     children: items.map((item) => ({
       type: "queue-item" as const,
@@ -707,10 +743,23 @@ function buildItems(view: SpecDriveIdeView): SpecExplorerItem[] {
       type: "root",
       id: "queue",
       label: "Task Queue",
-      description: `${queueGroups.reduce((total, group) => total + Number(group.description ?? 0), 0)}`,
+      description: queueStatusFilter
+        ? `${queueStatusFilter} · ${queueGroups.reduce((total, group) => total + Number(group.description ?? 0), 0)}`
+        : `${queueGroups.reduce((total, group) => total + Number(group.description ?? 0), 0)}`,
       children: queueGroups,
     },
   ];
+}
+
+async function filterQueue(provider: SpecExplorerProvider): Promise<void> {
+  const view = provider.currentView();
+  const statuses = Object.keys(view?.queue.groups ?? {}).sort();
+  const clearLabel = "All statuses";
+  const selected = await vscode.window.showQuickPick([clearLabel, ...statuses], {
+    placeHolder: provider.currentQueueStatusFilter() ?? clearLabel,
+  });
+  if (selected === undefined) return;
+  await provider.setQueueStatusFilter(selected === clearLabel ? undefined : selected);
 }
 
 async function openItem(item: unknown): Promise<void> {
@@ -727,6 +776,18 @@ async function openExecution(item: unknown): Promise<void> {
   panel.webview.html = renderExecutionWebview(await fetchExecutionDetail(item.item));
 }
 
+async function openProductConsole(item: unknown, provider: SpecExplorerProvider): Promise<void> {
+  const baseUrl = vscode.workspace.getConfiguration("specdrive").get("productConsoleUrl", provider.currentView()?.productConsole?.defaultUrl ?? "http://127.0.0.1:4000");
+  const path = isQueueItem(item)
+    ? provider.currentView()?.productConsole?.links.queue ?? "/#runner"
+    : provider.currentView()?.productConsole?.links.workspace ?? "/#spec";
+  const url = new URL(path, baseUrl);
+  if (isQueueItem(item) && item.item.executionId) url.searchParams.set("executionId", item.item.executionId);
+  if (isQueueItem(item) && item.item.featureId) url.searchParams.set("featureId", item.item.featureId);
+  if (isFeatureItem(item)) url.searchParams.set("featureId", item.feature.id);
+  await vscode.env.openExternal(vscode.Uri.parse(url.toString()));
+}
+
 function isDocumentItem(item: unknown): item is Extract<SpecExplorerItem, { type: "document" }> {
   return typeof item === "object"
     && item !== null
@@ -739,6 +800,13 @@ function isQueueItem(item: unknown): item is Extract<SpecExplorerItem, { type: "
     && item !== null
     && (item as { type?: unknown }).type === "queue-item"
     && typeof (item as { item?: unknown }).item === "object";
+}
+
+function isFeatureItem(item: unknown): item is Extract<SpecExplorerItem, { type: "feature" }> {
+  return typeof item === "object"
+    && item !== null
+    && (item as { type?: unknown }).type === "feature"
+    && typeof (item as { feature?: { id?: unknown } }).feature?.id === "string";
 }
 
 function isControlledCommandInput(input: unknown): input is ControlledCommandInput {
@@ -875,6 +943,8 @@ function renderExecutionWebview(item: SpecDriveIdeExecutionDetail | SpecDriveIde
     ${jsonBlock(detail?.approvalRequests ?? [])}
     <h2>Raw Logs</h2>
     ${(detail?.rawLogs ?? []).map((log, index) => `<h3>Log ${index + 1}</h3><p>Stdout</p>${textBlock(log.stdout)}<p>Stderr</p>${textBlock(log.stderr)}`).join("")}
+    <h2>Product Console</h2>
+    <p><a href="http://127.0.0.1:4000/#runner">Open Runner Console</a></p>
   </body></html>`;
 }
 

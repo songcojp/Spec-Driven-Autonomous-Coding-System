@@ -59,6 +59,11 @@ export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   approvalRequests: unknown[];
 };
 
+export type BuildSpecDriveIdeExecutionDetailOptions = {
+  logsAfter?: string;
+  logLimit?: number;
+};
+
 export type SpecDriveIdeDiagnostic = {
   path: string;
   severity: "error" | "warning" | "info";
@@ -91,6 +96,13 @@ export type SpecDriveIdeView = {
   diagnostics: SpecDriveIdeDiagnostic[];
   missing: string[];
   factSources: string[];
+  productConsole: {
+    defaultUrl: string;
+    links: {
+      workspace: string;
+      queue: string;
+    };
+  };
 };
 
 export type SpecChangeRequestIntent =
@@ -255,6 +267,13 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
       "execution_records",
       "cli_adapter_configs",
     ],
+    productConsole: {
+      defaultUrl: "http://127.0.0.1:4000",
+      links: {
+        workspace: "/#spec",
+        queue: "/#runner",
+      },
+    },
   };
 }
 
@@ -284,7 +303,15 @@ export function isIdeQueueCommandV1(value: unknown): value is IdeQueueCommandV1 
     && typeof value.reason === "string";
 }
 
-export function buildSpecDriveIdeExecutionDetail(dbPath: string, executionId: string): SpecDriveIdeExecutionDetail | undefined {
+export function buildSpecDriveIdeExecutionDetail(
+  dbPath: string,
+  executionId: string,
+  options: BuildSpecDriveIdeExecutionDetailOptions = {},
+): SpecDriveIdeExecutionDetail | undefined {
+  const logLimit = Math.max(1, Math.min(100, Math.trunc(options.logLimit ?? 10)));
+  const logFilter = options.logsAfter
+    ? { sql: "AND created_at > ?", params: [options.logsAfter] }
+    : { sql: "", params: [] };
   const result = runSqlite(dbPath, [], [
     {
       name: "execution",
@@ -309,8 +336,12 @@ export function buildSpecDriveIdeExecutionDetail(dbPath: string, executionId: st
     },
     {
       name: "logs",
-      sql: "SELECT stdout, stderr, events_json, created_at FROM raw_execution_logs WHERE run_id = ? ORDER BY created_at DESC LIMIT 10",
-      params: [executionId],
+      sql: `SELECT stdout, stderr, events_json, created_at
+        FROM raw_execution_logs
+        WHERE run_id = ? ${logFilter.sql}
+        ORDER BY created_at ASC
+        LIMIT ?`,
+      params: [executionId, ...logFilter.params, logLimit],
     },
     {
       name: "evidence",
@@ -1183,6 +1214,7 @@ function buildDiagnostics(
         featureId: feature.id,
       });
     }
+    diagnostics.push(...buildFeatureContentDiagnostics(workspaceRoot, feature, diagnosticPath));
     if (feature.blockedReasons.length > 0 || feature.status === "blocked" || feature.status === "failed") {
       diagnostics.push({
         path: diagnosticPath,
@@ -1210,6 +1242,37 @@ function buildDiagnostics(
     });
   }
   return workspaceRoot ? diagnostics : [];
+}
+
+function buildFeatureContentDiagnostics(
+  workspaceRoot: string | undefined,
+  feature: SpecDriveIdeFeatureNode,
+  diagnosticPath: string,
+): SpecDriveIdeDiagnostic[] {
+  if (!workspaceRoot) return [];
+  const requirements = feature.documents.find((document) => document.kind === "feature-requirements" && document.exists);
+  if (!requirements) return [];
+  const content = readFileSync(join(workspaceRoot, requirements.path), "utf8");
+  const diagnostics: SpecDriveIdeDiagnostic[] = [];
+  if (!/\b(REQ-[A-Z0-9-]+|REQ-\d+|NFR-\d+|EDGE-\d+)\b/.test(content)) {
+    diagnostics.push({
+      path: diagnosticPath,
+      severity: "warning",
+      message: `Feature ${feature.id} requirements do not reference a stable requirement id.`,
+      source: "workspace",
+      featureId: feature.id,
+    });
+  }
+  if (!/(验收标准|Acceptance Criteria|acceptance criteria|Acceptance|验收)/i.test(content)) {
+    diagnostics.push({
+      path: diagnosticPath,
+      severity: "warning",
+      message: `Feature ${feature.id} requirements are missing acceptance criteria.`,
+      source: "workspace",
+      featureId: feature.id,
+    });
+  }
+  return diagnostics;
 }
 
 function firstExistingFeatureDocument(feature?: SpecDriveIdeFeatureNode): SpecDriveIdeDocument | undefined {

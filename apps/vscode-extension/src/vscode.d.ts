@@ -9,6 +9,8 @@ declare module "vscode" {
 
   export class Uri {
     fsPath: string;
+    toString(): string;
+    static parse(value: string): Uri;
     static file(path: string): Uri;
     static joinPath(base: Uri, ...paths: string[]): Uri;
   }
@@ -186,6 +188,13 @@ declare module "vscode" {
     function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean }): WebviewPanel;
     function showErrorMessage(message: string): Thenable<string | undefined>;
     function showInputBox(options?: { prompt?: string; value?: string }): Thenable<string | undefined>;
+    function showQuickPick(items: string[], options?: { placeHolder?: string }): Thenable<string | undefined>;
+  }
+
+  export interface Memento {
+    get<T>(key: string): T | undefined;
+    get<T>(key: string, defaultValue: T): T;
+    update(key: string, value: unknown): Thenable<void>;
   }
 
   export namespace workspace {
@@ -216,7 +225,12 @@ declare module "vscode" {
     function createCommentController(id: string, label: string): CommentController;
   }
 
+  export namespace env {
+    function openExternal(target: Uri): Thenable<boolean>;
+  }
+
   export type ExtensionContext = {
     subscriptions: Disposable[];
+    workspaceState: Memento;
   };
 }

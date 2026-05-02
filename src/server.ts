@@ -241,7 +241,10 @@ async function routeRequest(
 
     const ideExecutionMatch = url.pathname.match(/^\/ide\/executions\/([^/]+)$/);
     if (request.method === "GET" && ideExecutionMatch) {
-      const detail = buildSpecDriveIdeExecutionDetail(config.dbPath, decodeURIComponent(ideExecutionMatch[1]));
+      const detail = buildSpecDriveIdeExecutionDetail(config.dbPath, decodeURIComponent(ideExecutionMatch[1]), {
+        logsAfter: url.searchParams.get("logsAfter") ?? undefined,
+        logLimit: url.searchParams.get("logLimit") ? Number(url.searchParams.get("logLimit")) : undefined,
+      });
       writeJson(response, detail ? 200 : 404, detail ?? { error: "execution_not_found" });
       return;
     }
