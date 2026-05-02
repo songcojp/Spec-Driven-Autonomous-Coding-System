@@ -27,28 +27,34 @@ test("renders the console first screen and navigates across all pages", async ({
     await expect(page.getByRole("heading", { name: heading, exact: typeof heading === "string" })).toBeVisible();
     if (label === "任务调度") {
       await expect(page.getByText("任务调度中心")).toBeVisible();
-      await expect(page.getByRole("heading", { name: "调度流水线" })).toBeVisible();
-      await expect(page.getByText("feature.select").first()).toBeVisible();
-      await expect(page.getByText("feature.plan").first()).toBeVisible();
-      await expect(page.getByText("cli.run").first()).toBeVisible();
-      await expect(page.getByText("specdrive:feature-scheduler").first()).toBeVisible();
-      await expect(page.getByText("specdrive:cli-runner").first()).toBeVisible();
+      await expect(page.getByRole("heading", { name: "调度流水线" })).toHaveCount(0);
       await expect(page.getByRole("heading", { name: "任务队列" })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Job 详情" })).toBeVisible();
-      await expect(page.getByText("JOB-709").first()).toBeVisible();
-      await expect(page.getByText("BULL-709")).toBeVisible();
-      await expect(page.getByText("Ready 1")).toBeVisible();
-      await expect(page.getByText("Scheduled 1")).toBeVisible();
-      await expect(page.getByRole("button", { name: "运行 T-229" }).first()).toBeVisible();
+      await expect(page.getByText("Connect carrier label quote mock").first()).toBeVisible();
+      await expect(page.getByLabel("类型/队列")).toBeVisible();
+      await expect(page.getByText("JOB-709")).toHaveCount(0);
+      await expect(page.getByText("feature_execution")).toHaveCount(0);
+      await expect(page.getByText("1-10 / 13")).toBeVisible();
+      await page.getByRole("button", { name: "下一页" }).click();
+      await expect(page.getByText("Paginated task 10")).toBeVisible();
+      await page.getByPlaceholder("搜索任务...").fill("carrier label");
+      await expect(page.getByText("Connect carrier label quote mock").first()).toBeVisible();
+      await expect(page.getByText("1-1 / 1")).toBeVisible();
+      await page.getByPlaceholder("搜索任务...").fill("");
+      await page.getByLabel("类型/队列").selectOption("queue:specdrive:cli-runner");
+      await expect(page.getByText("1-10 / 13")).toBeVisible();
+      await expect(page.getByText("Job 总数").first()).toBeVisible();
+      await expect(page.getByText("队列中").first()).toBeVisible();
+      await expect(page.getByText("阻塞/失败").first()).toBeVisible();
       await expect(page.getByRole("button", { name: "暂停 Runner" })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "资源池" })).toBeVisible();
-      await expect(page.getByText("schedule_board_tasks")).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Skill 调用" })).toBeVisible();
-      await expect(page.getByText("codex-coding-skill")).toBeVisible();
-      await expect(page.getByText("workspace/acme-returns-portal").first()).toBeVisible();
-      await expect(page.getByText("Project workspace is missing readable AGENTS.md")).toBeVisible();
-      await page.getByRole("button", { name: "运行 T-229" }).first().click();
-      await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "资源池" })).toHaveCount(0);
+      await page.getByRole("row", { name: /生成项目 HLD/ }).getByRole("button", { name: "详情" }).click();
+      const detailDrawer = page.getByRole("dialog", { name: "生成项目 HLD" });
+      await expect(detailDrawer).toBeVisible();
+      await expect(detailDrawer.getByRole("heading", { name: "生成项目 HLD" })).toBeVisible();
+      await expect(detailDrawer.getByText("Project workspace is missing readable AGENTS.md")).toBeVisible();
+      await detailDrawer.getByText("技术追踪").click();
+      await expect(detailDrawer.getByText("BULL-711")).toBeVisible();
+      await page.getByRole("button", { name: "关闭" }).click();
     }
     if (label === "审计中心") {
       await expect(page.getByText("Audit Timeline")).toBeVisible();
@@ -136,7 +142,7 @@ test("global overview switches projects and opens the selected board", async ({ 
 
   await page.getByRole("row", { name: /Northwind Supply Planner/ }).getByRole("button", { name: "查看项目主页" }).click();
   await expect(page.getByRole("heading", { name: "项目主页" })).toBeVisible();
-  await expect(page.getByText("T-401 Model forecast confidence bands")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Model forecast confidence bands/ })).toBeVisible();
 });
 
 test("renders the Spec workspace workbench and submits controlled spec commands", async ({ page }) => {
@@ -147,7 +153,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("heading", { name: "Spec 操作流程" })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /阶段 3 设计规划阶段/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /阶段 3 Feature 执行/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 4 UI Spec/ })).toHaveCount(0);
   await page.getByRole("button", { name: /阶段 1 项目初始化/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "true");
@@ -156,7 +162,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("button", { name: /阶段 3 设计规划阶段/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /阶段 3 Feature 执行/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("创建/导入项目")).toHaveCount(0);
   await expect(page.getByText("推入 Feature Spec Pool")).toHaveCount(0);
   await expect(page.getByText("Spec 扫描与上传")).toBeVisible();
@@ -172,7 +178,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("EARS").first()).toBeVisible();
   await expect(page.getByText("HLD").first()).toBeVisible();
   await expect(page.getByText("workspace/acme-returns-portal/docs/zh-CN/PRD.md").first()).toBeVisible();
-  await page.getByRole("button", { name: /阶段 3 设计规划阶段/ }).click();
+  await page.getByRole("button", { name: /阶段 3 Feature 执行/ }).click();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("生成 HLD").first()).toBeVisible();
   await expect(page.getByText("生成 UI Spec").first()).toBeVisible();
@@ -183,11 +189,11 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await page.getByRole("button", { name: "生成 HLD" }).click();
   await expect(page.getByLabel("Notifications (F8)").getByText("generate_hld recorded")).toBeVisible();
   // UI Spec is part of Stage 3 after HLD.
-  await expect(page.getByText("UI Spec 概念图")).toBeVisible();
+  await expect(page.getByText("UI Spec 产物")).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 UI Spec" })).toBeVisible();
   await page.getByRole("button", { name: "生成 UI Spec" }).click();
   await expect(page.getByLabel("Notifications (F8)").getByText("generate_ui_spec recorded")).toBeVisible();
-  await expect(page.getByAltText(/Spec 工作台 UI 概念图/)).toBeVisible();
+  await expect(page.getByText("docs/ui/concepts/*.svg", { exact: true })).toBeVisible();
   await expect(page.getByText("Feature Spec", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Feature Spec List" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Feature Spec List" }).getByText("共 3 项")).toBeVisible();
@@ -212,7 +218,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("当前分区暂无可用 Spec 数据。").first()).toBeVisible();
 
   await page.getByText("受控操作").click();
-  await page.getByRole("button", { name: /阶段 3 设计规划阶段/ }).click();
+  await page.getByRole("button", { name: /阶段 3 Feature 执行/ }).click();
   await page.locator("aside").filter({ hasText: "受控操作" }).getByRole("button", { name: "调度运行", exact: true }).click();
   await expect(page.getByText("命令被阻塞", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Notifications (F8)").getByText("Product approval is required for customer-facing refund decision copy.")).toBeVisible();
@@ -248,7 +254,7 @@ test("creates projects and switches project-scoped console data", async ({ page 
   await page.getByLabel("项目列表").selectOption("project-2");
   await expect(page.getByText("Demand Forecast Review")).toBeVisible();
   await page.getByRole("button", { name: "项目主页", exact: true }).click();
-  await expect(page.getByText("T-401 Model forecast confidence bands")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Model forecast confidence bands/ })).toBeVisible();
 
   await page.getByRole("button", { name: "创建项目" }).click();
   await expect(page.getByLabel("现有项目目录")).toBeVisible();
@@ -284,8 +290,8 @@ test("uses a complete mock project instead of UI demo data modes", async ({ page
   await page.getByRole("button", { name: "项目主页", exact: true }).click();
   await expect(page.getByRole("heading", { name: "项目主页" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "任务看板" })).toBeVisible();
-  await expect(page.getByText("T-230 Review refund approval copy")).toBeVisible();
-  await expect(page.getByText("T-231 Run mobile browser acceptance")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Review refund approval copy/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Run mobile browser acceptance/ })).toBeVisible();
 });
 
 test("submits a controlled command and shows blocked feedback", async ({ page }) => {

@@ -41,3 +41,5 @@
 - [x] TASK-038: 按概念图升级 Runner Console，展示 scheduler pipeline、BullMQ queue、任务队列表格、scheduler job inspector、recent triggers、Evidence 和日志。
 - [x] TASK-039: 更新 Product Console 浏览器验证，覆盖 scheduler pipeline、queue、job inspector、workspace、blocked reason / Evidence 摘要和 command receipt。
 - [x] TASK-040: 保存 Audit Center UI 概念图到 `docs/ui/audit-center-concept.png`，并按概念图升级审计中心，展示审计摘要、筛选工具栏、时间线、事件详情、Evidence 和 Approval 关联记录。
+- [x] TASK-041: 优化 Runner / Task Scheduler 任务队列中心，接入真实 ViewModel 的任务描述、需求、验收、允许文件和 Evidence 摘要，支持按队列、状态、风险和关键词筛选，并提供选中任务详情。
+- [x] TASK-042: 将任务调度中心重构为 Job 列表 + Execution Record 详情，移除固定 Feature 列和旧 `feature.select` / `feature.plan` 流水线展示，支持空 Feature task 表但有 Job/Execution Record 时仍显示队列。

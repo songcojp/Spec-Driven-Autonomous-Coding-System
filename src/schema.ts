@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -968,6 +968,80 @@ export const MIGRATIONS: Migration[] = [
       "ALTER TABLE runner_policies ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT 'medium'",
     ],
   },
+  {
+    version: 21,
+    description: "Refactor scheduler queue jobs and execution records",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS execution_records (
+        id TEXT PRIMARY KEY,
+        scheduler_job_id TEXT,
+        executor_type TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        project_id TEXT,
+        context_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        summary TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `INSERT OR IGNORE INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, completed_at, summary, metadata_json, created_at, updated_at
+      )
+      SELECT
+        id,
+        NULL,
+        COALESCE(json_extract(metadata_json, '$.executorType'), 'cli'),
+        COALESCE(json_extract(metadata_json, '$.commandAction'), json_extract(metadata_json, '$.skillPhase'), 'unknown'),
+        project_id,
+        json_object(
+          'featureId', feature_id,
+          'taskId', task_id,
+          'workspaceRoot', json_extract(metadata_json, '$.workspaceRoot'),
+          'skillSlug', json_extract(metadata_json, '$.skillSlug'),
+          'skillPhase', json_extract(metadata_json, '$.skillPhase')
+        ),
+        status,
+        started_at,
+        completed_at,
+        summary,
+        COALESCE(metadata_json, '{}'),
+        COALESCE(started_at, CURRENT_TIMESTAMP),
+        COALESCE(completed_at, started_at, CURRENT_TIMESTAMP)
+      FROM runs`,
+      "DROP INDEX IF EXISTS idx_scheduler_jobs_bullmq",
+      "DROP INDEX IF EXISTS idx_scheduler_jobs_queue_status",
+      "DROP INDEX IF EXISTS idx_scheduler_jobs_target_updated",
+      `CREATE TABLE IF NOT EXISTS scheduler_job_records_v21 (
+        id TEXT PRIMARY KEY,
+        bullmq_job_id TEXT NOT NULL,
+        queue_name TEXT NOT NULL,
+        job_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `INSERT OR IGNORE INTO scheduler_job_records_v21 (
+        id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts,
+        error, created_at, updated_at
+      )
+      SELECT id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts,
+        error, created_at, updated_at
+      FROM scheduler_job_records`,
+      "DROP TABLE IF EXISTS scheduler_job_records",
+      "ALTER TABLE scheduler_job_records_v21 RENAME TO scheduler_job_records",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduler_jobs_bullmq ON scheduler_job_records(queue_name, bullmq_job_id)",
+      "CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_queue_status ON scheduler_job_records(queue_name, status, updated_at)",
+      "CREATE INDEX IF NOT EXISTS idx_execution_records_project_status ON execution_records(project_id, status, updated_at)",
+      "CREATE INDEX IF NOT EXISTS idx_execution_records_scheduler_job ON execution_records(scheduler_job_id)",
+    ],
+  },
 ];
 
 export type ChatIntentType =
@@ -1040,7 +1114,7 @@ export type ChatAssistantResponse = {
   receipt?: {
     action: string;
     status: string;
-    runId?: string;
+    executionId?: string;
     schedulerJobId?: string;
     blockedReasons?: string[];
   };

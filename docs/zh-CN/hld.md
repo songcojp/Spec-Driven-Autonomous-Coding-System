@@ -14,6 +14,8 @@ SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。
 
 2026-04-29 边界更新：平台不再提供 Skill System、Subagent Runtime、Agent Run Contract、Context Broker、Planning Pipeline、Skill Center 或 Subagent Console。本文后续旧名称若仍出现在历史映射中，均由 Scheduler and State Maintenance、Runner observation、Evidence、Status Check、Review、Recovery 和 Audit 替代。
 
+2026-05-01 调度队列重构：Scheduler 采用 `Feature Pool Queue -> <executor>.run Job -> Execution Record -> Evidence`。`feature-pool-queue.json` 是 Feature 队列规划来源；平台不再创建 `feature.select` / `feature.plan`，不再维护平台 TaskGraph 表，也不再使用 `feature_planning` 阶段。Job 仅包含执行层字段，Feature/Task/Project 进入 payload context。Execution Record / 执行记录是 heartbeat、logs、session 和 Evidence 的执行实例锚点；旧 Feature Scheduler、TaskGraph 和 Feature Plan 设计仅作为历史废弃说明保留。
+
 本 HLD 定义项目级架构边界、技术栈、核心子系统、数据域、集成方式、运行拓扑、安全治理、可观测性和 Feature Spec 拆分方向。本文不定义具体接口字段、数据库迁移、函数签名、任务实现步骤或单个 Feature 的低层设计。
 
 MVP 采用本地优先的控制面架构：
@@ -235,10 +237,10 @@ Collaborates With:
 
 Responsibilities:
 
-- Project Scheduler 从 Feature Spec Pool 动态选择 `ready` Feature。
-- Project Scheduler 接收立即执行、指定时间、周期巡检、依赖完成、CI 失败和审批通过等触发模式。
-- Feature Scheduler 在 Feature 内根据依赖、风险、文件范围、Runner 可用性、预算和审批状态调度任务。
-- `feature.select` Worker 执行 live Feature 选择；`feature.plan` 在 Codex Skill bridge 可用时入队 planning CLI run，在 bridge 未实现或 workspace 不可用时 blocked，不生成假 Task Graph。
+- Scheduler Trigger 从 `feature-pool-queue.json` 读取已规划 Feature 队列，并接收立即执行、指定时间、周期巡检、依赖完成、CI 失败和审批通过等触发模式。
+- Scheduler Trigger 创建 `<executor>.run` Job；当前为 `cli.run`，后续可扩展 `native.run`。
+- Feature/Task/Project 不作为 Job 顶层属性，只进入 payload context。
+- 平台不维护 Feature 内 TaskGraph 表；Feature 内任务排序、并行和 task 状态由 LLM 与 Feature Spec `tasks.md` 管理。
 - Feature Aggregator 根据任务状态、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
 - 维护 Feature 与 Task 的内部状态机。
 
@@ -521,15 +523,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  Pool[Feature Spec Pool] --> Selector[Project Scheduler + Feature Selector]
-  Selector --> SchedulerJob[feature.plan job]
-  SchedulerJob -->|bridge missing| BlockedPlanning[Feature blocked]
-  SchedulerJob -->|future bridge| Planning[Codex Skill Planning Bridge]
-  Planning --> Graph[Task Graph]
-  Graph --> Seq[生成执行序列<br/>Code: Feature Scheduler + BullMQ jobs]
-  Seq --> Board[Task Board]
-  Board --> Schedule[Feature Scheduler]
-  Schedule --> CliJob[cli.run job]
+  Pool[Feature Pool Queue<br/>feature-pool-queue.json] --> SchedulerJob["<executor>.run Job"]
+  SchedulerJob --> ExecRecord[Execution Record]
+  ExecRecord --> CliJob[cli.run / native.run]
   CliJob --> Memory[Project Memory Injection]
   Memory --> Runner[Codex Runner]
   Runner --> Evidence[Evidence Pack]
@@ -571,12 +567,9 @@ flowchart TD
   Checklist -->|通过| Ready["[Code] Feature 状态 → ready"]
   Checklist -->|歧义| Draft["[Code] Feature → draft / review_needed\n写入 ClarificationLog"]
   Draft -->|澄清完成| Ready
-  Ready --> PlanJob["[Code] feature.plan job\nProject Scheduler 入队"]
-  PlanJob -->|bridge 未实现| BlockedPlan["[Code] Feature → blocked"]
-  PlanJob -->|Codex bridge 可用| Pipeline["[Skill] 规划流水线\ntechnical-context → research-decision →\narchitecture-plan → data-model →\ncontract-design → quickstart-validation →\nspec-consistency-analysis"]
-  Pipeline --> TaskSlice["[Skill] task-slicing-skill（Task 级）\n+ [Code] TaskGraph 写入 SQLite"]
-  TaskSlice --> Seq["[Code] Feature Scheduler\n生成执行序列 → BullMQ cli.run jobs"]
-  Seq --> MemInject["[Code] Project Memory 注入\n+ Codex Runner 执行"]
+  Ready --> QueueJob["[Code] <executor>.run Job\noperation=feature_execution"]
+  QueueJob --> ExecRecord["[Code] Execution Record\npayload context"]
+  ExecRecord --> MemInject["[Code] Project Memory 注入\n+ CLI/native executor 执行"]
   MemInject --> Evidence["[Code] Evidence Pack 生成"]
   Evidence --> StatusCheck["[Code] Status Checker\ndiff / build / test / lint / security\n+ [Skill] Spec Alignment 语义比对"]
   StatusCheck -->|Done| Merge["[Code] Result Merger\n→ Feature Aggregator"]
@@ -598,13 +591,10 @@ flowchart TD
 | HLD 生成 | EARS 完成后手动或受控命令触发 | **Skill**（内容）+ **Code**（artifact 落地） | PRD + EARS Requirements | HLD 文档（`docs/zh-CN/hld.md`）+ **一级页面清单** | `create-project-hld` |
 | UI Spec + 主要页面概念图 | HLD 完成后触发（含 UI 的产品） | **Skill** | PRD + EARS Requirements + HLD + 一级页面清单 | UI Spec 文档（`docs/ui/ui-spec.md` 或 Feature 级 `ui-spec.md`）+ 主要页面概念图（`docs/ui/concepts/*.svg`） | `ui-spec-skill` |
 | Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill** | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`） | `task-slicing-skill`（Feature 级） |
-| 推入 Feature Spec Pool | Feature Spec 拆分完成后触发 | **Code** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` | SQLite Feature 候选记录 + BullMQ `feature.select` 调度队列 | — |
+| 推入 Feature Spec Pool | Feature Spec 拆分完成后触发 | **Code** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` | SQLite Feature 候选记录 + BullMQ `<executor>.run` Job + Execution Record | — |
 | 需求质量检查 | Feature Spec 创建后 | **Skill** | Feature Spec requirements.md | 通过 → `ready`；歧义 → ClarificationLog + `draft` | `requirements-checklist-skill`、`ambiguity-clarification-skill` |
-| per-Feature 规划 | feature.plan job（Project Scheduler） | **Skill**（内容，bridge 可用时）| Feature Spec requirements / design | Technical Plan、Data Model、Contracts、`spec-consistency-analysis` 报告 | 7-skill 规划流水线 |
-| Task Graph 生成 | 规划流水线完成 | **Skill**（分解）+ **Code**（TaskGraph 写入） | Technical Plan + Contracts | TaskGraph（SQLite）+ 看板任务卡 | `task-slicing-skill`（Task 级） |
-| 执行序列生成 | TaskGraph 写入后 | **Code** | TaskGraph | BullMQ `cli.run` jobs（有序执行序列） | — |
-| Task 执行 | `cli.run` job Worker 消费 | **Code**（Runner / Memory）+ **CLI** | cli.run job + Project Memory | Run 记录、心跳、RawLog、Evidence Pack | — |
-| Status 检查 | Run 结束 | **Code**（确定性检查）+ **Skill**（Spec Alignment） | Evidence Pack | StatusCheckResult（Done / Review Needed / Failed / Blocked） | — |
+| Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Runner / Memory）+ **CLI/native** | Job payload + Project Memory | Execution Record、心跳、RawLog、Evidence Pack | — |
+| Status 检查 | Execution Record 结束 | **Code**（确定性检查）+ **Skill**（Spec Alignment） | Evidence Pack | StatusCheckResult（Done / Review Needed / Failed / Blocked） | — |
 | Review / Recovery | Status 触发 | **Code**（状态）+ **Skill**（内容） | StatusCheckResult + Evidence | ReviewItem / RecoveryTask | `review-report-skill`、`failure-recovery-skill` |
 | Feature 交付 | Feature Aggregator 判断 done | **Code**（PR / Delivery）+ **Skill**（内容） | Evidence + Task 结果 | PR、Delivery Report、Spec Evolution 建议 | `pr-generation-skill`、`spec-evolution-skill` |
 
@@ -615,14 +605,12 @@ flowchart TD
 | 阶段 | 触发 | 实现归因 | 状态迁移 | 产出物 |
 |---|---|---|---|---|
 | **intake** | Feature Spec 创建（手动 / Skill 拆分） | Skill（EARS 内容 + Checklist + 澄清）+ Code（Feature 记录写入、状态迁移） | `draft` → `ready`（或 `review_needed`） | EARS Requirements、ClarificationLog、RequirementChecklist |
-| **planning** | `feature.plan` job 被 Project Scheduler 消费 | Skill（7-skill 规划流水线，Codex bridge）；bridge 缺失时 Code 将 Feature 置 `blocked` | `ready` → `planning`；bridge 缺失 → `blocked` | Technical Plan、Research Decisions、Data Model、Interface Contracts、Spec Consistency Report |
-| **tasked** | 规划流水线产出 Task 分解（`task-slicing-skill`） | Skill（Task 分解内容）+ Code（TaskGraph 写入 SQLite，看板任务卡创建） | `planning` → `tasked` | TaskGraph、Task 列表（看板）、执行序列 BullMQ jobs |
-| **in-progress** | Feature Scheduler 消费首个 `cli.run` job | Code（BullMQ Worker、Project Memory 注入、Codex Runner 调用、心跳、Run 记录） | `tasked` → `in-progress`；per-task：`scheduled` → `running` → `done/failed/blocked` | Run 记录、RunnerHeartbeat、RawExecutionLog、Evidence Pack |
-| **checking** | 每次 Run 结束后 Status Checker 触发 | Code（diff/build/test/lint/security 命令执行）+ Skill（Spec Alignment 语义比对） | per-task：`running` → `done` / `review_needed` / `blocked` / `failed` | StatusCheckResult、SpecAlignmentResult、EvidencePack（更新） |
+| **execution** | `<executor>.run` job 被 Worker 消费 | Code（BullMQ Worker、Project Memory 注入、CLI/native executor、心跳、Execution Record） | `ready` → `implementing`；per-context：`running` → `done/failed/blocked` | Execution Record、RunnerHeartbeat、RawExecutionLog、Evidence Pack |
+| **checking** | 每次 Execution Record 结束后 Status Checker 触发 | Code（diff/build/test/lint/security 命令执行）+ Skill（Spec Alignment 语义比对） | `running` → `done` / `review_needed` / `blocked` / `failed` | StatusCheckResult、SpecAlignmentResult、EvidencePack（更新） |
 | **closing** | Feature Aggregator 判断所有任务完成且验收通过 | Code（PR 创建、Delivery Record）+ Skill（PR 内容、Spec Evolution 建议） | `in-progress` → `done` → `delivered`；未通过 → `review_needed` | PullRequestRecord、Delivery Report、SpecEvolutionSuggestion |
 
 **状态机约束**：
-- `blocked`：任意阶段均可发生；恢复后回退到前一阶段的入口（如 planning blocked 恢复后重新入队 `feature.plan` job）。
+- `blocked`：任意阶段均可发生；恢复后回退到前一阶段的入口并重新入队 `<executor>.run` Job。
 - `review_needed`：任意阶段均可触发；审批通过后恢复到原阶段入口；拒绝或要求修改则回退到 `intake` 或 `planning`。
 - Feature 的 `done` 不能仅凭任务卡片状态判断，必须满足 Feature 验收标准、Spec Alignment 检查和必要测试覆盖。
 

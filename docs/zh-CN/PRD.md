@@ -7,6 +7,8 @@
 
 2026-04-29 边界更新：平台能力收缩为项目/Feature/Task 的调度、状态机、状态聚合、审计、Project Memory 和 Product Console 状态展示。平台不再提供 Skill 注册/发现/调用/schema 校验/Skill Center，不再提供 Subagent Runtime/Context Broker/Agent Run Contract/Subagent Console，不再提供 Planning Pipeline 主动编排执行。历史章节中涉及 Skill、Subagent 或 Planning Pipeline 的平台能力均按“已废弃”理解；Runner 仅作为外部执行队列、心跳、日志、证据和状态检测来源。
 
+2026-05-01 调度队列重构：调度中心管理执行 Job，不再把 Feature 作为 Job 顶层属性。`feature-pool-queue.json` 是 Feature 队列规划来源；`push_feature_spec_pool` 读取该文件后直接创建 `<executor>.run` Job。当前 executor 为 `cli.run`，后续可扩展 `native.run`；payload 使用 `operation` 区分 `feature_execution`、EARS、HLD、UI Spec、Feature split 等操作。`feature.select`、`feature.plan` 和 `feature_planning` 阶段已废弃。真实执行实例统一称为 Execution Record / 执行记录，替代旧 Run 领域词。
+
 ---
 
 ## 1. 产品定义
@@ -691,11 +693,11 @@ Feature Scheduler
   → Feature 内任务并行必须满足依赖和文件隔离条件
 ```
 
-Project Scheduler 负责 Feature 选择、Feature 级并行控制、Feature 生命周期推进和跨 Feature 资源分配。Feature Scheduler 负责 Feature 内任务排序、任务并行、Runner 分配和任务状态推进。
+Project Scheduler 负责读取 `feature-pool-queue.json` 队列规划、创建 `<executor>.run` Job、记录 Execution Record 和跨 Feature 资源约束。Feature 内任务排序、并行和 task 状态由 LLM 与 Feature Spec `tasks.md` 管理，平台不再维护二次 TaskGraph。
 
-Project Scheduler 的调度 job 类型为 `feature.select` 和 `feature.plan`。`feature.select` 必须从当前 Feature Spec Pool 读取 live `ready` Feature 并写入选择决策；`feature.plan` 在 Codex Skill planning bridge 未实现或项目 workspace 不可用时必须把 Feature 标记为 blocked，原因固定为 `Planning skill execution bridge is not implemented` 或 workspace 阻塞原因。bridge 可用时只能入队 planning CLI run，等待 Runner Evidence 回写，不得生成假任务图或伪造 Skill 输出。
+Project Scheduler 的调度 job 类型为 `<executor>.run`，当前为 `cli.run`，后续可扩展 `native.run`。Job payload 必须包含 `operation`、`projectId`、`context`；Feature/Task/Project 只出现在 context 中。Feature 执行统一使用 `operation = "feature_execution"`。
 
-CLI 执行调度 job 类型为 `cli.run`。Task Board 的运行动作只允许把已排期任务入队，由 Runner Worker 执行 CLI、写 heartbeat/session/log/evidence/status check，并回写 Run 与 Task 状态。
+CLI 执行调度由 Runner Worker 消费 `cli.run` Job，写 heartbeat/session/log/evidence/status check，并回写 Execution Record 与相关 context 状态。
 
 #### FR-062 调度策略
 

@@ -42,6 +42,10 @@ function SectionKicker({ icon: Icon, label }: { icon: typeof Home; label: string
   );
 }
 
+function taskDisplayName(task: BoardTask): string {
+  return task.name || task.title || task.id;
+}
+
 function ProjectHomeOverview({ data, text, project }: { data: ConsoleData; text: UiStrings; project: ProjectSummary }) {
   const activeFeature = data.dashboard.activeFeatures[0];
   const latestPr = data.dashboard.recentPullRequests[0];
@@ -366,11 +370,11 @@ function BoardPanel({
               >
                 <td className="px-4 py-3">
                   <div className="font-medium">
-                    {task.id} <span className="ml-2 text-ink">{task.title}</span>
+                    <span className="text-ink">{taskDisplayName(task)}</span>
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[12px] text-muted">
                     <StatusDot status={task.status} />
-                    {task.status} · {task.risk} {text.risk}
+                    {task.id} · {task.status} · {task.risk} {text.risk}
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -485,10 +489,10 @@ function TaskInspector({
       <div className="flex min-h-14 items-center justify-between border-b border-line px-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="truncate text-[18px] font-semibold tracking-normal">{task.id}</h2>
+            <h2 className="truncate text-[18px] font-semibold tracking-normal">{taskDisplayName(task)}</h2>
             <Chip tone={statusTone[task.status] ?? "neutral"}>{task.status}</Chip>
           </div>
-          <div className="mt-1 truncate text-[13px] text-muted">{task.title}</div>
+          <div className="mt-1 truncate text-[13px] text-muted">{task.id}</div>
         </div>
       </div>
       <div className="grid grid-cols-4 border-b border-line text-center text-[12px] text-muted">

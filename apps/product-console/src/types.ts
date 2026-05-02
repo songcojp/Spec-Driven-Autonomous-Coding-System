@@ -37,6 +37,8 @@ export type CommandReceipt = {
   featureId?: string;
   schedulerJobId?: string;
   schedulerJobIds?: string[];
+  executionId?: string;
+  executionIds?: string[];
   runId?: string;
   runIds?: string[];
   blockedReasons?: string[];
@@ -44,7 +46,7 @@ export type CommandReceipt = {
 
 export type ProjectSummary = {
   id: string;
-  name: string;
+  name?: string;
   repository: string;
   projectDirectory: string;
   defaultBranch: string;
@@ -56,7 +58,7 @@ export type ProjectCreateMode = "import_existing" | "create_new";
 
 export type ProjectCreateForm = {
   mode: ProjectCreateMode;
-  name: string;
+  name?: string;
   goal: string;
   projectType: string;
   techPreferences: string;
@@ -69,7 +71,7 @@ export type ProjectCreateForm = {
 
 export type ProjectDirectoryScan = {
   targetRepoPath: string;
-  name: string;
+  name?: string;
   repository: string;
   defaultBranch: string;
   projectType: string;
@@ -130,6 +132,7 @@ export type ProjectOverviewModel = {
 export type BoardTask = {
   id: string;
   featureId?: string;
+  name: string;
   title: string;
   status: string;
   risk: string;
@@ -169,7 +172,7 @@ export type SpecWorkspaceModel = {
     runtime?: string;
     blockedReasons: string[];
     phases: Array<{
-      key: "project_initialization" | "requirement_intake" | "feature_planning" | "ui_spec";
+      key: "project_initialization" | "requirement_intake" | "feature_execution" | "ui_spec";
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       blockedReasons: string[];
@@ -258,19 +261,24 @@ export type RunnerModel = {
 
 export type RunnerSchedulerJob = {
   id: string;
+  name?: string;
   bullmqJobId?: string;
   queueName: string;
   jobType: string;
+  operation?: string;
   targetType: string;
   targetId?: string;
   status: string;
+  attempts?: number;
   error?: string;
   updatedAt: string;
+  executionId?: string;
   runId?: string;
   taskId?: string;
   featureId?: string;
   projectId?: string;
   workspaceRoot?: string;
+  context?: Record<string, unknown>;
 };
 
 export type CliAdapterConfigModel = {
@@ -316,9 +324,14 @@ export type RunnerScheduleTask = {
   id: string;
   featureId?: string;
   featureTitle?: string;
+  name: string;
   title: string;
+  description?: string;
   status: string;
   risk: string;
+  sourceRequirementIds?: string[];
+  acceptanceCriteriaIds?: string[];
+  allowedFiles?: string[];
   dependencies: Array<{ id: string; status: string; satisfied: boolean }>;
   approvalStatus: "approved" | "pending" | "not_required";
   runnerId?: string;
@@ -326,6 +339,8 @@ export type RunnerScheduleTask = {
   action: "schedule" | "run" | "review" | "observe";
   blockedReasons: string[];
   recentLog?: string;
+  evidenceSummary?: string;
+  lastUpdatedAt?: string;
 };
 
 export type ReviewModel = {

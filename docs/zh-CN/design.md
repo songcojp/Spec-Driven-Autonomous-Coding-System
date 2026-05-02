@@ -1711,3 +1711,6 @@ MVP 初始没有旧数据迁移要求。后续版本需要迁移时遵循：
 - 成本统计需要接入 Codex CLI 的哪些 token 或 usage 字段，需要随实际 CLI 输出确认。
 - Dashboard 是否允许拖拽改变任务状态，还是 MVP 仅允许通过调度和审批动作改变状态。
 - Project Memory 版本回滚是否允许自动触发状态修正，还是只能作为人工恢复输入。
+# 2026-05-01 Historical Note: Scheduler Queue Refactor
+
+本文是历史设计记录。当前调度模型以 `Feature Pool Queue -> <executor>.run Job -> Execution Record -> Evidence` 为准：`feature-pool-queue.json` 已经完成 Feature 队列规划，平台不再创建 `feature.select`、`feature.plan` 或 `feature_planning` 阶段，也不维护平台 TaskGraph 表。Job 与 Feature 解耦，Feature/Task/Project 只作为 payload context。真实执行实例统一称为 Execution Record / 执行记录，Evidence、heartbeat、logs 和 session 均关联执行记录。

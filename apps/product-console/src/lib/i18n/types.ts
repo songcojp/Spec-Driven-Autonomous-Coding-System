@@ -6,4 +6,5 @@ export type TranslationCatalog = Record<string, unknown> & {
   ofTasks: (start: number, end: number, total: number) => string;
   reviewsTitle: (count: number) => string;
   itemsTotal: (total: number) => string;
+  pageRange: (start: number, end: number, total: number) => string;
 };

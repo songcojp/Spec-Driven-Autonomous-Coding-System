@@ -21,7 +21,7 @@
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 | FEAT-015 | Chat Interface | `feat-015-chat-interface` | in-progress | REQ-069 至 REQ-073 | M7 | FEAT-013、FEAT-004、FEAT-014 |
 
-FEAT-013 当前补充 Runner / Scheduler UI refinement：`docs/ui/task-scheduler-console-concept.png` 是任务调度中心的实现基线，覆盖 scheduler pipeline、BullMQ queue、任务队列表格、job inspector、Evidence 和日志反馈。
+FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、Evidence 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃。
 
 ## Dependency Tree
 
@@ -100,7 +100,7 @@ FEAT-000 System Bootstrap
 | CHG-012 | FEAT-013 / FEAT-002 | 阶段 2 需求录入需要自动扫描 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources；扫描已有 HLD / Feature Spec 不等于生成 HLD 或拆分 Feature Spec。 | FEAT-013 执行 `TASK-027` 至 `TASK-028`；后续 FEAT-002 patch 提供 Spec Sources 扫描模型和生成 EARS 文档的事实输入。 |
 | ADD-006 | FEAT-008 / FEAT-013 | CLI 调用升级为 Runner CLI Adapter；adapter 配置以 JSON 为唯一事实源，并通过 Product Console 系统设置中的 JSON 表单直接编辑、dry-run 校验和启用；Runner Console 只展示配置健康摘要和跳转入口。 | 已执行 FEAT-008 `TASK-009` 至 `TASK-012`（CLI Adapter 配置持久化、dry-run 校验、Runner 阶段阻断逆型、通过单测视证）；已执行 FEAT-013 `TASK-029` 至 `TASK-032`（System Settings 页面、CLI 配置页、JSON 编辑器 + 表单编辑器、受控命令 dry-run / 保存草稿 / 启用 / 禁用）；FEAT-013 `TASK-033` 浏览器级验证待执行。 |
 | CHG-017 | FEAT-008 / FEAT-013 | 实现过程发现 Runner Queue Worker 在 `cli_adapter_configs` 表非空但无 active row 时不阻断新 Run，且 SettingsPage 缺少 `disable_cli_adapter_config` 按鈕。 | 已在 `src/scheduler.ts` `loadRunnerTaskContext` 补充适配器数龐查询并添加阻断逻辑；已在 SettingsPage 添加禁用按鈕；已补充 CLI Adapter 校验、normalize 和阻断行为单测；全部 298 测试通过。 |
-| CHG-015 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 | 调度系统升级为 BullMQ + Redis；SQLite 仍是业务事实源。`schedule_run` 只入队 `feature.select`，`feature.plan` bridge 缺失时 blocked 且不生成假任务图，`run_board_tasks` 入队 `cli.run` 后由 Worker 执行。 | 已执行 FEAT-004 `TASK-014` 至 `TASK-016`、FEAT-008 `TASK-013`、FEAT-013 `TASK-034`，并同步 FEAT-014 scheduler job record 持久化。 |
+| CHG-015 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 | 调度系统升级为 BullMQ + Redis；SQLite 仍是业务事实源。当前模型由 CHG-018 收敛为 `<executor>.run` Job + Execution Record，`run_board_tasks` / Spec 操作入队 `cli.run` 后由 Worker 执行。 | 已执行 FEAT-004、FEAT-008、FEAT-013、FEAT-014 scheduler job / execution record 持久化与控制台展示。 |
 | CHG-016 | FEAT-004 / FEAT-008 / FEAT-013 | Product Console / Spec 操作转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中调用 Codex；平台不恢复 Skill Registry 或 Skill Center。 | 已执行 FEAT-004 `TASK-017`、FEAT-008 `TASK-014` 至 `TASK-016`、FEAT-013 `TASK-035` 至 `TASK-036`。 |
 | CHG-009 | FEAT-013 | 当前 Product Console 实现只覆盖 Control Plane API 和 ViewModel，不能替代 PRD 第 8 节要求的用户可操作 UI。 | 已补真实前端应用、页面路由、shadcn/ui 组件体系和浏览器级验收。 |
 | CHG-007 | FEAT-010 | 失败重试上限、2/4/8 分钟退避和失败指纹已由现有实现与测试覆盖。 | 无需重新执行 Feature Spec。 |

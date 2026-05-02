@@ -328,7 +328,7 @@ const returnsPortalData: ConsoleProjectData = {
           ],
         },
         {
-          key: "feature_planning",
+          key: "feature_execution",
           status: "pending",
           updatedAt: "05-19 09:21",
           blockedReasons: [],
@@ -401,16 +401,34 @@ const returnsPortalData: ConsoleProjectData = {
   runner: {
     summary: { onlineRunners: 1, runningTasks: 1, readyTasks: 1, blockedTasks: 2, successRate: 0.957, failureRate: 0.043 },
     schedulerJobs: [
-      { id: "JOB-710", bullmqJobId: "BULL-710", queueName: "specdrive:feature-scheduler", jobType: "feature.select", targetType: "project", targetId: "project-1", status: "completed", updatedAt: "2026-04-29T03:41:00.000Z", projectId: "project-1", featureId: "FEAT-204" },
-      { id: "JOB-711", bullmqJobId: "BULL-711", queueName: "specdrive:feature-scheduler", jobType: "feature.plan", targetType: "feature", targetId: "FEAT-204", status: "blocked", error: "Project workspace is missing readable AGENTS.md", updatedAt: "2026-04-29T03:41:30.000Z", projectId: "project-1", featureId: "FEAT-204", workspaceRoot: "workspace/acme-returns-portal" },
-      { id: "JOB-709", bullmqJobId: "BULL-709", queueName: "specdrive:cli-runner", jobType: "cli.run", targetType: "task", targetId: "T-229", status: "queued", updatedAt: "2026-04-29T03:42:00.000Z", runId: "RUN-709", taskId: "T-229", featureId: "FEAT-204", projectId: "project-1", workspaceRoot: "workspace/acme-returns-portal" },
+      { id: "JOB-709", bullmqJobId: "BULL-709", queueName: "specdrive:cli-runner", jobType: "cli.run", operation: "feature_execution", targetType: "execution", targetId: "RUN-709", status: "queued", attempts: 0, updatedAt: "2026-04-29T03:42:00.000Z", executionId: "RUN-709", runId: "RUN-709", taskId: "T-229", featureId: "FEAT-204", projectId: "project-1", workspaceRoot: "workspace/acme-returns-portal", context: { featureId: "FEAT-204", featureSpecPath: "docs/features/FEAT-204/tasks.md", taskId: "T-229", taskName: "Connect carrier label quote mock", workspaceRoot: "workspace/acme-returns-portal", skillSlug: "codex-coding-skill", skillPhase: "task_execution" } },
+      { id: "JOB-711", bullmqJobId: "BULL-711", queueName: "specdrive:cli-runner", jobType: "cli.run", operation: "generate_hld", targetType: "execution", targetId: "RUN-711", status: "blocked", attempts: 1, error: "Project workspace is missing readable AGENTS.md", updatedAt: "2026-04-29T03:41:30.000Z", executionId: "RUN-711", runId: "RUN-711", projectId: "project-1", workspaceRoot: "workspace/acme-returns-portal", context: { workspaceRoot: "workspace/acme-returns-portal", skillSlug: "create-project-hld", skillPhase: "feature_execution" } },
+      ...Array.from({ length: 11 }, (_, index) => ({
+        id: `JOB-PAGE-${index}`,
+        bullmqJobId: `BULL-PAGE-${index}`,
+        queueName: "specdrive:cli-runner",
+        jobType: "cli.run",
+        operation: "feature_execution",
+        targetType: "execution",
+        targetId: `RUN-PAGE-${index}`,
+        status: index % 2 === 0 ? "queued" : "completed",
+        attempts: 0,
+        updatedAt: `2026-04-29T03:${String(20 + index).padStart(2, "0")}:00.000Z`,
+        executionId: `RUN-PAGE-${index}`,
+        runId: `RUN-PAGE-${index}`,
+        taskId: `T-PAGE-${index}`,
+        featureId: "FEAT-204",
+        projectId: "project-1",
+        workspaceRoot: "workspace/acme-returns-portal",
+        context: { taskName: `Paginated task ${index}`, skillSlug: "codex-coding-skill", skillPhase: "task_execution" },
+      })),
     ],
     lanes: {
       ready: [
         { id: "T-231", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Run mobile browser acceptance", status: "ready", risk: "low", dependencies: [{ id: "T-228", status: "running", satisfied: false }, { id: "T-230", status: "review_needed", satisfied: false }], approvalStatus: "not_required", action: "schedule", blockedReasons: [], recentLog: "npm run console:test -- returns-mobile" },
       ],
       scheduled: [
-        { id: "T-229", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Connect carrier label quote mock", status: "scheduled", risk: "medium", dependencies: [{ id: "T-228", status: "running", satisfied: false }], approvalStatus: "pending", runnerId: "runner-web-01", runId: "RUN-709", action: "run", blockedReasons: ["Waiting for T-228 upload contract to be finalized."], recentLog: "node --test tests/carrier-labels.test.ts" },
+        { id: "T-229", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Connect carrier label quote mock", description: "Queue the carrier label quote implementation against the local fixture contract and browser acceptance evidence.", status: "scheduled", risk: "medium", sourceRequirementIds: ["REQ-204"], acceptanceCriteriaIds: ["AC-204-CARRIER-LABEL"], allowedFiles: ["src/carrier-labels.ts", "tests/carrier-labels.test.ts"], dependencies: [{ id: "T-228", status: "running", satisfied: false }], approvalStatus: "pending", runnerId: "runner-web-01", runId: "RUN-709", action: "run", blockedReasons: ["Waiting for T-228 upload contract to be finalized."], evidenceSummary: "Carrier label fixture decision recorded in contracts.", recentLog: "node --test tests/carrier-labels.test.ts" },
       ],
       running: [
         { id: "T-228", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Add photo evidence upload with preview", status: "running", risk: "medium", dependencies: [{ id: "T-227", status: "done", satisfied: true }], approvalStatus: "not_required", runnerId: "runner-web-01", runId: "RUN-708", action: "observe", blockedReasons: [], recentLog: "Mobile upload preview rendered and evidence fixture stored." },
@@ -441,7 +459,7 @@ const returnsPortalData: ConsoleProjectData = {
         schedulerJobId: "JOB-710",
         workspaceRoot: "workspace/acme-returns-portal",
         skillSlug: "technical-context-skill",
-        skillPhase: "feature_planning",
+        skillPhase: "feature_execution",
         blockedReason: "Project workspace is missing readable AGENTS.md",
         status: "blocked",
         updatedAt: "2026-04-29T03:41:00.000Z",

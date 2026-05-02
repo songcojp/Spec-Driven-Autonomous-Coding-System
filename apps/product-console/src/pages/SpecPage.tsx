@@ -129,7 +129,7 @@ function workflowStageAction(
   if (phaseKey === "ui_spec") {
     return stageKey === "generate_ui_spec" ? "generate_ui_spec" : undefined;
   }
-  if (phaseKey === "feature_planning") {
+  if (phaseKey === "feature_execution") {
     return stageKey === "generate_hld"
       ? "generate_hld"
       : stageKey === "generate_ui_spec"
@@ -151,7 +151,7 @@ function mergeUiSpecIntoFeaturePlanning(phases: WorkflowPhase[]): WorkflowPhase[
   if (!uiSpecPhase) return visiblePhases;
 
   return visiblePhases.map((phase) => {
-    if (phase.key !== "feature_planning") return phase;
+    if (phase.key !== "feature_execution") return phase;
     const uiSpecStages = uiSpecPhase.stages.filter(
       (stage) => stage.key === "generate_ui_spec" && !phase.stages.some((existing) => existing.key === stage.key),
     );
@@ -257,7 +257,7 @@ function SpecPrdWorkflowPanel({
       ];
 
   const featurePlanningPhase: WorkflowPhase = {
-    key: "feature_planning",
+    key: "feature_execution",
     status: selectedFeatureId ? "accepted" : "pending",
     blockedReasons: selectedFeatureId ? [] : [text.noFeatureSpecs],
     facts: [
@@ -273,7 +273,7 @@ function SpecPrdWorkflowPanel({
     ],
   };
 
-  const workflowPhases: WorkflowPhase[] = baseWorkflowPhases.some((phase) => phase.key === "feature_planning")
+  const workflowPhases: WorkflowPhase[] = baseWorkflowPhases.some((phase) => phase.key === "feature_execution")
     ? baseWorkflowPhases
     : [...baseWorkflowPhases, featurePlanningPhase];
 
@@ -298,7 +298,7 @@ function SpecPrdWorkflowPanel({
 
   function runWorkflowAction(action: CommandReceipt["action"], key: string, phaseKey: WorkflowPhaseKey) {
     const entityType =
-      phaseKey === "feature_planning" &&
+      phaseKey === "feature_execution" &&
       selectedFeatureId &&
       action !== "generate_hld" &&
       action !== "split_feature_specs" &&
@@ -464,7 +464,7 @@ function SpecPrdWorkflowPanel({
                   const stageAction = workflowStageAction(phase.key, stage.key, stage.action);
                   const canRun =
                     Boolean(stageAction) &&
-                    (phase.key !== "feature_planning" ||
+                    (phase.key !== "feature_execution" ||
                       Boolean(selectedFeatureId) ||
                       stageAction === "generate_hld" ||
                       stageAction === "generate_ui_spec" ||
@@ -592,7 +592,7 @@ function SpecPrdWorkflowPanel({
               </div>
             ) : null}
             {/* UI Spec generated outputs — shown after HLD in Stage 3 */}
-            {phase.key === "feature_planning" && phase.stages.some((stage) => stage.key === "generate_ui_spec") ? (
+            {phase.key === "feature_execution" && phase.stages.some((stage) => stage.key === "generate_ui_spec") ? (
               <div className="mt-5">
                 <div className="mb-3 text-[14px] font-semibold text-ink">{text.uiSpecConceptTitle}</div>
                 <p className="mb-3 text-[12px] text-muted">{text.uiSpecConceptDescription}</p>

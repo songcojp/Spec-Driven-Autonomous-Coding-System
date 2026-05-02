@@ -6,6 +6,8 @@ SpecDrive AutoBuild 是一个以 Spec、Scheduler、Project Memory、Codex Runne
 
 2026-04-29 边界更新：平台能力收缩为项目/Feature/Task 的调度、状态机、状态聚合、审计和 Console 状态展示。平台不再提供 Skill 注册/发现/调用/schema 校验/Skill Center，不再提供 Subagent Runtime/Context Broker/Agent Run Contract/Subagent Console，不再提供 Planning Pipeline 主动编排执行。REQ-010 至 REQ-016、REQ-018、REQ-030、REQ-054 和 REQ-055 均按“已废弃”处理；REQ-043 改为平台中性的 Recovery Dispatch 输入。
 
+2026-05-01 调度队列重构：平台只维护执行队列 Job 和 Execution Record / 执行记录。Job 类型表示 executor（如 `cli.run`、`native.run`），payload `operation` 表示任务操作（如 `feature_execution`、`generate_ears`、`generate_hld`、`generate_ui_spec`、`split_feature_specs`）。Feature/Task/Project 不再是 Job 顶层属性，只能出现在 payload `context` 中。`feature.select`、`feature.plan`、`feature_planning`、FeatureSelectionDecision、平台 TaskGraph 写入和 `feature.plan` blocked 语义均废弃；Feature 内部 task 状态由 LLM 与 Feature Spec `tasks.md` 管理。
+
 ## 2. 目标
 
 - 将自然语言、PR、RP、PRD 或 EARS 输入转化为结构化 Feature Spec。
@@ -384,16 +386,15 @@ THEN THE SYSTEM SHALL 只允许互不影响文件和依赖的 Feature 并行 imp
 优先级：Must
 
 WHEN 项目级调度触发
-THE SYSTEM SHALL 根据优先级、依赖完成情况、验收风险、就绪状态、人工覆盖和 Spec 变更选择并推进 Feature。
+THE SYSTEM SHALL 读取 `feature-pool-queue.json` 中已经规划好的 Feature 队列，并把下一个依赖满足的工作转换为 `<executor>.run` Job。
 
 验收：
 - [ ] Project Scheduler 不依赖 Project Memory 中的静态候选队列作为真实调度来源。
-- [ ] 人工覆盖规则在 MVP 中使用内置固定逻辑，不要求用户配置。
-- [ ] `schedule_run` 只入队 `feature.select` job 并返回 `scheduleTriggerId` 与 `schedulerJobId`；`selectionDecisionId` 只能由 Worker 执行后产生。
-- [ ] `feature.select` Worker 从 SQLite live Feature Pool 读取 `ready` Feature、依赖、优先级、风险和 readySince，并写入 `feature_selection_decisions`。
-- [ ] 选中合法 Feature 后必须执行 `ready -> planning` 状态迁移，并入队 `feature.plan`。
+- [ ] `schedule_run` 和 `push_feature_spec_pool` 只创建 `<executor>.run` Job 并返回 `scheduleTriggerId`、`schedulerJobId` 和 `executionId`。
+- [ ] Job 顶层不得包含 Feature/Task/Project 属性；这些业务上下文只能写入 payload `context`。
+- [ ] Feature 执行统一使用 `operation = "feature_execution"`。
 - [ ] 调度触发来源、触发时间、触发原因、BullMQ job id 和调度结果被记录到 SQLite 审计/调度记录；Project Memory 只保存投影摘要。
-- [ ] 当 planning Skill bridge 未实现或项目 workspace 不可用时，`feature.plan` 必须把 Feature 标记为 blocked，原因固定为 `Planning skill execution bridge is not implemented` 或 workspace 阻塞原因；bridge 可用时只入队 planning CLI run，不得生成假任务图或伪造 Skill 输出。
+- [ ] Execution Record 记录真实执行实例，并与 Evidence、heartbeat、logs 和 session 关联。
 
 ### REQ-034：运行 Feature Scheduler
 来源：PRD 第 6.8 节 FR-061 至 FR-062

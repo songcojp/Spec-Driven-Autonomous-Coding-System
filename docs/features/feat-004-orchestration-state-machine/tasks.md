@@ -14,6 +14,8 @@
 - [x] TASK-012: 添加调度触发测试，验证手动/时间类触发可进入选择，CI/审批/依赖事件不会绕过边界。
 - [x] TASK-013: 任务图和调度状态移除 Skill/Subagent 字段。
 - [x] TASK-014: 将调度入口重构为 BullMQ + Redis job，固定 queue 为 `specdrive:feature-scheduler` / `specdrive:cli-runner`，并新增 `scheduler_job_records` SQLite 审计事实。
-- [x] TASK-015: 将 `schedule_run` 改为只登记 trigger 并 enqueue `feature.select`；Feature selection decision 由 Worker 从 live Feature Pool 选择后产生。
-- [x] TASK-016: 实现 `feature.plan` bridge-missing blocked 语义，固定原因 `Planning skill execution bridge is not implemented`，且不生成假 TaskGraph。
-- [x] TASK-017: 将 `feature.plan` 接入 Workspace-aware Codex Skill Bridge：bridge 可用时创建 planning Run 并入队 CLI Adapter；项目 workspace 缺失、不可读或缺少所需 Skill 文件时 blocked，且不生成假 TaskGraph。
+- [x] TASK-015: 历史实现：`schedule_run` 登记 trigger 后进入旧 Feature 选择队列；该行为已由 TASK-018/TASK-019 废弃。
+- [x] TASK-016: 历史实现：旧 Feature Plan bridge-missing blocked 语义；该行为已由 TASK-018/TASK-019 废弃。
+- [x] TASK-017: 历史实现：旧 Workspace-aware planning CLI bridge；当前统一通过 `<executor>.run` + payload operation 表达执行入口。
+- [x] TASK-018: 将队列模型重构为 `<executor>.run` Job + Execution Record；取消 `feature.select`、`feature.plan`、FeatureSelectionDecision 和平台 TaskGraph 调度表，Feature/Task/Project 只进入 payload context。
+- [x] TASK-019: 将 `push_feature_spec_pool` 改为读取 `feature-pool-queue.json` 后直接入队 `cli.run` / 后续 `native.run`，Feature 执行统一使用 `operation = "feature_execution"`。
