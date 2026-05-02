@@ -2,7 +2,7 @@
 
 Feature ID: FEAT-016
 Feature 名称: SpecDrive IDE Foundation
-状态: todo
+状态: done
 里程碑: M8
 依赖: FEAT-001、FEAT-002、FEAT-004、FEAT-014
 
@@ -19,8 +19,8 @@ Feature 名称: SpecDrive IDE Foundation
 
 ## 验收标准
 
-- [ ] 插件可识别多语言和单语言 SpecDrive 文档结构。
-- [ ] 插件能读取 `docs/features/README.md`、`feature-pool-queue.json` 和 Feature `spec-state.json`。
-- [ ] Spec Explorer 展示 PRD、requirements、HLD、Feature Specs 和 Task Queue。
-- [ ] 点击树节点打开对应文件、状态面板或最近 Execution Record。
-- [ ] 未识别到项目时只显示初始化/连接提示，不执行调度。
+- [x] 插件可识别多语言和单语言 SpecDrive 文档结构。
+- [x] 插件能读取 `docs/features/README.md`、`feature-pool-queue.json` 和 Feature `spec-state.json`。
+- [x] Spec Explorer 展示 PRD、requirements、HLD、Feature Specs 和 Task Queue。
+- [x] 点击树节点打开对应文件、状态面板或最近 Execution Record。
+- [x] 未识别到项目时只显示初始化/连接提示，不执行调度。

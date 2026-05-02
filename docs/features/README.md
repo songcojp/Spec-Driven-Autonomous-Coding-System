@@ -20,7 +20,7 @@
 | FEAT-013 | Product Console | `feat-013-product-console` | in-progress | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066 至 REQ-068 | M2-M7 | FEAT-001、FEAT-004、FEAT-008 |
 | FEAT-014 | Persistence and Auditability | `feat-014-persistence-auditability` | done | REQ-058、NFR-003 至 NFR-012 | Cross-cutting | FEAT-000 |
 | FEAT-015 | Chat Interface | `feat-015-chat-interface` | in-progress | REQ-069 至 REQ-073 | M7 | FEAT-013、FEAT-004、FEAT-014 |
-| FEAT-016 | SpecDrive IDE Foundation | `feat-016-specdrive-ide-foundation` | todo | REQ-074、REQ-075 | M8 | FEAT-001、FEAT-002、FEAT-004、FEAT-014 |
+| FEAT-016 | SpecDrive IDE Foundation | `feat-016-specdrive-ide-foundation` | done | REQ-074、REQ-075 | M8 | FEAT-001、FEAT-002、FEAT-004、FEAT-014 |
 | FEAT-017 | IDE Spec Interaction | `feat-017-ide-spec-interaction` | todo | REQ-076 至 REQ-078 | M8 | FEAT-016、FEAT-002、FEAT-012 |
 | FEAT-018 | Codex App Server Adapter | `feat-018-codex-app-server-adapter` | todo | REQ-080、REQ-081 | M8 | FEAT-004、FEAT-008、FEAT-014 |
 | FEAT-019 | IDE Execution Loop | `feat-019-ide-execution-loop` | todo | REQ-079、REQ-081、REQ-082 | M8 | FEAT-016、FEAT-018、FEAT-004、FEAT-008、FEAT-014 |

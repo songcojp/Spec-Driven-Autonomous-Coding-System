@@ -11,5 +11,6 @@
 * [项目高层设计文档](hld.md)
 * [历史设计快照（已作废）](design.md)
 * [项目级 Skill 说明](skills.md)
+* [SpecDrive VSCode 插件与 Codex App Server Adapter PRD](vscode-codex-app-server-prd.md)
 * [需求新增与变更处理机制](change-management.md)
 * [需求新增与变更待处置清单](change-disposition-checklist.md)
