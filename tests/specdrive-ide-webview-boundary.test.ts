@@ -1,8 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
-const extensionSource = readFileSync("apps/vscode-extension/src/extension.ts", "utf8");
+function readSourceTree(dir: string): string {
+  return readdirSync(dir, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((entry) => {
+      const entryPath = join(dir, entry.name);
+      if (entry.isDirectory()) return readSourceTree(entryPath);
+      if (!entry.name.endsWith(".ts")) return "";
+      return readFileSync(entryPath, "utf8");
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+const extensionSource = readSourceTree("apps/vscode-extension/src");
 const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.json", "utf8")) as {
   activationEvents?: string[];
   contributes?: {
