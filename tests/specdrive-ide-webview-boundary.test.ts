@@ -37,6 +37,19 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /target\.textContent = mode === "dependency" \? "Feature List" : "Dependency Graph"/);
   assert.doesNotMatch(extensionSource, /data-command="setFeatureSpecView"/);
   assert.match(extensionSource, /\.hidden\{display:none!important\}/);
+  assert.match(extensionSource, /id="workbench-status" class="status-text" role="status" aria-live="polite"/);
+  assert.match(extensionSource, /id="workbench-form" class="panel workbench-form" hidden/);
+  assert.match(extensionSource, /id="workbench-form-subtitle">Add or change/);
+  assert.match(extensionSource, /clarify: \["Clarify Feature", "Clarification", "Enter clarification content\."\]/);
+  assert.match(extensionSource, /specChange: \["Spec Change", "Global Spec request", "Enter the Spec change or new requirement\."\]/);
+  assert.match(extensionSource, /textarea id="workbench-form-input"/);
+  assert.match(extensionSource, /commandButton\("New Feature", "openWorkbenchForm", \{ formMode: "newFeature" \}\)/);
+  assert.match(extensionSource, /intent: "requirement_change_or_intake"/);
+  assert.match(extensionSource, /intent: "clarification"/);
+  assert.match(extensionSource, /command:"newFeature", content/);
+  assert.match(extensionSource, /command:"reviewFeature", featureId: form\.dataset\.featureId, comment: content/);
+  assert.match(extensionSource, /setWorkbenchStatus\("Refreshing\.\.\."\)/);
+  assert.match(extensionSource, /setWorkbenchStatus\("Running command\.\.\."\)/);
   assert.match(extensionSource, /data-view-panel="list"/);
   assert.match(extensionSource, /data-view-panel="dependency"/);
   assert.match(extensionSource, /data-command="toggleDependencyGraphBranches" data-expanded="true"/);
@@ -46,10 +59,42 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /const open = depth < 2/);
   assert.match(extensionSource, /\.feature-panel summary::before\{content:"\+"/);
   assert.match(extensionSource, /\.feature-panel\[open\] summary::before\{content:"-"\}/);
+  assert.match(extensionSource, /\.feature-card\.selected\{border-color:var\(--accent\);background:var\(--vscode-list-activeSelectionBackground\)/);
+  assert.match(extensionSource, /aria-current=\\"true\\"/);
+  assert.match(extensionSource, /isClarificationNeededFeature\(feature\)/);
+  assert.match(extensionSource, /commandButton\("Clarify", "openWorkbenchForm"/);
   assert.match(extensionSource, /title: "Blocked"/);
   assert.match(extensionSource, /title: "In-Process"/);
   assert.match(extensionSource, /title: "Todo"/);
   assert.doesNotMatch(extensionSource, /Block \/ In Process \/ Todo/);
+});
+
+test("VSCode Spec Workspace keeps global skill input at top and document actions inside lifecycle", () => {
+  assert.match(extensionSource, /renderSpecWorkspaceWebview/);
+  assert.match(extensionSource, /commandButton\("Spec Change", "openWorkbenchForm", \{ formMode: "specChange", intent: "requirement_change_or_intake" \}\)/);
+  assert.match(extensionSource, /commandButton\("Clarification", "openWorkbenchForm", \{ formMode: "specClarification", intent: "clarification" \}\)/);
+  assert.match(extensionSource, /vscode\.postMessage\(\{command:"specWorkspaceRequest", intent: form\.dataset\.intent, content\}\)/);
+  assert.match(extensionSource, /data-command="selectSpecStage" data-stage-id/);
+  assert.match(extensionSource, /renderSpecLifecycleDetail\(stage, view, projectId, stage\.id !== active\.id\)/);
+  assert.match(extensionSource, /<h3>Spec Documents<\/h3>/);
+  assert.match(extensionSource, /<h3>Stage Actions<\/h3>/);
+  assert.match(extensionSource, /<h3>Diagnostics & Blockers<\/h3>/);
+  assert.match(extensionSource, /function filterLifecycleDiagnostics/);
+  assert.match(extensionSource, /function renderLifecycleDiagnostic/);
+  assert.match(extensionSource, /No active diagnostics or blockers\./);
+  assert.match(extensionSource, /label: "Requirement Intake"/);
+  assert.match(extensionSource, /label: "Feature Split"/);
+  assert.match(extensionSource, /action: "scan_spec_sources"/);
+  assert.match(extensionSource, /action: "upload_prd_source"/);
+  assert.match(extensionSource, /action: "generate_ears"/);
+  assert.match(extensionSource, /action: "split_feature_specs"/);
+  assert.doesNotMatch(extensionSource, /<h2>Control Guardrails<\/h2>/);
+  assert.doesNotMatch(extensionSource, /function guardrailRow/);
+  assert.doesNotMatch(extensionSource, /Command Approvals/);
+  assert.doesNotMatch(extensionSource, /Safe Actions Only/);
+  assert.doesNotMatch(extensionSource, /<h2>Evidence & Traceability<\/h2>/);
+  assert.doesNotMatch(extensionSource, /Evidence Required/);
+  assert.doesNotMatch(extensionSource, /Traceability Enforced/);
 });
 
 test("VSCode IDE Webviews do not import Product Console UI surfaces", () => {

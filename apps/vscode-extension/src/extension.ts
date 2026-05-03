@@ -844,7 +844,14 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
     await provider.refresh();
     panel.webview.html = renderSpecWorkspaceWebview(provider.currentView());
   };
-  panel.webview.onDidReceiveMessage((message: unknown) => handleWorkbenchMessage(message, provider, render));
+  panel.webview.onDidReceiveMessage(async (message: unknown) => {
+    if (isWorkbenchMessage(message) && message.command === "specWorkspaceRequest" && typeof message.content === "string") {
+      await submitSpecWorkspaceRequest(message.content, message.intent, provider);
+      await render();
+      return;
+    }
+    await handleWorkbenchMessage(message, provider, render);
+  });
   await render();
 }
 
@@ -972,6 +979,53 @@ async function submitNewFeatureRequest(content: string, provider: SpecExplorerPr
     ? ` blocked=${response.blockedReasons.join("; ")}`
     : "";
   await vscode.window.showInformationMessage(`SpecDrive New Feature ${status}.${routed}${blocked}`);
+  await provider.refresh();
+}
+
+async function submitSpecWorkspaceRequest(content: string, intent: unknown, provider: SpecExplorerProvider): Promise<void> {
+  const view = provider.currentView();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!view?.project?.id || !workspaceRoot) {
+    await vscode.window.showErrorMessage("SpecDrive Spec Workspace request requires a recognized project.");
+    return;
+  }
+  const trimmed = content.trim();
+  if (!trimmed) {
+    await vscode.window.showErrorMessage("SpecDrive Spec Workspace request input is empty.");
+    return;
+  }
+  const requestIntent: SpecChangeRequestIntent = isSpecChangeRequestIntent(intent) ? intent : "requirement_change_or_intake";
+  const sourcePath = preferredWorkspaceRequestSource(view);
+  const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), ...sourcePath.split("/")));
+  const firstLine = document.lineCount > 0 ? document.lineAt(0).text : "";
+  const request: SpecChangeRequestV1 = {
+    schemaVersion: 1,
+    projectId: view.project.id,
+    workspaceRoot,
+    source: {
+      file: sourcePath,
+      range: {
+        startLine: 0,
+        endLine: 0,
+        startCharacter: 0,
+        endCharacter: firstLine.length,
+      },
+      textHash: hashText(firstLine),
+    },
+    intent: requestIntent,
+    comment: trimmed,
+    traceability: [
+      "VSCode Spec Workspace",
+      requestIntent,
+    ],
+  };
+  const response = await postIdeCommand(request);
+  const status = typeof response.status === "string" ? response.status : "unknown";
+  const routed = typeof response.routedIntent === "string" ? ` routed=${response.routedIntent}` : "";
+  const blocked = Array.isArray(response.blockedReasons) && response.blockedReasons.length > 0
+    ? ` blocked=${response.blockedReasons.join("; ")}`
+    : "";
+  await vscode.window.showInformationMessage(`SpecDrive Spec Workspace request ${status}.${routed}${blocked}`);
   await provider.refresh();
 }
 
@@ -1294,44 +1348,27 @@ function renderSpecWorkspaceWebview(view: SpecDriveIdeView | undefined): string 
   const stages = specLifecycleStages(view);
   const active = stages.find((stage) => stage.active) ?? stages[0];
   return renderWorkbenchPage("Spec Workspace", nonce, `
+    <section class="toolbar">
+      ${commandButton("Spec Change", "openWorkbenchForm", { formMode: "specChange", intent: "requirement_change_or_intake" })}
+      ${commandButton("Clarification", "openWorkbenchForm", { formMode: "specClarification", intent: "clarification" })}
+      ${commandButton("Refresh", "refresh", {})}
+      <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
+    </section>
+    ${renderWorkbenchInputForm()}
     <section class="stage-strip">
       ${stages.map((stage) => `
-        <button class="stage ${stage.active ? "active" : ""}" data-command="controlled" data-action="${escapeAttr(stage.action)}" data-entity-type="spec" data-entity-id="${escapeAttr(projectId)}" data-reason="${escapeAttr(`Advance ${stage.label} from Spec Workspace.`)}">
-          <span>${escapeHtml(stage.index)}</span>${escapeHtml(stage.label)}
+        <button class="stage ${stage.active ? "active" : ""}" data-command="selectSpecStage" data-stage-id="${escapeAttr(stage.id)}" aria-pressed="${stage.active ? "true" : "false"}">
+          <span>${escapeHtml(stage.index)} · ${escapeHtml(stage.status)}</span>${escapeHtml(stage.label)}
         </button>
       `).join("")}
     </section>
     <main class="grid">
       <section class="panel span-3">
-        <div class="panel-title"><h2>Lifecycle Pipeline</h2><span>${stages.length} stages</span></div>
+        <div class="panel-title"><h2>Lifecycle</h2><span>${stages.length} stages</span></div>
         ${stages.map((stage) => `<div class="row"><span>${escapeHtml(stage.index)} ${escapeHtml(stage.label)}</span><strong class="${statusClass(stage.status)}">${escapeHtml(stage.status)}</strong></div>`).join("")}
       </section>
-      <section class="panel span-5">
-        <div class="panel-title"><h2>${escapeHtml(active.label)}</h2><span>${escapeHtml(active.status)}</span></div>
-        <p class="muted">${escapeHtml(active.description)}</p>
-        <h3>Source Docs</h3>
-        ${documentList(view?.documents ?? [])}
-        <h3>Traceability</h3>
-        ${traceabilityTable(view)}
-        <h3>Next Action</h3>
-        ${commandButton(active.cta, "controlled", { action: active.action, entityType: "spec", entityId: projectId, reason: `Run ${active.label} from Spec Workspace.` })}
-      </section>
-      <section class="panel span-4">
-        <div class="panel-title"><h2>Control Guardrails</h2><span>Policy</span></div>
-        ${guardrailRow("Constitution Checks", "Passed")}
-        ${guardrailRow("Evidence Required", "Passed")}
-        ${guardrailRow("Traceability Enforced", "Passed")}
-        ${guardrailRow("Safe Actions Only", "Passed")}
-        <h3>Command Approvals</h3>
-        ${["ask_followup", "write_file", "run_command", "git_commit", "delete_files"].map((name) => guardrailRow(name, name === "ask_followup" ? "Auto" : "Require Approval")).join("")}
-      </section>
-      <section class="panel span-8">
-        <div class="panel-title"><h2>Evidence & Traceability</h2><span>${view?.factSources.length ?? 0} fact sources</span></div>
-        ${evidenceTable(view)}
-      </section>
-      <section class="panel span-4">
-        <div class="panel-title"><h2>Spec Consistency</h2><span>${view?.diagnostics.length ?? 0} diagnostics</span></div>
-        ${(view?.diagnostics ?? []).slice(0, 5).map((diagnostic) => `<div class="issue ${statusClass(diagnostic.severity)}">${escapeHtml(diagnostic.path)}<br><span>${escapeHtml(diagnostic.message)}</span></div>`).join("") || emptyState("No active diagnostics.")}
+      <section class="panel span-9">
+        ${stages.map((stage) => renderSpecLifecycleDetail(stage, view, projectId, stage.id !== active.id)).join("")}
       </section>
     </main>
   `);
@@ -1345,11 +1382,13 @@ function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, selectedFe
   return renderWorkbenchPage("Feature Spec", nonce, `
     <section class="toolbar">
       <button class="view-toggle" data-command="toggleFeatureSpecView" data-view-mode="dependency" aria-pressed="false">Dependency Graph</button>
-      ${commandButton("New Feature", "newFeaturePrompt", {})}
+      ${commandButton("New Feature", "openWorkbenchForm", { formMode: "newFeature" })}
       ${commandButton("Refresh", "refresh", {})}
       ${selected ? commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: selected.id, reason: `Schedule ${selected.id} from Feature Spec Webview.` }) : ""}
-      ${selected && isReviewNeededFeature(selected) ? commandButton("Review", "reviewFeaturePrompt", { featureId: selected.id }) : ""}
+      ${selected && isClarificationNeededFeature(selected) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: selected.id }) : ""}
+      <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
+    ${renderWorkbenchInputForm()}
     <main id="feature-list-panel" class="feature-layout" data-view-panel="list">
       <section class="feature-board">
         ${groups.map((group) => renderFeaturePanel(group, selected?.id)).join("")}
@@ -1399,27 +1438,86 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
     *{box-sizing:border-box}body{margin:0;padding:14px 16px 18px;font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);line-height:1.45}
     h1{font-size:22px;margin:4px 0 12px;font-weight:650}h2{font-size:14px;margin:0;font-weight:650}h3{font-size:12px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase}
     button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}
-    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.view-toggle{min-width:132px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}
+    [hidden]{display:none!important}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.view-toggle{min-width:132px}.status-text{color:var(--muted);font-size:12px;min-height:18px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}
     .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title span,.muted{color:var(--muted)}
     .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px}.row{grid-template-columns:1fr auto}
     .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
     pre{max-height:180px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;font-family:var(--vscode-editor-font-family);font-size:11px}.issue{border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0}.issue span{color:var(--muted)}
     .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}
-    .hidden{display:none!important}.dependency-panel{margin-bottom:10px}.dependency-tree,.dependency-tree ul{list-style:none;margin:0;padding-left:18px}.dependency-tree{padding-left:0}.dependency-tree li{position:relative;margin:4px 0;padding-left:14px}.dependency-tree li::before{content:"";position:absolute;left:0;top:13px;width:9px;border-top:1px solid var(--border)}.dependency-tree ul{border-left:1px solid var(--border);margin-left:8px}.dependency-branch>summary{list-style:none;cursor:pointer}.dependency-branch>summary::-webkit-details-marker{display:none}.dependency-branch>summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted)}.dependency-branch[open]>summary::before{content:"-"}.dependency-leaf{margin-left:16px}.dependency-node{display:inline-flex;align-items:center;gap:7px;min-height:26px;border:1px solid var(--border);border-radius:5px;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 7px}.dependency-node button{padding:2px 6px}.dependency-node.missing{color:var(--warn)}.dependency-node .muted{font-size:11px}
-    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:flex;flex-direction:column;gap:10px;min-width:0}.feature-panel{border:1px solid var(--border);border-radius:6px;background:var(--panel);min-width:0;overflow:hidden}.feature-panel summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;cursor:pointer;background:var(--vscode-list-hoverBackground);user-select:none;list-style:none}.feature-panel summary::-webkit-details-marker{display:none}.feature-panel summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted);font-weight:650}.feature-panel[open] summary::before{content:"-"}.feature-panel summary h2{display:flex;gap:8px;align-items:center;margin-right:auto}.feature-panel summary span{color:var(--muted);font-size:12px}.feature-panel-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;align-items:stretch;padding:9px;overflow:visible}.feature-panel-items .muted{padding:2px}.feature-card{width:100%;min-width:0;min-height:154px;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;padding:9px}.feature-card.selected{border-color:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
+    .hidden{display:none!important}.workbench-form{margin-bottom:10px}.workbench-form textarea{width:100%;min-height:96px;resize:vertical;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--border);border-radius:4px;padding:8px;font:inherit}.workbench-form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}.dependency-panel{margin-bottom:10px}.dependency-tree,.dependency-tree ul{list-style:none;margin:0;padding-left:18px}.dependency-tree{padding-left:0}.dependency-tree li{position:relative;margin:4px 0;padding-left:14px}.dependency-tree li::before{content:"";position:absolute;left:0;top:13px;width:9px;border-top:1px solid var(--border)}.dependency-tree ul{border-left:1px solid var(--border);margin-left:8px}.dependency-branch>summary{list-style:none;cursor:pointer}.dependency-branch>summary::-webkit-details-marker{display:none}.dependency-branch>summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted)}.dependency-branch[open]>summary::before{content:"-"}.dependency-leaf{margin-left:16px}.dependency-node{display:inline-flex;align-items:center;gap:7px;min-height:26px;border:1px solid var(--border);border-radius:5px;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 7px}.dependency-node button{padding:2px 6px}.dependency-node.missing{color:var(--warn)}.dependency-node .muted{font-size:11px}
+    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:flex;flex-direction:column;gap:10px;min-width:0}.feature-panel{border:1px solid var(--border);border-radius:6px;background:var(--panel);min-width:0;overflow:hidden}.feature-panel summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;cursor:pointer;background:var(--vscode-list-hoverBackground);user-select:none;list-style:none}.feature-panel summary::-webkit-details-marker{display:none}.feature-panel summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted);font-weight:650}.feature-panel[open] summary::before{content:"-"}.feature-panel summary h2{display:flex;gap:8px;align-items:center;margin-right:auto}.feature-panel summary span{color:var(--muted);font-size:12px}.feature-panel-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;align-items:stretch;padding:9px;overflow:visible}.feature-panel-items .muted{padding:2px}.feature-card{width:100%;min-width:0;min-height:154px;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;padding:9px;position:relative}.feature-card.selected{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 65%,transparent)}.feature-card.selected::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
     @media (max-width:980px){.grid,.feature-layout{display:block}.panel,.feature-panel{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.feature-panel-items{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}}
   </style></head><body><h1>${escapeHtml(title)}</h1>${body}<script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const setWorkbenchStatus = (message) => {
+      const status = document.getElementById("workbench-status");
+      if (status) status.textContent = message;
+    };
+    const openWorkbenchForm = (mode, featureId, intent) => {
+      const form = document.getElementById("workbench-form");
+      const title = document.getElementById("workbench-form-title");
+      const subtitle = document.getElementById("workbench-form-subtitle");
+      const input = document.getElementById("workbench-form-input");
+      if (!form || !title || !subtitle || !input) return;
+      form.hidden = false;
+      form.dataset.formMode = mode;
+      form.dataset.featureId = featureId || "";
+      form.dataset.intent = intent || "";
+      const copy = {
+        clarify: ["Clarify Feature", "Clarification", "Enter clarification content."],
+        specChange: ["Spec Change", "Global Spec request", "Enter the Spec change or new requirement."],
+        specClarification: ["Clarification", "Global Spec request", "Enter the clarification question or decision."],
+        newFeature: ["New Feature", "Add or change", "Enter add-or-change content."],
+      }[mode] || ["New Feature", "Add or change", "Enter add-or-change content."];
+      title.textContent = copy[0];
+      subtitle.textContent = copy[1];
+      input.value = "";
+      input.focus();
+      setWorkbenchStatus(copy[2]);
+    };
+    const closeWorkbenchForm = () => {
+      const form = document.getElementById("workbench-form");
+      if (form) form.hidden = true;
+    };
     document.addEventListener("click", (event) => {
       const target = event.target.closest("[data-command]");
       if (!target) return;
       if (target.closest(".dependency-branch > summary")) event.preventDefault();
       const payload = {...target.dataset};
       if (payload.command === "selectFeature") payload.featureId = target.dataset.featureId;
-      if (payload.command === "newFeaturePrompt") {
-        const content = window.prompt("New Feature");
-        if (!content || !content.trim()) return;
-        vscode.postMessage({command:"newFeature", content});
+      if (payload.command === "openWorkbenchForm") {
+        openWorkbenchForm(payload.formMode || "newFeature", target.dataset.featureId, target.dataset.intent);
+        return;
+      }
+      if (payload.command === "closeWorkbenchForm") {
+        closeWorkbenchForm();
+        setWorkbenchStatus("");
+        return;
+      }
+      if (payload.command === "submitWorkbenchForm") {
+        const form = document.getElementById("workbench-form");
+        const input = document.getElementById("workbench-form-input");
+        const content = input?.value?.trim() || "";
+        if (!content) {
+          setWorkbenchStatus("Input content is required.");
+          return;
+        }
+        if (form?.dataset.formMode === "clarify") {
+          setWorkbenchStatus("Submitting clarification...");
+          vscode.postMessage({command:"reviewFeature", featureId: form.dataset.featureId, comment: content});
+        } else if (form?.dataset.formMode === "specChange" || form?.dataset.formMode === "specClarification") {
+          setWorkbenchStatus("Submitting Spec Workspace request...");
+          vscode.postMessage({command:"specWorkspaceRequest", intent: form.dataset.intent, content});
+        } else {
+          setWorkbenchStatus("Submitting add-or-change request...");
+          vscode.postMessage({command:"newFeature", content});
+        }
+        closeWorkbenchForm();
+        return;
+      }
+      if (payload.command === "refresh") {
+        setWorkbenchStatus("Refreshing...");
+        vscode.postMessage(payload);
         return;
       }
       if (payload.command === "toggleFeatureSpecView") {
@@ -1432,6 +1530,16 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
         target.setAttribute("aria-pressed", mode === "dependency" ? "true" : "false");
         return;
       }
+      if (payload.command === "selectSpecStage") {
+        const stageId = target.dataset.stageId;
+        document.querySelectorAll("[data-stage-detail]").forEach((entry) => entry.hidden = entry.dataset.stageDetail !== stageId);
+        document.querySelectorAll(".stage[data-stage-id]").forEach((entry) => {
+          const selected = entry.dataset.stageId === stageId;
+          entry.classList.toggle("active", selected);
+          entry.setAttribute("aria-pressed", selected ? "true" : "false");
+        });
+        return;
+      }
       if (payload.command === "toggleDependencyGraphBranches") {
         const expanded = target.dataset.expanded !== "true";
         document.querySelectorAll("#dependency-graph-panel .dependency-branch").forEach((branch) => {
@@ -1441,10 +1549,9 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
         target.textContent = expanded ? "Collapse All" : "Expand All";
         return;
       }
-      if (payload.command === "reviewFeaturePrompt") {
-        const comment = window.prompt("Review clarification");
-        if (!comment || !comment.trim()) return;
-        vscode.postMessage({command:"reviewFeature", featureId: target.dataset.featureId, comment});
+      if (payload.command === "controlled") {
+        setWorkbenchStatus("Running command...");
+        vscode.postMessage(payload);
         return;
       }
       vscode.postMessage(payload);
@@ -1458,6 +1565,17 @@ function commandButton(label: string, command: string, data: Record<string, stri
     .map(([key, value]) => `data-${kebab(key)}="${escapeAttr(String(value))}"`)
     .join(" ");
   return `<button ${attrs}>${escapeHtml(label)}</button>`;
+}
+
+function renderWorkbenchInputForm(): string {
+  return `<section id="workbench-form" class="panel workbench-form" hidden data-form-mode="newFeature">
+    <div class="panel-title"><h2 id="workbench-form-title">New Feature</h2><span id="workbench-form-subtitle">Add or change</span></div>
+    <textarea id="workbench-form-input" aria-label="Feature input"></textarea>
+    <div class="workbench-form-actions">
+      ${commandButton("Cancel", "closeWorkbenchForm", {})}
+      ${commandButton("Submit", "submitWorkbenchForm", {})}
+    </div>
+  </section>`;
 }
 
 function queueButton(label: string, item: SpecDriveIdeQueueItem | undefined, action: QueueAction): string {
@@ -1489,33 +1607,88 @@ function renderRawLogRefs(item: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueI
   return item.rawLogs.map((log, index) => `<div class="row"><span>Log ${index + 1}</span><span>${escapeHtml(log.createdAt ?? "recorded")}</span></div>`).join("");
 }
 
-function specLifecycleStages(view: SpecDriveIdeView | undefined): Array<{ index: string; label: string; status: string; action: string; cta: string; active: boolean; description: string }> {
+type SpecLifecycleStage = {
+  id: "project-init" | "requirement-intake" | "feature-split";
+  index: string;
+  label: string;
+  status: string;
+  active: boolean;
+  description: string;
+  documentKinds: string[];
+  steps: Array<{ label: string; status: string }>;
+  actions: Array<{ label: string; action: string; reason: string }>;
+};
+
+function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleStage[] {
   const docs = new Set((view?.documents ?? []).filter((document) => document.exists).map((document) => document.kind));
-  const labels = [
-    ["1", "PRD", "intake_requirement", "Run Intake", "Capture product intent and source requirements."],
-    ["2", "EARS Requirements", "generate_ears", "Generate Requirements", "Generate or update testable EARS requirements."],
-    ["3", "HLD", "generate_hld", "Generate HLD", "Create project-level architecture from accepted requirements."],
-    ["4", "UI Spec", "generate_ui_spec", "Generate UI Spec", "Create UI specifications and concept references."],
-    ["5", "Architecture Plan", "plan_architecture", "Plan Architecture", "Define feature-level architecture and boundaries."],
-    ["6", "Data Model", "design_data_model", "Design Data Model", "Design durable state and query ownership."],
-    ["7", "Contracts", "design_contracts", "Design Contracts", "Design API, command, view-model, and evidence contracts."],
-    ["8", "Tasks", "slice_tasks", "Slice Tasks", "Create implementation-ready task slices."],
-    ["9", "Quickstart", "validate_quickstart", "Validate Quickstart", "Confirm startability and verification commands."],
-    ["10", "Execution", "start_execution", "Start Execution", "Schedule bounded implementation work."],
-    ["11", "Review", "start_review", "Start Review", "Review findings, evidence, and spec drift."],
-    ["12", "Delivery", "close_delivery", "Close Delivery", "Close delivery with evidence and traceability."],
+  const hasProjectDocs = docs.has("prd") || docs.has("requirements") || docs.has("hld") || (view?.recognized ?? false);
+  const hasRequirementDocs = docs.has("prd") || docs.has("requirements") || docs.has("ears") || docs.has("feature-requirements");
+  const hasFeatureSpecs = (view?.features.length ?? 0) > 0;
+  const activeId: SpecLifecycleStage["id"] = !hasProjectDocs
+    ? "project-init"
+    : !hasRequirementDocs
+      ? "requirement-intake"
+      : "feature-split";
+  const stageStatus = (id: SpecLifecycleStage["id"], ready: boolean): string =>
+    id === activeId ? (ready ? "Active" : "Blocked") : ready ? "Ready" : "Not Started";
+  return [
+    {
+      id: "project-init",
+      index: "1",
+      label: "Project Initialization",
+      status: stageStatus("project-init", hasProjectDocs),
+      active: activeId === "project-init",
+      description: "Recognize the project, repository, Spec protocol, constitution, memory, and workspace health before intake begins.",
+      documentKinds: ["constitution", "memory", "readme"],
+      steps: [
+        { label: "Project context", status: view?.project?.id ? "Ready" : "Blocked" },
+        { label: "Workspace root", status: view?.workspaceRoot ? "Ready" : "Blocked" },
+        { label: "Spec protocol", status: view?.recognized ? "Ready" : "Blocked" },
+      ],
+      actions: [
+        { label: "Check Project Health", action: "check_project_health", reason: "Check project initialization from Spec Workspace lifecycle." },
+      ],
+    },
+    {
+      id: "requirement-intake",
+      index: "2",
+      label: "Requirement Intake",
+      status: stageStatus("requirement-intake", hasRequirementDocs),
+      active: activeId === "requirement-intake",
+      description: "Scan PR, RP, PRD, EARS, requirements, HLD, design, Feature Spec, tasks, and index documents as the source pool for requirement flow.",
+      documentKinds: ["prd", "requirements", "ears", "feature-requirements", "hld", "design", "tasks", "readme"],
+      steps: [
+        { label: "Spec source scan", status: (view?.documents.length ?? 0) > 0 ? "Ready" : "Not Started" },
+        { label: "PRD / requirements", status: hasRequirementDocs ? "Ready" : "Draft" },
+        { label: "Clarification and quality check", status: (view?.diagnostics.length ?? 0) === 0 ? "Ready" : "Active" },
+      ],
+      actions: [
+        { label: "Scan Sources", action: "scan_spec_sources", reason: "Scan Spec sources from Requirement Intake lifecycle." },
+        { label: "Upload PRD", action: "upload_prd_source", reason: "Upload PRD source from Requirement Intake lifecycle." },
+        { label: "Generate EARS", action: "generate_ears", reason: "Generate EARS requirements from Requirement Intake lifecycle." },
+      ],
+    },
+    {
+      id: "feature-split",
+      index: "3",
+      label: "Feature Split",
+      status: stageStatus("feature-split", hasFeatureSpecs),
+      active: activeId === "feature-split",
+      description: "Turn accepted requirements into Feature Specs, planning outputs, task slices, and runnable Feature execution queue entries.",
+      documentKinds: ["feature-requirements", "feature-design", "feature-tasks", "tasks", "hld", "design"],
+      steps: [
+        { label: "HLD / design", status: docs.has("hld") || docs.has("design") ? "Ready" : "Draft" },
+        { label: "Feature Spec directory", status: hasFeatureSpecs ? "Ready" : "Not Started" },
+        { label: "Feature task slices", status: view?.features.some((feature) => (feature.tasks?.length ?? 0) > 0) ? "Ready" : "Draft" },
+      ],
+      actions: [
+        { label: "Generate HLD", action: "generate_hld", reason: "Generate HLD from Feature Split lifecycle." },
+        { label: "Generate UI Spec", action: "generate_ui_spec", reason: "Generate UI Spec from Feature Split lifecycle." },
+        { label: "Split Feature Specs", action: "split_feature_specs", reason: "Split Feature Specs from Feature Split lifecycle." },
+        { label: "Push Feature Pool", action: "push_feature_spec_pool", reason: "Push Feature Spec Pool from Feature Split lifecycle." },
+      ],
+    },
   ];
-  const missingIndex = labels.findIndex(([, label]) => !docs.has(label.toLowerCase().replaceAll(" ", "_")));
-  const activeIndex = missingIndex === -1 ? Math.min(7, labels.length - 1) : missingIndex;
-  return labels.map(([index, label, action, cta, description], position) => ({
-    index,
-    label,
-    action,
-    cta,
-    description,
-    active: position === activeIndex,
-    status: position < activeIndex ? "Ready" : position === activeIndex ? "Draft" : "Not Started",
-  }));
 }
 
 function documentList(documents: SpecDriveIdeDocument[]): string {
@@ -1523,22 +1696,57 @@ function documentList(documents: SpecDriveIdeDocument[]): string {
   return documents.map((document) => `<div class="row"><span>${escapeHtml(document.label)}</span><button data-command="openDocument" data-path="${escapeAttr(document.path)}">${document.exists ? "Open" : "Missing"}</button></div>`).join("");
 }
 
-function traceabilityTable(view: SpecDriveIdeView | undefined): string {
-  return `<div class="row"><span>Project</span><strong>${escapeHtml(view?.project?.id ?? "unknown")}</strong></div>
-    <div class="row"><span>Features</span><strong>${view?.features.length ?? 0}</strong></div>
-    <div class="row"><span>Diagnostics</span><strong>${view?.diagnostics.length ?? 0}</strong></div>`;
+function renderSpecLifecycleDetail(stage: SpecLifecycleStage, view: SpecDriveIdeView | undefined, projectId: string, hidden: boolean): string {
+  const documents = filterLifecycleDocuments(view?.documents ?? [], stage.documentKinds);
+  const diagnostics = filterLifecycleDiagnostics(view?.diagnostics ?? [], documents, stage);
+  return `<div data-stage-detail="${escapeAttr(stage.id)}" ${hidden ? "hidden" : ""}>
+    <div class="panel-title"><h2>${escapeHtml(stage.label)}</h2><span class="${statusClass(stage.status)}">${escapeHtml(stage.status)}</span></div>
+    <p class="muted">${escapeHtml(stage.description)}</p>
+    <h3>Stage Steps</h3>
+    ${stage.steps.map((step) => `<div class="row"><span>${escapeHtml(step.label)}</span><strong class="${statusClass(step.status)}">${escapeHtml(step.status)}</strong></div>`).join("")}
+    <h3>Diagnostics & Blockers</h3>
+    ${diagnostics.length === 0 ? emptyState("No active diagnostics or blockers.") : diagnostics.slice(0, 8).map(renderLifecycleDiagnostic).join("")}
+    <h3>Spec Documents</h3>
+    ${documentList(documents)}
+    <h3>Stage Actions</h3>
+    <div class="toolbar">${stage.actions.map((action) => commandButton(action.label, "controlled", { action: action.action, entityType: "spec", entityId: projectId, reason: action.reason })).join("")}</div>
+  </div>`;
 }
 
-function evidenceTable(view: SpecDriveIdeView | undefined): string {
-  const rows = [
-    ...(view?.factSources ?? []).map((source) => ["Fact Source", source, "Available"]),
-    ...(view?.features ?? []).slice(0, 5).map((feature) => [feature.id, feature.folder, feature.status]),
-  ];
-  return rows.length === 0 ? emptyState("No evidence references yet.") : rows.map(([a, b, c]) => `<div class="row"><span>${escapeHtml(a)}</span><span>${escapeHtml(b)}</span><strong class="${statusClass(c)}">${escapeHtml(c)}</strong></div>`).join("");
+function filterLifecycleDocuments(documents: SpecDriveIdeDocument[], kinds: string[]): SpecDriveIdeDocument[] {
+  const accepted = new Set(kinds);
+  const filtered = documents.filter((document) => accepted.has(document.kind) || kinds.some((kind) => document.kind.includes(kind)));
+  return filtered.length > 0 ? filtered : documents.slice(0, 8);
 }
 
-function guardrailRow(label: string, status: string): string {
-  return `<div class="row"><span>${escapeHtml(label)}</span><strong class="${statusClass(status)}">${escapeHtml(status)}</strong></div>`;
+function filterLifecycleDiagnostics(
+  diagnostics: SpecDriveIdeDiagnostic[],
+  documents: SpecDriveIdeDocument[],
+  stage: SpecLifecycleStage,
+): SpecDriveIdeDiagnostic[] {
+  if (diagnostics.length === 0) return [];
+  const documentPaths = new Set(documents.map((document) => document.path));
+  const stageKinds = new Set(stage.documentKinds);
+  const matching = diagnostics.filter((diagnostic) =>
+    documentPaths.has(diagnostic.path)
+    || stage.documentKinds.some((kind) => diagnostic.path.toLowerCase().includes(kind.replace("feature-", "")))
+    || (diagnostic.featureId && stageKinds.has("feature-requirements")));
+  return matching.length > 0 ? matching : diagnostics.slice(0, 5);
+}
+
+function renderLifecycleDiagnostic(diagnostic: SpecDriveIdeDiagnostic): string {
+  return `<div class="issue ${statusClass(diagnostic.severity)}">
+    <strong>${escapeHtml(diagnostic.path)}</strong>
+    <br><span>${escapeHtml(diagnostic.message)}</span>
+    <div class="toolbar"><button data-command="openDocument" data-path="${escapeAttr(diagnostic.path)}">Open</button></div>
+  </div>`;
+}
+
+function preferredWorkspaceRequestSource(view: SpecDriveIdeView): string {
+  return view.documents.find((document) => document.exists && document.path === "docs/README.md")?.path
+    ?? view.documents.find((document) => document.exists && document.kind === "readme")?.path
+    ?? view.documents.find((document) => document.exists)?.path
+    ?? "docs/README.md";
 }
 
 type DependencyTreeNode = {
@@ -1611,7 +1819,7 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean):
   const progress = taskCount > 0
     ? Math.round((doneTasks / taskCount) * 100)
     : feature.latestExecutionStatus === "completed" ? 100 : feature.latestExecutionStatus === "running" ? 70 : feature.status === "ready" ? 60 : 30;
-  return `<button class="feature-card ${selected ? "selected" : ""}" data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}">
+  return `<button class="feature-card ${selected ? "selected" : ""}" data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}" ${selected ? "aria-current=\"true\"" : ""}>
     <header><strong>${escapeHtml(feature.id)}</strong><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></header>
     <div>${escapeHtml(feature.title)}</div>
     <div class="metric"><span>Task Progress</span><strong>${progress}%</strong><div class="bar"><span style="width:${progress}%"></span></div></div>
@@ -1637,7 +1845,7 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode): string {
     ${feature.blockedReasons.length === 0 ? emptyState("No blockers.") : feature.blockedReasons.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")}
     <h3>Traceability</h3>
     <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>
-    <div class="toolbar">${commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: feature.id, reason: `Schedule ${feature.id} from Feature Detail.` })}${isReviewNeededFeature(feature) ? commandButton("Review", "reviewFeaturePrompt", { featureId: feature.id }) : ""}</div>`;
+    <div class="toolbar">${commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: feature.id, reason: `Schedule ${feature.id} from Feature Detail.` })}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}</div>`;
 }
 
 function renderFeatureTasks(feature: SpecDriveIdeFeatureNode): string {
@@ -1730,6 +1938,10 @@ function isDoneFeature(feature: SpecDriveIdeFeatureNode): boolean {
 function isReviewNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
   const status = normalizedFeatureStatus(feature);
   return status === "need review" || status === "review needed" || status === "review";
+}
+
+function isClarificationNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  return isReviewNeededFeature(feature) || isBlockedFeature(feature);
 }
 
 function normalizedFeatureStatus(feature: SpecDriveIdeFeatureNode): string {
