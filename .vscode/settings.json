@@ -1,0 +1,4 @@
+{
+  "specdrive.controlPlaneUrl": "http://127.0.0.1:4317",
+  "specdrive.productConsoleUrl": "http://127.0.0.1:5173"
+}
