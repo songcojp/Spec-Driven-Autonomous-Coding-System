@@ -231,11 +231,12 @@ type FeatureQueuePlan = {
 export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIdeViewOptions = {}): SpecDriveIdeView {
   const project = resolveProject(dbPath, options);
   const workspaceRoot = options.workspaceRoot ? resolve(options.workspaceRoot) : optionalString(project?.target_repo_path);
+  const projectId = options.projectId ?? optionalString(project?.id);
   const language = workspaceRoot ? detectSpecLanguage(workspaceRoot) : undefined;
   const specRoot = workspaceRoot && language ? `docs/${language}` : workspaceRoot && hasRootSpec(workspaceRoot) ? "docs" : undefined;
   const documents = workspaceRoot ? buildTopLevelDocuments(workspaceRoot, specRoot) : [];
-  const features = workspaceRoot ? buildFeatureNodes(dbPath, workspaceRoot) : [];
-  const queue = buildQueueGroups(dbPath, options.projectId ?? optionalString(project?.id));
+  const features = workspaceRoot ? buildFeatureNodes(dbPath, workspaceRoot, projectId) : [];
+  const queue = buildQueueGroups(dbPath, projectId);
   const activeAdapter = readActiveAdapter(dbPath);
   const missing = [
     ...documents.filter((document) => !document.exists).map((document) => document.path),
@@ -268,7 +269,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
       "cli_adapter_configs",
     ],
     productConsole: {
-      defaultUrl: "http://127.0.0.1:4000",
+      defaultUrl: "http://127.0.0.1:5173",
       links: {
         workspace: "/#spec",
         queue: "/#runner",
@@ -859,12 +860,12 @@ function buildTopLevelDocuments(workspaceRoot: string, specRoot?: string): SpecD
   return docs;
 }
 
-function buildFeatureNodes(dbPath: string, workspaceRoot: string): SpecDriveIdeFeatureNode[] {
+function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: string): SpecDriveIdeFeatureNode[] {
   const featureRoot = join(workspaceRoot, "docs/features");
   if (!existsSync(featureRoot)) return [];
   const queuePlan = readFeatureQueuePlan(workspaceRoot);
   const queueById = new Map((queuePlan.features ?? []).map((entry) => [entry.id, entry]));
-  const latestExecutions = readLatestExecutionsByFeature(dbPath);
+  const latestExecutions = readLatestExecutionsByFeature(dbPath, projectId);
 
   return readdirSync(featureRoot)
     .filter((entry) => {
@@ -902,13 +903,15 @@ function readFeatureQueuePlan(workspaceRoot: string): FeatureQueuePlan {
   return readJson(join(workspaceRoot, "docs/features/feature-pool-queue.json")) as FeatureQueuePlan;
 }
 
-function readLatestExecutionsByFeature(dbPath: string): Map<string, { executionId: string; status: string }> {
+function readLatestExecutionsByFeature(dbPath: string, projectId?: string): Map<string, { executionId: string; status: string }> {
   const result = runSqlite(dbPath, [], [
     {
       name: "executions",
       sql: `SELECT id, status, context_json
         FROM execution_records
+        ${projectId ? "WHERE project_id = ?" : ""}
         ORDER BY COALESCE(started_at, created_at) DESC`,
+      params: projectId ? [projectId] : [],
     },
   ]);
   const latest = new Map<string, { executionId: string; status: string }>();
@@ -1134,7 +1137,18 @@ function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig
 }
 
 function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<string, SpecDriveIdeQueueItem[]> } {
-  const projectFilter = projectId ? "WHERE er.project_id = ?" : "";
+  const projectFilter = projectId
+    ? `WHERE (
+        er.project_id = ?
+        OR (
+          er.id IS NULL
+          AND (
+            json_extract(sj.payload_json, '$.projectId') = ?
+            OR json_extract(sj.payload_json, '$.context.projectId') = ?
+          )
+        )
+      )`
+    : "";
   const result = runSqlite(dbPath, [], [
     {
       name: "queue",
@@ -1149,29 +1163,32 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
           er.summary,
           er.context_json,
           er.metadata_json,
+          sj.payload_json,
           er.updated_at AS execution_updated_at
         FROM scheduler_job_records sj
         LEFT JOIN execution_records er ON er.scheduler_job_id = sj.id
         ${projectFilter}
         ORDER BY COALESCE(er.updated_at, sj.updated_at) DESC
         LIMIT 100`,
-      params: projectId ? [projectId] : [],
+      params: projectId ? [projectId, projectId, projectId] : [],
     },
   ]);
   const groups: Record<string, SpecDriveIdeQueueItem[]> = {};
   for (const row of result.queries.queue) {
+    const payload = parseJsonObject(optionalString(row.payload_json));
     const context = parseJsonObject(optionalString(row.context_json));
+    const payloadContext = isRecord(payload.context) ? payload.context : parseJsonObject(optionalString(payload.context));
     const metadata = parseJsonObject(optionalString(row.metadata_json));
     const status = optionalString(row.execution_status) ?? optionalString(row.job_status) ?? "unknown";
     const item: SpecDriveIdeQueueItem = {
       schedulerJobId: optionalString(row.scheduler_job_id),
       executionId: optionalString(row.execution_id),
       status,
-      operation: optionalString(row.operation),
+      operation: optionalString(row.operation) ?? optionalString(payload.operation),
       jobType: optionalString(row.job_type),
-      featureId: optionalString(context.featureId),
-      taskId: optionalString(context.taskId),
-      adapter: optionalString(metadata.skillSlug) ?? optionalString(metadata.adapterId),
+      featureId: optionalString(context.featureId) ?? optionalString(payloadContext.featureId),
+      taskId: optionalString(context.taskId) ?? optionalString(payloadContext.taskId),
+      adapter: optionalString(metadata.skillSlug) ?? optionalString(metadata.adapterId) ?? optionalString(payloadContext.skillSlug),
       threadId: optionalString(metadata.threadId),
       turnId: optionalString(metadata.turnId),
       updatedAt: optionalString(row.execution_updated_at) ?? optionalString(row.job_updated_at),

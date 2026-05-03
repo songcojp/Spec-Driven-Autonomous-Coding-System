@@ -48,6 +48,50 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.factSources.includes("execution_records"), true);
 });
 
+test("SpecDrive IDE view scopes queue and latest executions to the current workspace project", () => {
+  const workspaceRoot = makeWorkspace();
+  const otherWorkspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedRuntimeState(dbPath);
+  seedOtherProjectRuntimeState(dbPath, otherWorkspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "JOB-CURRENT-ONLY",
+        "bull-current-only",
+        "specdrive:cli-runner",
+        "cli.run",
+        "queued",
+        JSON.stringify({
+          executionId: "RUN-CURRENT-ONLY",
+          operation: "feature_execution",
+          projectId: "project-ide",
+          context: { featureId: "FEAT-016", taskId: "TASK-CURRENT", skillSlug: "codex-coding-skill" },
+        }),
+        "2026-05-02T12:02:00.000Z",
+      ],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.project?.id, "project-ide");
+  assert.equal(view.features.find((entry) => entry.id === "FEAT-016")?.latestExecutionId, "RUN-IDE");
+  assert.equal(view.queue.groups.running.length, 1);
+  assert.equal(view.queue.groups.running[0].executionId, "RUN-IDE");
+  assert.equal(view.queue.groups.queued.length, 1);
+  assert.equal(view.queue.groups.queued[0].schedulerJobId, "JOB-CURRENT-ONLY");
+  assert.equal(view.queue.groups.queued[0].featureId, "FEAT-016");
+  assert.equal(view.queue.groups.queued[0].taskId, "TASK-CURRENT");
+  assert.equal(view.queue.groups.queued[0].adapter, "codex-coding-skill");
+  assert.equal(JSON.stringify(view.queue.groups).includes("RUN-OTHER"), false);
+  assert.equal(JSON.stringify(view.queue.groups).includes("JOB-OTHER-ONLY"), false);
+});
+
 test("SpecDrive IDE view exposes diagnostics for blocked spec state and failed executions", () => {
   const workspaceRoot = makeWorkspace();
   writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
@@ -429,6 +473,79 @@ function seedProject(dbPath: string, workspaceRoot: string): void {
       sql: `INSERT INTO repository_connections (id, project_id, provider, local_path, default_branch)
         VALUES ('repo-ide', 'project-ide', 'local', ?, 'main')`,
       params: [workspaceRoot],
+    },
+  ]);
+}
+
+function seedOtherProjectRuntimeState(dbPath: string, workspaceRoot: string): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO projects (
+        id, name, goal, project_type, tech_preferences_json, target_repo_path,
+        default_branch, trust_level, environment, automation_enabled, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "project-other",
+        "Other SpecDrive Workspace",
+        "Keep another workspace isolated.",
+        "tooling",
+        "[]",
+        workspaceRoot,
+        "main",
+        "standard",
+        "local",
+        1,
+        "created",
+      ],
+    },
+    {
+      sql: `INSERT INTO repository_connections (id, project_id, provider, local_path, default_branch)
+        VALUES ('repo-other', 'project-other', 'local', ?, 'main')`,
+      params: [workspaceRoot],
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "JOB-OTHER",
+        "bull-other",
+        "specdrive:cli-runner",
+        "codex.app_server.run",
+        "running",
+        JSON.stringify({ executionId: "RUN-OTHER", operation: "feature_execution", projectId: "project-other", context: { featureId: "FEAT-016" } }),
+        "2026-05-02T12:03:00.000Z",
+      ],
+    },
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, summary, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-OTHER",
+        "JOB-OTHER",
+        "codex.app_server",
+        "feature_execution",
+        "project-other",
+        JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-OTHER" }),
+        "running",
+        "2026-05-02T12:03:00.000Z",
+        "Running in another workspace.",
+        JSON.stringify({ threadId: "thread-other", turnId: "turn-other" }),
+      ],
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "JOB-OTHER-ONLY",
+        "bull-other-only",
+        "specdrive:cli-runner",
+        "cli.run",
+        "queued",
+        JSON.stringify({ executionId: "RUN-OTHER-ONLY", operation: "feature_execution", projectId: "project-other", context: { featureId: "FEAT-016" } }),
+        "2026-05-02T12:04:00.000Z",
+      ],
     },
   ]);
 }
