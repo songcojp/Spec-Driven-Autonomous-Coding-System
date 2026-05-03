@@ -44,6 +44,7 @@
 | CHG-020 | Spec 状态文件化与审计简化 | 用户反馈：调度状态不友好、审计复杂但低频、Spec 文档查看编辑不方便 | 已写入 research、PRD、requirements、HLD、skills、FEAT-002、FEAT-004、FEAT-008、FEAT-013、FEAT-014 和 Feature Index | 作为跨 Feature patch：`spec-state.json` 成为 Spec/Feature 流程状态事实源；Scheduler 支持 blocked/resume/skip/next；Runner 将 Skill 输出投影回状态文件；Audit 降级为轻量活动记录。 |
 | CHG-021 | 日常 Spec 操作主入口从 Product Console 扩展到 VSCode IDE | 用户指令；`docs/zh-CN/vscode-codex-app-server-prd.md` 第 1、2、6、7 节；`docs/zh-CN/vscode-app-plan.md` | 已写入 PRD、`REQ-074` 至 `REQ-083`、HLD、Feature Index | Product Console 不删除，保留系统设置、adapter 配置、队列调试和全局状态；VSCode 插件承担日常 Spec 阅读、澄清、任务队列管理、执行观察和 app-server 审批。 |
 | CHG-022 | Runner 增加 Codex app-server Adapter，与 CLI Adapter 并存 | `docs/zh-CN/vscode-codex-app-server-prd.md` 第 7.7 至 7.9 节；`docs/zh-CN/vscode-app-plan.md` Key Changes | 已写入 `REQ-080` 至 `REQ-083`、HLD、FEAT-018、FEAT-019 | 新增 `codex.app_server.run` executor/adapter；Runner 是唯一调用 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt` 的组件，Execution Record 扩展记录 thread/turn/transport/raw logs/approval/output schema。 |
+| CHG-023 | VSCode 插件独立 Webview Web UI | 用户指令：为 VS 插件开发独立的 Web UI，不要复用现在的 Web UI，核心关注任务调度和自动执行 | 已写入 PRD、`REQ-084`、HLD、Feature Index、FEAT-021 | 新增独立 Execution Workbench Webview；插件 UI 不复用 Product Console 页面、路由、导航、App Shell 或组件实现，第一屏聚焦 Job 队列、自动执行控制、审批待办和执行结果观察。 |
 
 ## 人工处置顺序建议
 
@@ -89,6 +90,7 @@
 | ADD-007 | 进入 FEAT-016 至 FEAT-020；SpecDrive 增加 VSCode 插件作为 IDE 原生日常入口，先按文档和 Feature Spec 分解，不进入代码实现。 | 已同步 PRD、requirements、HLD、Feature Index，并创建 FEAT-016 至 FEAT-020 requirements/design/tasks 三件套。 | 需同步实现 |
 | CHG-021 | 日常 Spec 操作入口从 Product Console 扩展到 VSCode IDE；Product Console 保留系统设置、adapter 配置、队列调试和全局状态总览。 | 已同步 PRD、requirements、HLD、Feature Index、FEAT-016、FEAT-017、FEAT-019、FEAT-020。 | 需同步实现 |
 | CHG-022 | Runner 增加 `codex.app_server.run` Adapter，与 `cli.run` 并存；Runner 是唯一 app-server thread/turn API 调用方。 | 已同步 requirements、HLD、Feature Index、FEAT-018、FEAT-019。 | 需同步实现 |
+| CHG-023 | VSCode 插件独立 Webview Web UI，不复用 Product Console UI，主界面关注任务调度和自动执行。 | 已同步 PRD、REQ-084、HLD、Feature Index、FEAT-021 requirements/design/tasks，并加入 `feature-pool-queue.json`。 | 需同步实现 |
 
 ## Feature Spec Execute 评估
 
@@ -103,5 +105,6 @@
 | P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `codex-coding-skill` patch | 并行写入和测试资源隔离属于执行安全边界。 |
 | P2 | FEAT-013 Product Console | ADD-003、ADD-005、CHG-005、CHG-009 | 执行 `codex-coding-skill` patch | 必须交付真实浏览器 UI、页面路由、组件系统、项目切换入口和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |
 | P2 | FEAT-016 至 FEAT-020 SpecDrive IDE | ADD-007、CHG-021、CHG-022 | 先执行 FEAT-016 文档/只读入口，再逐步执行 FEAT-017、FEAT-018、FEAT-019、FEAT-020 | VSCode IDE 入口和 Codex app-server Adapter 是新增 M8 能力；本次仅完成文档变更，后续按 Feature Spec 执行。 |
+| P1 | FEAT-021 IDE Execution Webview | CHG-023 | 执行 `codex-coding-skill` patch | VSCode 插件独立 Webview 是任务调度和自动执行主入口；实现时必须保持 Product Console UI 边界隔离。 |
 | - | FEAT-010 Failure Recovery | CHG-007 | 不执行 | 已实现且测试覆盖。 |
 | - | 主线文档一致性 | CHG-006、CHG-008 | 不执行 | 非目标和性能基线约束已在文档中表达。 |

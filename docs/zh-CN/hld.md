@@ -20,6 +20,8 @@ SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。
 
 2026-05-02 VSCode IDE 入口：新增 VSCode SpecDrive Extension 作为 IDE 原生日常入口。插件只负责工作区识别、Spec Explorer、Hover、CodeLens、Comments、Diagnostics、状态面板、受控命令提交和状态订阅；不直接写运行事实源，不直接调用 Codex turn API。Runner 新增 Codex app-server Adapter，与 CLI Adapter 并存，负责 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt`、approval response、事件流 raw logs 和 Execution Record 投影。
 
+2026-05-03 VSCode Execution Workbench：VSCode 插件 UI 必须作为独立 Webview Web UI 开发，不复用当前 Product Console 的页面、路由、导航、App Shell 或组件实现。插件 Web UI 的首要产品目标是任务调度和自动执行，默认第一屏围绕 Job 队列、当前运行、下一步动作、阻塞原因、自动执行控制、审批待办和执行结果观察组织。
+
 本 HLD 定义项目级架构边界、技术栈、核心子系统、数据域、集成方式、运行拓扑、安全治理、可观测性和 Feature Spec 拆分方向。本文不定义具体接口字段、数据库迁移、函数签名、任务实现步骤或单个 Feature 的低层设计。
 
 MVP 采用本地优先的控制面架构：
@@ -91,7 +93,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | REQ-069, REQ-070, REQ-071, REQ-072, REQ-073 | 7.14, 8, 9 | Chat Interface 提供悬浮面板、意图分类、受控命令派发、高风险二次确认和会话/消息持久化。 |
 | REQ-074, REQ-075, REQ-076, REQ-077, REQ-078, REQ-079 | 7.15, 8, 9, 10, 15 | VSCode Extension 提供工作区识别、Spec Explorer、文档交互、SpecChangeRequest、IDE command receipt 和 Task Queue 管理。 |
-| REQ-080, REQ-081, REQ-082, REQ-083 | 7.8, 7.15, 8, 9, 10, 11, 13, 15 | Codex app-server Adapter、Execution Projection、app-server approval 和 VSCode Diagnostics 属于 Runner + IDE 联合边界。 |
+| REQ-080, REQ-081, REQ-082, REQ-083, REQ-084 | 7.8, 7.15, 8, 9, 10, 11, 13, 15 | Codex app-server Adapter、Execution Projection、app-server approval、VSCode Diagnostics 和独立 Execution Workbench Webview 属于 Runner + IDE 联合边界。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
 | NFR-007, NFR-008, NFR-009, NFR-011 | 11, 12, 13, 14 | 性能指标作为基线记录，只读 Subagent 并发作为受控并行能力。 |
@@ -140,7 +142,7 @@ flowchart LR
 | Layer / Concern | Decision | Rationale | Constraints / Notes |
 |---|---|---|---|
 | Frontend | TypeScript + React + Next.js 或 Vite React，MVP 优先单页 Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 都是状态密集型工作台，React 生态适合看板、表格、日志、实时状态 UI 和界面多语言切换。 | 当前仓库没有既有实现栈；若实现阶段已有宿主框架，以宿主框架优先；Product Console 首次打开默认中文，语言选择应可持久化。 |
-| IDE Extension | TypeScript + VSCode Extension API | VSCode 已提供文件树、编辑器、Markdown 预览、CodeLens、Hover、Comments、Diagnostics、Terminal、Output Channel、Webview、Status Bar 和 Git 集成，适合作为 SpecDrive 的日常操作入口。 | 插件只调用 Control Plane query/command API；不依赖 Codex VS 插件私有 Webview 协议，不模拟其输入框。 |
+| IDE Extension | TypeScript + VSCode Extension API + 独立 Webview Web UI | VSCode 已提供文件树、编辑器、Markdown 预览、CodeLens、Hover、Comments、Diagnostics、Terminal、Output Channel、Webview、Status Bar 和 Git 集成，适合作为 SpecDrive 的日常操作入口；独立 Webview 承载任务调度和自动执行工作台。 | 插件只调用 Control Plane query/command API；不依赖 Codex VS 插件私有 Webview 协议，不模拟其输入框；Execution Workbench 不复用 Product Console 页面、路由、导航、App Shell 或组件实现。 |
 | UI Component System | shadcn/ui + Tailwind CSS + Radix UI primitives | Product Console 需要稳定、可组合、可审计的工作台组件体系；shadcn/ui 以源码方式进入项目，便于定制表格、表单、弹窗、标签页、命令菜单、状态徽标和 Review 操作面板，同时保留无障碍基础能力。 | 不引入重型封闭组件库；组件主题、设计 token、暗色模式和状态语义应在 Product Console Feature Spec 中细化。 |
 | Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
 | Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、Evidence、审计、通用指标和 token 消费明细。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
@@ -164,7 +166,7 @@ Rejected / deferred alternatives:
 | Layer | Responsibility | Key Decision |
 |---|---|---|
 | Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区；保留系统设置、adapter 配置、队列调试和全局状态总览。 |
-| VSCode SpecDrive Extension | Spec Explorer、文档 Hover/CodeLens/Comments/Diagnostics、Task Queue、Execution Record 面板、approval pending 面板 | IDE 原生入口；只提交受控命令和订阅状态，不直接写运行事实源或调用 Codex turn API。 |
+| VSCode SpecDrive Extension | Spec Explorer、文档 Hover/CodeLens/Comments/Diagnostics、Execution Workbench Webview、Task Queue、Execution Record 面板、approval pending 面板 | IDE 原生入口；只提交受控命令和订阅状态，不直接写运行事实源或调用 Codex turn API；Execution Workbench 是独立插件 Web UI，核心关注任务调度和自动执行。 |
 | Control Plane | 项目、Spec、Skill、调度、状态、审批、证据和查询 API | 是状态与调度决策的协调层。 |
 | Orchestration | Project Scheduler、Executor Job Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
 | Execution | Subagent Runtime、Context Broker、Codex Runner、Status Checker、Recovery Manager | 每次执行都受 Run Contract、Runner Policy 和 Evidence schema 约束。 |
@@ -440,6 +442,7 @@ Responsibilities:
 
 - 识别 VSCode workspace 中的 SpecDrive 文档结构、Feature 队列、`spec-state.json` 和 `.autobuild` 运行状态。
 - 提供 Spec Explorer，展示 PRD、requirements、HLD、Feature Specs、Task Queue、Execution Record 和最近 Codex 会话。
+- 提供独立 Execution Workbench Webview，默认聚焦 Job 队列、自动执行控制、当前运行、阻塞/审批、Execution Record 和运行结果投影。
 - 在 Spec 文档中提供 Hover、CodeLens、Comments 和 Diagnostics，支持行级/段落级澄清、需求新增、需求变更、EARS 生成、设计更新和 Feature 拆分意图。
 - 将所有有副作用的 IDE action 转换为 Control Plane command API 请求，接收 `IdeCommandReceiptV1` 并刷新 UI。
 - 展示 app-server 事件流、diff 摘要、raw logs、approval pending 和 `SkillOutputContractV1` 校验结果。
@@ -447,7 +450,7 @@ Responsibilities:
 
 Owns:
 
-- VSCode UI state、SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1 view model、Diagnostics projection。
+- VSCode UI state、Execution Workbench Webview state、SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1 view model、Diagnostics projection。
 
 Collaborates With:
 
@@ -458,6 +461,7 @@ Boundary:
 - 插件不得直接写 `spec-state.json`、`execution_records` 或 `scheduler_job_records`。
 - 插件不得直接调用 `thread/start`、`thread/resume`、`turn/start` 或 `turn/interrupt`。
 - 查询类动作可以读取 workspace 文件或调用 query API；落盘、调度、取消、重试、审批和配置修改必须走受控命令。
+- Execution Workbench 不复用 Product Console 页面、路由、导航、App Shell、组件实现或 ViewModel；只允许复用 shared contract/type 和 Control Plane query/command API。
 
 ## 8. Data Domains and Ownership
 
@@ -783,6 +787,7 @@ Quality gates:
 | Codex App Server Adapter | `codex.app_server.run` executor/adapter、app-server lifecycle、initialize、thread/turn、capability/schema 检测和事件流 raw logs。 | REQ-080、REQ-081 |
 | IDE Execution Loop | Feature/Task 执行闭环、Execution Record 状态面板、approval pending 恢复、取消/重试/恢复、输出校验和状态投影。 | REQ-079、REQ-081、REQ-082 |
 | IDE Diagnostics and UX Refinement | Diagnostics、日志增量渲染、diff 摘要、状态过滤、Product Console 跳转、插件重载恢复、性能优化和多语言 UI 预留。 | REQ-083 |
+| IDE Execution Webview | 独立 VSCode Webview Web UI、任务调度第一屏、自动执行控制、审批/中断、阻塞恢复、Execution Record / raw log / diff / spec-state 投影展示。 | REQ-084 |
 
 Decomposition rules:
 
