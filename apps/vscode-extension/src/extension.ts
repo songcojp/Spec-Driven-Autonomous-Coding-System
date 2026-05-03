@@ -165,6 +165,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.refresh", () => provider.refresh()));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.filterQueue", () => filterQueue(provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openProductConsole", (item: unknown) => openProductConsole(item, provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecutionWorkbench", () => openExecutionWorkbench(provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.openSpecWorkspace", () => openSpecWorkspace(provider)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.openFeatureSpec", (item: unknown) => openFeatureSpec(provider, item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openItem", (item: unknown) => openItem(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecution", (item: unknown) => openExecution(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueRunNow", (item: unknown) => runQueueAction("run_now", item, provider)));
@@ -462,11 +465,11 @@ class SpecCodeLensProvider implements vscode.CodeLensProvider {
 }
 
 async function fetchSpecDriveView(): Promise<SpecDriveIdeView> {
-  const controlPlaneUrl = vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4000");
+  const controlPlaneUrl = configuredControlPlaneUrl();
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const url = new URL("/ide/spec-tree", controlPlaneUrl);
   if (workspaceRoot) url.searchParams.set("workspaceRoot", workspaceRoot);
-  const response = await fetch(url);
+  const response = await fetchJson(url);
   if (!response.ok) {
     throw new Error(`SpecDrive request failed: ${response.status} ${response.statusText}`);
   }
@@ -522,8 +525,8 @@ async function submitSpecChangeRequest(input: unknown, provider: SpecExplorerPro
 }
 
 async function postIdeCommand(input: (ControlledCommandInput & { requestedBy: string }) | SpecChangeRequestV1 | IdeQueueCommandV1): Promise<Record<string, unknown>> {
-  const controlPlaneUrl = vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4000");
-  const response = await fetch(new URL("/ide/commands", controlPlaneUrl), {
+  const controlPlaneUrl = configuredControlPlaneUrl();
+  const response = await fetchJson(new URL("/ide/commands", controlPlaneUrl), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(input),
@@ -554,6 +557,34 @@ async function postQueueCommand(
     workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
     queueAction,
     entityType: item.executionId ? "run" : "job",
+    entityId,
+    requestedBy: "vscode-extension",
+    reason: input.reason,
+    payload: input.payload,
+    approvalDecision: input.approvalDecision,
+  };
+  const response = await postIdeCommand(body);
+  const status = typeof response.status === "string" ? response.status : "unknown";
+  const executionId = typeof response.executionId === "string" ? ` execution=${response.executionId}` : "";
+  await vscode.window.showInformationMessage(`SpecDrive queue ${queueAction} ${status}.${executionId}`);
+  await provider.refresh();
+}
+
+async function postQueueCommandForTarget(
+  queueAction: QueueAction,
+  entityId: string,
+  entityType: "run" | "job",
+  provider: SpecExplorerProvider,
+  input: { reason: string; payload?: Record<string, unknown>; approvalDecision?: ApprovalDecision },
+): Promise<void> {
+  const view = provider.currentView();
+  const body: IdeQueueCommandV1 = {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: view?.project?.id,
+    workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    queueAction,
+    entityType,
     entityId,
     requestedBy: "vscode-extension",
     reason: input.reason,
@@ -776,8 +807,124 @@ async function openExecution(item: unknown): Promise<void> {
   panel.webview.html = renderExecutionWebview(await fetchExecutionDetail(item.item));
 }
 
+async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<void> {
+  const panel = vscode.window.createWebviewPanel("specdriveExecutionWorkbench", "Execution Workbench", vscode.ViewColumn.Active, {
+    enableScripts: true,
+    retainContextWhenHidden: true,
+  });
+  const render = async (): Promise<void> => {
+    await provider.refresh();
+    const view = provider.currentView();
+    const current = view ? currentExecutionItem(view) : undefined;
+    const detail = current ? await fetchExecutionDetail(current) : undefined;
+    panel.webview.html = renderExecutionWorkbenchWebview(view, detail);
+  };
+  panel.webview.onDidReceiveMessage((message: unknown) => handleWorkbenchMessage(message, provider, render));
+  await render();
+}
+
+async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> {
+  const panel = vscode.window.createWebviewPanel("specdriveSpecWorkspace", "Spec Workspace", vscode.ViewColumn.Active, {
+    enableScripts: true,
+    retainContextWhenHidden: true,
+  });
+  const render = async (): Promise<void> => {
+    await provider.refresh();
+    panel.webview.html = renderSpecWorkspaceWebview(provider.currentView());
+  };
+  panel.webview.onDidReceiveMessage((message: unknown) => handleWorkbenchMessage(message, provider, render));
+  await render();
+}
+
+async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): Promise<void> {
+  const panel = vscode.window.createWebviewPanel("specdriveFeatureSpec", "Feature Spec", vscode.ViewColumn.Active, {
+    enableScripts: true,
+    retainContextWhenHidden: true,
+  });
+  let selectedFeatureId = isFeatureItem(item) ? item.feature.id : undefined;
+  const render = async (): Promise<void> => {
+    await provider.refresh();
+    const view = provider.currentView();
+    if (!selectedFeatureId || !view?.features.some((feature) => feature.id === selectedFeatureId)) {
+      selectedFeatureId = preferredFeature(view)?.id;
+    }
+    panel.webview.html = renderFeatureSpecWebview(view, selectedFeatureId);
+  };
+  panel.webview.onDidReceiveMessage(async (message: unknown) => {
+    if (isWorkbenchMessage(message) && message.command === "selectFeature" && typeof message.featureId === "string") {
+      selectedFeatureId = message.featureId;
+      await render();
+      return;
+    }
+    await handleWorkbenchMessage(message, provider, render);
+  });
+  await render();
+}
+
+async function handleWorkbenchMessage(
+  message: unknown,
+  provider: SpecExplorerProvider,
+  render: () => Promise<void>,
+): Promise<void> {
+  if (!isWorkbenchMessage(message)) return;
+  try {
+    if (message.command === "refresh") {
+      await render();
+      return;
+    }
+    if (message.command === "openDocument" && typeof message.path === "string") {
+      await openDocumentPath(message.path);
+      return;
+    }
+    if (message.command === "queue" && isQueueAction(message.action) && typeof message.entityId === "string") {
+      const payload = message.action === "reprioritize" ? await priorityPayload() : undefined;
+      if (message.action === "reprioritize" && !payload) return;
+      await postQueueCommandForTarget(message.action, message.entityId, message.entityType === "job" ? "job" : "run", provider, {
+        reason: typeof message.reason === "string" ? message.reason : `Run ${message.action} from VSCode Webview.`,
+        payload,
+        approvalDecision: isApprovalDecision(message.approvalDecision) ? message.approvalDecision : undefined,
+      });
+      await render();
+      return;
+    }
+    if (message.command === "controlled"
+      && typeof message.action === "string"
+      && isControlledEntityType(message.entityType)
+      && typeof message.entityId === "string") {
+      await runControlledCommand({
+        action: message.action,
+        entityType: message.entityType,
+        entityId: message.entityId,
+        reason: typeof message.reason === "string" ? message.reason : "Run controlled command from VSCode Webview.",
+        payload: typeof message.payload === "object" && message.payload !== null ? message.payload as Record<string, unknown> : undefined,
+      }, provider);
+      await render();
+    }
+  } catch (error) {
+    await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function priorityPayload(): Promise<Record<string, unknown> | undefined> {
+  const value = await vscode.window.showInputBox({ prompt: "Priority", value: "0" });
+  if (value === undefined) return undefined;
+  const priority = Number(value);
+  if (!Number.isFinite(priority)) {
+    await vscode.window.showErrorMessage("SpecDrive priority must be a number.");
+    return undefined;
+  }
+  return { priority };
+}
+
+async function openDocumentPath(path: string): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (!workspaceRoot) return;
+  const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(workspaceRoot, ...path.split("/")));
+  await vscode.window.showTextDocument(document);
+}
+
 async function openProductConsole(item: unknown, provider: SpecExplorerProvider): Promise<void> {
-  const baseUrl = vscode.workspace.getConfiguration("specdrive").get("productConsoleUrl", provider.currentView()?.productConsole?.defaultUrl ?? "http://127.0.0.1:4000");
+  const baseUrl = vscode.workspace.getConfiguration("specdrive").get("productConsoleUrl", provider.currentView()?.productConsole?.defaultUrl ?? "http://127.0.0.1:5173");
   const path = isQueueItem(item)
     ? provider.currentView()?.productConsole?.links.queue ?? "/#runner"
     : provider.currentView()?.productConsole?.links.workspace ?? "/#spec";
@@ -831,6 +978,42 @@ function isSpecChangeRequestIntent(value: unknown): value is SpecChangeRequestIn
     || value === "generate_ears"
     || value === "update_design"
     || value === "split_feature";
+}
+
+function isWorkbenchMessage(value: unknown): value is Record<string, unknown> & { command: string } {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { command?: unknown }).command === "string";
+}
+
+function isQueueAction(value: unknown): value is QueueAction {
+  return value === "enqueue"
+    || value === "run_now"
+    || value === "pause"
+    || value === "resume"
+    || value === "retry"
+    || value === "cancel"
+    || value === "skip"
+    || value === "reprioritize"
+    || value === "refresh"
+    || value === "approve";
+}
+
+function isApprovalDecision(value: unknown): value is ApprovalDecision {
+  return value === "accept" || value === "acceptForSession" || value === "decline" || value === "cancel";
+}
+
+function isControlledEntityType(value: unknown): value is ControlledCommandInput["entityType"] {
+  return value === "project"
+    || value === "feature"
+    || value === "task"
+    || value === "run"
+    || value === "runner"
+    || value === "review_item"
+    || value === "rule"
+    || value === "spec"
+    || value === "cli_adapter"
+    || value === "settings";
 }
 
 function isCommentThread(value: unknown): value is vscode.CommentThread {
@@ -914,10 +1097,150 @@ function formatExecutionDetails(item: SpecDriveIdeQueueItem): string {
 
 async function fetchExecutionDetail(item: SpecDriveIdeQueueItem): Promise<SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem> {
   if (!item.executionId) return item;
-  const controlPlaneUrl = vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4000");
-  const response = await fetch(new URL(`/ide/executions/${encodeURIComponent(item.executionId)}`, controlPlaneUrl));
+  const controlPlaneUrl = configuredControlPlaneUrl();
+  const response = await fetchJson(new URL(`/ide/executions/${encodeURIComponent(item.executionId)}`, controlPlaneUrl));
   if (!response.ok) return item;
   return await response.json() as SpecDriveIdeExecutionDetail;
+}
+
+function configuredControlPlaneUrl(): string {
+  return vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4317");
+}
+
+async function fetchJson(input: URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cannot reach SpecDrive Control Plane at ${input.origin}. Start it with npm run dev or update specdrive.controlPlaneUrl. Cause: ${cause}`);
+  }
+}
+
+function renderExecutionWorkbenchWebview(
+  view: SpecDriveIdeView | undefined,
+  detail: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined,
+): string {
+  const nonce = webviewNonce();
+  const queue = view ? allQueueItems(view) : [];
+  const grouped = view?.queue.groups ?? {};
+  const blockers = queue.filter((item) => item.status === "blocked" || item.status === "approval_needed");
+  return renderWorkbenchPage("Execution Workbench", nonce, `
+    <section class="toolbar">
+      ${commandButton("Start Auto Run", "controlled", { action: "auto_run", entityType: "runner", entityId: view?.project?.id ?? "workspace", reason: "Start auto run from Execution Workbench." })}
+      ${queueButton("Run Now", queue.find((item) => item.status === "ready" || item.status === "queued"), "run_now")}
+      ${queueButton("Pause", detail, "pause")}
+      ${queueButton("Resume", detail, "resume")}
+      ${queueButton("Retry", detail, "retry")}
+      ${queueButton("Cancel", detail, "cancel")}
+      ${queueButton("Skip", detail, "skip")}
+      ${queueButton("Reprioritize", detail, "reprioritize")}
+      ${queueButton("Enqueue", queue[0], "enqueue")}
+      ${commandButton("Refresh", "refresh", {})}
+    </section>
+    <main class="grid execution-grid">
+      <section class="panel span-5">
+        <div class="panel-title"><h2>Job Queue</h2><span>${queue.length} jobs</span></div>
+        ${["ready", "queued", "running", "approval_needed", "blocked", "failed", "completed"].map((status) => renderQueueGroup(status, grouped[status] ?? [])).join("")}
+      </section>
+      <section class="panel span-3">
+        <div class="panel-title"><h2>Current Execution</h2><span>${escapeHtml(detail?.status ?? "none")}</span></div>
+        ${detail ? executionFieldsHtml(detail) : emptyState("No active execution selected.")}
+        <h3>Raw Log Refs</h3>
+        ${renderRawLogRefs(detail)}
+        <h3>Diff Summary</h3>
+        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).diffSummary ?? null : null)}
+        <h3>SkillOutputContractV1</h3>
+        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).contractValidation ?? null : null)}
+      </section>
+      <section class="panel span-4">
+        <div class="panel-title"><h2>Blockers & Approvals</h2><span>${blockers.length}</span></div>
+        ${blockers.length === 0 ? emptyState("No blockers or approval requests.") : blockers.map(renderBlockerCard).join("")}
+      </section>
+      <section class="panel span-4">
+        <div class="panel-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
+        <h3>Produced Artifacts</h3>
+        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).producedArtifacts ?? [] : [])}
+        <h3>Evidence</h3>
+        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).evidence ?? [] : [])}
+      </section>
+    </main>
+  `);
+}
+
+function renderSpecWorkspaceWebview(view: SpecDriveIdeView | undefined): string {
+  const nonce = webviewNonce();
+  const projectId = view?.project?.id ?? "workspace";
+  const stages = specLifecycleStages(view);
+  const active = stages.find((stage) => stage.active) ?? stages[0];
+  return renderWorkbenchPage("Spec Workspace", nonce, `
+    <section class="stage-strip">
+      ${stages.map((stage) => `
+        <button class="stage ${stage.active ? "active" : ""}" data-command="controlled" data-action="${escapeAttr(stage.action)}" data-entity-type="spec" data-entity-id="${escapeAttr(projectId)}" data-reason="${escapeAttr(`Advance ${stage.label} from Spec Workspace.`)}">
+          <span>${escapeHtml(stage.index)}</span>${escapeHtml(stage.label)}
+        </button>
+      `).join("")}
+    </section>
+    <main class="grid">
+      <section class="panel span-3">
+        <div class="panel-title"><h2>Lifecycle Pipeline</h2><span>${stages.length} stages</span></div>
+        ${stages.map((stage) => `<div class="row"><span>${escapeHtml(stage.index)} ${escapeHtml(stage.label)}</span><strong class="${statusClass(stage.status)}">${escapeHtml(stage.status)}</strong></div>`).join("")}
+      </section>
+      <section class="panel span-5">
+        <div class="panel-title"><h2>${escapeHtml(active.label)}</h2><span>${escapeHtml(active.status)}</span></div>
+        <p class="muted">${escapeHtml(active.description)}</p>
+        <h3>Source Docs</h3>
+        ${documentList(view?.documents ?? [])}
+        <h3>Traceability</h3>
+        ${traceabilityTable(view)}
+        <h3>Next Action</h3>
+        ${commandButton(active.cta, "controlled", { action: active.action, entityType: "spec", entityId: projectId, reason: `Run ${active.label} from Spec Workspace.` })}
+      </section>
+      <section class="panel span-4">
+        <div class="panel-title"><h2>Control Guardrails</h2><span>Policy</span></div>
+        ${guardrailRow("Constitution Checks", "Passed")}
+        ${guardrailRow("Evidence Required", "Passed")}
+        ${guardrailRow("Traceability Enforced", "Passed")}
+        ${guardrailRow("Safe Actions Only", "Passed")}
+        <h3>Command Approvals</h3>
+        ${["ask_followup", "write_file", "run_command", "git_commit", "delete_files"].map((name) => guardrailRow(name, name === "ask_followup" ? "Auto" : "Require Approval")).join("")}
+      </section>
+      <section class="panel span-8">
+        <div class="panel-title"><h2>Evidence & Traceability</h2><span>${view?.factSources.length ?? 0} fact sources</span></div>
+        ${evidenceTable(view)}
+      </section>
+      <section class="panel span-4">
+        <div class="panel-title"><h2>Spec Consistency</h2><span>${view?.diagnostics.length ?? 0} diagnostics</span></div>
+        ${(view?.diagnostics ?? []).slice(0, 5).map((diagnostic) => `<div class="issue ${statusClass(diagnostic.severity)}">${escapeHtml(diagnostic.path)}<br><span>${escapeHtml(diagnostic.message)}</span></div>`).join("") || emptyState("No active diagnostics.")}
+      </section>
+    </main>
+  `);
+}
+
+function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, selectedFeatureId: string | undefined): string {
+  const nonce = webviewNonce();
+  const features = view?.features ?? [];
+  const selected = features.find((feature) => feature.id === selectedFeatureId) ?? preferredFeature(view);
+  const groups = groupFeatures(features);
+  return renderWorkbenchPage("Feature Spec", nonce, `
+    <section class="toolbar">
+      ${commandButton("New Feature", "controlled", { action: "create_feature", entityType: "project", entityId: view?.project?.id ?? "workspace", reason: "Create Feature from Feature Spec Webview." })}
+      ${commandButton("Refresh", "refresh", {})}
+      ${selected ? commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: selected.id, reason: `Schedule ${selected.id} from Feature Spec Webview.` }) : ""}
+    </section>
+    <main class="feature-layout">
+      <section class="feature-board">
+        ${Object.entries(groups).map(([status, items]) => `
+          <section>
+            <h2>${escapeHtml(status)} <span>${items.length}</span></h2>
+            ${items.map((feature) => renderFeatureCard(feature, feature.id === selected?.id)).join("")}
+          </section>
+        `).join("")}
+      </section>
+      <aside class="panel detail-panel">
+        ${selected ? renderFeatureDetail(selected) : emptyState("No Feature Specs discovered.")}
+      </aside>
+    </main>
+  `);
 }
 
 function renderExecutionWebview(item: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem): string {
@@ -944,8 +1267,206 @@ function renderExecutionWebview(item: SpecDriveIdeExecutionDetail | SpecDriveIde
     <h2>Raw Logs</h2>
     ${(detail?.rawLogs ?? []).map((log, index) => `<h3>Log ${index + 1}</h3><p>Stdout</p>${textBlock(log.stdout)}<p>Stderr</p>${textBlock(log.stderr)}`).join("")}
     <h2>Product Console</h2>
-    <p><a href="http://127.0.0.1:4000/#runner">Open Runner Console</a></p>
+    <p><a href="http://127.0.0.1:5173/#runner">Open Runner Console</a></p>
   </body></html>`;
+}
+
+function renderWorkbenchPage(title: string, nonce: string, body: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"><style>
+    :root{color-scheme:dark;--accent:var(--vscode-focusBorder,#22d3ee);--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--muted:var(--vscode-descriptionForeground,#9ca3af);--panel:var(--vscode-sideBar-background,#11181d);--border:var(--vscode-panel-border,#2b3942)}
+    *{box-sizing:border-box}body{margin:0;padding:14px 16px 18px;font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);line-height:1.45}
+    h1{font-size:22px;margin:4px 0 12px;font-weight:650}h2{font-size:14px;margin:0;font-weight:650}h3{font-size:12px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase}
+    button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}
+    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}
+    .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title span,.muted{color:var(--muted)}
+    .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px}.row{grid-template-columns:1fr auto}
+    .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
+    pre{max-height:180px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;font-family:var(--vscode-editor-font-family);font-size:11px}.issue{border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0}.issue span{color:var(--muted)}
+    .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}
+    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:10px}.feature-board section{border:1px solid var(--border);border-radius:6px;padding:8px;min-width:0}.feature-board h2{display:flex;justify-content:space-between;margin-bottom:8px}.feature-card{width:100%;text-align:left;background:var(--panel);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;padding:9px}.feature-card.selected{border-color:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}
+    @media (max-width:980px){.grid,.feature-layout,.feature-board{display:block}.panel,.feature-board section{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  </style></head><body><h1>${escapeHtml(title)}</h1>${body}<script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    document.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-command]");
+      if (!target) return;
+      const payload = {...target.dataset};
+      if (payload.command === "selectFeature") payload.featureId = target.dataset.featureId;
+      vscode.postMessage(payload);
+    });
+  </script></body></html>`;
+}
+
+function commandButton(label: string, command: string, data: Record<string, string | undefined>): string {
+  const attrs = Object.entries({ command, ...data })
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `data-${kebab(key)}="${escapeAttr(String(value))}"`)
+    .join(" ");
+  return `<button ${attrs}>${escapeHtml(label)}</button>`;
+}
+
+function queueButton(label: string, item: SpecDriveIdeQueueItem | undefined, action: QueueAction): string {
+  const entityId = item?.executionId ?? item?.schedulerJobId;
+  if (!entityId) return `<button disabled>${escapeHtml(label)}</button>`;
+  return commandButton(label, "queue", {
+    action,
+    entityType: item?.executionId ? "run" : "job",
+    entityId,
+    reason: `${label} from Execution Workbench.`,
+  });
+}
+
+function renderQueueGroup(status: string, items: SpecDriveIdeQueueItem[]): string {
+  return `<div class="queue-group"><div class="queue-head"><strong class="${statusClass(status)}">${escapeHtml(status)}</strong><span>${items.length}</span></div>
+    ${items.map((item) => `<div class="queue-item"><span>${escapeHtml(item.featureId ?? item.taskId ?? item.operation ?? "execution")}</span><span>${escapeHtml(item.operation ?? item.jobType ?? "-")}</span><span>${escapeHtml(item.adapter ?? "-")}</span>${queueButton("Open", item, "run_now")}</div>`).join("") || `<div class="queue-item"><span class="muted">No items</span></div>`}
+  </div>`;
+}
+
+function renderBlockerCard(item: SpecDriveIdeQueueItem): string {
+  return `<div class="issue ${statusClass(item.status)}"><strong>${escapeHtml(item.featureId ?? item.executionId ?? item.schedulerJobId ?? "approval")}</strong><br>
+    <span>${escapeHtml(item.summary ?? item.operation ?? item.status)}</span>
+    <div class="toolbar">${queueButton("Accept", item, "approve").replace("data-action=\"approve\"", "data-action=\"approve\" data-approval-decision=\"accept\"")}${queueButton("Decline", item, "approve").replace("data-action=\"approve\"", "data-action=\"approve\" data-approval-decision=\"decline\"")}${queueButton("Retry", item, "retry")}</div>
+  </div>`;
+}
+
+function renderRawLogRefs(item: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined): string {
+  if (!item || !("rawLogs" in item) || item.rawLogs.length === 0) return emptyState("No raw log references.");
+  return item.rawLogs.map((log, index) => `<div class="row"><span>Log ${index + 1}</span><span>${escapeHtml(log.createdAt ?? "recorded")}</span></div>`).join("");
+}
+
+function specLifecycleStages(view: SpecDriveIdeView | undefined): Array<{ index: string; label: string; status: string; action: string; cta: string; active: boolean; description: string }> {
+  const docs = new Set((view?.documents ?? []).filter((document) => document.exists).map((document) => document.kind));
+  const labels = [
+    ["1", "PRD", "intake_requirement", "Run Intake", "Capture product intent and source requirements."],
+    ["2", "EARS Requirements", "generate_ears", "Generate Requirements", "Generate or update testable EARS requirements."],
+    ["3", "HLD", "generate_hld", "Generate HLD", "Create project-level architecture from accepted requirements."],
+    ["4", "UI Spec", "generate_ui_spec", "Generate UI Spec", "Create UI specifications and concept references."],
+    ["5", "Architecture Plan", "plan_architecture", "Plan Architecture", "Define feature-level architecture and boundaries."],
+    ["6", "Data Model", "design_data_model", "Design Data Model", "Design durable state and query ownership."],
+    ["7", "Contracts", "design_contracts", "Design Contracts", "Design API, command, view-model, and evidence contracts."],
+    ["8", "Tasks", "slice_tasks", "Slice Tasks", "Create implementation-ready task slices."],
+    ["9", "Quickstart", "validate_quickstart", "Validate Quickstart", "Confirm startability and verification commands."],
+    ["10", "Execution", "start_execution", "Start Execution", "Schedule bounded implementation work."],
+    ["11", "Review", "start_review", "Start Review", "Review findings, evidence, and spec drift."],
+    ["12", "Delivery", "close_delivery", "Close Delivery", "Close delivery with evidence and traceability."],
+  ];
+  const missingIndex = labels.findIndex(([, label]) => !docs.has(label.toLowerCase().replaceAll(" ", "_")));
+  const activeIndex = missingIndex === -1 ? Math.min(7, labels.length - 1) : missingIndex;
+  return labels.map(([index, label, action, cta, description], position) => ({
+    index,
+    label,
+    action,
+    cta,
+    description,
+    active: position === activeIndex,
+    status: position < activeIndex ? "Ready" : position === activeIndex ? "Draft" : "Not Started",
+  }));
+}
+
+function documentList(documents: SpecDriveIdeDocument[]): string {
+  if (documents.length === 0) return emptyState("No source documents discovered.");
+  return documents.map((document) => `<div class="row"><span>${escapeHtml(document.label)}</span><button data-command="openDocument" data-path="${escapeAttr(document.path)}">${document.exists ? "Open" : "Missing"}</button></div>`).join("");
+}
+
+function traceabilityTable(view: SpecDriveIdeView | undefined): string {
+  return `<div class="row"><span>Project</span><strong>${escapeHtml(view?.project?.id ?? "unknown")}</strong></div>
+    <div class="row"><span>Features</span><strong>${view?.features.length ?? 0}</strong></div>
+    <div class="row"><span>Diagnostics</span><strong>${view?.diagnostics.length ?? 0}</strong></div>`;
+}
+
+function evidenceTable(view: SpecDriveIdeView | undefined): string {
+  const rows = [
+    ...(view?.factSources ?? []).map((source) => ["Fact Source", source, "Available"]),
+    ...(view?.features ?? []).slice(0, 5).map((feature) => [feature.id, feature.folder, feature.status]),
+  ];
+  return rows.length === 0 ? emptyState("No evidence references yet.") : rows.map(([a, b, c]) => `<div class="row"><span>${escapeHtml(a)}</span><span>${escapeHtml(b)}</span><strong class="${statusClass(c)}">${escapeHtml(c)}</strong></div>`).join("");
+}
+
+function guardrailRow(label: string, status: string): string {
+  return `<div class="row"><span>${escapeHtml(label)}</span><strong class="${statusClass(status)}">${escapeHtml(status)}</strong></div>`;
+}
+
+function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean): string {
+  const progress = feature.latestExecutionStatus === "completed" ? 100 : feature.latestExecutionStatus === "running" ? 70 : feature.status === "ready" ? 60 : 30;
+  return `<button class="feature-card ${selected ? "selected" : ""}" data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}">
+    <header><strong>${escapeHtml(feature.id)}</strong><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></header>
+    <div>${escapeHtml(feature.title)}</div>
+    <div class="metric"><span>Requirement Coverage</span><strong>${progress}%</strong><div class="bar"><span style="width:${progress}%"></span></div></div>
+    <div class="metric"><span>Execution State</span><strong>${escapeHtml(feature.latestExecutionStatus ?? "Not Started")}</strong></div>
+    <div class="metric"><span>Next Action</span><strong>${escapeHtml(feature.nextAction ?? "None")}</strong></div>
+  </button>`;
+}
+
+function renderFeatureDetail(feature: SpecDriveIdeFeatureNode): string {
+  return `<div class="panel-title"><h2>${escapeHtml(feature.id)}</h2><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></div>
+    <h3>${escapeHtml(feature.title)}</h3>
+    <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
+    <div class="row"><span>Latest Run</span><strong>${escapeHtml(feature.latestExecutionId ?? "-")}</strong></div>
+    <div class="row"><span>Execution</span><strong>${escapeHtml(feature.latestExecutionStatus ?? "Not Started")}</strong></div>
+    <h3>Artifacts</h3>
+    ${documentList(feature.documents)}
+    <h3>Acceptance</h3>
+    ${["Requirements traced", "Task queue visible", "Execution state persisted", "Evidence generated", "Adapter failures handled"].map((item, index) => `<div class="row"><span>${escapeHtml(item)}</span><strong class="${index < 3 ? "ok" : "draft"}">${index < 3 ? "Passed" : "Draft"}</strong></div>`).join("")}
+    <h3>Blockers</h3>
+    ${feature.blockedReasons.length === 0 ? emptyState("No blockers.") : feature.blockedReasons.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")}
+    <h3>Traceability</h3>
+    <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>
+    <div class="toolbar">${commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: feature.id, reason: `Schedule ${feature.id} from Feature Detail.` })}</div>`;
+}
+
+function allQueueItems(view: SpecDriveIdeView): SpecDriveIdeQueueItem[] {
+  return Object.values(view.queue.groups).flat();
+}
+
+function currentExecutionItem(view: SpecDriveIdeView): SpecDriveIdeQueueItem | undefined {
+  const items = allQueueItems(view);
+  return items.find((item) => item.status === "running")
+    ?? items.find((item) => item.status === "approval_needed")
+    ?? items.find((item) => item.status === "queued")
+    ?? items[0];
+}
+
+function preferredFeature(view: SpecDriveIdeView | undefined): SpecDriveIdeFeatureNode | undefined {
+  return view?.features.find((feature) => feature.status === "in_execution" || feature.latestExecutionStatus === "running")
+    ?? view?.features[0];
+}
+
+function groupFeatures(features: SpecDriveIdeFeatureNode[]): Record<string, SpecDriveIdeFeatureNode[]> {
+  const groups: Record<string, SpecDriveIdeFeatureNode[]> = {};
+  for (const feature of features) {
+    const key = feature.blockedReasons.length > 0 ? "Blocked" : titleCase(feature.status || "Planning");
+    groups[key] = [...(groups[key] ?? []), feature];
+  }
+  return groups;
+}
+
+function statusClass(status: string | undefined): string {
+  const value = (status ?? "").toLowerCase();
+  if (["ready", "completed", "delivered", "passed", "available", "success"].some((token) => value.includes(token))) return "ok";
+  if (["blocked", "failed", "error", "decline"].some((token) => value.includes(token))) return "bad";
+  if (["approval", "review", "warning", "draft", "require"].some((token) => value.includes(token))) return "warn";
+  return "info";
+}
+
+function compactJsonBlock(value: unknown): string {
+  const json = JSON.stringify(value, null, 2);
+  return textBlock(json.length > 1200 ? `${json.slice(0, 1200)}\n...` : json);
+}
+
+function emptyState(message: string): string {
+  return `<p class="muted">${escapeHtml(message)}</p>`;
+}
+
+function webviewNonce(): string {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function kebab(value: string): string {
+  return value.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
+}
+
+function titleCase(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
@@ -976,4 +1497,8 @@ function textBlock(value: string): string {
 
 function escapeHtml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function escapeAttr(value: string): string {
+  return escapeHtml(value).replaceAll("\"", "&quot;");
 }

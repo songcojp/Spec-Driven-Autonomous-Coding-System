@@ -114,6 +114,7 @@ declare module "vscode" {
 
   export interface Webview {
     html: string;
+    onDidReceiveMessage(listener: (message: unknown) => unknown): Disposable;
   }
 
   export interface WebviewPanel extends Disposable {
@@ -185,7 +186,7 @@ declare module "vscode" {
   export namespace window {
     const activeTextEditor: TextEditor | undefined;
     function createTreeView<T>(viewId: string, options: { treeDataProvider: TreeDataProvider<T> }): Disposable;
-    function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean }): WebviewPanel;
+    function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean; retainContextWhenHidden?: boolean }): WebviewPanel;
     function showErrorMessage(message: string): Thenable<string | undefined>;
     function showInputBox(options?: { prompt?: string; value?: string }): Thenable<string | undefined>;
     function showQuickPick(items: string[], options?: { placeHolder?: string }): Thenable<string | undefined>;
