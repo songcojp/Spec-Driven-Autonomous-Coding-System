@@ -125,17 +125,17 @@
     "menus": {
       "view/title": [
         {
-          "command": "specdrive.openExecutionWorkbench",
+          "command": "specdrive.openSpecWorkspace",
           "when": "view == specdrive.specExplorer",
           "group": "navigation@1"
         },
         {
-          "command": "specdrive.openSpecWorkspace",
+          "command": "specdrive.openFeatureSpec",
           "when": "view == specdrive.specExplorer",
           "group": "navigation@2"
         },
         {
-          "command": "specdrive.openFeatureSpec",
+          "command": "specdrive.openExecutionWorkbench",
           "when": "view == specdrive.specExplorer",
           "group": "navigation@3"
         }

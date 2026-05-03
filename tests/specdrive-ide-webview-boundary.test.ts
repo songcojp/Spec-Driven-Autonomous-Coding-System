@@ -21,6 +21,9 @@ const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.
   activationEvents?: string[];
   contributes?: {
     commands?: Array<{ command: string; title: string }>;
+    menus?: {
+      "view/title"?: Array<{ command: string; group?: string }>;
+    };
   };
 };
 
@@ -42,6 +45,20 @@ test("VSCode IDE Webviews expose three independent workbench commands", () => {
   assert.match(extensionSource, /renderFeatureSpecWebview/);
   assert.match(extensionSource, /onDidReceiveMessage/);
   assert.match(extensionSource, /Content-Security-Policy/);
+});
+
+test("VSCode Spec Explorer title actions are ordered by workflow", () => {
+  const titleActions = extensionPackage.contributes?.menus?.["view/title"] ?? [];
+  assert.deepEqual(titleActions.map((action) => action.command), [
+    "specdrive.openSpecWorkspace",
+    "specdrive.openFeatureSpec",
+    "specdrive.openExecutionWorkbench",
+  ]);
+  assert.deepEqual(titleActions.map((action) => action.group), [
+    "navigation@1",
+    "navigation@2",
+    "navigation@3",
+  ]);
 });
 
 test("VSCode Feature Spec Webview switches between list and dependency graph views", () => {
@@ -115,6 +132,11 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /label: "Project Memory"/);
   assert.match(extensionSource, /label: "Workspace health check"/);
   assert.match(extensionSource, /label: "Current project context"/);
+  assert.match(extensionSource, /action: "connect_git_repository"/);
+  assert.match(extensionSource, /action: "initialize_spec_protocol"/);
+  assert.match(extensionSource, /action: "import_or_create_constitution"/);
+  assert.match(extensionSource, /action: "initialize_project_memory"/);
+  assert.match(extensionSource, /action: "check_project_health"/);
   assert.match(extensionSource, /label: "Requirement Intake"/);
   assert.match(extensionSource, /label: "Feature Split"/);
   assert.match(extensionSource, /action: "scan_spec_sources"/);

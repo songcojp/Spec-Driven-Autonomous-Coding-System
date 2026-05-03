@@ -92,6 +92,10 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
         { label: "Current project context", status: hasProjectContext ? "Ready" : "Blocked" },
       ],
       actions: [
+        { label: "Connect Git Repository", action: "connect_git_repository", reason: "Connect Git repository from Project Initialization lifecycle." },
+        { label: "Initialize Spec Protocol", action: "initialize_spec_protocol", reason: "Initialize .autobuild / Spec Protocol from Project Initialization lifecycle." },
+        { label: "Import or Create Constitution", action: "import_or_create_constitution", reason: "Import or create project constitution from Project Initialization lifecycle." },
+        { label: "Initialize Project Memory", action: "initialize_project_memory", reason: "Initialize Project Memory from Project Initialization lifecycle." },
         { label: "Check Project Health", action: "check_project_health", reason: "Check project initialization from Spec Workspace lifecycle." },
       ],
     },
