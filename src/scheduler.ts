@@ -354,15 +354,14 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
         runnerId: "bullmq-cli-runner",
         policy,
         queueStatus: result.status,
-        message: result.evidence,
+        message: result.summary,
       }),
     });
-    persistRunnerExecutionResult(dbPath, result.adapterResult.evidence);
-  }
+      }
 
   const taskStatus = taskStatusFromRunnerStatus(result.status);
   if (taskId) {
-    transitionTaskIfAllowed(dbPath, taskId, "running", taskStatus, result.evidence, "cli.run");
+    transitionTaskIfAllowed(dbPath, taskId, "running", taskStatus, result.summary, "cli.run");
   }
   const finalMetadata = {
     scheduler: "bullmq",
@@ -371,14 +370,14 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     skillSlug: loaded.skillInvocation?.skillSlug,
     skillPhase: loaded.skillInvocation?.requestedAction,
     skillInvocationContract: loaded.skillInvocation,
-    skillOutputContract: result.adapterResult?.evidence.skillOutput,
-    contractValidation: result.adapterResult?.evidence.contractValidation,
-    producedArtifacts: result.adapterResult?.evidence.skillOutput?.producedArtifacts ?? [],
+    skillOutputContract: result.adapterResult?.result.skillOutput,
+    contractValidation: result.adapterResult?.result.contractValidation,
+    producedArtifacts: result.adapterResult?.result.skillOutput?.producedArtifacts ?? [],
   };
   runSqlite(dbPath, [
     {
       sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-      params: [result.status, new Date().toISOString(), result.evidence, JSON.stringify(finalMetadata), payload.executionId],
+      params: [result.status, new Date().toISOString(), result.summary, JSON.stringify(finalMetadata), payload.executionId],
     },
   ]);
   updateFeatureSpecFileState({
@@ -386,11 +385,11 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     featureId: loaded.featureId ?? featureId,
     context,
     status: result.status,
-    summary: result.evidence,
+    summary: result.summary,
     source: "cli.run",
     schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
     executionId: payload.executionId,
-    skillOutput: result.adapterResult?.evidence.skillOutput,
+    skillOutput: result.adapterResult?.result.skillOutput,
   });
   return { executionId: payload.executionId, status: result.status };
 }
@@ -482,7 +481,7 @@ export async function runCodexAppServerRunJob(
           JSON.stringify(loaded.skillInvocation ?? context),
           "review_needed",
           now.toISOString(),
-          safety.evidence,
+          safety.summary,
           JSON.stringify({
             scheduler: "bullmq",
             jobType: "codex.app_server.run",
@@ -635,16 +634,15 @@ export async function runCodexAppServerRunJob(
       runnerId: "bullmq-app-server-runner",
       policy,
       queueStatus: appServerResultStatus(adapterResult),
-      message: adapterResult.evidence.skillOutput?.summary ?? adapterResult.rawLog.stderr,
+      message: adapterResult.result.skillOutput?.summary ?? adapterResult.rawLog.stderr,
     }),
   });
-  persistRunnerExecutionResult(dbPath, adapterResult.evidence);
-  const finalStatus = appServerResultStatus(adapterResult);
+    const finalStatus = appServerResultStatus(adapterResult);
   const finalSummary = finalStatus === "approval_needed"
     ? "Codex app-server is waiting for approval; autonomous execution is paused for this Feature."
-    : finalStatus === "failed" && adapterResult.evidence.contractValidation && !adapterResult.evidence.contractValidation.valid
-    ? `Skill output contract validation failed: ${adapterResult.evidence.contractValidation.reasons.join("; ")}`
-    : adapterResult.evidence.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex app-server ${finalStatus}.`);
+    : finalStatus === "failed" && adapterResult.result.contractValidation && !adapterResult.result.contractValidation.valid
+    ? `Skill output contract validation failed: ${adapterResult.result.contractValidation.reasons.join("; ")}`
+    : adapterResult.result.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex app-server ${finalStatus}.`);
   runSqlite(dbPath, [
     {
       sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -659,15 +657,15 @@ export async function runCodexAppServerRunJob(
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
           skillInvocationContract: loaded.skillInvocation,
-          skillOutputContract: adapterResult.evidence.skillOutput,
-          producedArtifacts: adapterResult.evidence.skillOutput?.producedArtifacts ?? [],
+          skillOutputContract: adapterResult.result.skillOutput,
+          producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
           threadId: adapterResult.session.sessionId,
           turnId: eventTurnId(adapterResult.rawLog.events),
           transport: adapterConfig?.transport,
           model: policy.model,
           cwd: loaded.workspaceRoot,
           outputSchema: policy.outputSchema,
-          contractValidation: adapterResult.evidence.contractValidation,
+          contractValidation: adapterResult.result.contractValidation,
           approvalState: approvalStateFromEvents(adapterResult.rawLog.events),
           eventRefs: adapterResult.rawLog.events.map((event, index) => ({
             index,
@@ -696,7 +694,7 @@ export async function runCodexAppServerRunJob(
     source: "codex.app_server.run",
     schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
     executionId: payload.executionId,
-    skillOutput: adapterResult.evidence.skillOutput,
+    skillOutput: adapterResult.result.skillOutput,
   });
   return { executionId: payload.executionId, status: finalStatus };
 }
@@ -813,10 +811,10 @@ async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRun
   }
 }
 
-function appServerResultStatus(result: { session: { exitCode: number | null }; evidence: { skillOutput?: SkillOutputContract; events?: Array<Record<string, unknown>> } }): RunnerQueueStatus {
-  if (hasApprovalRequest(result.evidence.events)) return "approval_needed";
+function appServerResultStatus(result: { session: { exitCode: number | null }; result: { skillOutput?: SkillOutputContract; events?: Array<Record<string, unknown>> } }): RunnerQueueStatus {
+  if (hasApprovalRequest(result.result.events)) return "approval_needed";
   if ((result.session.exitCode ?? 0) !== 0) return "failed";
-  const status = result.evidence.skillOutput?.status;
+  const status = result.result.skillOutput?.status;
   if (status === "review_needed" || status === "blocked" || status === "failed" || status === "completed") {
     return status;
   }
@@ -828,50 +826,6 @@ function hasApprovalRequest(events?: Array<Record<string, unknown>>): boolean {
     const type = optionalString(event.type) ?? optionalString(event.method) ?? "";
     return type === "approval/request" || type.endsWith("/approval/request");
   });
-}
-
-function persistRunnerExecutionResult(dbPath: string, evidence: {
-  runId: string;
-  taskId?: string;
-  featureId?: string;
-  exitCode?: number | null;
-  events?: Array<Record<string, unknown>>;
-  stdout?: string;
-  stderr?: string;
-  skillInvocation?: unknown;
-  skillOutput?: unknown;
-  contractValidation?: unknown;
-}): void {
-  runSqlite(dbPath, [
-    {
-      sql: `INSERT INTO status_check_results (
-        id, run_id, task_id, feature_id, status, summary, reasons_json, recommended_actions_json,
-        kind, metadata_json, execution_result_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      params: [
-        randomUUID(),
-        evidence.runId,
-        evidence.taskId ?? null,
-        evidence.featureId ?? null,
-        evidence.exitCode === 0 ? "done" : "review_needed",
-        `Codex runner exit=${evidence.exitCode ?? "unknown"} events=${evidence.events?.length ?? 0}`,
-        "[]",
-        "[]",
-        "codex_runner",
-        JSON.stringify({
-          sessionId: (evidence as Record<string, unknown>).sessionId,
-          exitCode: evidence.exitCode,
-          eventTypes: (evidence.events ?? []).map((event) => optionalString(event.type)).filter(Boolean),
-          stdout: evidence.stdout,
-          stderr: evidence.stderr,
-          skillInvocation: evidence.skillInvocation,
-          skillOutput: evidence.skillOutput,
-          contractValidation: evidence.contractValidation,
-        }),
-        "{}",
-      ],
-    },
-  ]);
 }
 
 function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
@@ -993,7 +947,7 @@ function buildWorkspaceContextBundle(workspaceRoot: string, contract: SkillInvoc
   ]);
   const sections: string[] = [
     "Workspace Context Bundle:",
-    "The scheduler pre-read these workspace-local files before invoking the CLI. If shell commands fail in the child runner, use this bundle as the governing read evidence and still produce the expected artifacts.",
+    "The scheduler pre-read these workspace-local files before invoking the CLI. If shell commands fail in the child runner, use this bundle as governing workspace context and still produce the expected artifacts.",
   ];
   let remainingBytes = MAX_CONTEXT_BUNDLE_BYTES;
 

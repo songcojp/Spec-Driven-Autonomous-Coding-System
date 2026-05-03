@@ -271,18 +271,6 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
             </div>
           </div>
         ) : null}
-        {output.evidence.length > 0 ? (
-          <div>
-            <div className="mb-1 font-semibold text-ink">{text.evidence}</div>
-            <div className="space-y-1">
-              {output.evidence.map((entry, index) => (
-                <pre key={index} className="overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
-                  {formatSpecValue(entry)}
-                </pre>
-              ))}
-            </div>
-          </div>
-        ) : null}
         {output.traceability ? (
           <details className="rounded-md border border-line p-2">
             <summary className="cursor-pointer font-semibold text-ink">{text.traceability}</summary>

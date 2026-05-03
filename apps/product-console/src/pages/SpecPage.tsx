@@ -836,7 +836,6 @@ function RunnerInputContractSection({ output, text }: { output?: SkillOutputMode
   const hasDetails = Boolean(
     output?.inputContract
     || output?.producedArtifacts.length
-    || output?.evidence.length
     || output?.traceability,
   );
   return (
@@ -854,14 +853,6 @@ function RunnerInputContractSection({ output, text }: { output?: SkillOutputMode
               <div className="mb-1 font-semibold text-ink">{text.producedArtifacts}</div>
               <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
                 {formatSpecValue(output.producedArtifacts)}
-              </pre>
-            </div>
-          ) : null}
-          {output?.evidence.length ? (
-            <div>
-              <div className="mb-1 font-semibold text-ink">{text.evidence}</div>
-              <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-slate-50 p-2 text-[11px] text-slate-700">
-                {formatSpecValue(output.evidence)}
               </pre>
             </div>
           ) : null}

@@ -679,7 +679,6 @@ test("runner and spec workspace record token consumption only from stdout.log", 
     inputContract: { skillSlug: "task-slicing-skill", required: ["featureId", "workspaceRoot"] },
     outputContract: { contractVersion: "skill-contract/v1", required: ["status"], resultShape: { featureCount: "number" } },
     producedArtifacts: [{ path: "docs/features/feature-pool-queue.json", kind: "json", status: "created" }],
-    evidence: [{ kind: "spec", summary: "Queue plan is ready.", path: "docs/features/feature-pool-queue.json" }],
     traceability: { featureId: "FEAT-013", requirementIds: ["REQ-052"], changeIds: [] },
     result: { featureCount: 3 },
   };
@@ -698,7 +697,7 @@ test("runner and spec workspace record token consumption only from stdout.log", 
           config_schema_json, form_schema_json, defaults_json, environment_allowlist_json, output_mapping_json, status, updated_at
         ) VALUES (
           'codex-cli', 'Codex CLI', 2, 'codex', '["{{prompt}}","{{output_schema}}"]', '[]',
-          '{}', '{}', ?, '[]', '{"eventStream":"json","evidenceSchema":"evidence.schema.json","sessionIdPath":"session_id"}', 'active', '2026-04-28T12:00:00.000Z'
+          '{}', '{}', ?, '[]', '{"eventStream":"json","outputSchema":"skill-output.schema.json","sessionIdPath":"session_id"}', 'active', '2026-04-28T12:00:00.000Z'
         )`,
       params: [JSON.stringify({
         model: "gpt-5.5",

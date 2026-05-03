@@ -182,7 +182,6 @@ export type SkillOutputModel = {
   };
   inputContract?: unknown;
   producedArtifacts: unknown[];
-  evidence: unknown[];
   traceability?: unknown;
   result?: unknown;
   raw?: unknown;

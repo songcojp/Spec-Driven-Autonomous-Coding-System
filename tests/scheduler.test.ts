@@ -84,7 +84,7 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
     { name: "task", sql: "SELECT status FROM task_graph_tasks WHERE id = 'TASK-CLI'" },
     { name: "sessions", sql: "SELECT session_id, exit_code FROM codex_session_records WHERE run_id = 'RUN-CLI'" },
     { name: "logs", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-CLI'" },
-    { name: "evidence", sql: "SELECT kind, summary, metadata_json FROM status_check_results WHERE run_id = 'RUN-CLI-SPY'" },
+    { name: "statusChecks", sql: "SELECT kind, summary, metadata_json FROM status_check_results WHERE run_id = 'RUN-CLI-SPY'" },
     { name: "policy", sql: "SELECT sandbox_mode FROM runner_policies WHERE run_id = 'RUN-CLI-SPY'" },
   ]).queries;
 
@@ -105,8 +105,7 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   assert.equal(rows.task[0].status, "checking");
   assert.deepEqual(rows.sessions.map((row) => [row.session_id, row.exit_code]), [["SESSION-CLI", 0]]);
   assert.match(String(rows.logs[0].stdout), /skill-contract\/v1/);
-  assert.equal(rows.evidence[0].kind, "codex_runner");
-  assert.equal(JSON.parse(String(rows.evidence[0].metadata_json)).skillInvocation.skillSlug, "codex-coding-skill");
+  assert.equal(rows.statusChecks.length, 0);
 });
 
 test("cli.run uses danger-full-access for trusted direct-write runs with bounded scope", async () => {
@@ -285,7 +284,6 @@ test("codex.app_server.run executes mocked app-server transport and persists run
           status: "completed",
           summary: "App server completed.",
           producedArtifacts: [],
-          evidence: [{ kind: "command", summary: "Mock app-server completed.", status: "passed" }],
           traceability: {
             featureId: "FEAT-CLI",
             taskId: "TASK-CLI",
@@ -302,7 +300,7 @@ test("codex.app_server.run executes mocked app-server transport and persists run
     { name: "run", sql: "SELECT status, metadata_json FROM execution_records WHERE id = 'RUN-APP-SERVER'" },
     { name: "session", sql: "SELECT session_id, command, args_json, exit_code FROM codex_session_records WHERE run_id = 'RUN-APP-SERVER'" },
     { name: "log", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-APP-SERVER'" },
-    { name: "evidence", sql: "SELECT kind, summary FROM status_check_results WHERE run_id = 'RUN-APP-SERVER'" },
+    { name: "statusChecks", sql: "SELECT kind, summary FROM status_check_results WHERE run_id = 'RUN-APP-SERVER'" },
   ]).queries;
 
   assert.equal(result.status, "completed");
@@ -320,7 +318,7 @@ test("codex.app_server.run executes mocked app-server transport and persists run
   assert.deepEqual(JSON.parse(String(rows.session[0].args_json)), ["app-server"]);
   assert.equal(rows.session[0].exit_code, 0);
   assert.equal(rows.log[0].stdout, "done");
-  assert.equal(rows.evidence[0].kind, "codex_runner");
+  assert.equal(rows.statusChecks.length, 0);
 });
 
 test("codex.app_server.run projects approval pending to Feature spec-state", async () => {
@@ -455,7 +453,6 @@ test("codex.app_server.run fails when SkillOutputContractV1 validation fails", a
           status: "completed",
           summary: "Bad contract.",
           producedArtifacts: [],
-          evidence: [],
           traceability: {
             featureId: "FEAT-CLI",
             taskId: "TASK-CLI",
@@ -539,7 +536,6 @@ function skillOutputEvent(executionId: string, overrides: {
     status: "completed",
     summary: "Skill completed.",
     producedArtifacts: overrides.producedArtifacts ?? [],
-    evidence: [{ kind: "command", summary: "Mock runner completed.", status: "passed" }],
     traceability: {
       featureId: overrides.skillSlug ? undefined : "FEAT-CLI",
       taskId: overrides.skillSlug ? undefined : "TASK-CLI",

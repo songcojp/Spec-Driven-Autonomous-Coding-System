@@ -12,10 +12,10 @@
 - [x] TASK-010: 实现 CLI Adapter 配置校验和 dry-run，覆盖命令模板变量、必填字段、workspace root、安全策略、output mapping 和 session resume 映射。
 - [x] TASK-011: 将 Runner Queue Worker 接入 active CLI Adapter，确保无 active adapter 或配置无效时新 Run blocked，且不影响 running Run。
 - [x] TASK-012: 添加 CLI Adapter 配置、dry-run、active 配置回退、Codex 等价命令生成和无效配置阻塞测试。
-- [x] TASK-013: 将 Runner Queue Worker 接入 BullMQ `specdrive:cli-runner` / `cli.run`，由 Worker 调用现有 Codex runner 并持久化 heartbeat、session、raw log、Evidence 和 Execution Record 状态。
+- [x] TASK-013: 将 Runner Queue Worker 接入 BullMQ `specdrive:cli-runner` / `cli.run`，由 Worker 调用现有 Codex runner 并持久化 heartbeat、session、raw log 和 Execution Record 状态。
 - [x] TASK-014: 实现 workspace-aware Codex 调用，确保 Runner 从当前项目 repository `local_path` / `target_repo_path` 解析 workspace root，并在路径缺失、不可读或缺少所需 Skill 文件时 blocked。
 - [x] TASK-015: 将 Runner 消费模型更新为 `cli.run` Execution Record，payload context 提供 skill/source/artifact/workspace 信息，并预留 `native.run` executor 扩展点。
 - [x] TASK-015: 实现 CLI skill invocation prompt builder，支持 Stage 2 需求录入、Stage 3 planning pipeline 和 Feature 级 `codex-coding-skill` 运行的 `skillSlug`、Feature Spec `sourcePaths`、`expectedArtifacts` 与 traceability。
-- [x] TASK-017: 将 Feature 级 `codex-coding-skill` 执行边界改为读取完整 Feature Spec 目录（`requirements.md` / `design.md` / `tasks.md`），不再依赖 `task_graph_tasks` / `tasks`，并阻止 evidence-only completion。
-- [x] TASK-016: 添加 workspace root、skill invocation contract、blocked path cases、mock Codex cwd 和 Evidence metadata 测试。
+- [x] TASK-017: 将 Feature 级 `codex-coding-skill` 执行边界改为读取完整 Feature Spec 目录（`requirements.md` / `design.md` / `tasks.md`），不再依赖 `task_graph_tasks` / `tasks`，并阻止 report-only completion。
+- [x] TASK-016: 添加 workspace root、skill invocation contract、blocked path cases、mock Codex cwd 和 Execution Record metadata 测试。
 - [x] TASK-017: 在 `SkillInvocationContractV1` 中携带当前 `specState`，并将有效 `SkillOutputContractV1` 投影回 Feature `spec-state.json`。

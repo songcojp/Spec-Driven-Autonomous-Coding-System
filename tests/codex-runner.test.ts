@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -86,7 +85,6 @@ function skillOutputEvent(overrides: Partial<{
     summary: overrides.summary ?? "Skill completed.",
     nextAction: "Update spec-state.json and continue.",
     producedArtifacts: overrides.producedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
-    evidence: [{ kind: "artifact", summary: overrides.resultSummary ?? "Generated artifact.", status: "passed" }],
     traceability: { requirementIds: [], changeIds: ["CHG-016"] },
   };
   return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
@@ -222,7 +220,7 @@ test("CLI adapter normalizes snake_case DB row fields to camelCase config", () =
     form_schema: { fields: [] },
     defaults: { model: "gemini-pro", reasoning_effort: "high", sandbox: "workspace-write", approval: "on-request" },
     environment_allowlist: ["HOME", "PATH"],
-    output_mapping: { event_stream: "json", evidence_schema: "v1", session_id_path: "session_id" },
+    output_mapping: { event_stream: "json", output_schema: "v1", session_id_path: "session_id" },
     status: "active",
     updated_at: "2026-01-01T00:00:00.000Z",
   });
@@ -446,19 +444,19 @@ test("safety gate ignores high-risk words inside bundled source context", () => 
   assert.equal(result.reviewNeeded, false);
 });
 
-test("skill invocation prompt asks child CLI to return docs artifacts as evidence", () => {
+test("skill invocation prompt asks child CLI to write docs artifacts directly", () => {
   const prompt = buildSkillInvocationPrompt(
     skillInvocationContract(),
     "Context",
   );
 
   assert.match(prompt, /Prefer writing expected artifacts directly/);
-  assert.match(prompt, /ARTIFACT: <relative-path>/);
+  assert.doesNotMatch(prompt, /ARTIFACT: <relative-path>/);
   assert.doesNotMatch(prompt, /do not use file write tools/);
   assert.doesNotMatch(prompt, /parent scheduler will materialize/);
 });
 
-test("feature-level coding prompt requires Feature Spec execution instead of evidence-only completion", () => {
+test("feature-level coding prompt requires Feature Spec execution instead of report-only completion", () => {
   const prompt = buildSkillInvocationPrompt(
     skillInvocationContract({
       operation: "feature_execution",
@@ -478,7 +476,7 @@ test("feature-level coding prompt requires Feature Spec execution instead of evi
 
   assert.match(prompt, /Feature Spec directory/);
   assert.match(prompt, /requirements\.md, design\.md, and tasks\.md/);
-  assert.match(prompt, /Do not satisfy feature_execution by only creating an evidence JSON file/);
+  assert.match(prompt, /Do not satisfy feature_execution by only creating a report JSON file/);
   assert.match(prompt, /actual code, test, config, or documentation files/);
 });
 
@@ -570,11 +568,11 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.equal(outputLog.sessionId, "SESSION-NEW");
   assert.equal(outputLog.eventCount, 2);
 
-  const evidence = buildExecutionResultInput(result.evidence);
-  assert.equal(evidence.kind, "codex_runner");
-  assert.equal(evidence.featureId, "FEAT-008");
-  assert.match(evidence.summary, /exit=0/);
-  assert.deepEqual(evidence.metadata.logFiles, expectedLogFiles);
+  const executionResult = buildExecutionResultInput(result.result);
+  assert.equal(executionResult.kind, "codex_runner");
+  assert.equal(executionResult.featureId, "FEAT-008");
+  assert.match(executionResult.summary, /exit=0/);
+  assert.deepEqual(executionResult.metadata.logFiles, expectedLogFiles);
 });
 
 test("Codex CLI adapter passes output schema for new exec runs", async () => {
@@ -749,58 +747,6 @@ test("runner queue worker routes blocked work to review and executes allowed wor
   );
   assert.equal(missingArtifact.status, "review_needed");
 
-  const materializedArtifactRoot = makeWorkspacePath();
-  const materializedArtifactPolicy = resolveRunnerPolicy({
-    runId: "RUN-006M",
-    risk: "low",
-    workspaceRoot: materializedArtifactRoot,
-    now: stableDate,
-  });
-  const materializedArtifact = await processRunnerQueueItem(
-    {
-      runId: "RUN-006M",
-      prompt: "Generate requirements",
-      policy: materializedArtifactPolicy,
-      skillInvocation: skillInvocationContract({ executionId: "RUN-006M", workspaceRoot: materializedArtifactRoot }),
-    },
-    () => ({
-      status: 0,
-      stdout: skillOutputEvent({
-        executionId: "RUN-006M",
-        resultSummary: "ARTIFACT: docs/requirements.md\n```markdown\n# Requirements\n\nREQ-001: THE SYSTEM SHALL run.\n```",
-      }),
-      stderr: "",
-    }),
-  );
-  assert.equal(materializedArtifact.status, "completed");
-  assert.match(readFileSync(join(materializedArtifactRoot, "docs", "requirements.md"), "utf8"), /REQ-001/);
-
-  const summaryArtifactRoot = makeWorkspacePath();
-  const summaryArtifactPolicy = resolveRunnerPolicy({
-    runId: "RUN-006S",
-    risk: "low",
-    workspaceRoot: summaryArtifactRoot,
-    now: stableDate,
-  });
-  const summaryArtifact = await processRunnerQueueItem(
-    {
-      runId: "RUN-006S",
-      prompt: "Generate requirements",
-      policy: summaryArtifactPolicy,
-      skillInvocation: skillInvocationContract({ executionId: "RUN-006S", workspaceRoot: summaryArtifactRoot }),
-    },
-    () => ({
-      status: 0,
-      stdout: skillOutputEvent({
-        executionId: "RUN-006S",
-        summary: "ARTIFACT: docs/requirements.md\n```markdown\n# Requirements from summary\n\nREQ-002: THE SYSTEM SHALL land summary artifacts.\n```",
-      }),
-      stderr: "",
-    }),
-  );
-  assert.equal(summaryArtifact.status, "completed");
-  assert.match(readFileSync(join(summaryArtifactRoot, "docs", "requirements.md"), "utf8"), /REQ-002/);
-
   const reviewNeeded = await processRunnerQueueItem(
     {
       runId: "RUN-006",
@@ -820,7 +766,7 @@ test("runner queue worker routes blocked work to review and executes allowed wor
     },
     () => ({
       status: 0,
-      stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"summary\\":\\"write failed\\",\\"status\\":\\"review_needed\\",\\"evidence\\":[]}"}}',
+      stdout: '{"type":"item.completed","item":{"type":"agent_message","text":"{\\"summary\\":\\"write failed\\",\\"status\\":\\"review_needed\\"}"}}',
       stderr: "",
     }),
   );
@@ -855,7 +801,7 @@ test("runner queue worker routes blocked work to review and executes allowed wor
   assert.equal(resumedWithoutStructuredStatus.status, "review_needed");
 });
 
-test("runner queue worker records status check evidence after completed runs", async () => {
+test("runner queue worker records status check result after completed runs", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-009-runner-status-"));
   const dbPath = join(root, ".autobuild", "autobuild.db");
   initializeSchema(dbPath);
@@ -908,7 +854,7 @@ test("runner queue worker records status check evidence after completed runs", a
   assert.equal(executed.recoveryDispatch, undefined);
   assert.equal(JSON.stringify(executed.statusCheckResult?.executionResult).includes("abc123"), false);
   assert.equal(
-    JSON.stringify(executed.statusCheckResult?.executionResult.runner.evidence).includes("it-run-006s"),
+    JSON.stringify(executed.statusCheckResult?.executionResult.runner.result).includes("it-run-006s"),
     true,
   );
   const persisted = listStatusCheckResults(dbPath, "RUN-006S");
@@ -1511,89 +1457,6 @@ test("runner recovery does not auto-recover terminal status-check failures", asy
   assert.equal(result.recoveryDispatch, undefined);
 });
 
-test.skip("obsolete evidence infrastructure failure path removed", async () => {
-  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-evidence-infra-"));
-  const artifactRoot = join(root, "artifact-file");
-  writeFileSync(artifactRoot, "not a directory", "utf8");
-  const dbPath = join(root, ".autobuild", "autobuild.db");
-  initializeSchema(dbPath);
-  const policy = resolveRunnerPolicy({
-    runId: "RUN-010EF",
-    risk: "low",
-    workspaceRoot: root,
-    now: stableDate,
-  });
-
-  const result = await processRunnerQueueItem(
-    {
-      runId: "RUN-010EF",
-      prompt: "Run tests",
-      policy,
-      statusCheck: {
-        dbPath,
-        artifactRoot,
-        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
-        specAlignment: {
-          taskId: "TASK-010",
-          userStoryIds: ["REQ-043"],
-          requirementIds: ["REQ-043"],
-          acceptanceCriteriaIds: ["AC-001"],
-          coveredRequirementIds: ["REQ-043"],
-          testCoverage: true,
-        },
-      },
-    },
-    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
-  );
-
-  assert.equal(result.statusCheckResult?.status, "blocked");
-  assert.match(result.statusCheckResult?.persistenceError ?? "", /ENOTDIR|not a directory/i);
-  assert.equal(result.recoveryTask, undefined);
-  assert.equal(result.recoveryDispatch, undefined);
-});
-
-test.skip("obsolete evidence persistence scheduling failure path removed", async () => {
-  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-schedule-failure-"));
-  const legacyDbPath = join(root, ".autobuild", "legacy.db");
-  initializeSchema(legacyDbPath, MIGRATIONS.filter((migration) => migration.version < 9));
-  const policy = resolveRunnerPolicy({
-    runId: "RUN-010SF",
-    risk: "low",
-    workspaceRoot: root,
-    now: stableDate,
-  });
-
-  const result = await processRunnerQueueItem(
-    {
-      runId: "RUN-010SF",
-      prompt: "Run tests",
-      policy,
-      statusCheck: {
-        dbPath: legacyDbPath,
-        commandChecks: [{ kind: "unit_test" as const, command: "npm test", status: "failed" as const, exitCode: 1 }],
-        specAlignment: {
-          taskId: "TASK-010",
-          userStoryIds: ["REQ-043"],
-          requirementIds: ["REQ-043"],
-          acceptanceCriteriaIds: ["AC-001"],
-          coveredRequirementIds: ["REQ-043"],
-          testCoverage: true,
-        },
-      },
-    },
-    () => ({ status: 1, stdout: '{"type":"result","status":"failed"}', stderr: "tests failed" }),
-  );
-
-  assert.equal(result.status, "failed");
-  assert.equal(result.statusCheckResult?.status, "blocked");
-  assert.match(result.statusCheckResult?.summary ?? "", /recovery history persistence failed/);
-  assert.equal(result.recoveryDispatch, undefined);
-  const evidenceRows = runSqlite(legacyDbPath, [], [
-    { name: "evidence", sql: "SELECT path, checksum FROM status_check_results WHERE id = ?", params: [result.statusCheckResult?.executionResult.id] },
-  ]).queries.evidence;
-  const artifact = readFileSync(join(root, evidenceRows[0].path));
-  assert.equal(evidenceRows[0].checksum, createHash("sha256").update(artifact).digest("hex"));
-});
 
 test("runner recovery persistence failures return blocked status instead of throwing", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-persist-failure-"));
@@ -1830,138 +1693,8 @@ test("runner recovery safety reviews high-risk failed commands before dispatch",
   assert.equal(result.recoveryDispatch, undefined);
 });
 
-test.skip("obsolete evidence infrastructure blocked status path removed", async () => {
-  const root = mkdtempSync(join(tmpdir(), "feat-010-runner-infra-blocked-"));
-  const artifactRoot = join(root, "artifact-file");
-  const dbPath = join(root, ".autobuild", "autobuild.db");
-  writeFileSync(artifactRoot, "not a directory", "utf8");
-  initializeSchema(dbPath);
-  const policy = resolveRunnerPolicy({
-    runId: "RUN-010I",
-    risk: "low",
-    workspaceRoot: root,
-    now: stableDate,
-  });
 
-  const result = await processRunnerQueueItem(
-    {
-      runId: "RUN-010I",
-      prompt: "Run tests",
-      policy,
-      statusCheck: {
-        dbPath,
-        artifactRoot,
-        commandChecks: [{ kind: "unit_test", command: "npm test", status: "passed", exitCode: 0 }],
-        specAlignment: {
-          taskId: "TASK-010",
-          userStoryIds: ["REQ-043"],
-          requirementIds: ["REQ-043"],
-          acceptanceCriteriaIds: ["AC-001"],
-          coveredRequirementIds: ["REQ-043"],
-          testCoverage: true,
-        },
-      },
-    },
-    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
-  );
-
-  assert.equal(result.status, "blocked");
-  assert.equal(result.statusCheckResult?.status, "blocked");
-  assert.match(result.statusCheckResult?.summary ?? "", /evidence could not be written/);
-  assert.equal(result.recoveryTask, undefined);
-  assert.equal(result.recoveryDispatch, undefined);
-});
-
-test.skip("obsolete artifact-root evidence attachment path removed", async () => {
-  const root = mkdtempSync(join(tmpdir(), "feat-009-runner-artifact-root-"));
-  const artifactRoot = join(root, ".autobuild");
-  const dbPath = join(root, "db", "autobuild.db");
-  initializeSchema(dbPath);
-  mkdirSync(artifactRoot, { recursive: true });
-  writeFileSync(join(artifactRoot, "artifact.log"), "artifact evidence", "utf8");
-  const policy = resolveRunnerPolicy({
-    runId: "RUN-006A",
-    risk: "low",
-    workspaceRoot: join(root, "worktree"),
-    now: stableDate,
-  });
-
-  await processRunnerQueueItem(
-    {
-      runId: "RUN-006A",
-      prompt: "Run tests",
-      policy,
-      statusCheck: {
-        dbPath,
-        artifactRoot,
-        commandChecks: [{ kind: "unit_test", command: "npm test", status: "passed", exitCode: 0 }],
-        attachments: [{ kind: "log", path: "artifact.log" }],
-        specAlignment: {
-          taskId: "TASK-009",
-          userStoryIds: ["REQ-040"],
-          requirementIds: ["REQ-040"],
-          acceptanceCriteriaIds: ["AC-001"],
-          coveredRequirementIds: ["REQ-040"],
-          testCoverage: true,
-        },
-      },
-    },
-    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
-  );
-
-  const rows = runSqlite(dbPath, [], [
-    { name: "attachments", sql: "SELECT path, checksum FROM status_check_results WHERE run_id = ?", params: ["RUN-006A"] },
-  ]).queries.attachments;
-  assert.equal(rows[0].path, "artifact.log");
-  assert.equal(typeof rows[0].checksum, "string");
-});
-
-test.skip("obsolete workspace evidence attachment path removed", async () => {
-  const root = mkdtempSync(join(tmpdir(), "feat-009-runner-workspace-attachment-"));
-  const workspaceRoot = join(root, "worktree");
-  const artifactRoot = join(root, "external-artifacts", ".autobuild");
-  const dbPath = join(root, "db", "autobuild.db");
-  initializeSchema(dbPath);
-  mkdirSync(workspaceRoot, { recursive: true });
-  writeFileSync(join(workspaceRoot, "workspace.log"), "workspace evidence", "utf8");
-  const policy = resolveRunnerPolicy({
-    runId: "RUN-006W",
-    risk: "low",
-    workspaceRoot,
-    now: stableDate,
-  });
-
-  await processRunnerQueueItem(
-    {
-      runId: "RUN-006W",
-      prompt: "Run tests",
-      policy,
-      statusCheck: {
-        dbPath,
-        artifactRoot,
-        commandChecks: [{ kind: "unit_test", command: "npm test", status: "passed", exitCode: 0 }],
-        attachments: [{ kind: "log", path: "workspace.log" }],
-        specAlignment: {
-          taskId: "TASK-009",
-          userStoryIds: ["REQ-040"],
-          requirementIds: ["REQ-040"],
-          acceptanceCriteriaIds: ["AC-001"],
-          coveredRequirementIds: ["REQ-040"],
-          testCoverage: true,
-        },
-      },
-    },
-    () => ({ status: 0, stdout: '{"type":"result","status":"completed"}', stderr: "" }),
-  );
-
-  const rows = runSqlite(dbPath, [], [
-    { name: "attachments", sql: "SELECT path, checksum FROM status_check_results WHERE run_id = ?", params: ["RUN-006W"] },
-  ]).queries.attachments;
-  assert.equal(rows[0].path, "workspace.log");
-  assert.equal(rows[0].checksum, createHash("sha256").update("workspace evidence").digest("hex"));
-});
-
-test("Codex adapter records spawn failures as failed evidence instead of throwing", async () => {
+test("Codex adapter records spawn failures as failed result instead of throwing", async () => {
   const policy = resolveRunnerPolicy({
     runId: "RUN-009",
     risk: "low",

@@ -37,5 +37,5 @@ Use `status = "completed"` when the selection decision is valid, even if `decisi
 
 - Never select a Feature outside the supplied Feature Pool Queue.
 - Never select a Feature only because it appears in SQLite; Feature identity comes from the Feature index and Feature Spec directory.
-- Never bypass approval pending, review needed, blocked, or failed states without explicit resume evidence.
+- Never bypass approval pending, review needed, blocked, or failed states without an explicit resume hint.
 - If multiple Features appear runnable, choose one and explain why it is better than the alternatives.

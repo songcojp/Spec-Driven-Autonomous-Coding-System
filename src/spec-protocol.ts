@@ -157,7 +157,6 @@ export type FileSpecState = {
   lastResult?: {
     status: FileSpecLifecycleStatus;
     summary: string;
-    evidence: Array<{ kind: string; summary: string; path?: string; command?: string; status?: string }>;
     producedArtifacts: Array<{ path: string; kind: string; status: string; summary?: string }>;
     completedAt: string;
   };
@@ -740,7 +739,6 @@ export function skillOutputToSpecStatePatch(output: {
   summary: string;
   nextAction?: string;
   producedArtifacts: Array<{ path: string; kind: string; status: string; summary?: string }>;
-  evidence: Array<{ kind: string; summary: string; path?: string; command?: string; status?: string }>;
 }): FileSpecStatePatch {
   const status: FileSpecLifecycleStatus = output.status === "completed" ? "completed" : output.status;
   return {
@@ -755,7 +753,6 @@ export function skillOutputToSpecStatePatch(output: {
       status,
       summary: output.summary,
       producedArtifacts: output.producedArtifacts,
-      evidence: output.evidence,
       completedAt: new Date().toISOString(),
     },
   };

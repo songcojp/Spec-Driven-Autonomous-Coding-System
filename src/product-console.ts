@@ -332,7 +332,6 @@ export type SkillOutputViewModel = {
   tokenConsumption?: TokenConsumptionViewModel;
   inputContract?: unknown;
   producedArtifacts: unknown[];
-  evidence: unknown[];
   traceability?: unknown;
   result?: unknown;
   recordCount?: number;
@@ -5043,7 +5042,6 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
       parseStatus: "missing",
       error: "workspace_root_missing",
       producedArtifacts: [],
-      evidence: [],
     };
   }
 
@@ -5056,7 +5054,6 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
       stdoutLogPath,
       error: "stdout_log_not_found",
       producedArtifacts: [],
-      evidence: [],
     };
   }
   if (stdoutLog.error) {
@@ -5065,7 +5062,6 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
       stdoutLogPath,
       error: stdoutLog.error,
       producedArtifacts: [],
-      evidence: [],
     };
   }
 
@@ -5082,7 +5078,6 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
     tokenUsage,
     inputContract: compactSkillOutputValue(skillInputContract(output, raw)),
     producedArtifacts: arrayValue(output?.producedArtifacts).map(compactSkillOutputValue),
-    evidence: arrayValue(output?.evidence).map(compactSkillOutputValue),
     traceability: compactSkillOutputValue(output?.traceability),
     result: compactSkillOutputValue(output?.result),
     recordCount,
@@ -5167,7 +5162,7 @@ function tokenUsageFromRecord(record: Record<string, unknown> | undefined): unkn
 function findSkillOutputRecord(value: unknown): Record<string, unknown> | undefined {
   const record = isRecord(value) ? value : undefined;
   if (record?.contractVersion === "skill-contract/v1") return record;
-  if (record && ("summary" in record || "producedArtifacts" in record || "evidence" in record || "traceability" in record || "result" in record)) return record;
+  if (record && ("summary" in record || "producedArtifacts" in record || "traceability" in record || "result" in record)) return record;
   if (!Array.isArray(value)) return record;
 
   for (const item of value) {

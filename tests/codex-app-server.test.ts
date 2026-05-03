@@ -72,7 +72,7 @@ test("Codex app-server event projection extracts ids, streams, approvals, diffs,
   assert.equal(projection.skillOutput?.executionId, "RUN-APP");
 });
 
-test("Codex app-server adapter result maps event projection to runner evidence", () => {
+test("Codex app-server adapter result maps event projection to runner result", () => {
   const result = buildCodexAppServerAdapterResult({
     runId: "RUN-APP",
     workspaceRoot: "/repo",
@@ -93,11 +93,11 @@ test("Codex app-server adapter result maps event projection to runner evidence",
   assert.deepEqual(result.session.args, ["app-server"]);
   assert.equal(result.session.exitCode, 0);
   assert.equal(result.rawLog.stdout, "done");
-  assert.equal(result.evidence.featureId, "FEAT-016");
-  assert.equal(result.evidence.skillOutput?.status, "completed");
+  assert.equal(result.result.featureId, "FEAT-016");
+  assert.equal(result.result.skillOutput?.status, "completed");
 });
 
-test("Codex app-server failed turn maps to failed adapter evidence", () => {
+test("Codex app-server failed turn maps to failed adapter result", () => {
   const result = buildCodexAppServerAdapterResult({
     runId: "RUN-APP",
     workspaceRoot: "/repo",
@@ -112,7 +112,7 @@ test("Codex app-server failed turn maps to failed adapter evidence", () => {
 
   assert.equal(result.session.exitCode, 1);
   assert.equal(result.rawLog.stderr, "not logged in");
-  assert.equal(result.evidence.exitCode, 1);
+  assert.equal(result.result.exitCode, 1);
 });
 
 test("Codex app-server session runs initialize, thread, turn, and collects terminal events", async () => {
@@ -148,7 +148,7 @@ test("Codex app-server session runs initialize, thread, turn, and collects termi
   assert.equal((calls[3].params as { threadId?: string }).threadId, "thread-created");
   assert.equal(result.session.sessionId, "thread-created");
   assert.equal(result.rawLog.stdout, "working");
-  assert.equal(result.evidence.skillOutput?.executionId, "RUN-APP");
+  assert.equal(result.result.skillOutput?.executionId, "RUN-APP");
 });
 
 test("Codex app-server session resumes supplied thread id", async () => {
@@ -316,7 +316,6 @@ function skillOutput(): SkillOutputContract {
     status: "completed",
     summary: "Implemented.",
     producedArtifacts: [],
-    evidence: [],
     traceability: {
       featureId: "FEAT-016",
       taskId: "TASK-001",

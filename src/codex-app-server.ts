@@ -465,7 +465,7 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
       completedAt: input.completedAt,
     },
     rawLog,
-    evidence: {
+    result: {
       runId: input.runId,
       taskId: input.skillInvocation?.traceability.taskId,
       featureId: input.skillInvocation?.traceability.featureId,
@@ -512,8 +512,7 @@ function isSkillOutput(value: unknown): value is SkillOutputContract {
     && typeof value.requestedAction === "string"
     && typeof value.status === "string"
     && typeof value.summary === "string"
-    && Array.isArray(value.producedArtifacts)
-    && Array.isArray(value.evidence);
+    && Array.isArray(value.producedArtifacts);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
