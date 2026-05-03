@@ -137,8 +137,8 @@ export type AdapterSettingsSection = {
 };
 
 export type SystemSettingsViewModel = {
-  cliAdapter: AdapterSettingsSection;
-  rpcAdapter: AdapterSettingsSection;
+  cliAdapter?: AdapterSettingsSection;
+  rpcAdapter?: AdapterSettingsSection;
   commands: Array<{ action: string; entityType: ControlledCommandInput["entityType"] }>;
   factSources: string[];
 };

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import * as vscode from "vscode";
 import type {
   ApprovalDecision,
+  AdapterSettingsSection,
   ControlledCommandInput,
   IdeQueueCommandV1,
   QueueAction,
@@ -468,7 +469,71 @@ async function fetchSystemSettings(): Promise<SystemSettingsViewModel> {
   if (!response.ok) {
     throw new Error(`SpecDrive settings request failed: ${response.status} ${response.statusText}`);
   }
-  return await response.json() as SystemSettingsViewModel;
+  return normalizeSystemSettingsViewModel(await response.json());
+}
+
+function normalizeSystemSettingsViewModel(payload: unknown): SystemSettingsViewModel {
+  const source = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
+  return {
+    cliAdapter: normalizeAdapterSettingsSection(source.cliAdapter),
+    rpcAdapter: normalizeAdapterSettingsSection(source.rpcAdapter),
+    commands: Array.isArray(source.commands)
+      ? source.commands.filter((entry): entry is SystemSettingsViewModel["commands"][number] => {
+        return typeof entry === "object"
+          && entry !== null
+          && typeof (entry as { action?: unknown }).action === "string"
+          && typeof (entry as { entityType?: unknown }).entityType === "string";
+      })
+      : [],
+    factSources: Array.isArray(source.factSources)
+      ? source.factSources.filter((entry): entry is string => typeof entry === "string")
+      : [],
+  };
+}
+
+function normalizeAdapterSettingsSection(value: unknown): AdapterSettingsSection {
+  const source = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const active = typeof source.active === "object" && source.active !== null ? source.active as Record<string, unknown> : {};
+  const draft = typeof source.draft === "object" && source.draft !== null ? source.draft as Record<string, unknown> : undefined;
+  const presets = Array.isArray(source.presets)
+    ? source.presets.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null)
+    : [];
+  const validationSource = typeof source.validation === "object" && source.validation !== null
+    ? source.validation as Record<string, unknown>
+    : {};
+  return {
+    active,
+    draft,
+    presets,
+    validation: {
+      valid: validationSource.valid === true,
+      errors: Array.isArray(validationSource.errors)
+        ? validationSource.errors.filter((entry): entry is string => typeof entry === "string")
+        : [],
+    },
+    lastDryRun: normalizeAdapterCheck(source.lastDryRun),
+    lastProbe: normalizeAdapterCheck(source.lastProbe),
+  };
+}
+
+type AdapterCheck = NonNullable<AdapterSettingsSection["lastDryRun"]>;
+
+function normalizeAdapterCheck(value: unknown): AdapterCheck | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const source = value as Record<string, unknown>;
+  const status = typeof source.status === "string" ? source.status : undefined;
+  if (!status) return undefined;
+  return {
+    status,
+    errors: Array.isArray(source.errors)
+      ? source.errors.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    command: typeof source.command === "string" ? source.command : undefined,
+    args: Array.isArray(source.args)
+      ? source.args.filter((entry): entry is string => typeof entry === "string")
+      : undefined,
+    at: typeof source.at === "string" ? source.at : undefined,
+  };
 }
 
 async function runControlledCommand(input: unknown, provider: SpecExplorerProvider): Promise<void> {

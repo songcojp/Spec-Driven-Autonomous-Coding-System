@@ -71,6 +71,8 @@ test("VSCode System Settings Webview manages adapter configs through controlled 
   assert.match(extensionSource, /renderSystemSettingsWebview/);
   assert.match(extensionSource, new RegExp('new URL\\("/ide/system-settings", controlPlaneUrl\\)'));
   assert.match(extensionSource, new RegExp('new URL\\("/console/system-settings", controlPlaneUrl\\)'));
+  assert.match(extensionSource, /normalizeSystemSettingsViewModel\(await response\.json\(\)\)/);
+  assert.match(extensionSource, /function normalizeAdapterSettingsSection/);
   assert.match(extensionSource, /message\.command === "settingsCommand"/);
   assert.match(extensionSource, /JSON\.parse\(message\.configText\)/);
   assert.match(extensionSource, /entityType: message\.entityType/);
@@ -80,6 +82,20 @@ test("VSCode System Settings Webview manages adapter configs through controlled 
   assert.match(extensionSource, /settingsCommandButton\("Validate"/);
   assert.match(extensionSource, /class="settings-editor"/);
   assert.match(extensionSource, /"loadSettingsPreset"/);
+  assert.match(extensionSource, /class="grid settings-grid"/);
+  assert.match(extensionSource, /\.settings-grid\{grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,360px\),1fr\)\)\}/);
+  assert.match(extensionSource, /\.settings-grid \.span-6\{grid-column:auto\}/);
+  assert.match(extensionSource, /\.row\{grid-template-columns:minmax\(0,1fr\) minmax\(0,max-content\)\}/);
+  assert.match(extensionSource, /\.row code\{white-space:pre-wrap;overflow-wrap:anywhere\}/);
+});
+
+test("VSCode System Settings Webview tolerates partial settings responses", () => {
+  assert.match(extensionSource, /cliAdapter\?: AdapterSettingsSection/);
+  assert.match(extensionSource, /rpcAdapter\?: AdapterSettingsSection/);
+  assert.match(extensionSource, /renderAdapterSection\(title: string, kind: AdapterKind, section: AdapterSettingsSection \| undefined\)/);
+  assert.match(extensionSource, /settings are unavailable from the current Control Plane response/);
+  assert.match(extensionSource, /const source = section\.draft \?\? section\.active \?\? \{\}/);
+  assert.match(extensionSource, /const validation = section\.validation \?\? \{ valid: false/);
 });
 
 test("VSCode Feature Spec Webview switches between list and dependency graph views", () => {

@@ -13,29 +13,38 @@ type AdapterKind = "cli" | "rpc";
 
 export function renderSystemSettingsWebview(settings: SystemSettingsViewModel | undefined): string {
   const nonce = webviewNonce();
+  const factSources = settings?.factSources ?? [];
   return renderWorkbenchPage("System Settings", nonce, `
     <section class="toolbar">
       ${commandButton("Refresh", "refresh", {})}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
     ${settings ? `
-      <main class="grid">
+      <main class="grid settings-grid">
         ${renderAdapterSection("CLI Adapter", "cli", settings.cliAdapter)}
         ${renderAdapterSection("RPC Adapter", "rpc", settings.rpcAdapter)}
-        <section class="panel span-12">
-          <div class="panel-title"><h2>Fact Sources</h2><span>${settings.factSources.length}</span></div>
-          ${settings.factSources.length === 0 ? emptyState("No settings fact sources returned.") : settings.factSources.map((source) => `<span class="badge">${escapeHtml(source)}</span>`).join(" ")}
+        <section class="panel span-12 settings-facts">
+          <div class="panel-title"><h2>Fact Sources</h2><span>${factSources.length}</span></div>
+          ${factSources.length === 0 ? emptyState("No settings fact sources returned.") : factSources.map((source) => `<span class="badge">${escapeHtml(source)}</span>`).join(" ")}
         </section>
       </main>
     ` : emptyState("System settings are unavailable.")}
   `);
 }
 
-function renderAdapterSection(title: string, kind: AdapterKind, section: AdapterSettingsSection): string {
+function renderAdapterSection(title: string, kind: AdapterKind, section: AdapterSettingsSection | undefined): string {
+  if (!section) {
+    return `<section class="panel span-6">
+      <div class="panel-title"><h2>${escapeHtml(title)}</h2><span class="muted">unavailable</span></div>
+      ${emptyState(`${title} settings are unavailable from the current Control Plane response.`)}
+    </section>`;
+  }
   const editorId = `${kind}-adapter-json`;
-  const source = section.draft ?? section.active;
+  const source = section.draft ?? section.active ?? {};
   const activeId = stringField(section.active, "id");
   const draftId = section.draft ? stringField(section.draft, "id") : undefined;
+  const presets = section.presets ?? [];
+  const validation = section.validation ?? { valid: false, errors: ["Settings validation result is unavailable."] };
   const entityType = kind === "cli" ? "cli_adapter" : "rpc_adapter";
   const validateAction = kind === "cli" ? "validate_cli_adapter_config" : "validate_rpc_adapter_config";
   const saveAction = kind === "cli" ? "save_cli_adapter_config" : "save_rpc_adapter_config";
@@ -44,7 +53,7 @@ function renderAdapterSection(title: string, kind: AdapterKind, section: Adapter
   return `<section class="panel span-6">
     <div class="panel-title">
       <h2>${escapeHtml(title)}</h2>
-      <span class="${statusClass(section.validation.valid ? "passed" : "failed")}">${section.validation.valid ? "valid" : "invalid"}</span>
+      <span class="${statusClass(validation.valid ? "passed" : "failed")}">${validation.valid ? "valid" : "invalid"}</span>
     </div>
     <div class="row"><span>Active</span><span><code>${escapeHtml(activeId ?? "none")}</code></span></div>
     <div class="row"><span>Draft</span><span><code>${escapeHtml(draftId ?? "none")}</code></span></div>
@@ -53,13 +62,13 @@ function renderAdapterSection(title: string, kind: AdapterKind, section: Adapter
     ${renderLastCheck(kind, section)}
     <h3>Presets</h3>
     <div class="toolbar">
-      ${section.presets.map((preset) => commandButton(stringField(preset, "displayName") ?? stringField(preset, "id") ?? "Preset", "loadSettingsPreset", {
+      ${presets.map((preset) => commandButton(stringField(preset, "displayName") ?? stringField(preset, "id") ?? "Preset", "loadSettingsPreset", {
         editorId,
         presetJson: JSON.stringify(preset, null, 2),
-      })).join("")}
+      })).join("") || emptyState("No presets returned.")}
     </div>
     <h3>Validation Errors</h3>
-    ${renderErrors(section.validation.errors)}
+    ${renderErrors(validation.errors)}
     <h3>JSON Config</h3>
     <textarea id="${editorId}" class="settings-editor" spellcheck="false" aria-label="${escapeAttr(title)} JSON">${escapeHtml(JSON.stringify(source, null, 2))}</textarea>
     <div class="toolbar">
@@ -94,7 +103,8 @@ function renderErrors(errors: string[] | undefined): string {
   return values.map((error) => `<div class="issue bad">${escapeHtml(error)}</div>`).join("");
 }
 
-function stringField(value: Record<string, unknown>, key: string): string | undefined {
+function stringField(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  if (!value) return undefined;
   const field = value[key];
   return typeof field === "string" ? field : undefined;
 }
