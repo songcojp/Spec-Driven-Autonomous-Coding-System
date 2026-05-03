@@ -38,8 +38,10 @@ import type {
   ExecutionAdapterResultV1,
 } from "./execution-adapter-contracts.ts";
 import { DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
+import { GEMINI_CLI_ADAPTER_CONFIG, geminiApprovalMode } from "./gemini-cli-adapter.ts";
 
 export { CODEX_CLI_ADAPTER_CONFIG, DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
+export { GEMINI_CLI_ADAPTER_CONFIG } from "./gemini-cli-adapter.ts";
 
 export type RunnerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type RunnerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never" | "bypass";
@@ -382,54 +384,8 @@ export type RunnerConsoleSnapshot = {
   heartbeatStale: boolean;
 };
 
-const DEFAULT_MODEL = "gpt-5.3-codex-spark";
 const DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
-export const GEMINI_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
-  id: "gemini-cli",
-  displayName: "Google Gemini CLI",
-  schemaVersion: 1,
-  executable: "gemini",
-  argumentTemplate: [
-    "--model",
-    "{{model}}",
-    "--output-format",
-    "stream-json",
-    "-p",
-    "{{prompt}}",
-  ],
-  resumeArgumentTemplate: [
-    "--model",
-    "{{model}}",
-    "--output-format",
-    "stream-json",
-    "--resume",
-    "{{resume_session_id}}",
-    "-p",
-    "{{resume_prompt}}",
-  ],
-  configSchema: {
-    type: "object",
-    required: ["id", "executable", "argumentTemplate", "outputMapping"],
-  },
-  formSchema: DEFAULT_CLI_ADAPTER_CONFIG.formSchema,
-  defaults: {
-    model: "gemini-3-pro-preview",
-    reasoningEffort: DEFAULT_REASONING_EFFORT,
-    sandbox: "danger-full-access",
-    approval: "never",
-    costRates: {},
-  },
-  environmentAllowlist: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_GENAI_USE_VERTEXAI"],
-  outputMapping: {
-    eventStream: "json",
-    outputSchema: "skill-output.schema.json",
-    sessionIdPath: "session_id",
-    responseTextPaths: ["response", "result.response", "message.content", "content", "text"],
-  },
-  status: "draft",
-  updatedAt: new Date(0).toISOString(),
-};
 
 export function cliAdapterConfigToExecutionAdapterConfig(config: CliAdapterConfig): ExecutionAdapterConfigV1 {
   return {
@@ -553,7 +509,7 @@ export function resolveRunnerPolicy(input: RunnerPolicyInput): RunnerPolicy {
     risk: input.risk,
     sandboxMode,
     approvalPolicy,
-    model: input.model ?? DEFAULT_MODEL,
+    model: input.model ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.model ?? "gpt-5.3-codex-spark",
     reasoningEffort: input.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     profile: input.profile,
     outputSchema: input.outputSchema ?? DEFAULT_OUTPUT_SCHEMA,
@@ -785,6 +741,7 @@ export function renderCliAdapterCommand(input: {
     prompt: input.prompt,
     resume_session_id: input.policy.resumeSessionId ?? "",
     resume_prompt: buildResumePrompt(input.policy, input.prompt, input.outputSchemaPath),
+    gemini_approval_mode: geminiApprovalMode(input.policy.approvalPolicy),
   };
   const rendered = template
     .map((entry) => renderTemplateEntry(entry, values))
@@ -2243,13 +2200,25 @@ function extractUsage(events: CliJsonEvent[]): Record<string, number> | undefine
   for (const event of events) {
     const usage = readJsonPath(event, "usage") ?? readJsonPath(event, "stats") ?? readJsonPath(event, "result.stats");
     if (usage && typeof usage === "object" && !Array.isArray(usage)) {
-      return Object.fromEntries(
+      const flat = Object.fromEntries(
         Object.entries(usage)
           .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])),
       );
+      if (Object.keys(flat).length > 0) return normalizeUsageKeys(flat);
     }
   }
   return undefined;
+}
+
+function normalizeUsageKeys(usage: Record<string, number>): Record<string, number> {
+  return {
+    ...usage,
+    ...(usage.inputTokens === undefined && usage.input_tokens !== undefined ? { inputTokens: usage.input_tokens } : {}),
+    ...(usage.outputTokens === undefined && usage.output_tokens !== undefined ? { outputTokens: usage.output_tokens } : {}),
+    ...(usage.cachedInputTokens === undefined && usage.cached_input_tokens !== undefined ? { cachedInputTokens: usage.cached_input_tokens } : {}),
+    ...(usage.reasoningOutputTokens === undefined && usage.reasoning_output_tokens !== undefined ? { reasoningOutputTokens: usage.reasoning_output_tokens } : {}),
+    ...(usage.totalTokens === undefined && usage.total_tokens !== undefined ? { totalTokens: usage.total_tokens } : {}),
+  };
 }
 
 function clampHeartbeat(value: number): number {

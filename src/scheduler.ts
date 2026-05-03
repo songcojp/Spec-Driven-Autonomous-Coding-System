@@ -37,6 +37,13 @@ import {
   type CodexAppServerTransport,
 } from "./codex-rpc-adapter.ts";
 import {
+  createGeminiAcpTransportFromConfig,
+  DEFAULT_GEMINI_ACP_ADAPTER_CONFIG,
+  runGeminiAcpSession,
+  type GeminiAcpAdapterConfig,
+  type GeminiAcpTransport,
+} from "./gemini-rpc-adapter.ts";
+import {
   mergeFileSpecState,
   readFileSpecState,
   skillOutputToSpecStatePatch,
@@ -715,7 +722,295 @@ export async function runCodexAppServerRunJob(
   return { executionId: payload.executionId, status: finalStatus };
 }
 
-export const runRpcRunJob = runCodexAppServerRunJob;
+export async function runGeminiAcpRunJob(
+  dbPath: string,
+  payload: AppServerRunJobPayload,
+  transport?: GeminiAcpTransport,
+): Promise<{ executionId: string; status: RunnerQueueStatus }> {
+  const context = payload.context ?? {};
+  const featureId = optionalString(context.featureId);
+  const taskId = optionalString(context.taskId);
+  const skillSlug = optionalString(context.skillSlug);
+  const skillPhase = optionalString(context.skillPhase) ?? payload.operation;
+  let loaded: ReturnType<typeof loadRunnerTaskContext>;
+  let adapterConfig: GeminiAcpAdapterConfig | undefined;
+  try {
+    loaded = loadRunnerTaskContext(dbPath, payload);
+    adapterConfig = loadGeminiAcpAdapterConfig(dbPath);
+  } catch (error) {
+    const reason = errorMessage(error);
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
+        params: [
+          payload.executionId,
+          optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+          "gemini.acp",
+          payload.operation,
+          payload.projectId ?? null,
+          JSON.stringify(context),
+          "blocked",
+          new Date().toISOString(),
+          reason,
+          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", skillSlug, skillPhase, blockedReason: reason }),
+        ],
+      },
+    ]);
+    recordAuditEvent(dbPath, {
+      entityType: taskId ? "task" : featureId ? "feature" : "project",
+      entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
+      eventType: "gemini_acp_run_blocked",
+      source: "rpc_adapter",
+      reason,
+      payload,
+    });
+    return { executionId: payload.executionId, status: "blocked" };
+  }
+
+  const now = new Date();
+  const policy = resolveRunnerPolicy({
+    runId: payload.executionId,
+    risk: loaded.risk,
+    workspaceRoot: loaded.workspaceRoot,
+    model: loaded.adapter.defaults.model,
+    reasoningEffort: loaded.adapter.defaults.reasoningEffort,
+    profile: loaded.adapter.defaults.profile,
+    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.skillInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
+    requestedApprovalPolicy: loaded.adapter.defaults.approval,
+    now,
+  });
+  const safety = evaluateRunnerSafety({
+    policy,
+    prompt: loaded.prompt,
+    files: loaded.allowedFiles,
+    taskText: loaded.description,
+    skillInvocation: loaded.skillInvocation,
+  });
+  if (!safety.allowed) {
+    runSqlite(dbPath, [
+      {
+        sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
+        params: [
+          payload.executionId,
+          optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+          "gemini.acp",
+          payload.operation,
+          loaded.projectId ?? payload.projectId ?? null,
+          JSON.stringify(loaded.skillInvocation ?? context),
+          "review_needed",
+          now.toISOString(),
+          safety.summary,
+          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", workspaceRoot: loaded.workspaceRoot, safety, skillSlug: loaded.skillInvocation?.skillSlug, skillPhase: loaded.skillInvocation?.requestedAction }),
+        ],
+      },
+    ]);
+    return { executionId: payload.executionId, status: "review_needed" };
+  }
+
+  const heartbeat = recordRunnerHeartbeat({
+    runId: payload.executionId,
+    runnerId: "bullmq-gemini-acp-adapter",
+    policy,
+    queueStatus: "running",
+    message: `Running ${taskId ?? payload.operation}`,
+    now,
+  });
+  persistCliRunnerArtifacts(dbPath, { policy, heartbeat });
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET status = excluded.status, started_at = COALESCE(execution_records.started_at, excluded.started_at), metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
+      params: [
+        payload.executionId,
+        optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+        "gemini.acp",
+        payload.operation,
+        loaded.projectId ?? payload.projectId ?? null,
+        JSON.stringify(loaded.skillInvocation ?? { ...context, featureId: loaded.featureId ?? featureId, taskId }),
+        "running",
+        now.toISOString(),
+        JSON.stringify({
+          scheduler: "bullmq",
+          jobType: "rpc.run",
+          provider: "gemini-acp",
+          workspaceRoot: loaded.workspaceRoot,
+          skillSlug: loaded.skillInvocation?.skillSlug,
+          skillPhase: loaded.skillInvocation?.requestedAction,
+          skillInvocationContract: loaded.skillInvocation,
+          sessionId: payload.threadId,
+          transport: adapterConfig?.transport,
+          model: policy.model,
+          cwd: loaded.workspaceRoot,
+          outputSchema: policy.outputSchema,
+          adapterConfig: adapterMetadata(adapterConfig),
+        }),
+      ],
+    },
+  ]);
+  updateFeatureSpecFileState({
+    workspaceRoot: loaded.workspaceRoot,
+    featureId: loaded.featureId ?? featureId,
+    context,
+    status: "running",
+    summary: "Gemini ACP started feature execution.",
+    source: "rpc.run",
+    schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+    executionId: payload.executionId,
+  });
+
+  const activeTransport = transport ?? createGeminiAcpTransportFromConfig(adapterConfig ?? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG, loaded.workspaceRoot);
+  let adapterResult: Awaited<ReturnType<typeof runGeminiAcpSession>>;
+  try {
+    adapterResult = await runGeminiAcpSession({
+      runId: payload.executionId,
+      workspaceRoot: loaded.workspaceRoot,
+      prompt: loaded.prompt,
+      policy,
+      transport: activeTransport,
+      commandArgs: (adapterConfig ?? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG).args,
+      skillInvocation: loaded.skillInvocation,
+      sessionId: payload.threadId,
+      startedAt: now.toISOString(),
+    });
+  } catch (error) {
+    await activeTransport.close?.();
+    const reason = errorMessage(error);
+    const completedAt = new Date().toISOString();
+    persistCliRunnerArtifacts(dbPath, {
+      policy,
+      heartbeat: recordRunnerHeartbeat({
+        runId: payload.executionId,
+        runnerId: "bullmq-gemini-acp-adapter",
+        policy,
+        queueStatus: "failed",
+        message: reason,
+      }),
+    });
+    runSqlite(dbPath, [
+      {
+        sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        params: [
+          "failed",
+          completedAt,
+          reason,
+          JSON.stringify({
+            scheduler: "bullmq",
+            jobType: "rpc.run",
+            provider: "gemini-acp",
+            workspaceRoot: loaded.workspaceRoot,
+            skillSlug: loaded.skillInvocation?.skillSlug,
+            skillPhase: loaded.skillInvocation?.requestedAction,
+            skillInvocationContract: loaded.skillInvocation,
+            sessionId: payload.threadId,
+            transport: adapterConfig?.transport,
+            model: policy.model,
+            cwd: loaded.workspaceRoot,
+            outputSchema: policy.outputSchema,
+            adapterConfig: adapterMetadata(adapterConfig),
+            error: reason,
+          }),
+          payload.executionId,
+        ],
+      },
+    ]);
+    updateFeatureSpecFileState({
+      workspaceRoot: loaded.workspaceRoot,
+      featureId: loaded.featureId ?? featureId,
+      context,
+      status: "failed",
+      summary: reason,
+      source: "rpc.run",
+      schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+      executionId: payload.executionId,
+    });
+    return { executionId: payload.executionId, status: "failed" };
+  } finally {
+    if (!transport) await activeTransport.close?.();
+  }
+
+  persistCliRunnerArtifacts(dbPath, {
+    policy,
+    session: adapterResult.session,
+    rawLog: adapterResult.rawLog,
+    heartbeat: recordRunnerHeartbeat({
+      runId: payload.executionId,
+      runnerId: "bullmq-gemini-acp-adapter",
+      policy,
+      queueStatus: appServerResultStatus(adapterResult),
+      message: adapterResult.result.skillOutput?.summary ?? adapterResult.rawLog.stderr,
+    }),
+  });
+  const finalStatus = appServerResultStatus(adapterResult);
+  const finalSummary = finalStatus === "approval_needed"
+    ? "Gemini ACP is waiting for permission; autonomous execution is paused for this Feature."
+    : finalStatus === "failed" && adapterResult.result.contractValidation && !adapterResult.result.contractValidation.valid
+    ? `Skill output contract validation failed: ${adapterResult.result.contractValidation.reasons.join("; ")}`
+    : adapterResult.result.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Gemini ACP ${finalStatus}.`);
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      params: [
+        finalStatus,
+        new Date().toISOString(),
+        finalSummary,
+        JSON.stringify({
+          scheduler: "bullmq",
+          jobType: "rpc.run",
+          provider: "gemini-acp",
+          workspaceRoot: loaded.workspaceRoot,
+          skillSlug: loaded.skillInvocation?.skillSlug,
+          skillPhase: loaded.skillInvocation?.requestedAction,
+          skillInvocationContract: loaded.skillInvocation,
+          skillOutputContract: adapterResult.result.skillOutput,
+          producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
+          sessionId: adapterResult.session.sessionId,
+          transport: adapterConfig?.transport,
+          model: policy.model,
+          cwd: loaded.workspaceRoot,
+          outputSchema: policy.outputSchema,
+          contractValidation: adapterResult.result.contractValidation,
+          approvalState: approvalStateFromEvents(adapterResult.rawLog.events),
+          eventRefs: adapterResult.rawLog.events.map((event, index) => ({
+            index,
+            type: optionalString(event.type),
+          })),
+          adapterConfig: adapterMetadata(adapterConfig),
+        }),
+        payload.executionId,
+      ],
+    },
+  ]);
+  updateFeatureSpecFileState({
+    workspaceRoot: loaded.workspaceRoot,
+    featureId: loaded.featureId ?? featureId,
+    context,
+    status: finalStatus,
+    summary: finalSummary,
+    source: "rpc.run",
+    schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
+    executionId: payload.executionId,
+    skillOutput: adapterResult.result.skillOutput,
+  });
+  return { executionId: payload.executionId, status: finalStatus };
+}
+
+export async function runRpcRunJob(
+  dbPath: string,
+  payload: AppServerRunJobPayload,
+  appServerTransport?: CodexAppServerTransport,
+  geminiAcpTransport?: GeminiAcpTransport,
+): Promise<{ executionId: string; status: RunnerQueueStatus }> {
+  const provider = loadActiveRpcProvider(dbPath);
+  if (provider === "gemini-acp") {
+    return runGeminiAcpRunJob(dbPath, payload, geminiAcpTransport);
+  }
+  return runCodexAppServerRunJob(dbPath, payload, appServerTransport);
+}
 
 function updateFeatureSpecFileState(input: {
   workspaceRoot?: string;
@@ -819,8 +1114,10 @@ export function updateSchedulerJobRecord(dbPath: string, bullmqJobId: string | u
 async function dispatchCliJob(dbPath: string, job: Job, runner?: CliCommandRunner, appServerTransport?: CodexAppServerTransport): Promise<void> {
   updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
   try {
-    const result = job.name === "codex.app_server.run" || job.name === "rpc.run"
+    const result = job.name === "codex.app_server.run"
       ? await runCodexAppServerRunJob(dbPath, job.data as AppServerRunJobPayload, appServerTransport)
+      : job.name === "rpc.run"
+      ? await runRpcRunJob(dbPath, job.data as AppServerRunJobPayload, appServerTransport)
       : await runCliRunJob(dbPath, job.data as CliRunJobPayload, runner);
     updateSchedulerJobRecord(dbPath, String(job.id), result.status === "blocked" || result.status === "approval_needed" ? result.status : "completed", undefined, job.attemptsMade);
   } catch (error) {
@@ -831,6 +1128,7 @@ async function dispatchCliJob(dbPath: string, job: Job, runner?: CliCommandRunne
 
 function appServerResultStatus(result: { session: { exitCode: number | null }; result: { skillOutput?: SkillOutputContract; events?: Array<Record<string, unknown>> } }): RunnerQueueStatus {
   if (hasApprovalRequest(result.result.events)) return "approval_needed";
+  if (result.result.events?.some((event) => String(event.type ?? "") === "prompt/result" && String(event.stopReason ?? "") === "cancelled")) return "blocked";
   if ((result.session.exitCode ?? 0) !== 0) return "failed";
   const status = result.result.skillOutput?.status;
   if (status === "review_needed" || status === "blocked" || status === "failed" || status === "completed") {
@@ -842,7 +1140,7 @@ function appServerResultStatus(result: { session: { exitCode: number | null }; r
 function hasApprovalRequest(events?: Array<Record<string, unknown>>): boolean {
   return (events ?? []).some((event) => {
     const type = optionalString(event.type) ?? optionalString(event.method) ?? "";
-    return type === "approval/request" || type.endsWith("/approval/request");
+    return type === "approval/request" || type.endsWith("/approval/request") || type === "requestPermission";
   });
 }
 
@@ -1087,6 +1385,55 @@ function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig
   };
 }
 
+function loadActiveRpcProvider(dbPath: string): "codex-app-server" | "gemini-acp" {
+  const result = runSqlite(dbPath, [], [
+    { name: "adapter", sql: "SELECT provider FROM rpc_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM rpc_adapter_configs" },
+  ]);
+  const row = result.queries.adapter[0];
+  const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
+  if (!row && adapterCount > 0) {
+    throw new Error("No active RPC adapter configured. Activate an RPC adapter in System Settings before starting RPC runs.");
+  }
+  const provider = optionalString(row?.provider);
+  return provider === "gemini-acp" ? "gemini-acp" : "codex-app-server";
+}
+
+function loadGeminiAcpAdapterConfig(dbPath: string): GeminiAcpAdapterConfig {
+  const result = runSqlite(dbPath, [], [
+    { name: "adapter", sql: "SELECT * FROM rpc_adapter_configs WHERE provider = 'gemini-acp' AND status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM rpc_adapter_configs WHERE provider = 'gemini-acp'" },
+  ]);
+  const row = result.queries.adapter[0];
+  const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
+  if (!row && adapterCount > 0) {
+    throw new Error("No active Gemini ACP adapter configured. Activate an adapter in System Settings before starting Gemini ACP runs.");
+  }
+  if (!row) return DEFAULT_GEMINI_ACP_ADAPTER_CONFIG;
+  return {
+    id: String(row.id),
+    displayName: String(row.display_name),
+    provider: "gemini-acp",
+    executable: String(row.executable),
+    args: parseJsonArray(row.args_json).map(String),
+    transport: normalizeAppServerTransport(row.transport),
+    endpoint: optionalString(row.endpoint),
+    requestTimeoutMs: Number(row.request_timeout_ms ?? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.requestTimeoutMs),
+    status: String(row.status) === "disabled" ? "disabled" : "active",
+    updatedAt: optionalString(row.updated_at),
+  };
+}
+
+function adapterMetadata(adapterConfig: CodexAppServerAdapterConfig | GeminiAcpAdapterConfig | undefined): Record<string, unknown> {
+  return {
+    id: adapterConfig?.id,
+    displayName: adapterConfig?.displayName,
+    executable: adapterConfig?.executable,
+    args: adapterConfig?.args,
+    endpoint: adapterConfig?.endpoint,
+  };
+}
+
 function normalizeAppServerTransport(value: unknown): CodexAppServerAdapterConfig["transport"] {
   if (value === "unix" || value === "http" || value === "jsonrpc" || value === "websocket") return value;
   return "stdio";
@@ -1114,7 +1461,8 @@ function approvalStateFromEvents(events: Array<Record<string, unknown>>): "none"
       || type.endsWith("/approval/request")
       || type === "item/commandExecution/requestApproval"
       || type === "item/fileChange/requestApproval"
-      || type === "item/permissions/requestApproval";
+      || type === "item/permissions/requestApproval"
+      || type === "requestPermission";
   }) ? "pending" : "none";
 }
 

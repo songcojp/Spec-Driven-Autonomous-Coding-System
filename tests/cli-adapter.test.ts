@@ -206,6 +206,9 @@ test("Gemini CLI adapter preset validates and dry-renders headless stream-json c
     "gemini-3-pro-preview",
     "--output-format",
     "stream-json",
+    "--skip-trust",
+    "--approval-mode",
+    "yolo",
     "-p",
     "Implement bounded task",
   ]);
@@ -693,7 +696,7 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
     now: stableDate,
     runner: (command, args, cwd) => {
       assert.equal(command, "gemini");
-      assert.deepEqual(args.slice(0, 5), ["--model", "gemini-3-pro-preview", "--output-format", "stream-json", "-p"]);
+      assert.deepEqual(args.slice(0, 8), ["--model", "gemini-3-pro-preview", "--output-format", "stream-json", "--skip-trust", "--approval-mode", "yolo", "-p"]);
       assert.equal(cwd, workspaceRoot);
       return {
         status: 0,

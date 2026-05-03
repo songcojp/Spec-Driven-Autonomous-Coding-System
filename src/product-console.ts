@@ -43,6 +43,9 @@ import {
   createUnavailableScheduler,
   type SchedulerClient,
 } from "./scheduler.ts";
+import { DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG } from "./codex-rpc-adapter.ts";
+import { DEFAULT_GEMINI_ACP_ADAPTER_CONFIG, type GeminiAcpAdapterConfig } from "./gemini-rpc-adapter.ts";
+import { dryRunRpcAdapterConfig, type RpcAdapterConfig, type RpcAdapterValidationResult } from "./rpc-adapter.ts";
 import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordApprovalDecision, type RecordApprovalInput, type ReviewDecision, type ReviewTrigger } from "./review-center.ts";
 import {
   connectProjectRepository,
@@ -82,6 +85,10 @@ export type ConsoleCommandAction =
   | "save_cli_adapter_config"
   | "activate_cli_adapter_config"
   | "disable_cli_adapter_config"
+  | "validate_rpc_adapter_config"
+  | "save_rpc_adapter_config"
+  | "activate_rpc_adapter_config"
+  | "disable_rpc_adapter_config"
   | "write_project_rule"
   | "write_spec_evolution"
   | "move_board_task"
@@ -116,6 +123,10 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "save_cli_adapter_config",
   "activate_cli_adapter_config",
   "disable_cli_adapter_config",
+  "validate_rpc_adapter_config",
+  "save_rpc_adapter_config",
+  "activate_rpc_adapter_config",
+  "disable_rpc_adapter_config",
   "write_project_rule",
   "write_spec_evolution",
   "move_board_task",
@@ -127,7 +138,7 @@ export type ConsoleCommandStatus = "accepted" | "blocked";
 
 export type ConsoleCommandInput = {
   action: ConsoleCommandAction;
-  entityType: "project" | "feature" | "task" | "run" | "runner" | "review_item" | "rule" | "spec" | "cli_adapter" | "settings";
+  entityType: "project" | "feature" | "task" | "run" | "runner" | "review_item" | "rule" | "spec" | "cli_adapter" | "rpc_adapter" | "settings";
   entityId: string;
   requestedBy: string;
   reason: string;
@@ -953,6 +964,19 @@ export type SystemSettingsViewModel = {
     presets: CliAdapterConfig[];
     validation: CliAdapterValidationResult;
     lastDryRun?: {
+      status: string;
+      errors: string[];
+      command?: string;
+      args?: string[];
+      at?: string;
+    };
+  };
+  rpcAdapter: {
+    active: RpcAdapterConfig;
+    draft?: RpcAdapterConfig;
+    presets: RpcAdapterConfig[];
+    validation: RpcAdapterValidationResult;
+    lastProbe?: {
       status: string;
       errors: string[];
       command?: string;
@@ -2216,10 +2240,14 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
 export function buildSystemSettingsView(dbPath: string): SystemSettingsViewModel {
   const result = runSqlite(dbPath, [], [
     { name: "adapters", sql: "SELECT * FROM cli_adapter_configs ORDER BY updated_at DESC" },
+    { name: "rpcAdapters", sql: "SELECT * FROM rpc_adapter_configs ORDER BY updated_at DESC" },
   ]);
   const active = adapterFromRows(result.queries.adapters, "active") ?? DEFAULT_CLI_ADAPTER_CONFIG;
   const draft = adapterFromRows(result.queries.adapters, "draft", false);
   const dryRun = latestAdapterDryRun(result.queries.adapters, draft?.id ?? active.id);
+  const activeRpc = rpcAdapterFromRows(result.queries.rpcAdapters, "active") ?? DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  const draftRpc = rpcAdapterFromRows(result.queries.rpcAdapters, "draft", false);
+  const rpcProbe = latestRpcAdapterProbe(result.queries.rpcAdapters, draftRpc?.id ?? activeRpc.id);
   return {
     cliAdapter: {
       active,
@@ -2228,13 +2256,24 @@ export function buildSystemSettingsView(dbPath: string): SystemSettingsViewModel
       validation: validateCliAdapterConfig(draft ?? active),
       lastDryRun: dryRun,
     },
+    rpcAdapter: {
+      active: activeRpc,
+      draft: draftRpc,
+      presets: [DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG, DEFAULT_GEMINI_ACP_ADAPTER_CONFIG],
+      validation: dryRunRpcAdapterConfig(draftRpc ?? activeRpc),
+      lastProbe: rpcProbe,
+    },
     commands: [
       { action: "validate_cli_adapter_config", entityType: "cli_adapter" },
       { action: "save_cli_adapter_config", entityType: "cli_adapter" },
       { action: "activate_cli_adapter_config", entityType: "cli_adapter" },
       { action: "disable_cli_adapter_config", entityType: "cli_adapter" },
+      { action: "validate_rpc_adapter_config", entityType: "rpc_adapter" },
+      { action: "save_rpc_adapter_config", entityType: "rpc_adapter" },
+      { action: "activate_rpc_adapter_config", entityType: "rpc_adapter" },
+      { action: "disable_rpc_adapter_config", entityType: "rpc_adapter" },
     ],
-    factSources: ["cli_adapter_configs", "audit_timeline_events"],
+    factSources: ["cli_adapter_configs", "rpc_adapter_configs", "audit_timeline_events"],
   };
 }
 
@@ -2558,6 +2597,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const boardValidation = validateBoardCommand(dbPath, input);
   const boardResult = boardValidation.blockedReasons.length === 0 ? executeBoardCommand(dbPath, input, acceptedAt, scheduler) : undefined;
   const settingsValidation = executeCliAdapterCommand(dbPath, input, acceptedAt);
+  const rpcSettingsValidation = executeRpcAdapterCommand(dbPath, input, acceptedAt);
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt, scheduler);
   const autoRunResult = executeAutoRunCommand(dbPath, input, acceptedAt, scheduler);
@@ -2568,6 +2608,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const blockedReasons = [
     ...boardValidation.blockedReasons,
     ...(settingsValidation?.blockedReasons ?? []),
+    ...(rpcSettingsValidation?.blockedReasons ?? []),
     ...(scheduleResult?.blockedReasons ?? []),
     ...(autoRunResult?.blockedReasons ?? []),
     ...(boardResult?.blockedReasons ?? []),
@@ -2595,6 +2636,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
       boardValidation,
       boardResult,
       settingsValidation,
+      rpcSettingsValidation,
       payload: input.payload ?? {},
     },
   });
@@ -3825,6 +3867,60 @@ function executeCliAdapterCommand(
   return undefined;
 }
 
+function executeRpcAdapterCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+): { blockedReasons: string[]; probe?: RpcAdapterValidationResult } | undefined {
+  if (!["validate_rpc_adapter_config", "save_rpc_adapter_config", "activate_rpc_adapter_config", "disable_rpc_adapter_config"].includes(input.action)) {
+    return undefined;
+  }
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const adapterPayload = isRecord(payload.config) ? payload.config : {};
+  const adapterId = optionalString(payload.adapterId) ?? optionalString(adapterPayload.id) ?? input.entityId;
+  const current = adapterId ? rpcAdapterFromRows(readRpcAdapterRows(dbPath), undefined, false, adapterId) : undefined;
+  const base = current ?? rpcAdapterPreset(adapterId) ?? DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  const normalizedConfig = normalizeRpcAdapterConfig({ ...base, ...adapterPayload, id: adapterId || base.id });
+  const config = input.action === "activate_rpc_adapter_config"
+    ? { ...normalizedConfig, status: "active" as const }
+    : normalizedConfig;
+  const probe = dryRunRpcAdapterConfig(config);
+  const blockedReasons = probe.valid ? [] : probe.errors;
+
+  if (input.action === "validate_rpc_adapter_config") {
+    persistRpcAdapterConfig(dbPath, { ...config, status: probe.valid ? config.status : "disabled", updatedAt: acceptedAt }, probe, false);
+    return { blockedReasons, probe };
+  }
+
+  if (input.action === "save_rpc_adapter_config") {
+    persistRpcAdapterConfig(dbPath, { ...config, status: "disabled", updatedAt: acceptedAt }, probe, false);
+    return { blockedReasons, probe };
+  }
+
+  if (input.action === "activate_rpc_adapter_config") {
+    if (blockedReasons.length > 0) {
+      persistRpcAdapterConfig(dbPath, { ...config, status: "disabled", updatedAt: acceptedAt }, probe, false);
+      return { blockedReasons, probe };
+    }
+    runSqlite(dbPath, [
+      { sql: "UPDATE rpc_adapter_configs SET status = 'disabled', updated_at = ? WHERE status = 'active' AND id <> ?", params: [acceptedAt, config.id] },
+    ]);
+    persistRpcAdapterConfig(dbPath, { ...config, status: "active", updatedAt: acceptedAt }, probe, true);
+    return { blockedReasons: [], probe };
+  }
+
+  if (input.action === "disable_rpc_adapter_config") {
+    const target = current ?? config;
+    if (target.status === "active") {
+      return { blockedReasons: ["Active RPC Adapter cannot be disabled until another adapter is active."] };
+    }
+    persistRpcAdapterConfig(dbPath, { ...target, status: "disabled", updatedAt: acceptedAt }, undefined, false);
+    return { blockedReasons: [] };
+  }
+
+  return undefined;
+}
+
 function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): string | undefined {
   if (input.action !== "write_project_rule" && input.action !== "write_spec_evolution" && input.action !== "update_spec") {
     return undefined;
@@ -4912,6 +5008,12 @@ function readCliAdapterRows(dbPath: string): Record<string, unknown>[] {
   ]).queries.adapters;
 }
 
+function readRpcAdapterRows(dbPath: string): Record<string, unknown>[] {
+  return runSqlite(dbPath, [], [
+    { name: "adapters", sql: "SELECT * FROM rpc_adapter_configs ORDER BY updated_at DESC" },
+  ]).queries.adapters;
+}
+
 function adapterFromRows(
   rows: Record<string, unknown>[],
   status: string | undefined = "active",
@@ -4946,6 +5048,68 @@ function cliAdapterFromRow(row: Record<string, unknown>): CliAdapterConfig {
     status: row.status,
     updatedAt: row.updated_at,
   });
+}
+
+function rpcAdapterFromRows(
+  rows: Record<string, unknown>[],
+  status: string | undefined = "active",
+  fallbackToDefault = true,
+  id?: string,
+): RpcAdapterConfig | undefined {
+  const row = rows.find((entry) => {
+    const statusMatches = status ? String(entry.status) === status : true;
+    const idMatches = id ? String(entry.id) === id : true;
+    return statusMatches && idMatches;
+  });
+  if (!row) {
+    if (fallbackToDefault) return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+    return undefined;
+  }
+  return rpcAdapterFromRow(row);
+}
+
+function rpcAdapterFromRow(row: Record<string, unknown>): RpcAdapterConfig {
+  return normalizeRpcAdapterConfig({
+    id: row.id,
+    displayName: row.display_name,
+    provider: row.provider,
+    executable: row.executable,
+    args: parseJsonArray(row.args_json),
+    transport: row.transport,
+    endpoint: row.endpoint,
+    requestTimeoutMs: row.request_timeout_ms,
+    status: row.status,
+    updatedAt: row.updated_at,
+  });
+}
+
+function rpcAdapterPreset(id?: string): RpcAdapterConfig | undefined {
+  if (id === DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.id || id === "gemini-acp") return DEFAULT_GEMINI_ACP_ADAPTER_CONFIG;
+  if (id === DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG.id || id === "codex-app-server") return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  return undefined;
+}
+
+function normalizeRpcAdapterConfig(input: Record<string, unknown> | Partial<RpcAdapterConfig>): RpcAdapterConfig {
+  const base = optionalString(input.provider) === "gemini-acp" || optionalString(input.id) === DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.id
+    ? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG
+    : DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  const transport = input.transport === "unix" || input.transport === "http" || input.transport === "jsonrpc" || input.transport === "websocket"
+    ? input.transport
+    : "stdio";
+  const status = input.status === "disabled" ? "disabled" : "active";
+  return {
+    ...base,
+    id: optionalString(input.id) ?? base.id,
+    displayName: optionalString(input.displayName) ?? optionalString(input.display_name) ?? base.displayName,
+    provider: optionalString(input.provider) ?? base.provider,
+    executable: optionalString(input.executable) ?? base.executable,
+    args: parseJsonArray(input.args ?? input.args_json).map(String).length ? parseJsonArray(input.args ?? input.args_json).map(String) : base.args,
+    transport,
+    endpoint: optionalString(input.endpoint) ?? base.endpoint,
+    requestTimeoutMs: Number(input.requestTimeoutMs ?? input.request_timeout_ms ?? base.requestTimeoutMs),
+    status,
+    updatedAt: optionalString(input.updatedAt) ?? optionalString(input.updated_at) ?? new Date().toISOString(),
+  };
 }
 
 function persistCliAdapterConfig(
@@ -5003,6 +5167,67 @@ function persistCliAdapterConfig(
   ]);
 }
 
+function persistRpcAdapterConfig(
+  dbPath: string,
+  config: RpcAdapterConfig,
+  probe?: RpcAdapterValidationResult,
+  active = false,
+): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO rpc_adapter_configs (
+          id, display_name, provider, schema_version, executable, args_json, transport, endpoint,
+          request_timeout_ms, config_schema_json, form_schema_json, defaults_json,
+          status, last_probe_status, last_probe_errors_json, last_probe_command_json, last_probe_at, activated_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          display_name = excluded.display_name,
+          provider = excluded.provider,
+          schema_version = excluded.schema_version,
+          executable = excluded.executable,
+          args_json = excluded.args_json,
+          transport = excluded.transport,
+          endpoint = excluded.endpoint,
+          request_timeout_ms = excluded.request_timeout_ms,
+          config_schema_json = excluded.config_schema_json,
+          form_schema_json = excluded.form_schema_json,
+          defaults_json = excluded.defaults_json,
+          status = excluded.status,
+          last_probe_status = COALESCE(excluded.last_probe_status, rpc_adapter_configs.last_probe_status),
+          last_probe_errors_json = excluded.last_probe_errors_json,
+          last_probe_command_json = COALESCE(excluded.last_probe_command_json, rpc_adapter_configs.last_probe_command_json),
+          last_probe_at = COALESCE(excluded.last_probe_at, rpc_adapter_configs.last_probe_at),
+          activated_at = COALESCE(excluded.activated_at, rpc_adapter_configs.activated_at),
+          updated_at = excluded.updated_at`,
+      params: [
+        config.id,
+        config.displayName,
+        config.provider ?? config.id,
+        1,
+        config.executable,
+        JSON.stringify(config.args),
+        config.transport,
+        config.endpoint ?? null,
+        config.requestTimeoutMs,
+        JSON.stringify({ type: "object", required: ["id", "provider", "executable", "args", "transport"] }),
+        JSON.stringify({ fields: [
+          { path: "executable", label: "Executable", type: "text" },
+          { path: "args", label: "Arguments", type: "list" },
+          { path: "transport", label: "Transport", type: "select" },
+        ] }),
+        JSON.stringify({}),
+        config.status,
+        probe ? (probe.valid ? "passed" : "failed") : null,
+        JSON.stringify(probe?.errors ?? []),
+        probe?.command ? JSON.stringify({ command: probe.command, args: probe.args ?? [] }) : null,
+        probe ? config.updatedAt : null,
+        active ? config.updatedAt : null,
+        config.updatedAt,
+      ],
+    },
+  ]);
+}
+
 function buildCliAdapterSummary(active: CliAdapterConfig | undefined, rows: Record<string, unknown>[]): CliAdapterSummary {
   const adapter = active ?? DEFAULT_CLI_ADAPTER_CONFIG;
   const row = rows.find((entry) => String(entry.id) === adapter.id) ?? {};
@@ -5031,6 +5256,21 @@ function latestAdapterDryRun(rows: Record<string, unknown>[], adapterId: string)
     command: optionalString(command.command),
     args: parseJsonArray(command.args).map(String),
     at: optionalString(row.last_dry_run_at),
+  };
+}
+
+function latestRpcAdapterProbe(rows: Record<string, unknown>[], adapterId: string): SystemSettingsViewModel["rpcAdapter"]["lastProbe"] {
+  const row = rows.find((entry) => String(entry.id) === adapterId);
+  if (!row) return undefined;
+  const command = parseJsonObject(row.last_probe_command_json);
+  const status = optionalString(row.last_probe_status);
+  if (!status) return undefined;
+  return {
+    status,
+    errors: parseJsonArray(row.last_probe_errors_json).map(String),
+    command: optionalString(command.command),
+    args: parseJsonArray(command.args).map(String),
+    at: optionalString(row.last_probe_at),
   };
 }
 

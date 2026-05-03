@@ -475,7 +475,7 @@ THE SYSTEM SHALL 通过 active CLI Adapter 解析 executable、argument template
 
 验收：
 - [ ] 默认 `codex-cli` adapter 能生成与现有 Codex 执行等价的命令。
-- [ ] 系统提供 `codex-cli` 和 `gemini-cli` 内置 preset；Gemini CLI 通过 headless JSON/JSONL 输出接入，并由 Execution Adapter 对 SkillOutputContractV1 做事后校验。
+- [ ] 系统提供 `codex-cli` 和 `gemini-cli` 内置 preset；Gemini CLI 通过 headless `--output-format stream-json` 输出接入，使用 `--skip-trust`、`--approval-mode` 和 `-p` 承载非交互执行，并由 Execution Adapter 从 `init`、`message`、`tool_use`、`tool_result`、`error`、`result` 事件中提取 session、日志、token usage 和 SkillOutputContractV1 做事后校验。
 - [ ] Execution Policy 解析结果与 adapter 配置合并后仍保留 sandbox、approval、model、profile、output schema 和 workspace root 约束。
 - [ ] active CLI Adapter 必须在启动前解析并校验项目 workspace root；项目路径缺失、不可读或不是可用 workspace 时，新 Run 进入 blocked 并展示原因。
 - [ ] CLI Adapter 变更写入审计日志，并且不影响已经 running 的 Run。
@@ -937,32 +937,34 @@ THE SYSTEM SHALL 支持 enqueue、run now、pause、resume、retry、cancel、sk
 - [ ] 缺失 `requirements.md`、`design.md`、`tasks.md` 的 Feature 显示 blocked，不允许直接执行。
 - [ ] `reprioritize` 只改变调度顺序，不修改 Feature 文档内容。
 
-### REQ-080：提供 RPC Adapter 与 Codex app-server Provider
+### REQ-080：提供 RPC Adapter 与多 Provider 执行
 来源：`docs/zh-CN/vscode-codex-app-server-prd.md` 第 7.7 节；`docs/zh-CN/vscode-app-plan.md` FEAT-018
 优先级：Must
 
 WHEN Execution Adapter Layer 消费 `rpc.run` Job 或迁移期兼容的 `codex.app_server.run` Job
-THE SYSTEM SHALL 通过 RPC Adapter 连接或启动 `codex app-server`，完成 initialize/initialized、thread/start 或 thread/resume、turn/start 和事件流消费。
+THE SYSTEM SHALL 通过 RPC Adapter 连接或启动 active RPC provider；内置 provider 至少包括 `codex-app-server` 和 `gemini-acp`，其中 `codex.app_server.run` 继续作为 Codex app-server 兼容别名，新的远程或进程内执行统一进入 `rpc.run`。
 
 验收：
 - [ ] Execution Adapter Layer 是唯一允许调用 `turn/start` 的 SpecDrive 组件。
 - [ ] VSCode 插件只能发起受控命令和订阅状态，不能绕过 RPC Adapter 与 app-server 交互。
 - [ ] app-server 进程、thread id、turn id、transport、model、cwd 和 output schema 必须记录到 Execution Record。
-- [ ] HTTP/JSON-RPC/WebSocket 远程 provider 必须复用同一 RPC Adapter 接口，不得新增 app-server-only 执行模型。
+- [ ] Gemini ACP provider 必须通过 `gemini --acp` stdio JSON-RPC 完成 `initialize`、`newSession` 或 `loadSession`、`prompt`、`cancel`、permission request 和 session update 消费。
+- [ ] HTTP/JSON-RPC/WebSocket/ACP 远程或进程内 provider 必须复用同一 RPC Adapter 接口，不得新增 app-server-only 执行模型。
 - [ ] app-server 无法启动、未登录或协议不兼容时，Execution Record 标记 failed，并给出可操作错误。
 
-### REQ-081：记录 app-server Execution Projection
+### REQ-081：记录 RPC Execution Projection
 来源：`docs/zh-CN/vscode-codex-app-server-prd.md` 第 7.7 至 7.9 节；`docs/zh-CN/vscode-app-plan.md` Interfaces And Contracts
 优先级：Must
 
-WHEN app-server turn 运行、审批或完成
-THE SYSTEM SHALL 将 threadId、turnId、eventRefs、approvalState、producedArtifacts、summary、error 和 output schema 校验结果投影到 Execution Record、raw logs 和 `spec-state.json.lastResult`。
+WHEN RPC provider session、turn 或 prompt 运行、审批或完成
+THE SYSTEM SHALL 将 provider session id、threadId、turnId、eventRefs、approvalState、producedArtifacts、summary、error 和 output schema 校验结果统一投影到 Execution Record、raw logs 和 `spec-state.json.lastResult`。
 
 验收：
-- [ ] turn/item 事件持续写入 raw logs，并可由 VSCode 状态面板增量查看。
+- [ ] app-server turn/item 事件和 Gemini ACP `session/update`、permission request、prompt response 持续写入 raw logs，并可由 VSCode 状态面板增量查看。
 - [ ] `SkillOutputContractV1` 校验通过后，Execution Record 标记 completed，并更新 Feature `spec-state.json`。
 - [ ] output schema 校验失败时，Execution Record 标记 failed，保留 raw output 供重试或恢复。
-- [ ] 不新增重型 Execution Result；聊天记录、app-server 事件流、raw logs 和 Execution Record 共同构成执行证据。
+- [ ] Gemini ACP permission pending 投影为 `approval_needed`，不写入 SkillOutputContractV1.status。
+- [ ] 不新增重型 Execution Result；聊天记录、provider 事件流、raw logs 和 Execution Record 共同构成执行证据。
 
 ### REQ-082：支持 VSCode app-server 审批交互
 来源：`docs/zh-CN/vscode-codex-app-server-prd.md` 第 7.8 节；`docs/zh-CN/vscode-app-plan.md` FEAT-019

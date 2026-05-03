@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -1106,6 +1106,34 @@ export const MIGRATIONS: Migration[] = [
       SELECT id, run_id, session_id, workspace_root, command, args_json, exit_code, started_at, completed_at
       FROM codex_session_records`,
       "CREATE INDEX IF NOT EXISTS idx_cli_sessions_run ON cli_session_records(run_id, completed_at)",
+    ],
+  },
+  {
+    version: 26,
+    description: "Add provider-neutral RPC adapter configuration schema",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS rpc_adapter_configs (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        schema_version INTEGER NOT NULL,
+        executable TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        endpoint TEXT,
+        request_timeout_ms INTEGER NOT NULL,
+        config_schema_json TEXT NOT NULL,
+        form_schema_json TEXT NOT NULL,
+        defaults_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        last_probe_status TEXT,
+        last_probe_errors_json TEXT NOT NULL DEFAULT '[]',
+        last_probe_command_json TEXT,
+        last_probe_at TEXT,
+        activated_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      "CREATE INDEX IF NOT EXISTS idx_rpc_adapter_configs_status ON rpc_adapter_configs(status, updated_at)",
     ],
   },
 ];

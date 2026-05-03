@@ -23,6 +23,10 @@ export type CommandAction =
   | "save_cli_adapter_config"
   | "activate_cli_adapter_config"
   | "disable_cli_adapter_config"
+  | "validate_rpc_adapter_config"
+  | "save_rpc_adapter_config"
+  | "activate_rpc_adapter_config"
+  | "disable_rpc_adapter_config"
   | "generate_ui_spec"
   | "write_spec_evolution";
 
@@ -347,6 +351,19 @@ export type CliAdapterConfigModel = {
   updatedAt: string;
 };
 
+export type RpcAdapterConfigModel = {
+  id: string;
+  displayName: string;
+  provider?: string;
+  executable: string;
+  args: string[];
+  transport: string;
+  endpoint?: string;
+  requestTimeoutMs: number;
+  status: string;
+  updatedAt?: string;
+};
+
 export type CliAdapterSummary = {
   id: string;
   displayName: string;
@@ -366,6 +383,13 @@ export type SystemSettingsModel = {
     presets: CliAdapterConfigModel[];
     validation: { valid: boolean; errors: string[]; warnings?: string[]; command?: string; args?: string[] };
     lastDryRun?: { status: string; errors: string[]; command?: string; args?: string[]; at?: string };
+  };
+  rpcAdapter?: {
+    active: RpcAdapterConfigModel;
+    draft?: RpcAdapterConfigModel;
+    presets: RpcAdapterConfigModel[];
+    validation: { valid: boolean; errors: string[]; command?: string; args?: string[] };
+    lastProbe?: { status: string; errors: string[]; command?: string; args?: string[]; at?: string };
   };
   commands: Array<{ action: CommandAction; entityType: string }>;
   factSources: string[];

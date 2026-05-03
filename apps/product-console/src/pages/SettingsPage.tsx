@@ -334,6 +334,59 @@ export function SettingsPage({
           {data.settings.factSources.join("、")}
         </div>
       </Panel>
+      {data.settings.rpcAdapter ? (
+        <Panel className="overflow-hidden">
+          <div className="border-b border-line bg-white px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-[15px] font-semibold text-ink">RPC Adapter</h3>
+                <p className="mt-1 text-[13px] text-muted">Manage RPC providers separately from headless CLI adapters.</p>
+              </div>
+              <Chip tone={data.settings.rpcAdapter.validation.valid ? "green" : "red"}>
+                {data.settings.rpcAdapter.validation.valid ? text.dryRunPassed : text.dryRunFailed}
+              </Chip>
+            </div>
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-0 max-xl:grid-cols-1">
+            <div className="min-w-0 p-4">
+              <div className="mb-3 text-[12px] font-semibold text-ink">{text.adapterPresets}</div>
+              <div className="flex flex-wrap gap-2">
+                {data.settings.rpcAdapter.presets.map((preset) => (
+                  <Button
+                    key={preset.id}
+                    disabled={busy}
+                    onClick={() => onCommand("activate_rpc_adapter_config", "rpc_adapter", preset.id, { adapterId: preset.id, config: preset })}
+                  >
+                    <Settings size={14} />
+                    {preset.displayName}
+                  </Button>
+                ))}
+              </div>
+              <div className="mt-4 rounded-md border border-line bg-slate-950 p-4 font-mono text-[12px] leading-5 text-slate-100">
+                {JSON.stringify(data.settings.rpcAdapter.active, null, 2)}
+              </div>
+            </div>
+            <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
+              <div className="rounded-lg border border-line bg-white">
+                <SectionTitle
+                  title={text.activeAdapter}
+                  action={<Chip tone="green">{data.settings.rpcAdapter.active.status}</Chip>}
+                />
+                <div className="space-y-3 p-4">
+                  <FactList
+                    rows={[
+                      [text.displayName, data.settings.rpcAdapter.active.displayName],
+                      ["Provider", data.settings.rpcAdapter.active.provider ?? data.settings.rpcAdapter.active.id],
+                      [text.executable, data.settings.rpcAdapter.active.executable],
+                      ["Transport", data.settings.rpcAdapter.active.transport],
+                    ]}
+                  />
+                </div>
+              </div>
+            </aside>
+          </div>
+        </Panel>
+      ) : null}
     </div>
   );
 }

@@ -14,8 +14,11 @@ import {
   createMemoryScheduler,
   runCodexAppServerRunJob,
   runCliRunJob,
+  runRpcRunJob,
 } from "../src/scheduler.ts";
+import type { CliJsonEvent } from "../src/cli-adapter.ts";
 import type { CodexAppServerTransport } from "../src/codex-rpc-adapter.ts";
+import type { GeminiAcpTransport } from "../src/gemini-rpc-adapter.ts";
 
 test("BullMQ queue names avoid reserved colon separator while logical queue names stay traceable", () => {
   assert.equal(EXECUTION_ADAPTER_QUEUE, "specdrive:execution-adapter");
@@ -358,6 +361,63 @@ test("codex.app_server.run executes mocked app-server transport and persists run
   assert.equal(rows.session[0].exit_code, 0);
   assert.equal(rows.log[0].stdout, "done");
   assert.equal(rows.statusChecks.length, 0);
+});
+
+test("rpc.run dispatches active Gemini ACP provider and persists runner artifacts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-gemini-acp-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO rpc_adapter_configs (
+        id, display_name, provider, schema_version, executable, args_json, transport, endpoint,
+        request_timeout_ms, config_schema_json, form_schema_json, defaults_json, status
+      ) VALUES ('gemini-acp-test', 'Gemini ACP Test', 'gemini-acp', 1, 'gemini',
+        '["--acp","--skip-trust"]', 'stdio', 'stdio://', 1000, '{}', '{}', '{}', 'active')`,
+    },
+  ]);
+  const calls: string[] = [];
+  const transport: GeminiAcpTransport = {
+    async request(method) {
+      calls.push(method);
+      if (method === "newSession") return { sessionId: "GEMINI-ACP-THREAD" };
+      if (method === "prompt") {
+        return new Promise((resolve) => setTimeout(() => resolve({ stopReason: "end_turn" }), 0));
+      }
+      return {};
+    },
+    async *events(): AsyncIterable<CliJsonEvent> {
+      yield {
+        type: "session/update",
+        sessionId: "GEMINI-ACP-THREAD",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { text: JSON.stringify(skillOutputObject("RUN-GEMINI-ACP-RPC")) },
+        },
+      };
+    },
+  };
+
+  const result = await runRpcRunJob(dbPath, cliRunPayload("RUN-GEMINI-ACP-RPC"), undefined, transport);
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status, metadata_json FROM execution_records WHERE id = 'RUN-GEMINI-ACP-RPC'" },
+    { name: "session", sql: "SELECT session_id, command, args_json, exit_code FROM cli_session_records WHERE run_id = 'RUN-GEMINI-ACP-RPC'" },
+    { name: "log", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-GEMINI-ACP-RPC'" },
+  ]).queries;
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(calls, ["initialize", "newSession", "prompt"]);
+  assert.equal(rows.run[0].status, "completed");
+  const metadata = JSON.parse(String(rows.run[0].metadata_json));
+  assert.equal(metadata.provider, "gemini-acp");
+  assert.equal(metadata.sessionId, "GEMINI-ACP-THREAD");
+  assert.equal(metadata.contractValidation.valid, true);
+  assert.equal(rows.session[0].session_id, "GEMINI-ACP-THREAD");
+  assert.equal(rows.session[0].command, "gemini");
+  assert.deepEqual(JSON.parse(String(rows.session[0].args_json)), ["--acp", "--skip-trust"]);
+  assert.equal(rows.session[0].exit_code, 0);
+  assert.match(String(rows.log[0].stdout), /RUN-GEMINI-ACP-RPC/);
 });
 
 test("codex.app_server.run projects approval pending to Feature spec-state", async () => {

@@ -806,7 +806,11 @@ test("system settings exposes CLI adapter config and governed activation", () =>
   assert.equal(initial.cliAdapter.active.id, "codex-cli");
   assert.deepEqual(initial.cliAdapter.presets.map((preset) => preset.id), ["codex-cli", "gemini-cli"]);
   assert.equal(initial.cliAdapter.validation.valid, true);
+  assert.equal(initial.rpcAdapter.active.id, "codex-app-server-default");
+  assert.deepEqual(initial.rpcAdapter.presets.map((preset) => preset.id), ["codex-app-server-default", "gemini-acp-default"]);
+  assert.equal(initial.rpcAdapter.validation.valid, true);
   assert.equal(initial.commands.some((command) => command.action === "activate_cli_adapter_config"), true);
+  assert.equal(initial.commands.some((command) => command.action === "activate_rpc_adapter_config"), true);
 
   const receipt = submitConsoleCommand(dbPath, {
     action: "activate_cli_adapter_config",
@@ -831,6 +835,34 @@ test("system settings exposes CLI adapter config and governed activation", () =>
   assert.equal(settings.cliAdapter.active.id, "gemini-cli");
   assert.equal(settings.cliAdapter.lastDryRun?.status, "passed");
   assert.equal(settings.cliAdapter.lastDryRun?.command, "gemini");
+
+  const rpcReceipt = submitConsoleCommand(dbPath, {
+    action: "activate_rpc_adapter_config",
+    entityType: "rpc_adapter",
+    entityId: "gemini-acp-default",
+    requestedBy: "operator",
+    reason: "Switch RPC adapter from system settings.",
+    payload: {
+      config: {
+        id: "gemini-acp-default",
+        displayName: "Built-in Gemini ACP",
+        provider: "gemini-acp",
+        executable: "gemini",
+        args: ["--acp", "--skip-trust"],
+        transport: "stdio",
+        endpoint: "stdio://",
+        requestTimeoutMs: 120000,
+        status: "disabled",
+      },
+    },
+  });
+
+  assert.equal(rpcReceipt.status, "accepted");
+  const rpcSettings = buildSystemSettingsView(dbPath);
+  assert.equal(rpcSettings.rpcAdapter.active.id, "gemini-acp-default");
+  assert.equal(rpcSettings.rpcAdapter.active.provider, "gemini-acp");
+  assert.equal(rpcSettings.rpcAdapter.lastProbe?.status, "passed");
+  assert.equal(rpcSettings.rpcAdapter.lastProbe?.command, "gemini");
   const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:00:20.000Z"));
   assert.equal(runner.adapterSummary.id, "gemini-cli");
   assert.equal(runner.commands.some((command) => command.action === "activate_cli_adapter_config"), false);
