@@ -152,7 +152,7 @@ flowchart LR
 | API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter 和 Codex app-server adapter | UI、IDE、调度器、Runner 和审批动作需要统一入口；Codex/Gemini/Git/GitHub 先走稳定 adapter 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；app-server Adapter 负责 JSON-RPC protocol/capability/schema detection。 |
 | Background Jobs / Scheduler | BullMQ + Redis queue + Worker；SQLite 保存 scheduler job record、Run、心跳、状态和 execution result | 长时间任务不能只存在内存；延迟/周期/Worker 执行交给成熟队列，业务事实仍可恢复。 | Redis 不可用时 scheduler health 为 blocked；写任务默认串行，写入型并行必须绑定 worktree。 |
 | Testing | Vitest/Jest 覆盖服务与状态机；Playwright 覆盖 Console；CLI adapter 使用 fixture 和本地集成测试 | 核心风险在状态机、schema、Runner policy、工作区隔离和 UI 状态展示，测试应围绕这些边界。 | 目标仓库的测试命令由项目健康检查发现，不由本系统固定。 |
-| Deployment / Operations | MVP 本地进程：Control Plane + Runner Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合 Codex CLI、Git worktree 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Runner 池。 |
+| Deployment / Operations | MVP 本地进程：Control Plane + Runner Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合编码 CLI、Git worktree 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Runner 池。 |
 
 Rejected / deferred alternatives:
 
@@ -183,7 +183,7 @@ Rejected / deferred alternatives:
 | Feature / Execution 状态 | Persistent Store 中的内部状态机与 Execution Record | Dashboard、Project Memory、Delivery Report。 |
 | Git 事实 | 目标仓库与 worktree 的实时 Git 状态 | Repository Adapter、Workspace Manager、Status Checker。 |
 | 当前项目上下文 | Project Management 持久层和用户选择状态 | Product Console、Scheduler、Project Memory Injector、Control Plane 命令网关。 |
-| Project Memory | `.autobuild/memory/project.md` + 版本元数据 | Codex CLI 会话恢复上下文。 |
+| Project Memory | `.autobuild/memory/project.md` + 版本元数据 | 编码 CLI 会话恢复上下文。 |
 | Skill 列表 | Skill Registry，内置 Skill 以 PRD 第 6.3 节为事实源 | Orchestrator、Skill Center、Review Center。 |
 | Project Constitution | Project Management 持久层与版本记录 | Project Memory、Scheduler、Review Center、Feature Spec 流程。 |
 | execution result | Status Checker | Status Checker、Review Center、Recovery Manager、Delivery Manager。 |
@@ -289,7 +289,7 @@ Collaborates With:
 Responsibilities:
 
 - 初始化 `.autobuild/memory/project.md`。
-- 在 Codex CLI 会话启动前注入 `[PROJECT MEMORY]` 上下文块。
+- 在编码 CLI 会话启动前注入 `[PROJECT MEMORY]` 上下文块。
 - 根据 Execution Result、Status Checker 和状态转移幂等更新 Memory。
 - 在超出 token 预算时压缩旧 执行结果摘要、历史决策和已完成任务列表。
 - 维护版本记录、回滚索引和压缩审计。
@@ -326,7 +326,7 @@ Responsibilities:
 - 通过 Runner CLI Adapter 调用 Codex CLI、Google Gemini CLI 或后续等价 CLI 执行代码修改、测试或修复。
 - 读取 active CLI Adapter JSON 配置，并将 executable、argument template、workspace policy、output mode、执行结果映射和 session resume 映射转换为实际执行计划。
 - 按任务风险解析 sandbox、approval policy、model、reasoning effort、profile、workspace root、session resume 和 output schema。
-- 采集命令输出、JSON event stream、Codex session、心跳和原始日志。
+- 采集命令输出、JSON/JSONL event stream、CLI session、心跳和原始日志。
 - 生成或转交 Execution Result。
 
 Owns:
@@ -379,8 +379,8 @@ Responsibilities:
 - Spec Workspace 展示 Feature、Spec、澄清、Checklist、计划、数据模型、契约、Feature Spec `tasks.md` 覆盖情况和版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
 - Subagent Console 展示 Run Contract、上下文切片、执行结果、token 使用、运行状态，并支持终止和重试。
-- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、日志、心跳和 CLI Adapter 配置健康摘要。
-- System Settings 提供 CLI Adapter 配置管理，支持原始 JSON、JSON Schema 表单、dry-run 校验、保存草稿、启用/禁用和字段级错误展示；Runner Console 仅提供状态摘要和跳转入口。
+- Runner Console 展示 Runner 在线状态、active CLI adapter、当前模型、sandbox、approval policy、queue、日志、心跳和 CLI Adapter 配置健康摘要。
+- System Settings 提供 CLI Adapter 配置管理，支持 Codex/Gemini preset、原始 JSON、JSON Schema 表单、dry-run 校验、保存草稿、启用/禁用和字段级错误展示；Runner Console 仅提供状态摘要和跳转入口。
 
 Owns:
 
@@ -498,14 +498,14 @@ Data ownership rules:
 
 - Control Plane 通过同步命令处理用户动作、调度触发、审批动作和查询。
 - Scheduler、Runner、Status Checker、Recovery 和 Delivery 之间通过 SQLite 状态、BullMQ job 和 execution result 解耦。
-- Planning 类 Skill 仍由 Codex CLI 工作流执行；平台在 planning bridge 未实现前不得伪造 Skill 输出或 Feature Spec `tasks.md` 覆盖结果。
+- Planning 类 Skill 仍由编码 CLI 工作流执行；平台在 planning bridge 未实现前不得伪造 Skill 输出或 Feature Spec `tasks.md` 覆盖结果。
 
 ### External Integrations
 
 | Integration | MVP Strategy | Constraint |
 |---|---|---|
 | BullMQ + Redis | `specdrive:feature-scheduler` 和 `specdrive:cli-runner` 两个 queue 承担 delayed、repeatable 和 Worker job 执行。 | Redis 不保存业务事实；断连时 scheduler health 为 blocked，SQLite 保留 trigger/job/audit。 |
-| Codex CLI | 由 Runner CLI Adapter 调用 `codex exec` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行；命令模板和输出映射来自 active JSON adapter 配置。 |
+| Codex CLI / Google Gemini CLI | 由 Runner CLI Adapter 调用 `codex exec`、Gemini headless `stream-json` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行；命令模板和输出映射来自 active JSON adapter 配置。 |
 | Codex app-server | 由 Runner Codex app-server Adapter 连接或启动 `codex app-server`，执行 initialize、thread/start、thread/resume、turn/start、turn/interrupt 和 approval response。 | Runner 是唯一调用 app-server turn API 的组件；VSCode 插件只能提交受控命令和订阅状态。 |
 | Git CLI | 由 Repository Adapter 和 Workspace Manager 读取状态、创建分支和管理 worktree。 | Git 状态是代码事实来源。 |
 | GitHub `gh` CLI | 由 Delivery Manager 创建 PR，读取必要 PR 状态。 | MVP 不单独建模 Git 平台权限矩阵。 |
@@ -671,9 +671,9 @@ flowchart TD
 
 Security posture:
 
-- 开发阶段自动执行默认使用 `danger-full-access` 和 `approval=never`，避免 Codex CLI 人工确认阻塞开发流。
+- 开发阶段自动执行默认使用 `danger-full-access` 和 `approval=never`，避免编码 CLI 人工确认阻塞开发流。
 - 自动执行默认不使用 bypass approvals；需要无确认执行时使用 `approval=never`。
-- 高风险任务在开发阶段默认不触发 Codex CLI 人工确认；敏感文件、危险命令和 forbidden files 仍进入 Review Needed 或 blocked。
+- 高风险任务在开发阶段默认不触发编码 CLI 人工确认；敏感文件、危险命令和 forbidden files 仍进入 Review Needed 或 blocked。
 - 危险任务禁止自动执行。
 - `.env`、密钥、支付、认证配置、权限策略、迁移脚本和 forbidden files 受 Safety Gate 保护。
 - Subagent 只能访问 Agent Run Contract 声明的上下文和文件范围。
@@ -707,7 +707,7 @@ Observability:
 Operability:
 
 - Project Health Checker 发现 Git、包管理器、测试命令、构建命令、Codex 配置、AGENTS.md、Spec 目录、未提交变更和敏感文件风险。
-- Recovery Bootstrap 在重启后恢复 Run、任务、Runner 心跳、worktree、Codex session、执行结果 和 Project Memory。
+- Recovery Bootstrap 在重启后恢复 Run、任务、Runner 心跳、worktree、CLI session、执行结果 和 Project Memory。
 - 状态冲突时先核查 Persistent Store、Git/worktree 和文件系统，再修正 Dashboard 或 Project Memory 投影。
 - 执行结果记录失败时任务进入 blocked 或 failed，并保留诊断错误。
 
@@ -726,7 +726,7 @@ flowchart TB
   API --> Files[.autobuild Artifact Root]
   FeatureQueue --> FeatureWorker[Executor Job Scheduler Worker]
   CliQueue --> Runner[Local Runner Worker]
-  Runner --> Codex[Codex CLI]
+  Runner --> CodingCLI[Codex CLI / Gemini CLI]
   Runner --> Repo[Target Repository]
   Repo --> WT1[Task Worktree]
   Repo --> WT2[Feature Worktree]
@@ -751,7 +751,7 @@ Testing strategy:
 - Requirement-level：每条 EARS Requirement 应可映射到验收标准和测试场景。
 - Skill-level：校验每个 Skill 的 input/output schema、失败处理和 execution result 生成。
 - State-machine-level：覆盖 Feature 与 Task 的合法状态迁移、Review Needed reason、Blocked/Failed 路径。
-- Runner-level：覆盖 Runner Policy、sandbox/approval、心跳、Codex session、输出 schema 和命令失败。
+- Runner-level：覆盖 Runner Policy、sandbox/approval、心跳、CLI session、输出 schema 和命令失败。
 - Workspace-level：覆盖 worktree 创建、冲突检测、合并前检查、回滚和清理状态。
 - Status-level：覆盖 diff、构建、测试、lint、安全、敏感信息、Spec Alignment 和完成度判断。
 - Recovery-level：覆盖失败指纹、禁止重复策略、最大重试、退避和人工 Review 路由。
@@ -841,7 +841,7 @@ Decomposition rules:
 |---|---|---|
 | Project Scheduler 选择 ready Feature | **Code**（BullMQ job + SQLite 事实源） | 优先级算法 + 去重 + 崩溃恢复，不能靠 LLM 推理替代 |
 | Feature 状态 → `planning` | **Code** | 状态机迁移 |
-| 生成技术计划、研究结论、数据模型、接口契约 | **Skill**（bridge 未实现时 blocked） | 规划流水线应通过 Codex 执行 `technical-context-skill` → `research-decision-skill` → `architecture-plan-skill` → `data-model-skill` → `contract-design-skill` → `quickstart-validation-skill` → `spec-consistency-analysis-skill`；未接 bridge 前不得伪造输出 |
+| 生成技术计划、研究结论、数据模型、接口契约 | **Skill**（bridge 未实现时 blocked） | 规划流水线应通过编码 CLI 执行 `technical-context-skill` → `research-decision-skill` → `architecture-plan-skill` → `data-model-skill` → `contract-design-skill` → `quickstart-validation-skill` → `spec-consistency-analysis-skill`；未接 bridge 前不得伪造输出 |
 | 维护 Feature Spec `tasks.md` | **Skill**（任务分解） | `task-slicing-skill` 生成或更新 `tasks.md`；平台不再写入 Feature 内 TaskGraph / tasks 执行表 |
 | Feature 状态 → `tasked`，兼容看板展示 | **Code** | 状态机迁移 + 兼容看板投影持久化 |
 | 调度 Feature 执行 | **Code**（状态迁移 + `cli.run` 入队） | 完整 Feature Spec 目录校验、去重、重试限制和 Job/Execution Record 创建，是结构不变式 |
@@ -859,7 +859,7 @@ Decomposition rules:
 
 ### CLI Skill Invocation Bridge
 
-Console command 到 CLI Skill 的执行链路为：Console command → scheduler job → Run → active CLI Adapter → Codex workspace → skill prompt → execution result / Status。Control Plane 只生成可审计 invocation contract 和运行事实，不注册、不发现、不校验 Skill schema，也不恢复平台级 SkillRun 表。
+Console command 到 CLI Skill 的执行链路为：Console command → scheduler job → Run → active CLI Adapter → project workspace → skill prompt → execution result / Status。Control Plane 只生成可审计 invocation contract 和运行事实，不注册、不发现、不校验 Skill schema，也不恢复平台级 SkillRun 表。
 
 invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability` 和 `requestedAction`。workspace root 必须来自当前项目 repository `local_path`，其次使用项目 `target_repo_path`；不得回退到 SpecDrive Control Plane 进程 cwd。项目路径缺失、不可读、不是可用 Git workspace，或缺少执行所需 `.agents/skills/*` / `AGENTS.md` 时，Run 必须 blocked 并把原因写入 执行结果、Runner Console 和 Spec Workspace 回执。
 
@@ -907,8 +907,8 @@ invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`
 | 共享运行时资源污染 | 数据库、缓存、队列、外部 API 等必须 mock、命名空间隔离、临时实例或串行。 |
 | Agent 偏离需求 | Status Checker 执行 Spec Alignment，无法映射需求的 diff 不得 Done。 |
 | 自动恢复反复失败 | 使用失败指纹、禁止重复策略、最大 3 次重试和人工 Review 路由。 |
-| Codex 权限过高 | 开发阶段默认最大 Codex CLI 权限，通过 Safety Gate、审计日志和回滚约束兜底。 |
-| Codex workspace 错误 | CLI Adapter 必须使用当前项目 repository `local_path` / `target_repo_path` 作为 workspace root；缺失、不可读或缺少所需 Skill 文件时 blocked。 |
+| 编码 CLI 权限过高 | 开发阶段默认最大 CLI 权限，通过 Safety Gate、审计日志和回滚约束兜底。 |
+| CLI workspace 错误 | CLI Adapter 必须使用当前项目 repository `local_path` / `target_repo_path` 作为 workspace root；缺失、不可读或缺少所需 Skill 文件时 blocked。 |
 | execution result 不完整导致不可审计 | Run、Status、Review、Recovery 和 Delivery 都必须引用 Execution Result。 |
 
 ### Tradeoffs

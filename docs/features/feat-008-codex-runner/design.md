@@ -21,7 +21,7 @@ Runner 不接收 Product Console 的直接 CLI 执行请求。Console、Spec Wor
 
 ## Data Ownership
 
-- Owns: RunnerPolicy、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog。
+- Owns: RunnerPolicy、CliAdapterConfig、RunnerHeartbeat、CliSessionRecord、RawExecutionLog。
 - Reads: SchedulerJobRecord、ExecutionRecord、WorktreeRecord、Runner policy、Safety Rules、payload context 风险。
 - Emits: Execution Record 更新、Status Check 请求、Review Needed 触发。
 

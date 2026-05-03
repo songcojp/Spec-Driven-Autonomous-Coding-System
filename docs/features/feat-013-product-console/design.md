@@ -37,7 +37,7 @@ CHG-016 update：Spec Workspace、Task Board 和 Runner Console 必须展示 wor
 | Project Home View | 作为单个当前项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并承载 Task Board 分区。 |
 | Task Board Section | 展示兼容任务状态、diff、测试结果、审批状态和失败恢复历史，并发起受控拖拽、兼容排期和执行入口命令；编码执行事实源是 Feature Spec 目录，不是 Task Board 任务表。 |
 | Spec Workspace View | 展示阶段 1 自动项目初始化、阶段 2 需求录入、Spec Sources 扫描、Feature Spec、澄清、Checklist、计划、数据模型、契约、Feature Spec `tasks.md` 覆盖情况和版本 diff。 |
-| Runner Console View | 展示 Runner 在线、Codex 版本、安全配置、executor queue、日志、心跳、CLI Adapter 配置健康摘要和系统设置跳转入口。 |
+| Runner Console View | 展示 Runner 在线、active CLI adapter、当前模型、安全配置、executor queue、日志、心跳、CLI Adapter 配置健康摘要和系统设置跳转入口。 |
 | Scheduler Job List | 展示 `cli.run` 与后续 `native.run` Job 的执行名称、执行类型、operation、status、execution id、attempts 和 updatedAt。 |
 | Scheduler Job Inspector | 展示选中 job 的 scheduler job id、BullMQ job id、queue、job type、payload context、Execution Record、workspace、CLI Adapter / native handler、heartbeat、blocked reason 和 Evidence 摘要。 |
 | Skill Invocation Feedback | 在 Spec Workspace、Task Board 和 Runner Console 展示 scheduler job、execution id、workspace、skill phase、blocked reason、token 消费明细和 Evidence 摘要。 |

@@ -10,18 +10,18 @@
 
 ## Scope
 
-- 通过 Runner CLI Adapter 调用 Codex CLI 执行代码修改、测试或修复，默认 adapter 为 `codex-cli`。
+- 通过 Runner CLI Adapter 调用 Codex CLI、Google Gemini CLI 或后续等价编码 CLI 执行代码修改、测试或修复，默认 adapter 为 `codex-cli`，内置可选 adapter 为 `gemini-cli`。
 - 通过 BullMQ `cli.run` job 调度 Runner Worker；Console 运行动作不得直接执行 CLI，后续 `native.run` 由独立 native executor 承载。
 - Runner 只消费已审计的 scheduler job / Execution Record / invocation contract，不提供给 Product Console 直接执行 shell 或 CLI 的接口。
-- Codex CLI 必须在目标项目 workspace 中启动，workspace root 来自当前项目 repository `local_path` 或 `target_repo_path`。
+- 编码 CLI 必须在目标项目 workspace 中启动，workspace root 来自当前项目 repository `local_path` 或 `target_repo_path`。
 - 通过 JSON + JSON Schema 管理 CLI Adapter 配置，隔离 executable、argument template、输出映射和 session resume 逻辑。
-- 支持 CLI skill invocation contract，将 Spec/UI 操作转换为 Codex workspace 内部 Skill prompt。
+- 支持 CLI skill invocation contract，将 Spec/UI 操作转换为项目 workspace 内部 Skill prompt。
 - Feature 级 `feature_execution` 通过 `codex-coding-skill` 直接读取 Feature Spec 目录执行；Runner 不要求 `task_graph_tasks` / `tasks` 表存在。
 - 根据开发阶段策略和任务上下文设置 sandbox mode、approval policy、model、profile、output schema、JSON event stream、workspace root 和 session resume。
-- 开发阶段默认使用 `danger-full-access` 和 `approval=never`，不触发 Codex CLI 人工确认。
+- 开发阶段默认使用 `danger-full-access` 和 `approval=never`，不触发编码 CLI 人工确认。
 - 默认不得使用 bypass approvals；敏感文件、危险命令和 forbidden files 仍由 Safety Gate 阻断。
-- 捕获命令输出、JSON event stream、Codex session、原始日志和 Runner 心跳。
-- 为 Runner Console 提供在线状态、Codex 版本、sandbox、approval policy、queue、最近日志和心跳状态。
+- 捕获命令输出、JSON/JSONL event stream、CLI session、原始日志和 Runner 心跳。
+- 为 Runner Console 提供在线状态、active CLI adapter、当前模型、sandbox、approval policy、queue、最近日志和心跳状态。
 
 ## Non-Scope
 
@@ -37,7 +37,7 @@
 
 - Runner CLI Adapter 必须产出结构化 SkillOutputContractV1 或原始执行结果，供 Execution Record、raw logs 和 Status Checker 消费。
 - Runner Worker 必须读取已排期 Execution Record、active CLI Adapter、workspace root 和状态检查配置后执行。
-- Runner 不得在调度器、状态机或任务图中硬编码 Codex 命令细节。
+- Runner 不得在调度器、状态机或任务图中硬编码 Codex、Gemini 或其他编码 CLI 命令细节。
 - Runner 不得绕过受控命令和 Scheduler 直接响应 UI 写操作；所有执行类入口必须有 Execution Record、job、audit 和 raw log 追踪。
 - Runner 必须在启动前校验 workspace root；项目路径缺失、不可读或缺少必要 `.agents/skills` / `AGENTS.md` 时进入 blocked。
 - `feature_execution` 的 `SkillInvocationContractV1` 必须包含 Feature Spec `requirements.md`、`design.md` 和 `tasks.md` 作为 `sourcePaths`；缺失完整 Feature Spec 目录时，新执行必须 blocked。
@@ -72,5 +72,5 @@
 
 ## Risks and Open Questions
 
-- Codex CLI 输出格式、命令参数和 session resume 能力需要通过适配层隔离。
+- Codex/Gemini CLI 输出格式、命令参数和 session resume 能力需要通过适配层隔离。
 - 危险命令和 forbidden files 规则需要与 Review Center 保持一致。

@@ -38,7 +38,7 @@ Spec Evolution:
 - 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；Feature Spec 拆分是独立受控操作，拆分后不再展示“推入 Feature Spec Pool”步骤，项目级任务调度直接读取已拆分 Feature Spec 和 Skill 产出的队列规划，并按规划结果创建调度队列。
 - Skill Center 已移除，Console 不展示平台 Skill 页面。
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
-- Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
+- Runner Console 展示 Runner 在线状态、active CLI adapter、当前模型、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
 - Runner Console 的队列状态必须来自 `scheduler_job_records` 与 Runner heartbeat/session/log，而不是静态 recent logs。
 - Runner / Scheduler 页面必须以操作者视角展示当前队列动作、执行结果、blocked reason、Skill 输出、next action 和 Evidence；审计时间线不得作为理解队列状态的主入口。
 - Runner Console 必须展示 `cli.run` 与后续 `native.run` 的执行队列，不展示固定 Feature 列或旧流水线卡片。
