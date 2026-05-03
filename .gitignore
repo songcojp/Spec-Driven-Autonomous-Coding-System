@@ -49,6 +49,7 @@ htmlcov/
 .cache
 node_modules/
 apps/vscode-extension/out/
+apps/vscode-extension/server/
 test-results/
 playwright-report/
 nosetests.xml
