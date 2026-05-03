@@ -471,7 +471,7 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(runner.runners[0].online, true);
   assert.equal(runner.runners[0].queue.length, 1);
   assert.equal(runner.runners[0].queue[0].status, "running");
-  assert.equal(runner.runners.find((entry) => entry.runnerId === "runner-other")?.codexVersion, undefined);
+  assert.equal(runner.runners.find((entry) => entry.runnerId === "runner-other")?.runnerModel, undefined);
   assert.equal(scopedRunner.runners.some((entry) => entry.runnerId === "runner-other"), false);
   assert.equal(scopedRunner.summary.onlineRunners, 1);
   assert.equal(scopedRunner.summary.successRate, 0.8);
@@ -638,7 +638,7 @@ test("runner console does not load large policy output schemas", () => {
 
   const runner = buildRunnerConsoleView(dbPath, stableDate, "project-1");
 
-  assert.equal(runner.runners.find((entry) => entry.runnerId === "runner-main")?.codexVersion, "codex 1.2.3");
+  assert.equal(runner.runners.find((entry) => entry.runnerId === "runner-main")?.runnerModel, "codex 1.2.3");
 });
 
 test("audit center does not load large run and evidence metadata blobs", () => {

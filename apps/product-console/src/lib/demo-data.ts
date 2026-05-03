@@ -582,7 +582,7 @@ const returnsPortalData: ConsoleProjectData = {
       settingsPath: "/settings/cli",
     },
     runners: [
-      { runnerId: "runner-web-01", online: true, codexVersion: "gpt-5.4", sandboxMode: "workspace-write", approvalPolicy: "never", queue: [{ runId: "RUN-708", status: "running" }, { runId: "RUN-709", status: "queued" }, { runId: "RUN-710", status: "queued" }], recentLogs: [{ runId: "RUN-708", stdout: "Mobile upload preview rendered and evidence fixture stored.", stderr: "", createdAt: "2026-04-29T03:40:00.000Z" }], lastHeartbeatAt: "2026-04-29T03:45:00.000Z", heartbeatStale: false },
+      { runnerId: "runner-web-01", online: true, runnerModel: "gpt-5.4", sandboxMode: "workspace-write", approvalPolicy: "never", queue: [{ runId: "RUN-708", status: "running" }, { runId: "RUN-709", status: "queued" }, { runId: "RUN-710", status: "queued" }], recentLogs: [{ runId: "RUN-708", stdout: "Mobile upload preview rendered and evidence fixture stored.", stderr: "", createdAt: "2026-04-29T03:40:00.000Z" }], lastHeartbeatAt: "2026-04-29T03:45:00.000Z", heartbeatStale: false },
     ],
   },
   settings,

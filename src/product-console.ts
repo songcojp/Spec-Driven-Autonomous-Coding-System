@@ -38,7 +38,7 @@ import {
   type RunnerQueueStatus,
   type RunnerSandboxMode,
   type TokenCostRate,
-} from "./codex-runner.ts";
+} from "./cli-runner.ts";
 import {
   createUnavailableScheduler,
   type SchedulerClient,
@@ -922,7 +922,7 @@ export type RunnerConsoleViewModel = {
   runners: Array<{
     runnerId: string;
     online: boolean;
-    codexVersion?: string;
+    runnerModel?: string;
     sandboxMode: RunnerSandboxMode;
     approvalPolicy: RunnerApprovalPolicy;
     queue: Array<{ runId: string; status: RunnerQueueStatus }>;
@@ -2142,7 +2142,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     return {
       runnerId: String(heartbeat.runner_id),
       online: String(heartbeat.status) === "online" && !heartbeatStale,
-      codexVersion: optionalString(policy?.model),
+      runnerModel: optionalString(policy?.model),
       sandboxMode: String(policy?.sandbox_mode ?? "workspace-write") as RunnerSandboxMode,
       approvalPolicy: String(policy?.approval_policy ?? "on-request") as RunnerApprovalPolicy,
       queue: latestRunQueueStatuses(result.queries.heartbeats.filter((row) => row.runner_id === heartbeat.runner_id))

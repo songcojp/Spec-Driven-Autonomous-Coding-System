@@ -68,7 +68,7 @@ export type RunnerHeartbeat = {
   beatAt: string;
 };
 
-export type CodexSessionRecord = {
+export type CliSessionRecord = {
   id: string;
   runId: string;
   sessionId?: string;
@@ -85,12 +85,12 @@ export type RawExecutionLog = {
   runId: string;
   stdout: string;
   stderr: string;
-  events: CodexJsonEvent[];
+  events: CliJsonEvent[];
   files?: CliInvocationLogFiles;
   createdAt: string;
 };
 
-export type CodexJsonEvent = {
+export type CliJsonEvent = {
   type?: string;
   session_id?: string;
   [key: string]: unknown;
@@ -147,7 +147,7 @@ export type RunnerExecutionResultInput = {
   featureId?: string;
   sessionId?: string;
   exitCode: number | null;
-  events: CodexJsonEvent[];
+  events: CliJsonEvent[];
   stdout: string;
   stderr: string;
   testEnvironmentIsolation?: TestRunnerIsolationInput;
@@ -198,17 +198,17 @@ export type SafetyGateResult = {
   summary: string;
 };
 
-export type CodexCommandResult = {
+export type CliCommandResult = {
   status: number | null;
   stdout?: string;
   stderr?: string;
   error?: Error;
 };
 
-export type CodexCommandRunner = (command: string, args: string[], cwd: string) => CodexCommandResult;
-export type AsyncCodexCommandRunner = (command: string, args: string[], cwd: string) => Promise<CodexCommandResult>;
+export type CliCommandRunner = (command: string, args: string[], cwd: string) => CliCommandResult;
+export type AsyncCliCommandRunner = (command: string, args: string[], cwd: string) => Promise<CliCommandResult>;
 
-export type CodexAdapterInput = {
+export type CliAdapterInput = {
   policy: RunnerPolicy;
   prompt: string;
   taskId?: string;
@@ -217,14 +217,14 @@ export type CodexAdapterInput = {
   imagePaths?: string[];
   adapterConfig?: CliAdapterConfig;
   skillInvocation?: SkillInvocationContract;
-  runner?: CodexCommandRunner;
-  asyncRunner?: AsyncCodexCommandRunner;
+  runner?: CliCommandRunner;
+  asyncRunner?: AsyncCliCommandRunner;
   onHeartbeat?: () => void;
   now?: Date;
 };
 
-export type CodexAdapterResult = {
-  session: CodexSessionRecord;
+export type CliAdapterResult = {
+  session: CliSessionRecord;
   rawLog: RawExecutionLog;
   result: RunnerExecutionResultInput;
 };
@@ -329,7 +329,7 @@ export type RunnerQueueWorkerResult = {
   runId: string;
   status: RunnerQueueStatus;
   safety: SafetyGateResult;
-  adapterResult?: CodexAdapterResult;
+  adapterResult?: CliAdapterResult;
   statusCheckResult?: StatusCheckResult;
   recoveryTask?: RecoveryTask;
   recoveryDispatchInput?: RecoveryDispatchInput;
@@ -361,7 +361,7 @@ export type RunnerConsoleSnapshot = {
   runnerId: string;
   online: boolean;
   lastHeartbeatAt?: string;
-  codexVersion?: string;
+  runnerModel?: string;
   sandboxMode: RunnerSandboxMode;
   approvalPolicy: RunnerApprovalPolicy;
   queue: Array<{ runId: string; status: RunnerQueueStatus }>;
@@ -913,7 +913,7 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
   ].join("\n");
 }
 
-export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapterResult> {
+export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterResult> {
   const now = input.now ?? new Date();
   const adapterConfig = input.adapterConfig ?? DEFAULT_CLI_ADAPTER_CONFIG;
   const shouldCleanupOutputSchema = !input.outputSchemaPath;
@@ -938,7 +938,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
     createdAt: now.toISOString(),
   });
   try {
-    let result: CodexCommandResult;
+    let result: CliCommandResult;
     try {
       result = input.asyncRunner
         ? await input.asyncRunner(rendered.command, rendered.args, input.policy.workspaceRoot)
@@ -970,7 +970,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       events.find((event) => typeof event.session_id === "string")?.session_id ??
       input.policy.resumeSessionId;
     const completedAt = new Date().toISOString();
-    const session: CodexSessionRecord = {
+    const session: CliSessionRecord = {
       id: randomUUID(),
       runId: input.policy.runId,
       sessionId,
@@ -1027,7 +1027,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
   }
 }
 
-function extractSkillOutputContract(events: CodexJsonEvent[], responseTextPaths: string[] = []): SkillOutputContract | undefined {
+function extractSkillOutputContract(events: CliJsonEvent[], responseTextPaths: string[] = []): SkillOutputContract | undefined {
   for (const event of events) {
     const direct = parseSkillOutputRecord(event);
     if (direct) return direct;
@@ -1159,7 +1159,7 @@ function sameStringSet(left: string[], right: string[]): boolean {
 
 export async function processRunnerQueueItem(
   input: RunnerQueueItem,
-  runner?: CodexCommandRunner,
+  runner?: CliCommandRunner,
   onHeartbeat?: () => void,
 ): Promise<RunnerQueueWorkerResult> {
   const safety = evaluateRunnerSafety(input);
@@ -1172,7 +1172,7 @@ export async function processRunnerQueueItem(
     };
   }
 
-  const adapterResult = await runCodexCli({
+  const adapterResult = await runCliAdapter({
     policy: input.policy,
     prompt: input.prompt,
     taskId: input.taskId,
@@ -1190,14 +1190,14 @@ export async function processRunnerQueueItem(
         runId: input.runId,
         taskId: input.taskId,
         featureId: input.featureId,
-        agentType: "codex",
+        agentType: "cli",
         dbPath: input.statusCheck.dbPath,
         workspaceRoot: input.statusCheck.workspaceRoot ?? input.policy.workspaceRoot,
         artifactRoot: input.statusCheck.artifactRoot,
         runner: {
           status: status === "completed" ? "completed" : status,
           exitCode: adapterResult.session.exitCode,
-          summary: `Codex runner ${status}.`,
+          summary: `CLI runner ${status}.`,
           stdout: adapterResult.rawLog.stdout,
           stderr: adapterResult.rawLog.stderr,
           result: { ...adapterResult.result, testEnvironmentIsolation },
@@ -1839,7 +1839,7 @@ export function buildExecutionResultInput(input: RunnerExecutionResultInput): {
   runId: string;
   taskId?: string;
   featureId?: string;
-  kind: "codex_runner";
+  kind: "cli_runner";
   summary: string;
   metadata: Record<string, unknown>;
 } {
@@ -1847,8 +1847,8 @@ export function buildExecutionResultInput(input: RunnerExecutionResultInput): {
     runId: input.runId,
     taskId: input.taskId,
     featureId: input.featureId,
-    kind: "codex_runner",
-    summary: `Codex run exit=${input.exitCode ?? "unknown"} session=${input.sessionId ?? "none"} events=${input.events.length}`,
+    kind: "cli_runner",
+    summary: `CLI run exit=${input.exitCode ?? "unknown"} session=${input.sessionId ?? "none"} events=${input.events.length}`,
     metadata: {
       sessionId: input.sessionId,
       exitCode: input.exitCode,
@@ -1866,7 +1866,7 @@ export function buildExecutionResultInput(input: RunnerExecutionResultInput): {
 
 export function buildRunnerConsoleSnapshot(input: {
   runnerId: string;
-  codexVersion?: string;
+  runnerModel?: string;
   policy: RunnerPolicy;
   heartbeats?: RunnerHeartbeat[];
   queue?: Array<{ runId: string; status: RunnerQueueStatus }>;
@@ -1886,7 +1886,7 @@ export function buildRunnerConsoleSnapshot(input: {
     runnerId: input.runnerId,
     online: lastHeartbeat?.status === "online" && !heartbeatStale,
     lastHeartbeatAt,
-    codexVersion: input.codexVersion,
+    runnerModel: input.runnerModel,
     sandboxMode: input.policy.sandboxMode,
     approvalPolicy: input.policy.approvalPolicy,
     queue: input.queue ?? [],
@@ -1898,12 +1898,12 @@ export function buildRunnerConsoleSnapshot(input: {
   };
 }
 
-export function persistCodexRunnerArtifacts(
+export function persistCliRunnerArtifacts(
   dbPath: string,
   input: {
     policy: RunnerPolicy;
     heartbeat?: RunnerHeartbeat;
-    session?: CodexSessionRecord;
+    session?: CliSessionRecord;
     rawLog?: RawExecutionLog;
   },
 ): void {
@@ -1963,7 +1963,7 @@ export function persistCodexRunnerArtifacts(
 
   if (input.session) {
     statements.push({
-      sql: `INSERT INTO codex_session_records (
+      sql: `INSERT INTO cli_session_records (
         id, run_id, session_id, workspace_root, command, args_json, exit_code, started_at, completed_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
@@ -2007,7 +2007,7 @@ export function redactLog(value: string): string {
   return redacted;
 }
 
-function classifyQueueStatus(result: CodexAdapterResult): RunnerQueueStatus {
+function classifyQueueStatus(result: CliAdapterResult): RunnerQueueStatus {
   if (result.session.exitCode !== 0) {
     return "failed";
   }
@@ -2035,7 +2035,7 @@ function classifyQueueStatus(result: CodexAdapterResult): RunnerQueueStatus {
   return "completed";
 }
 
-function extractReportedStatus(events: CodexJsonEvent[]): RunnerQueueStatus | undefined {
+function extractReportedStatus(events: CliJsonEvent[]): RunnerQueueStatus | undefined {
   for (const event of events) {
     const status = typeof event.status === "string" ? event.status : undefined;
     const normalizedStatus = normalizeQueueStatus(status);
@@ -2071,7 +2071,7 @@ function parseReportedStatusFromText(text?: string): RunnerQueueStatus | undefin
   }
 }
 
-function missingExpectedArtifacts(result: CodexAdapterResult): string[] {
+function missingExpectedArtifacts(result: CliAdapterResult): string[] {
   const invocation = result.result.skillInvocation;
   if (!invocation) return [];
   return invocation.expectedArtifacts.filter((artifact) => {
@@ -2170,8 +2170,8 @@ function normalizeAdapterStatus(value: unknown): CliAdapterStatus | undefined {
   return value === "draft" || value === "active" || value === "disabled" || value === "invalid" ? value : undefined;
 }
 
-function redactEvent(event: CodexJsonEvent): CodexJsonEvent {
-  return redactJsonValue(event) as CodexJsonEvent;
+function redactEvent(event: CliJsonEvent): CliJsonEvent {
+  return redactJsonValue(event) as CliJsonEvent;
 }
 
 function redactJsonValue(value: unknown): unknown {
@@ -2187,21 +2187,21 @@ function redactJsonValue(value: unknown): unknown {
   return value;
 }
 
-function parseJsonEvents(stdout: string): CodexJsonEvent[] {
+function parseJsonEvents(stdout: string): CliJsonEvent[] {
   return stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .flatMap((line) => {
       try {
-        return [JSON.parse(line) as CodexJsonEvent];
+        return [JSON.parse(line) as CliJsonEvent];
       } catch {
         return [];
       }
     });
 }
 
-function extractMappedString(events: CodexJsonEvent[], path: string): string | undefined {
+function extractMappedString(events: CliJsonEvent[], path: string): string | undefined {
   for (const event of events) {
     const value = readJsonPath(event, path);
     if (typeof value === "string" && value.trim()) return value;
@@ -2239,7 +2239,7 @@ function candidateJsonTexts(text: string): string[] {
   return [...new Set(candidates.filter(Boolean))];
 }
 
-function extractUsage(events: CodexJsonEvent[]): Record<string, number> | undefined {
+function extractUsage(events: CliJsonEvent[]): Record<string, number> | undefined {
   for (const event of events) {
     const usage = readJsonPath(event, "usage") ?? readJsonPath(event, "stats") ?? readJsonPath(event, "result.stats");
     if (usage && typeof usage === "object" && !Array.isArray(usage)) {
@@ -2294,7 +2294,7 @@ export function runCommand(
   heartbeatIntervalSeconds: number,
   commandTimeoutMs: number,
   onHeartbeat?: () => void,
-): Promise<CodexCommandResult> {
+): Promise<CliCommandResult> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { cwd });
     const stdout: Buffer[] = [];

@@ -298,7 +298,7 @@ export type RunnerModel = {
   runners: Array<{
     runnerId: string;
     online: boolean;
-    codexVersion?: string;
+    runnerModel?: string;
     sandboxMode: string;
     approvalPolicy: string;
     queue: Array<{ runId: string; status: string }>;

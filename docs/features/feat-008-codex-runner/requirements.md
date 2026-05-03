@@ -1,4 +1,4 @@
-# Feature Spec: FEAT-008 Codex Runner
+# Feature Spec: FEAT-008 CLI Runner
 
 ## Source Mapping
 
@@ -6,7 +6,7 @@
 |---|---|
 | PRD | 第 6.9 节 FR-070 至 FR-072；第 8.6 节；第 9.1 节 |
 | Requirements | REQ-037, REQ-038, REQ-039, REQ-056, REQ-065, REQ-066, REQ-068, NFR-001, NFR-010 |
-| HLD | 7.8 Codex Runner, 9 External Integrations, 11 Security, Privacy, and Governance |
+| HLD | 7.8 CLI Runner, 9 External Integrations, 11 Security, Privacy, and Governance |
 
 ## Scope
 

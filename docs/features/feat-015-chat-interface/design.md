@@ -10,11 +10,11 @@ HLD 参考: 第 7.14 节 Chat Interface
 
 ### 1.1 意图分类策略
 
-- 优先使用 Codex CLI（通过 `runCodexCli()`）进行 LLM 意图分类，传入结构化 prompt + JSON output schema。
+- 优先使用默认 CLI adapter（通过 `runCommand()`）进行 LLM 意图分类，传入结构化 prompt + JSON output schema。
 - Codex 不可用（exit code 非 0、超时、未安装）时，退回 `ruleBasedClassification()`——基于关键词的同步函数，覆盖 15 种意图类型。
 - 分类结果类型：`ChatIntentResult { intent, confidence, entities, riskLevel, confirmationRequired, responseText }`。
 
-理由：Codex CLI 是系统已有的外部 CLI 执行机制（`src/codex-runner.ts`），复用它不引入新依赖；规则兜底保证 Codex 不可用时仍可正常工作。
+理由：CLI Runner 是系统已有的外部 CLI 执行机制（`src/cli-runner.ts`），复用它不引入新依赖；规则兜底保证默认 CLI 不可用时仍可正常工作。
 
 ### 1.2 命令派发策略
 

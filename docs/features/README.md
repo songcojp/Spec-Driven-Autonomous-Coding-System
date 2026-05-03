@@ -12,7 +12,7 @@
 | FEAT-005 | CLI Subagent Audit Integration | `feat-005-subagent-runtime-context-broker` | done | REQ-014 至 REQ-018、REQ-055 | M3 | FEAT-004、FEAT-007 |
 | FEAT-006 | Project Memory and Recovery Projection | `feat-006-project-memory-recovery-projection` | done | REQ-019 至 REQ-023、REQ-036 | M3 | FEAT-004 |
 | FEAT-007 | Workspace Isolation | `feat-007-workspace-isolation` | done | REQ-017、REQ-032、REQ-035 | M3/M4 | FEAT-004 |
-| FEAT-008 | Codex Runner | `feat-008-codex-runner` | done | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066、REQ-068 | M4 | FEAT-007 |
+| FEAT-008 | CLI Runner | `feat-008-codex-runner` | done | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066、REQ-068 | M4 | FEAT-007 |
 | FEAT-009 | Status Checker | `feat-009-status-checker-execution results` | done | REQ-040 至 REQ-042、REQ-051 | M5 | FEAT-004、FEAT-008 |
 | FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | done | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
 | FEAT-011 | Review Center | `feat-011-review-center` | done | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
@@ -49,7 +49,7 @@ FEAT-000 System Bootstrap
     ├── FEAT-007 Workspace Isolation
     │   ├── FEAT-005 CLI Subagent Audit Integration
     │   │   (also requires FEAT-004)
-    │   └── FEAT-008 Codex Runner
+    │   └── FEAT-008 CLI Runner
     │       ├── FEAT-009 Status Checker
     │       │   (also requires FEAT-004)
     │       │   ├── FEAT-010 Failure Recovery
@@ -132,6 +132,7 @@ FEAT-000 System Bootstrap
 | CHG-017 | FEAT-008 / FEAT-013 | 实现过程发现 Runner Queue Worker 在 `cli_adapter_configs` 表非空但无 active row 时不阻断新 Run，且 SettingsPage 缺少 `disable_cli_adapter_config` 按鈕。 | 已在 `src/scheduler.ts` `loadRunnerTaskContext` 补充适配器数龐查询并添加阻断逻辑；已在 SettingsPage 添加禁用按鈕；已补充 CLI Adapter 校验、normalize 和阻断行为单测；全部 298 测试通过。 |
 | CHG-015 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 | 调度系统升级为 BullMQ + Redis；SQLite 仍是业务事实源。当前模型由 CHG-018 收敛为 `<executor>.run` Job + Execution Record，`run_board_tasks` / Spec 操作入队 `cli.run` 后由 Worker 执行。 | 已执行 FEAT-004、FEAT-008、FEAT-013、FEAT-014 scheduler job / execution record 持久化与控制台展示。 |
 | CHG-016 | FEAT-004 / FEAT-008 / FEAT-013 | Product Console / Spec 操作转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中调用编码 CLI；平台不恢复 Skill Registry 或 Skill Center。 | 已执行 FEAT-004 `TASK-017`、FEAT-008 `TASK-014` 至 `TASK-016`、FEAT-013 `TASK-035` 至 `TASK-036`。 |
+| CHG-027 | FEAT-008 | Runner 从 Codex 专用执行层收敛为通用 CLI Runner；`codex-cli` 保留为默认 preset，`gemini-cli` 保留为内置可选 preset，Codex app-server adapter 继续独立。 | 当前 patch 将代码模块、类型、execution result kind、Console 字段和 session 持久化改为 provider-neutral CLI 命名；新增 `cli_session_records` 兼容迁移并保留旧 `codex_session_records`。 |
 | CHG-019 | FEAT-004 / FEAT-008 / FEAT-013 | Feature 级编码执行改为 Feature Spec 目录驱动；`codex-coding-skill` 读取 `requirements.md`、`design.md`、`tasks.md` 后直接执行，不依赖 `task_graph_tasks` / `tasks` 表。 | 已同步 FEAT-004 `TASK-020`、FEAT-008 `TASK-017`、FEAT-013 `TASK-043`，并补充 feature-level `schedule_run` blocked/入队测试。 |
 | CHG-025 | FEAT-004 / FEAT-008 / FEAT-019 / FEAT-021 | 下一 Feature 选择改为 `feature-selection-skill` 推理，代码保留队列、三件套、依赖、resume 和 active execution 安全校验；非持续执行状态投影到 Feature 执行结果。 | 已执行 patch，新增 `feature-selection-skill`、selection result 校验、approval pending spec-state 投影和测试覆盖。 |
 | CHG-026 | FEAT-004 / FEAT-013 / FEAT-019 / FEAT-021 | 独立 `push_feature_spec_pool` 步骤废弃；任务调度全流程由项目级 `schedule_run` 和 `start_auto_run` 读取 Feature Pool Queue、选择下一 Feature、创建 `<executor>.run` Job 和 Execution Record。 | 已执行 patch，移除 public action 和 UI 步骤，保留 `feature-pool-queue.json` 作为调度输入事实源。 |

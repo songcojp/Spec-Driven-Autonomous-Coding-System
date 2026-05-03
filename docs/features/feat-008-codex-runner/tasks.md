@@ -1,4 +1,4 @@
-# Tasks: FEAT-008 Codex Runner
+# Tasks: FEAT-008 CLI Runner
 
 - [x] TASK-001: 定义 RunnerPolicy、RunnerHeartbeat、CliSessionRecord 和 RawExecutionLog 数据模型。
 - [x] TASK-002: 实现 Runner Queue Worker，读取可执行 Run 并更新运行状态。
@@ -14,7 +14,7 @@
 - [x] TASK-012: 添加 CLI Adapter 配置、dry-run、active 配置回退、Codex 等价命令生成和无效配置阻塞测试。
 - [x] TASK-012A: 增加 `gemini-cli` 内置 adapter preset、Gemini headless JSON/JSONL 输出解析、System Settings preset 入口和 Gemini active adapter 调度测试。
 - [x] TASK-013: 将 Runner Queue Worker 接入 BullMQ `specdrive:cli-runner` / `cli.run`，由 Worker 调用现有 CLI runner 并持久化 heartbeat、session、raw log 和 Execution Record 状态。
-- [x] TASK-014: 实现 workspace-aware Codex 调用，确保 Runner 从当前项目 repository `local_path` / `target_repo_path` 解析 workspace root，并在路径缺失、不可读或缺少所需 Skill 文件时 blocked。
+- [x] TASK-014: 实现 workspace-aware 编码 CLI 调用，确保 Runner 从当前项目 repository `local_path` / `target_repo_path` 解析 workspace root，并在路径缺失、不可读或缺少所需 Skill 文件时 blocked。
 - [x] TASK-015: 将 Runner 消费模型更新为 `cli.run` Execution Record，payload context 提供 skill/source/artifact/workspace 信息，并预留 `native.run` executor 扩展点。
 - [x] TASK-015: 实现 CLI skill invocation prompt builder，支持 Stage 2 需求录入、Stage 3 planning pipeline 和 Feature 级 `codex-coding-skill` 运行的 `skillSlug`、Feature Spec `sourcePaths`、`expectedArtifacts` 与 traceability。
 - [x] TASK-017: 将 Feature 级 `codex-coding-skill` 执行边界改为读取完整 Feature Spec 目录（`requirements.md` / `design.md` / `tasks.md`），不再依赖 `task_graph_tasks` / `tasks`，并阻止 report-only completion。

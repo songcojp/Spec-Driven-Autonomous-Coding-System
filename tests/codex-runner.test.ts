@@ -15,16 +15,16 @@ import {
   evaluateRunnerSafety,
   listDueRecoveryDispatches,
   normalizeCliAdapterConfig,
-  persistCodexRunnerArtifacts,
+  persistCliRunnerArtifacts,
   processRunnerQueueItem,
   recordRunnerHeartbeat,
   redactLog,
   renderCliAdapterCommand,
   resolveRunnerPolicy,
-  runCodexCli,
+  runCliAdapter,
   runDueRecoveryDispatches,
   validateCliAdapterConfig,
-} from "../src/codex-runner.ts";
+} from "../src/cli-runner.ts";
 import { listStatusCheckResults } from "../src/status-checker.ts";
 import { handleRecoveryResult, persistRecoveryResultHandling } from "../src/recovery.ts";
 
@@ -112,14 +112,59 @@ function assertStrictSchemaObjects(schema: unknown, path = "$"): void {
   assertStrictSchemaObjects(record.items, `${path}.items`);
 }
 
-test("schema includes Codex runner policies, heartbeats, sessions, and logs", () => {
+test("schema includes CLI runner policies, heartbeats, sessions, and logs", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
 
   const tables = listTables(dbPath);
-  for (const table of ["runner_policies", "runner_heartbeats", "codex_session_records", "raw_execution_logs", "cli_adapter_configs"]) {
+  for (const table of ["runner_policies", "runner_heartbeats", "cli_session_records", "codex_session_records", "raw_execution_logs", "cli_adapter_configs"]) {
     assert.equal(tables.includes(table), true, `${table} should exist`);
   }
+});
+
+test("schema migrates legacy Codex session records into CLI session records", () => {
+  const dbPath = makeDbPath();
+  runSqlite(dbPath, [
+    {
+      sql: `CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        applied_at TEXT NOT NULL,
+        description TEXT NOT NULL
+      )`,
+    },
+    {
+      sql: "INSERT INTO schema_migrations (version, applied_at, description) VALUES (24, CURRENT_TIMESTAMP, 'pre-cli-session')",
+    },
+    {
+      sql: `CREATE TABLE codex_session_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        session_id TEXT,
+        workspace_root TEXT NOT NULL,
+        command TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        exit_code INTEGER,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL
+      )`,
+    },
+    {
+      sql: `INSERT INTO codex_session_records (
+        id, run_id, session_id, workspace_root, command, args_json, exit_code, started_at, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: ["legacy-session", "RUN-LEGACY", "SESSION-LEGACY", "/workspace", "codex", "[]", 0, stableDate.toISOString(), stableDate.toISOString()],
+    },
+  ]);
+
+  initializeSchema(dbPath);
+
+  const rows = runSqlite(dbPath, [], [
+    { name: "sessions", sql: "SELECT session_id, command, exit_code FROM cli_session_records WHERE id = 'legacy-session'" },
+  ]).queries.sessions;
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].session_id, "SESSION-LEGACY");
+  assert.equal(rows[0].command, "codex");
+  assert.equal(rows[0].exit_code, 0);
 });
 
 test("CLI adapter dry-run validates JSON-managed command templates", () => {
@@ -399,7 +444,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       skillSlug: "codex-coding-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [{ path: ".autobuild/reports/codex-runner.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/reports/cli-runner.json", kind: "json", required: true }],
       requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
     }),
@@ -414,7 +459,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       skillSlug: "codex-coding-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [{ path: ".autobuild/reports/codex-runner.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/reports/cli-runner.json", kind: "json", required: true }],
       requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
     }),
@@ -514,7 +559,7 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   });
   const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
 
-  const result = await runCodexCli({
+  const result = await runCliAdapter({
     policy,
     prompt: "Implement bounded task token=abc123",
     taskId: "TASK-001",
@@ -590,7 +635,7 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.equal(outputLog.eventCount, 2);
 
   const executionResult = buildExecutionResultInput(result.result);
-  assert.equal(executionResult.kind, "codex_runner");
+  assert.equal(executionResult.kind, "cli_runner");
   assert.equal(executionResult.featureId, "FEAT-008");
   assert.match(executionResult.summary, /exit=0/);
   assert.deepEqual(executionResult.metadata.logFiles, expectedLogFiles);
@@ -623,7 +668,7 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
     result: {},
   };
 
-  const result = await runCodexCli({
+  const result = await runCliAdapter({
     policy,
     adapterConfig: GEMINI_CLI_ADAPTER_CONFIG,
     prompt: buildSkillInvocationPrompt(invocation, "Context"),
@@ -694,7 +739,7 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
   });
   const calls: Array<{ args: string[] }> = [];
 
-  await runCodexCli({
+  await runCliAdapter({
     policy,
     prompt: "Implement bounded task",
     outputSchemaPath: "/tmp/runner-output.schema.json",
@@ -752,7 +797,7 @@ test("Codex CLI adapter closes child stdin for non-interactive runner commands",
     now: stableDate,
   });
 
-  const result = await runCodexCli({
+  const result = await runCliAdapter({
     policy,
     prompt: "Run non-interactive command",
     outputSchemaPath: "/tmp/runner-stdin.schema.json",
@@ -789,7 +834,7 @@ test("Codex CLI adapter removes generated output schema files after execution", 
   });
   let generatedSchemaPath = "";
 
-  await runCodexCli({
+  await runCliAdapter({
     policy,
     prompt: "Implement bounded task",
     runner: (_command, args) => {
@@ -1841,7 +1886,7 @@ test("heartbeat and console snapshot expose current safety configuration", () =>
   });
   const snapshot = buildRunnerConsoleSnapshot({
     runnerId: "runner-main",
-    codexVersion: "codex 1.2.3",
+    runnerModel: "codex 1.2.3",
     policy,
     heartbeats: [heartbeat],
     queue: [{ runId: "RUN-007", status: "running" }],
@@ -1873,7 +1918,7 @@ test("runner artifacts persist for audit and console lookup", async () => {
     queueStatus: "completed",
     now: stableDate,
   });
-  const adapter = await runCodexCli({
+  const adapter = await runCliAdapter({
     policy,
     prompt: "Produce output",
     outputSchemaPath: "/tmp/runner-output.schema.json",
@@ -1881,7 +1926,7 @@ test("runner artifacts persist for audit and console lookup", async () => {
     runner: () => ({ status: 0, stdout: '{"type":"session","session_id":"S-1"}', stderr: "" }),
   });
 
-  persistCodexRunnerArtifacts(dbPath, {
+  persistCliRunnerArtifacts(dbPath, {
     policy,
     heartbeat,
     session: adapter.session,
@@ -1891,7 +1936,7 @@ test("runner artifacts persist for audit and console lookup", async () => {
   const rows = runSqlite(dbPath, [], [
     { name: "policy", sql: "SELECT sandbox_mode, approval_policy, model, reasoning_effort FROM runner_policies WHERE id = ?", params: [policy.id] },
     { name: "heartbeat", sql: "SELECT queue_status FROM runner_heartbeats WHERE id = ?", params: [heartbeat.id] },
-    { name: "session", sql: "SELECT session_id, exit_code FROM codex_session_records WHERE id = ?", params: [adapter.session.id] },
+    { name: "session", sql: "SELECT session_id, exit_code FROM cli_session_records WHERE id = ?", params: [adapter.session.id] },
     { name: "log", sql: "SELECT events_json FROM raw_execution_logs WHERE id = ?", params: [adapter.rawLog.id] },
   ]);
 
@@ -1910,7 +1955,7 @@ test("log redaction covers common secret formats", () => {
 });
 
 function makeDbPath(): string {
-  return join(mkdtempSync(join(tmpdir(), "specdrive-codex-runner-")), "control-plane.sqlite");
+  return join(mkdtempSync(join(tmpdir(), "specdrive-cli-runner-")), "control-plane.sqlite");
 }
 
 function makeWorkspacePath(): string {

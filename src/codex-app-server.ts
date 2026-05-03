@@ -2,15 +2,15 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { validateSkillOutputContract } from "./codex-runner.ts";
+import { validateSkillOutputContract } from "./cli-runner.ts";
 import type {
-  CodexAdapterResult,
-  CodexJsonEvent,
+  CliAdapterResult,
+  CliJsonEvent,
   RawExecutionLog,
   RunnerPolicy,
   SkillInvocationContract,
   SkillOutputContract,
-} from "./codex-runner.ts";
+} from "./cli-runner.ts";
 
 export type JsonRpcRequest = {
   jsonrpc: "2.0";
@@ -52,7 +52,7 @@ export type CodexAppServerProjection = {
   assistantMessage: string;
   commandOutput: string;
   diffUpdated: boolean;
-  approvalRequests: CodexJsonEvent[];
+  approvalRequests: CliJsonEvent[];
   skillOutput?: SkillOutputContract;
   contractValidation: ReturnType<typeof validateSkillOutputContract>;
   error?: string;
@@ -61,7 +61,7 @@ export type CodexAppServerProjection = {
 export type CodexAppServerAdapterResultInput = {
   runId: string;
   workspaceRoot: string;
-  events: CodexJsonEvent[];
+  events: CliJsonEvent[];
   policy: RunnerPolicy;
   startedAt: string;
   completedAt: string;
@@ -71,7 +71,7 @@ export type CodexAppServerAdapterResultInput = {
 export type CodexAppServerTransport = {
   request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>;
   notify(method: string, params?: Record<string, unknown>): Promise<void> | void;
-  events(): AsyncIterable<CodexJsonEvent>;
+  events(): AsyncIterable<CliJsonEvent>;
   close?(): Promise<void> | void;
 };
 
@@ -142,8 +142,8 @@ export function createCodexAppServerStdioTransport(input: CodexAppServerStdioTra
   });
   const requestTimeoutMs = input.requestTimeoutMs ?? 120_000;
   const pending = new Map<string, PendingRequest>();
-  const queuedEvents: CodexJsonEvent[] = [];
-  const eventWaiters: Array<(event: CodexJsonEvent | undefined) => void> = [];
+  const queuedEvents: CliJsonEvent[] = [];
+  const eventWaiters: Array<(event: CliJsonEvent | undefined) => void> = [];
   let closed = false;
 
   const stdout = createInterface({ input: process.stdout });
@@ -183,7 +183,7 @@ export function createCodexAppServerStdioTransport(input: CodexAppServerStdioTra
     flushEventWaiters();
   });
 
-  function pushEvent(event: CodexJsonEvent): void {
+  function pushEvent(event: CliJsonEvent): void {
     const waiter = eventWaiters.shift();
     if (waiter) {
       waiter(event);
@@ -219,7 +219,7 @@ export function createCodexAppServerStdioTransport(input: CodexAppServerStdioTra
     },
     async *events() {
       while (!closed || queuedEvents.length > 0) {
-        const event = queuedEvents.shift() ?? await new Promise<CodexJsonEvent | undefined>((resolve) => {
+        const event = queuedEvents.shift() ?? await new Promise<CliJsonEvent | undefined>((resolve) => {
           eventWaiters.push(resolve);
         });
         if (!event) return;
@@ -301,7 +301,7 @@ export function buildCodexAppServerRequestSequence(input: CodexAppServerRequestS
   };
 }
 
-export async function runCodexAppServerSession(input: CodexAppServerSessionInput): Promise<CodexAdapterResult> {
+export async function runCodexAppServerSession(input: CodexAppServerSessionInput): Promise<CliAdapterResult> {
   const startedAt = input.startedAt ?? (input.now ?? new Date()).toISOString();
   await input.transport.request("initialize", {
     clientInfo: { name: "SpecDrive AutoBuild", version: "0.1.0" },
@@ -342,7 +342,7 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
     approvalPolicy: input.policy.approvalPolicy,
   });
   const turnId = turnIdFromResult(turnResult);
-  const events: CodexJsonEvent[] = [];
+  const events: CliJsonEvent[] = [];
   if (threadId) events.push({ type: "thread/started", id: threadId });
   if (turnId) events.push({ type: "turn/started", id: turnId, threadId });
   for await (const event of input.transport.events()) {
@@ -372,7 +372,7 @@ export async function interruptCodexAppServerTurn(
   return transport.request("turn/interrupt", { threadId, turnId });
 }
 
-export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppServerProjection {
+export function projectCodexAppServerEvents(events: CliJsonEvent[]): CodexAppServerProjection {
   let threadId: string | undefined;
   let turnId: string | undefined;
   let status: CodexAppServerProjection["status"] = "running";
@@ -380,7 +380,7 @@ export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppS
   let commandOutput = "";
   let diffUpdated = false;
   let error: string | undefined;
-  const approvalRequests: CodexJsonEvent[] = [];
+  const approvalRequests: CliJsonEvent[] = [];
   let skillOutput: SkillOutputContract | undefined;
   for (const event of events) {
     const type = String(event.type ?? event.method ?? "");
@@ -438,7 +438,7 @@ export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppS
   };
 }
 
-export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterResultInput): CodexAdapterResult {
+export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterResultInput): CliAdapterResult {
   const projection = projectCodexAppServerEvents(input.events);
   const contractValidation = validateSkillOutputContract(input.skillInvocation, projection.skillOutput);
   const failedContract = input.skillInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
@@ -481,7 +481,7 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
   };
 }
 
-function extractSkillOutput(event: CodexJsonEvent): SkillOutputContract | undefined {
+function extractSkillOutput(event: CliJsonEvent): SkillOutputContract | undefined {
   const candidates = [
     event.output,
     event.result,
@@ -533,7 +533,7 @@ function parseJsonLine(line: string): Record<string, unknown> | undefined {
   }
 }
 
-function normalizeServerEvent(message: Record<string, unknown>): CodexJsonEvent {
+function normalizeServerEvent(message: Record<string, unknown>): CliJsonEvent {
   if (typeof message.method === "string") {
     return {
       type: message.method,

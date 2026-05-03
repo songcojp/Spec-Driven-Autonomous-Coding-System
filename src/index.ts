@@ -2,7 +2,7 @@ import { loadConfig } from "./config.ts";
 import { initialReadyState, runBootstrap } from "./bootstrap.ts";
 import { createControlPlaneServer, listen } from "./server.ts";
 import { createBullMqScheduler, createSchedulerWorkers, createUnavailableScheduler, type SchedulerWorkers } from "./scheduler.ts";
-import { runCommand } from "./codex-runner.ts";
+import { runCommand } from "./cli-runner.ts";
 
 
 async function main(): Promise<void> {

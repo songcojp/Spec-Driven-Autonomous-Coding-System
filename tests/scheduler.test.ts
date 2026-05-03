@@ -59,7 +59,7 @@ test("scheduler schema records executor job metadata without feature target colu
   ]);
 });
 
-test("cli.run executes mocked Codex runner and persists runner artifacts", async () => {
+test("cli.run executes mocked CLI runner and persists runner artifacts", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();
@@ -82,7 +82,7 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
   const rows = runSqlite(dbPath, [], [
     { name: "runs", sql: "SELECT status, metadata_json FROM execution_records WHERE id = 'RUN-CLI'" },
     { name: "task", sql: "SELECT status FROM task_graph_tasks WHERE id = 'TASK-CLI'" },
-    { name: "sessions", sql: "SELECT session_id, exit_code FROM codex_session_records WHERE run_id = 'RUN-CLI'" },
+    { name: "sessions", sql: "SELECT session_id, exit_code FROM cli_session_records WHERE run_id = 'RUN-CLI'" },
     { name: "logs", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-CLI'" },
     { name: "statusChecks", sql: "SELECT kind, summary, metadata_json FROM status_check_results WHERE run_id = 'RUN-CLI-SPY'" },
     { name: "policy", sql: "SELECT sandbox_mode FROM runner_policies WHERE run_id = 'RUN-CLI-SPY'" },
@@ -333,7 +333,7 @@ test("codex.app_server.run executes mocked app-server transport and persists run
   const result = await runCodexAppServerRunJob(dbPath, cliRunPayload("RUN-APP-SERVER"), transport);
   const rows = runSqlite(dbPath, [], [
     { name: "run", sql: "SELECT status, metadata_json FROM execution_records WHERE id = 'RUN-APP-SERVER'" },
-    { name: "session", sql: "SELECT session_id, command, args_json, exit_code FROM codex_session_records WHERE run_id = 'RUN-APP-SERVER'" },
+    { name: "session", sql: "SELECT session_id, command, args_json, exit_code FROM cli_session_records WHERE run_id = 'RUN-APP-SERVER'" },
     { name: "log", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-APP-SERVER'" },
     { name: "statusChecks", sql: "SELECT kind, summary FROM status_check_results WHERE run_id = 'RUN-APP-SERVER'" },
   ]).queries;

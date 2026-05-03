@@ -17,18 +17,18 @@ import {
   evaluateRunnerSafety,
   isTrustedDirectWriteInvocation,
   normalizeCliAdapterConfig,
-  persistCodexRunnerArtifacts,
+  persistCliRunnerArtifacts,
   processRunnerQueueItem,
   recordRunnerHeartbeat,
   resolveRunnerPolicy,
   validateWorkspaceRoot,
   type CliAdapterConfig,
-  type CodexCommandRunner,
+  type CliCommandRunner,
   type RunnerQueueStatus,
   type SkillArtifactContract,
   type SkillInvocationContract,
   type SkillOutputContract,
-} from "./codex-runner.ts";
+} from "./cli-runner.ts";
 import {
   createCodexAppServerTransportFromConfig,
   DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
@@ -193,7 +193,7 @@ export async function createSchedulerWorkers(input: {
   dbPath: string;
   redisUrl: string;
   scheduler?: SchedulerClient;
-  runner?: CodexCommandRunner;
+  runner?: CliCommandRunner;
   appServerTransport?: CodexAppServerTransport;
 }): Promise<SchedulerWorkers> {
   const connection = new IORedis(input.redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
@@ -226,7 +226,7 @@ function workerOptions(connection: IORedis, lockDuration: number): WorkerOptions
   };
 }
 
-export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, runner?: CodexCommandRunner): Promise<{ executionId: string; status: RunnerQueueStatus }> {
+export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, runner?: CliCommandRunner): Promise<{ executionId: string; status: RunnerQueueStatus }> {
   const context = payload.context ?? {};
   const featureId = optionalString(context.featureId);
   const taskId = optionalString(context.taskId);
@@ -292,7 +292,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     message: `Running ${taskId ?? payload.operation}`,
     now,
   });
-  persistCodexRunnerArtifacts(dbPath, { policy, heartbeat });
+  persistCliRunnerArtifacts(dbPath, { policy, heartbeat });
   if (taskId && loaded.taskStatus) {
     transitionTaskIfAllowed(dbPath, taskId, loaded.taskStatus, "running", "cli.run job started", "cli.run");
   }
@@ -345,7 +345,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
   }, runner);
 
   if (result.adapterResult) {
-    persistCodexRunnerArtifacts(dbPath, {
+    persistCliRunnerArtifacts(dbPath, {
       policy,
       session: result.adapterResult.session,
       rawLog: result.adapterResult.rawLog,
@@ -503,7 +503,7 @@ export async function runCodexAppServerRunJob(
     message: `Running ${taskId ?? payload.operation}`,
     now,
   });
-  persistCodexRunnerArtifacts(dbPath, { policy, heartbeat });
+  persistCliRunnerArtifacts(dbPath, { policy, heartbeat });
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
@@ -569,7 +569,7 @@ export async function runCodexAppServerRunJob(
     await activeTransport.close?.();
     const reason = errorMessage(error);
     const completedAt = new Date().toISOString();
-    persistCodexRunnerArtifacts(dbPath, {
+    persistCliRunnerArtifacts(dbPath, {
       policy,
       heartbeat: recordRunnerHeartbeat({
         runId: payload.executionId,
@@ -625,7 +625,7 @@ export async function runCodexAppServerRunJob(
   } finally {
     if (!transport) await activeTransport.close?.();
   }
-  persistCodexRunnerArtifacts(dbPath, {
+  persistCliRunnerArtifacts(dbPath, {
     policy,
     session: adapterResult.session,
     rawLog: adapterResult.rawLog,
@@ -798,7 +798,7 @@ export function updateSchedulerJobRecord(dbPath: string, bullmqJobId: string | u
   ]);
 }
 
-async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRunner, appServerTransport?: CodexAppServerTransport): Promise<void> {
+async function dispatchCliJob(dbPath: string, job: Job, runner?: CliCommandRunner, appServerTransport?: CodexAppServerTransport): Promise<void> {
   updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
   try {
     const result = job.name === "codex.app_server.run"
@@ -1132,7 +1132,7 @@ function buildCliSkillInvocation(input: {
   const expectedArtifacts = contextExpectedArtifacts.length
     ? contextExpectedArtifacts
     : input.taskId
-      ? normalizeArtifactContracts([".autobuild/runs/codex-runner.json"])
+      ? normalizeArtifactContracts([".autobuild/runs/cli-runner.json"])
       : input.featureId
         ? normalizeArtifactContracts([`docs/features/${input.featureId}/design.md`, `docs/features/${input.featureId}/tasks.md`])
         : normalizeArtifactContracts([".autobuild/reports/spec-intake.json"]);

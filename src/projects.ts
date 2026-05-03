@@ -385,6 +385,7 @@ function projectDeletionStatements(projectId: string) {
     { sql: `DELETE FROM spec_alignment_results WHERE feature_id IN (${featureScope}) OR run_id IN (${runScope})`, params: p(3) },
     { sql: `DELETE FROM runner_policies WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM runner_heartbeats WHERE run_id IN (${runScope})`, params: p(2) },
+    { sql: `DELETE FROM cli_session_records WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM codex_session_records WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM raw_execution_logs WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM recovery_attempts WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },

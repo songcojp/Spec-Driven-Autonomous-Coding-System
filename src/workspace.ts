@@ -582,6 +582,8 @@ export function persistWorkspaceExecutionResults(
   runSqlite(dbPath, statements);
 }
 
+export const persistWorkspaceEvidence = persistWorkspaceExecutionResults;
+
 function resourceRef(resource: TestResourceIsolation): string {
   const raw = [resource.kind, resource.name, resource.namespace, resource.connectionRef].filter(Boolean).join(":");
   return createHash("sha256").update(raw).digest("hex").slice(0, 16);

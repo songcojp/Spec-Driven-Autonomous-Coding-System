@@ -1,8 +1,8 @@
-# Design: FEAT-008 Codex Runner
+# Design: FEAT-008 CLI Runner
 
 ## Design Summary
 
-Codex Runner 是 CLI 执行层入口。它由 BullMQ `cli.run` Worker 触发，读取 Scheduler Job、Execution Record、payload context、当前项目 workspace、Runner Policy 和 active CLI Adapter JSON 配置，在目标项目 workspace root 中调用编码 CLI，采集事件、日志、心跳和结构化输出，并把结果写入 Execution Record、raw logs 和 Status Checker。Codex CLI 是 MVP 默认 adapter；Google Gemini CLI 作为内置可选 adapter preset；命令模板、参数映射、输出解析和 session resume 规则由 adapter 配置承载。后续 `native.run` 由 native executor 承载，不复用 CLI Adapter。
+CLI Runner 是 CLI 执行层入口。它由 BullMQ `cli.run` Worker 触发，读取 Scheduler Job、Execution Record、payload context、当前项目 workspace、Runner Policy 和 active CLI Adapter JSON 配置，在目标项目 workspace root 中调用编码 CLI，采集事件、日志、心跳和结构化输出，并把结果写入 Execution Record、raw logs 和 Status Checker。Codex CLI 是默认 adapter preset；Google Gemini CLI 作为内置可选 adapter preset；命令模板、参数映射、输出解析和 session resume 规则由 adapter 配置承载。后续 `native.run` 由 native executor 承载，不复用 CLI Adapter。
 
 Runner 不接收 Product Console 的直接 CLI 执行请求。Console、Spec Workspace 或 Task Board 的执行类动作必须先成为受控命令，经 Control Plane 校验、审计、Scheduler Job 和 Execution Record 后，才由 Runner Worker 通过 active CLI Adapter 执行。
 

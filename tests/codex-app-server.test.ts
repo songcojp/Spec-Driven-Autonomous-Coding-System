@@ -12,7 +12,7 @@ import {
   type CodexAppServerTransport,
   type JsonRpcStdioProcess,
 } from "../src/codex-app-server.ts";
-import type { RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/codex-runner.ts";
+import type { RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/cli-runner.ts";
 
 test("Codex app-server request sequence initializes, starts a thread, and starts a schema-bound turn", () => {
   const sequence = buildCodexAppServerRequestSequence({

@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -468,7 +468,7 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 7,
-    description: "Add Codex runner schema",
+    description: "Add CLI runner schema",
     statements: [
       `CREATE TABLE IF NOT EXISTS runner_policies (
         id TEXT PRIMARY KEY,
@@ -1083,6 +1083,29 @@ export const MIGRATIONS: Migration[] = [
       "DROP INDEX IF EXISTS idx_evidence_attachment_refs_run",
       "DROP TABLE IF EXISTS evidence_attachment_refs",
       "DROP TABLE IF EXISTS evidence_packs",
+    ],
+  },
+  {
+    version: 25,
+    description: "Add provider-neutral CLI session records",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS cli_session_records (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        session_id TEXT,
+        workspace_root TEXT NOT NULL,
+        command TEXT NOT NULL,
+        args_json TEXT NOT NULL,
+        exit_code INTEGER,
+        started_at TEXT NOT NULL,
+        completed_at TEXT NOT NULL
+      )`,
+      `INSERT OR IGNORE INTO cli_session_records (
+        id, run_id, session_id, workspace_root, command, args_json, exit_code, started_at, completed_at
+      )
+      SELECT id, run_id, session_id, workspace_root, command, args_json, exit_code, started_at, completed_at
+      FROM codex_session_records`,
+      "CREATE INDEX IF NOT EXISTS idx_cli_sessions_run ON cli_session_records(run_id, completed_at)",
     ],
   },
 ];
