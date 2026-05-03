@@ -5085,7 +5085,12 @@ function rpcAdapterFromRow(row: Record<string, unknown>): RpcAdapterConfig {
 
 function rpcAdapterPreset(id?: string): RpcAdapterConfig | undefined {
   if (id === DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.id || id === "gemini-acp") return DEFAULT_GEMINI_ACP_ADAPTER_CONFIG;
-  if (id === DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG.id || id === "codex-app-server") return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  if (
+    id === DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG.id
+    || id === "codex-rpc"
+    || id === "codex-app-server"
+    || id === "codex-app-server-default"
+  ) return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
   return undefined;
 }
 
@@ -5093,6 +5098,7 @@ function normalizeRpcAdapterConfig(input: Record<string, unknown> | Partial<RpcA
   const base = optionalString(input.provider) === "gemini-acp" || optionalString(input.id) === DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.id
     ? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG
     : DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  const provider = optionalString(input.provider);
   const transport = input.transport === "unix" || input.transport === "http" || input.transport === "jsonrpc" || input.transport === "websocket"
     ? input.transport
     : "stdio";
@@ -5101,7 +5107,7 @@ function normalizeRpcAdapterConfig(input: Record<string, unknown> | Partial<RpcA
     ...base,
     id: optionalString(input.id) ?? base.id,
     displayName: optionalString(input.displayName) ?? optionalString(input.display_name) ?? base.displayName,
-    provider: optionalString(input.provider) ?? base.provider,
+    provider: provider === "codex-app-server" ? "codex-rpc" : provider ?? base.provider,
     executable: optionalString(input.executable) ?? base.executable,
     args: parseJsonArray(input.args ?? input.args_json).map(String).length ? parseJsonArray(input.args ?? input.args_json).map(String) : base.args,
     transport,

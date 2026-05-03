@@ -31,7 +31,7 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.specRoot, "docs/zh-CN");
   assert.equal(view.language, "zh-CN");
   assert.equal(view.project?.id, "project-ide");
-  assert.equal(view.activeAdapter?.id, "codex-app-server");
+  assert.equal(view.activeAdapter?.id, "codex-rpc");
   assert.equal(view.documents.find((document) => document.kind === "prd")?.exists, true);
   assert.equal(view.documents.find((document) => document.kind === "hld")?.path, "docs/zh-CN/hld.md");
 
@@ -662,7 +662,7 @@ function seedOtherProjectRuntimeState(dbPath: string, workspaceRoot: string): vo
       params: [
         "RUN-OTHER",
         "JOB-OTHER",
-        "codex.app_server",
+        "codex.rpc",
         "feature_execution",
         "project-other",
         JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-OTHER" }),
@@ -697,8 +697,8 @@ function seedRuntimeState(dbPath: string): void {
         output_mapping_json, status
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
-        "codex-app-server",
-        "Codex App Server",
+        "codex-rpc",
+        "Codex RPC",
         1,
         "codex",
         "[]",
@@ -722,7 +722,7 @@ function seedRuntimeState(dbPath: string): void {
       params: [
         "RUN-IDE",
         "JOB-IDE",
-        "codex.app_server",
+        "codex.rpc",
         "feature_execution",
         "project-ide",
         JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-001" }),
@@ -749,14 +749,14 @@ function seedFailedRuntimeState(dbPath: string): void {
       params: [
         "RUN-FAILED",
         "JOB-FAILED",
-        "codex.app_server",
+        "codex.rpc",
         "feature_execution",
         "project-ide",
         JSON.stringify({ featureId: "FEAT-016" }),
         "failed",
         "2026-05-02T12:00:00.000Z",
         "2026-05-02T12:01:00.000Z",
-        "Codex app-server turn failed.",
+        "Codex RPC turn failed.",
         JSON.stringify({ threadId: "thread-1", turnId: "turn-1" }),
       ],
     },
@@ -777,7 +777,7 @@ function seedApprovalRuntimeState(dbPath: string): void {
       params: [
         "RUN-APPROVAL",
         "JOB-APPROVAL",
-        "codex.app_server",
+        "codex.rpc",
         "feature_execution",
         "project-ide",
         JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-001" }),

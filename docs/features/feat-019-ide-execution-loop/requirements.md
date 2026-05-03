@@ -15,7 +15,7 @@ Feature 名称: IDE Execution Loop
 | 需求 ID | 描述 | 来源 |
 |---|---|---|
 | REQ-079 | 管理 VSCode Task Queue 动作 | VSCode 插件 PRD REQ-VSC-003、第 7.6 节 |
-| REQ-081 | 记录 app-server Execution Projection | VSCode 插件 PRD 第 7.9 节 |
+| REQ-081 | 记录 RPC Execution Projection | VSCode 插件 PRD 第 7.9 节 |
 | REQ-082 | 支持 VSCode app-server 审批交互 | VSCode 插件 PRD 第 7.8 节 |
 
 ## 验收标准

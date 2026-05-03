@@ -465,7 +465,11 @@ export async function submitIdeQueueCommand(
     }
     const payload = retryPayload(previous, command, acceptedAt);
     const scheduler = options.scheduler;
-    const isRpcRetry = previous.jobType === "rpc.run" || previous.jobType === "codex.app_server.run" || previous.executorType === "codex.app_server";
+    const isRpcRetry = previous.jobType === "rpc.run"
+      || previous.jobType === "codex.rpc.run"
+      || previous.jobType === "codex.app_server.run"
+      || previous.executorType === "codex.rpc"
+      || previous.executorType === "codex.app_server";
     const job = isRpcRetry && (scheduler?.enqueueRpcRun || scheduler?.enqueueAppServerRun)
       ? (scheduler.enqueueRpcRun ?? scheduler.enqueueAppServerRun)?.(payload)
       : scheduler?.enqueueCliRun(payload);
@@ -1248,7 +1252,7 @@ function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig
   const row = result.queries.adapter[0];
   const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
   if (!row && adapterCount > 0) {
-    throw new Error("No active Codex app-server adapter configured. Activate an adapter before cancelling a running turn.");
+    throw new Error("No active Codex RPC adapter configured. Activate an adapter before cancelling a running turn.");
   }
   if (!row) return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
   return {

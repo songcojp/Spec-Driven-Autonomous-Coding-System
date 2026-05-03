@@ -297,7 +297,7 @@ test("cli.run uses active Gemini CLI adapter from adapter configuration", async 
   assert.equal(calls[0].cwd, root);
 });
 
-test("codex.app_server.run executes mocked app-server transport and persists runner artifacts", async () => {
+test("codex.rpc.run executes mocked app-server transport and persists runner artifacts", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();
@@ -420,7 +420,7 @@ test("rpc.run dispatches active Gemini ACP provider and persists runner artifact
   assert.match(String(rows.log[0].stdout), /RUN-GEMINI-ACP-RPC/);
 });
 
-test("codex.app_server.run projects approval pending to Feature spec-state", async () => {
+test("codex.rpc.run projects approval pending to Feature spec-state", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-approval-"));
   prepareSkillWorkspace(root);
   const featureDir = join(root, "docs", "features", "feat-cli");
@@ -470,7 +470,7 @@ test("codex.app_server.run projects approval pending to Feature spec-state", asy
   assert.match(state.nextAction, /approval/i);
 });
 
-test("codex.app_server.run fails when app-server cannot be started", async () => {
+test("codex.rpc.run fails when app-server cannot be started", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();
@@ -480,7 +480,7 @@ test("codex.app_server.run fails when app-server cannot be started", async () =>
       sql: `INSERT INTO codex_app_server_adapter_configs (
         id, display_name, schema_version, executable, args_json, transport, endpoint,
         request_timeout_ms, config_schema_json, form_schema_json, defaults_json, status
-      ) VALUES ('bad-app-server', 'Bad app-server', 1, '/tmp/specdrive-missing-codex-app-server',
+      ) VALUES ('bad-app-server', 'Bad app-server', 1, '/tmp/specdrive-missing-codex-rpc',
         '["app-server","--listen","stdio://"]', 'stdio', 'stdio://', 1000, '{}', '{}', '{}', 'active')`,
     },
   ]);
@@ -495,7 +495,7 @@ test("codex.app_server.run fails when app-server cannot be started", async () =>
   assert.match(String(rows[0].summary), /ENOENT|spawn/);
 });
 
-test("codex.app_server.run blocks when configured app-server adapters are disabled", async () => {
+test("codex.rpc.run blocks when configured Codex RPC adapters are disabled", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();
@@ -525,10 +525,10 @@ test("codex.app_server.run blocks when configured app-server adapters are disabl
 
   assert.equal(result.status, "blocked");
   assert.equal(rows[0].status, "blocked");
-  assert.match(String(rows[0].summary), /No active Codex app-server adapter/);
+  assert.match(String(rows[0].summary), /No active Codex RPC adapter/);
 });
 
-test("codex.app_server.run fails when SkillOutputContractV1 validation fails", async () => {
+test("codex.rpc.run fails when SkillOutputContractV1 validation fails", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();

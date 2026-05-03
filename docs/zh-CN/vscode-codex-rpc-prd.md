@@ -22,7 +22,7 @@ SpecDrive IDE 是 SpecDrive AutoBuild 的 IDE 原生交互层。它让用户在 
 
 一句话定位：
 
-> 用 VSCode 原生能力管理 Spec 文档和任务交互，用 Codex app-server 执行 Skill 调用，用 SpecDrive 控制面维护调度和最小执行状态。
+> 用 VSCode 原生能力管理 Spec 文档和任务交互，用 Codex RPC 执行 Skill 调用，用 SpecDrive 控制面维护调度和最小执行状态。
 
 补充定位：
 
@@ -36,7 +36,7 @@ VSCode SpecDrive Extension
   -> Execution Workbench Webview
   -> SpecDrive Control Plane API
   -> Scheduler / Execution Records
-  -> Codex App Server Adapter
+  -> Codex RPC Adapter
   -> codex app-server thread/start + turn/start
   -> SkillOutputContractV1
 ```
@@ -50,7 +50,7 @@ VSCode SpecDrive Extension
 5. 支持用户在文档行或段落上添加澄清、决策、变更请求和执行意图。
 6. 支持用户提交澄清或变更后，由 Codex 通过指定 Skill 修改文档。
 7. 支持从 VSCode 中触发 Feature 调度、Task 执行、失败重试、状态刷新和聊天记录查看。
-8. 通过 Codex app-server Adapter 调用 Codex，而不是依赖 Codex VS 插件私有 UI。
+8. 通过 Codex RPC Adapter 调用 Codex，而不是依赖 Codex VS 插件私有 UI。
 9. 保留现有 SpecDrive Scheduler、Runner、Execution Record 和文件化 Spec 状态机制。
 10. 将 Product Console 中高频、IDE 更适合承载的交互迁移到 VSCode，但 UI 实现必须是独立插件 Web UI，而不是复用 Product Console 页面。
 
@@ -76,7 +76,7 @@ VSCode SpecDrive Extension
 - 开发者：在 VSCode 中查看 Feature Spec、执行任务、查看 diff、运行测试和查看 Codex 聊天记录。
 - 审批人：处理高风险命令、文件修改、失败恢复和需求澄清。
 - 系统调度器：读取文件化 Spec 状态和 Feature 队列，创建执行 Job。
-- Codex App Server Adapter：将 SpecDrive Contract 转换为 Codex app-server thread/turn 调用，并收集事件流。
+- Codex RPC Adapter：将 SpecDrive Contract 转换为 Codex RPC thread/turn 调用，并收集事件流。
 - SpecDrive Control Plane：维护项目、队列、执行记录、状态、配置和轻量活动记录。
 
 ## 6. 用户流程
@@ -101,7 +101,7 @@ VSCode SpecDrive Extension
   -> 插件生成 ClarificationItem
   -> 用户点击提交
   -> Scheduler 创建 generate_ears / spec_evolution / requirement_intake Job
-  -> Codex app-server 执行对应 Skill
+  -> Codex RPC 执行对应 Skill
   -> 输出写回文档与 spec-state.json
 ```
 
@@ -113,7 +113,7 @@ VSCode SpecDrive Extension
   -> 用户点击执行 Feature 或执行某个 task
   -> 插件生成 SkillInvocationContractV1
   -> Control Plane 创建 scheduler_job_records 和 execution_records
-  -> Runner 通过 Codex App Server Adapter 调用 turn/start
+  -> Runner 通过 Codex RPC Adapter 调用 turn/start
   -> 插件实时显示 turn/item 事件、diff、命令输出和审批请求
   -> SkillOutputContractV1 校验通过
   -> 结果投影回 spec-state.json 和 Execution Record
@@ -174,7 +174,7 @@ turn/completed = failed 或 SkillOutputContractV1.status = failed
 
 ## 7. 系统交互流程
 
-本章描述完整系统交互流程。用户流程只描述人在 VSCode 中看到和触发的动作；系统交互流程必须描述插件、Control Plane、Scheduler、Runner、Codex app-server、文件化 Spec 状态和 Execution Record 之间的责任边界。
+本章描述完整系统交互流程。用户流程只描述人在 VSCode 中看到和触发的动作；系统交互流程必须描述插件、Control Plane、Scheduler、Runner、Codex RPC、文件化 Spec 状态和 Execution Record 之间的责任边界。
 
 ### 7.1 系统组件边界
 
@@ -193,15 +193,15 @@ SpecDrive Control Plane
 Scheduler
   -> 负责读取 feature-pool-queue.json 和 spec-state.json
   -> 负责选择、跳过、恢复、入队和调度 Job
-  -> 不直接与 Codex app-server 通信
+  -> 不直接与 Codex RPC 通信
 
 Runner
   -> 负责消费 scheduler_job_records
-  -> 负责连接 Codex app-server
+  -> 负责连接 Codex RPC
   -> 负责 thread/start、thread/resume、turn/start、approval response、turn/interrupt
   -> 负责将 app-server 事件投影为 Execution Record 和 raw logs
 
-Codex app-server
+Codex RPC
   -> 负责 Codex runtime、thread、turn、skill input、tool execution、approval request 和事件流
   -> 不直接理解 SpecDrive Feature 队列
 
@@ -277,7 +277,7 @@ VSCode 启动插件
       - update_design
       - split_feature
   -> Control Plane 创建 <executor>.run Job
-  -> Runner 执行 Codex app-server turn
+  -> Runner 执行 Codex RPC turn
   -> Codex 根据 Skill 修改文档
   -> Runner 校验 SkillOutputContractV1
   -> Control Plane 更新 spec-state.json 和 Execution Record
@@ -300,7 +300,7 @@ VSCode 启动插件
   -> Scheduler 读取 docs/features/<feature-id>/spec-state.json
   -> Scheduler 检查 requirements.md / design.md / tasks.md 是否存在
   -> Scheduler 检查 blockedReasons 和 dependencies
-  -> Scheduler 创建 codex.app_server.run Job
+  -> Scheduler 创建 codex.rpc.run Job
   -> Control Plane 创建 execution_records(status=queued)
   -> 插件显示 Feature = queued
 ```
@@ -349,10 +349,10 @@ VSCode 启动插件
 - `retry` 必须保留上一条 execution id、失败原因和新 execution id 的关系。
 - `reprioritize` 只改变调度顺序，不修改 Feature 文档内容。
 
-### 7.7 Runner 与 Codex app-server 执行流程
+### 7.7 Runner 与 Codex RPC 执行流程
 
 ```text
-Runner 获取 codex.app_server.run Job
+Runner 获取 codex.rpc.run Job
   -> Runner 将 execution_records 更新为 running
   -> Runner 解析 active adapter config
   -> Runner 连接已有 app-server 或启动 codex app-server
@@ -365,7 +365,7 @@ Runner 获取 codex.app_server.run Job
         - skill: skill name + SKILL.md path
       outputSchema:
         - SkillOutputContractV1 JSON Schema
-  -> Codex app-server 流式返回 turn/item 事件
+  -> Codex RPC 流式返回 turn/item 事件
   -> Runner 持续写 raw logs 和 Execution Record progress
   -> Runner 等待 turn/completed
 ```
@@ -380,7 +380,7 @@ Runner 获取 codex.app_server.run Job
 ### 7.8 Approval 交互流程
 
 ```text
-Codex app-server 发出 approval request
+Codex RPC 发出 approval request
   -> Runner 暂停该 pending request
   -> Runner 写 execution_records.approvalState = pending
   -> Runner 将 approval payload 推给 Control Plane
@@ -565,13 +565,13 @@ THE SYSTEM SHALL 生成 SkillInvocationContractV1 并交给现有 Scheduler / Ru
 
 验收：
 - [ ] Contract 包含 `workspaceRoot`、`featureId`、`sourcePaths`、`expectedArtifacts`、`specState`、`traceability` 和 `requestedAction`。
-- [ ] 执行 Job 的 executor 为 `codex.app_server.run` 或兼容的 adapter id。
+- [ ] 执行 Job 的 executor 为 `codex.rpc.run` 或兼容的 adapter id。
 - [ ] Feature/Task 不作为 Job 顶层字段，只出现在 payload context 中。
 
-### REQ-VSC-010：Codex App Server Adapter
+### REQ-VSC-010：Codex RPC Adapter
 
-WHEN Scheduler 分派 `codex.app_server.run` Job
-THE SYSTEM SHALL 通过 Codex app-server JSON-RPC 调用 Codex。
+WHEN Scheduler 分派 `codex.rpc.run` Job
+THE SYSTEM SHALL 通过 Codex RPC JSON-RPC 调用 Codex。
 
 验收：
 - [ ] Adapter 能启动或连接 `codex app-server`。
@@ -580,9 +580,9 @@ THE SYSTEM SHALL 通过 Codex app-server JSON-RPC 调用 Codex。
 - [ ] Adapter 在 `turn/start` 中传入 skill input item 和 text prompt。
 - [ ] Adapter 支持 `outputSchema` 约束 `SkillOutputContractV1`。
 
-### REQ-VSC-011：Runner 与 Codex app-server 交互
+### REQ-VSC-011：Runner 与 Codex RPC 交互
 
-WHEN Runner 执行 `codex.app_server.run` Job
+WHEN Runner 执行 `codex.rpc.run` Job
 THE SYSTEM SHALL 由 Runner 负责 app-server 生命周期、JSON-RPC 会话、事件订阅和结果回写。
 
 验收：
@@ -686,7 +686,7 @@ THE SYSTEM SHALL 展示独立于 Product Console 的 Execution Workbench Webview
 }
 ```
 
-### 8.2 Codex App Server Turn 输入
+### 8.2 Codex RPC Turn 输入
 
 ```json
 {
@@ -728,7 +728,7 @@ THE SYSTEM SHALL 展示独立于 Product Console 的 Execution Workbench Webview
 ```text
 Scheduler
   -> create scheduler_job_records
-  -> create execution_records(status=queued, adapter=codex.app_server)
+  -> create execution_records(status=queued, adapter=codex.rpc)
   -> Runner picks job
   -> Runner resolves adapter config
   -> Runner starts/connects codex app-server
@@ -742,7 +742,7 @@ Scheduler
   -> update spec-state.json and execution_records
 ```
 
-Runner 是持久调度和 Codex app-server 之间的唯一执行边界。VSCode 插件可以发起命令和展示状态，但不得直接调用 `turn/start` 绕过 Runner；否则 Execution Record、重试、取消、状态投影和失败恢复会失去统一事实源。
+Runner 是持久调度和 Codex RPC 之间的唯一执行边界。VSCode 插件可以发起命令和展示状态，但不得直接调用 `turn/start` 绕过 Runner；否则 Execution Record、重试、取消、状态投影和失败恢复会失去统一事实源。
 
 ## 10. 非功能需求
 
@@ -768,7 +768,7 @@ Runner 是持久调度和 Codex app-server 之间的唯一执行边界。VSCode 
 
 - 当前版本支持 VSCode。
 - 不依赖 Codex VS 插件安装。
-- Codex app-server 版本差异通过生成 schema 或 adapter capability 检测处理。
+- Codex RPC 版本差异通过生成 schema 或 adapter capability 检测处理。
 
 ### NFR-VSC-005：可观测性
 
@@ -788,7 +788,7 @@ Runner 是持久调度和 Codex app-server 之间的唯一执行边界。VSCode 
 7. `spec-state.json`、`feature-pool-queue.json`、scheduler job 和 execution 状态显示。
 8. 文档 CodeLens：添加澄清、执行 Feature、执行 Task。
 9. Comments API 澄清提交。
-10. Codex app-server Adapter。
+10. Codex RPC Adapter。
 11. Execution Record 状态面板。
 12. app-server 事件流写入 raw logs / execution records。
 13. SkillOutputContractV1 校验和结果投影。
@@ -809,7 +809,7 @@ Runner 是持久调度和 Codex app-server 之间的唯一执行边界。VSCode 
 - 用户可以在 VSCode 中定位 PRD/EARS/HLD/Feature/task 与执行状态。
 - 用户可以在 Spec Explorer 中管理任务队列，包括 enqueue、run now、pause、resume、retry、cancel、skip 和 reprioritize。
 - 用户可以在文档段落上提交澄清，并由 Codex 修改对应文档。
-- Codex app-server Adapter 可以完成至少一种 Skill 调用并写回 `spec-state.json`。
+- Codex RPC Adapter 可以完成至少一种 Skill 调用并写回 `spec-state.json`。
 - Execution Record 能展示 thread、turn、事件、输出、结果和聊天记录入口。
 - 插件重载后仍能恢复最近执行状态。
 
@@ -817,7 +817,7 @@ Runner 是持久调度和 Codex app-server 之间的唯一执行边界。VSCode 
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| Codex app-server 协议版本变化 | Adapter 失效 | 启动时读取 capability/schema，按版本适配；保留 CLI Runner fallback。 |
+| Codex RPC 协议版本变化 | Adapter 失效 | 启动时读取 capability/schema，按版本适配；保留 CLI Runner fallback。 |
 | VSCode 插件承载过多调度逻辑 | 状态漂移 | 插件只做 UI 和 Adapter，调度事实仍在 Control Plane。 |
 | 用户以为复用了 Codex VS Chat UI | 体验预期偏差 | 产品文案明确 SpecDrive 使用 Codex runtime，不操作 Codex VS 私有 UI。 |
 | 长日志导致 UI 卡顿 | 执行状态不可用 | 日志增量流式渲染，按 Execution Record 分页读取。 |
@@ -839,7 +839,7 @@ Runner 是持久调度和 Codex app-server 之间的唯一执行边界。VSCode 
 - Comments API 澄清。
 - SpecChangeRequest 生成。
 
-### Phase 3：Codex App Server Adapter
+### Phase 3：Codex RPC Adapter
 
 - app-server 启动/连接。
 - initialize / thread/start / turn/start。
@@ -863,12 +863,12 @@ Runner 是持久调度和 Codex app-server 之间的唯一执行边界。VSCode 
 
 ## 15. 决策结论
 
-本方案采用“SpecDrive VSCode 插件 + Codex app-server Adapter”的第二种集成方式：
+本方案采用“SpecDrive VSCode 插件 + Codex RPC Adapter”的第二种集成方式：
 
 - 不复用 Codex VS 插件私有 Chat UI。
 - 不模拟输入框。
 - 不重写 Runner 和 Scheduler。
-- 通过 Codex app-server 复用 Codex runtime、thread、turn、事件、审批和 Skill 输入能力。
+- 通过 Codex RPC 复用 Codex runtime、thread、turn、事件、审批和 Skill 输入能力。
 - 通过 SpecDrive Control Plane 保持调度、执行状态和文件化 Spec 状态的真实来源。
 
 该方案将交互体验放回 IDE，把自主编程的可靠性留在 SpecDrive 控制面，是当前阶段最稳妥、最容易落地的产品方向。

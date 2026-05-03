@@ -22,7 +22,7 @@
 | FEAT-015 | Chat Interface | `feat-015-chat-interface` | in-progress | REQ-069 至 REQ-073 | M7 | FEAT-013、FEAT-004、FEAT-014 |
 | FEAT-016 | SpecDrive IDE Foundation | `feat-016-specdrive-ide-foundation` | done | REQ-074、REQ-075 | M8 | FEAT-001、FEAT-002、FEAT-004、FEAT-014 |
 | FEAT-017 | IDE Spec Interaction | `feat-017-ide-spec-interaction` | todo | REQ-076 至 REQ-078 | M8 | FEAT-016、FEAT-002、FEAT-012 |
-| FEAT-018 | RPC Adapter: Codex App Server Provider | `feat-018-codex-app-server-adapter` | done / needs-terminology-migration | REQ-080、REQ-081 | M8 | FEAT-004、FEAT-008、FEAT-014 |
+| FEAT-018 | RPC Adapter: Codex RPC Provider | `feat-018-codex-rpc-adapter` | done / needs-terminology-migration | REQ-080、REQ-081 | M8 | FEAT-004、FEAT-008、FEAT-014 |
 | FEAT-019 | IDE Execution Loop | `feat-019-ide-execution-loop` | done | REQ-079、REQ-081、REQ-082 | M8 | FEAT-016、FEAT-018、FEAT-004、FEAT-008、FEAT-014 |
 | FEAT-020 | IDE Diagnostics and UX Refinement | `feat-020-ide-diagnostics-ux` | done | REQ-083 | M8 | FEAT-016、FEAT-017、FEAT-019 |
 | FEAT-021 | IDE Workbench Webviews | `feat-021-ide-execution-webview` | done | REQ-084 | M8 | FEAT-016、FEAT-019、FEAT-020 |
@@ -33,7 +33,7 @@ FEAT-013 当前补充 Execution Adapter / Scheduler UI refinement：任务调度
 
 2026-05-03 update：自主执行下一 Feature 选择由 `feature-selection-skill` 负责推理，输入为 Feature Pool Queue、Feature index、Feature `spec-state.json`、依赖完成情况、最近 Execution Record 和 resume/skip hints。Control Plane 只执行通过队列、三件套、依赖、resume 和 active execution 安全校验的选择，并把 CLI/app-server 的 `approval_needed`、`blocked`、`review_needed`、`failed` 投影到 Feature `spec-state.json` 和 Execution Workbench。独立 `push_feature_spec_pool` 步骤已废弃，项目级 `schedule_run` 和 `start_auto_run` 直接承担 Feature 选择与入队执行。
 
-2026-05-03 adapter redesign：执行层不再使用 Runner 作为核心概念，统一改为 Execution Adapter Layer。FEAT-008 是 CLI Adapter 迁移来源，负责 `cli.run`、Codex CLI、Gemini CLI 和本机进程执行；FEAT-018 是 RPC Adapter 迁移来源，负责 `rpc.run`、Codex app-server、HTTP/JSON-RPC/WebSocket 远程执行。迁移顺序为先落 `ExecutionAdapterConfigV1` / `ExecutionAdapterInvocationV1` / `ExecutionAdapterEventV1` / `ExecutionAdapterResultV1` 接口，再迁移 Codex CLI provider，再迁移 Codex app-server provider，最后清理 UI、数据库兼容字段和历史命名。
+2026-05-03 adapter redesign：执行层不再使用 Runner 作为核心概念，统一改为 Execution Adapter Layer。FEAT-008 是 CLI Adapter 迁移来源，负责 `cli.run`、Codex CLI、Gemini CLI 和本机进程执行；FEAT-018 是 RPC Adapter 迁移来源，负责 `rpc.run`、Codex RPC、HTTP/JSON-RPC/WebSocket 远程执行。迁移顺序为先落 `ExecutionAdapterConfigV1` / `ExecutionAdapterInvocationV1` / `ExecutionAdapterEventV1` / `ExecutionAdapterResultV1` 接口，再迁移 Codex CLI provider，再迁移 Codex RPC provider，最后清理 UI、数据库兼容字段和历史命名。
 
 ## Dependency Tree
 
@@ -66,7 +66,7 @@ FEAT-000 System Bootstrap
         (also requires FEAT-001, FEAT-002, FEAT-014)
         ├── FEAT-017 IDE Spec Interaction
         │   (also requires FEAT-002, FEAT-012)
-        ├── FEAT-018 RPC Adapter: Codex App Server Provider
+        ├── FEAT-018 RPC Adapter: Codex RPC Provider
         │   (also requires FEAT-008, FEAT-014)
         │   └── FEAT-019 IDE Execution Loop
         │       (also requires FEAT-008, FEAT-014, FEAT-016)
@@ -112,7 +112,7 @@ FEAT-000 System Bootstrap
 6. FEAT-009 and FEAT-010 close the check and recovery loop.
 7. FEAT-011 and FEAT-012 provide approval and delivery closure.
 8. FEAT-013 exposes the operational surfaces over the control-plane state.
-9. FEAT-016 to FEAT-020 add the VSCode IDE surface, RPC Adapter for Codex app-server, IDE execution loop, and diagnostics refinement after Product Console and Execution Adapter foundations exist.
+9. FEAT-016 to FEAT-020 add the VSCode IDE surface, RPC Adapter for Codex RPC, IDE execution loop, and diagnostics refinement after Product Console and Execution Adapter foundations exist.
 10. FEAT-021 adds independent VSCode Webview Web UIs for Execution Workbench, Spec Workspace, and Feature Spec; they must not reuse Product Console pages, routes, navigation, App Shell, or component implementation.
 
 ## Spec Evolution Notes
@@ -134,16 +134,16 @@ FEAT-000 System Bootstrap
 | CHG-017 | FEAT-008 / FEAT-013 | 实现过程发现 Execution Adapter Queue Worker 在 `cli_adapter_configs` 表非空但无 active row 时不阻断新 Run，且 SettingsPage 缺少 `disable_cli_adapter_config` 按鈕。 | 已在 `src/scheduler.ts` `loadRunnerTaskContext` 补充适配器数龐查询并添加阻断逻辑；已在 SettingsPage 添加禁用按鈕；已补充 CLI Adapter 校验、normalize 和阻断行为单测；全部 298 测试通过。 |
 | CHG-015 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 | 调度系统升级为 BullMQ + Redis；SQLite 仍是业务事实源。当前模型由 CHG-018 收敛为 `<executor>.run` Job + Execution Record，`run_board_tasks` / Spec 操作入队 `cli.run` 后由 Worker 执行。 | 已执行 FEAT-004、FEAT-008、FEAT-013、FEAT-014 scheduler job / execution record 持久化与控制台展示。 |
 | CHG-016 | FEAT-004 / FEAT-008 / FEAT-013 | Product Console / Spec 操作转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中调用编码 CLI；平台不恢复 Skill Registry 或 Skill Center。 | 已执行 FEAT-004 `TASK-017`、FEAT-008 `TASK-014` 至 `TASK-016`、FEAT-013 `TASK-035` 至 `TASK-036`。 |
-| CHG-027 | FEAT-008 | Execution Adapter 从 Codex 专用执行层收敛为通用 CLI Adapter；`codex-cli` 保留为默认 preset，`gemini-cli` 保留为内置可选 preset，Codex app-server adapter 继续独立。 | 当前 patch 将代码模块、类型、execution result kind、Console 字段和 session 持久化改为 provider-neutral CLI 命名；新增 `cli_session_records` 兼容迁移并保留旧 `codex_session_records`。 |
-| CHG-028 | FEAT-008 / FEAT-018 / FEAT-013 / FEAT-019 | 执行层从 Runner 概念重构为 Execution Adapter Layer；先定义统一适配层接口，再迁移 Codex CLI 与 Codex app-server provider。 | FEAT-008 作为 CLI Adapter 迁移来源；FEAT-018 作为 RPC Adapter 迁移来源；新任务不得继续引入 Runner 对外概念，历史实现名称仅作为兼容过渡。 |
+| CHG-027 | FEAT-008 | Execution Adapter 从 Codex 专用执行层收敛为通用 CLI Adapter；`codex-cli` 保留为默认 preset，`gemini-cli` 保留为内置可选 preset，Codex RPC adapter 继续独立。 | 当前 patch 将代码模块、类型、execution result kind、Console 字段和 session 持久化改为 provider-neutral CLI 命名；新增 `cli_session_records` 兼容迁移并保留旧 `codex_session_records`。 |
+| CHG-028 | FEAT-008 / FEAT-018 / FEAT-013 / FEAT-019 | 执行层从 Runner 概念重构为 Execution Adapter Layer；先定义统一适配层接口，再迁移 Codex CLI 与 Codex RPC provider。 | FEAT-008 作为 CLI Adapter 迁移来源；FEAT-018 作为 RPC Adapter 迁移来源；新任务不得继续引入 Runner 对外概念，历史实现名称仅作为兼容过渡。 |
 | CHG-029 | FEAT-008 / FEAT-018 / FEAT-013 | Gemini Adapter 演进分为两条 provider：`gemini-cli` 继续属于 CLI Adapter headless `stream-json` provider，`gemini-acp` 新增为 RPC Adapter stdio JSON-RPC provider。 | FEAT-008 补 Gemini CLI 当前参数与输出解析；FEAT-018 从 Codex-only RPC provider 演进为多 provider RPC Adapter；Product Console System Settings 分开展示 CLI preset 与 RPC preset。 |
 | CHG-019 | FEAT-004 / FEAT-008 / FEAT-013 | Feature 级编码执行改为 Feature Spec 目录驱动；`codex-coding-skill` 读取 `requirements.md`、`design.md`、`tasks.md` 后直接执行，不依赖 `task_graph_tasks` / `tasks` 表。 | 已同步 FEAT-004 `TASK-020`、FEAT-008 `TASK-017`、FEAT-013 `TASK-043`，并补充 feature-level `schedule_run` blocked/入队测试。 |
 | CHG-025 | FEAT-004 / FEAT-008 / FEAT-019 / FEAT-021 | 下一 Feature 选择改为 `feature-selection-skill` 推理，代码保留队列、三件套、依赖、resume 和 active execution 安全校验；非持续执行状态投影到 Feature 执行结果。 | 已执行 patch，新增 `feature-selection-skill`、selection result 校验、approval pending spec-state 投影和测试覆盖。 |
 | CHG-026 | FEAT-004 / FEAT-013 / FEAT-019 / FEAT-021 | 独立 `push_feature_spec_pool` 步骤废弃；任务调度全流程由项目级 `schedule_run` 和 `start_auto_run` 读取 Feature Pool Queue、选择下一 Feature、创建 `<executor>.run` Job 和 Execution Record。 | 已执行 patch，移除 public action 和 UI 步骤，保留 `feature-pool-queue.json` 作为调度输入事实源。 |
 | CHG-009 | FEAT-013 | 当前 Product Console 实现只覆盖 Control Plane API 和 ViewModel，不能替代 PRD 第 8 节要求的用户可操作 UI。 | 已补真实前端应用、页面路由、shadcn/ui 组件体系和浏览器级验收。 |
-| ADD-007 | FEAT-016 至 FEAT-020 | SpecDrive 增加 VSCode 插件作为 IDE 原生日常入口，不替代 Product Console，也不复用 Codex VS 插件私有 UI。 | 先执行 FEAT-016 只读入口，再执行 FEAT-017 文档交互、FEAT-018 app-server Adapter、FEAT-019 执行闭环、FEAT-020 Diagnostics / UX refinement。 |
+| ADD-007 | FEAT-016 至 FEAT-020 | SpecDrive 增加 VSCode 插件作为 IDE 原生日常入口，不替代 Product Console，也不复用 Codex VS 插件私有 UI。 | 先执行 FEAT-016 只读入口，再执行 FEAT-017 文档交互、FEAT-018 Codex RPC Adapter、FEAT-019 执行闭环、FEAT-020 Diagnostics / UX refinement。 |
 | CHG-021 | FEAT-016、FEAT-017、FEAT-019、FEAT-020 | 日常 Spec 操作入口从 Product Console 扩展到 VSCode IDE；Product Console 保留系统设置、adapter 配置、队列调试和全局状态总览。 | IDE 动作必须走 Control Plane command API，状态事实源仍为 workspace 文件、scheduler_job_records、execution_records 和 command receipt。 |
-| CHG-022 | FEAT-018、FEAT-019 | RPC Adapter 增加迁移期兼容的 `codex.app_server.run` provider，与 `cli.run` 并存，并收敛到 `rpc.run`。 | Execution Adapter Layer 是唯一调用 app-server thread/turn API 的组件；Execution Record 扩展 thread/turn/transport/raw logs/approval/output schema 投影。 |
+| CHG-022 | FEAT-018、FEAT-019 | RPC Adapter 增加迁移期兼容的 `codex.rpc.run` provider，与 `cli.run` 并存，并收敛到 `rpc.run`。 | Execution Adapter Layer 是唯一调用 app-server thread/turn API 的组件；Execution Record 扩展 thread/turn/transport/raw logs/approval/output schema 投影。 |
 | CHG-023 | FEAT-021 | VSCode 插件开发独立 Webview Web UI，不复用当前 Product Console Web UI；核心关注任务调度和自动执行、Spec 全流程控制、Feature Spec 卡片总览。 | 新增 FEAT-021，必须提供 Execution Workbench、Spec Workspace、Feature Spec 三组 VSCode IDE Webview。 |
 | CHG-024 | FEAT-021 | VSCode Feature Spec Webview 顶部 New Feature 输入提交后进入需求新增/变更模型判定；刷新同步 Feature index 与 Feature 文件夹；Feature 详情解析 `tasks.md` 任务状态。 | 已执行 `T-021-09` 至 `T-021-12`；`requirement-intake-skill` 已同步 Feature index 责任。 |
 | CHG-007 | FEAT-010 | 失败重试上限、2/4/8 分钟退避和失败指纹已由现有实现与测试覆盖。 | 无需重新执行 Feature Spec。 |

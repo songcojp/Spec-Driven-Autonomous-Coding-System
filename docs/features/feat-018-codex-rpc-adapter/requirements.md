@@ -8,7 +8,7 @@ Feature 名称: RPC Adapter: Multi Provider
 
 ## 目标
 
-新增 `rpc.run` executor/adapter，并以 `codex-app-server` 作为首个 RPC provider，使 Execution Adapter Layer 能通过 Codex 官方 app-server JSON-RPC 协议启动或恢复 thread/turn，并把事件流、审批状态和输出校验结果写入 Execution Record。当前演进新增 `gemini-acp` provider，通过 `gemini --acp` stdio JSON-RPC 启动或恢复 Gemini session、发送 prompt、消费 session update 与 permission request。`codex.app_server.run` 仅作为迁移期兼容别名保留。
+新增 `rpc.run` executor/adapter，并以 `codex-rpc` 作为首个 RPC provider，使 Execution Adapter Layer 能通过 Codex 官方 app-server JSON-RPC 协议启动或恢复 thread/turn，并把事件流、审批状态和输出校验结果写入 Execution Record。当前演进新增 `gemini-acp` provider，通过 `gemini --acp` stdio JSON-RPC 启动或恢复 Gemini session、发送 prompt、消费 session update 与 permission request。`codex.rpc.run` 仅作为迁移期兼容别名保留。
 
 ## 来源需求
 
@@ -19,7 +19,7 @@ Feature 名称: RPC Adapter: Multi Provider
 
 ## 验收标准
 
-- [x] Execution Adapter Worker 可消费 `codex.app_server.run` Job；后续迁移为 `rpc.run`。
+- [x] Execution Adapter Worker 可消费 `codex.rpc.run` Job；后续迁移为 `rpc.run`。
 - [x] RPC Adapter 支持 initialize/initialized、thread/start、thread/resume、turn/start、turn/interrupt。
 - [x] thread id、turn id、transport、model、cwd、output schema 写入 Execution Record。
 - [x] turn/item 事件持续写入 raw logs。
@@ -31,5 +31,5 @@ Feature 名称: RPC Adapter: Multi Provider
 
 - 新设计不得继续使用 Runner 作为 app-server 调用边界。
 - RPC Adapter 必须接受 `ExecutionAdapterInvocationV1`，输出 `ExecutionAdapterEventV1` / `ExecutionAdapterResultV1`。
-- Codex app-server provider 的 thread/turn/approval/event stream 和 Gemini ACP provider 的 session/prompt/permission/session update 都是 RPC provider details，不得泄漏为 Scheduler 或 UI 的专用状态机。
+- Codex RPC provider 的 thread/turn/approval/event stream 和 Gemini ACP provider 的 session/prompt/permission/session update 都是 RPC provider details，不得泄漏为 Scheduler 或 UI 的专用状态机。
 - HTTP/JSON-RPC/WebSocket 远程 provider 后续应复用同一 RPC Adapter 接口，不新建第二套 app-server-only 运行模型。

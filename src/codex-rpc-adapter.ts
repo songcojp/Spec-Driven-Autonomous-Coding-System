@@ -92,8 +92,9 @@ export type CodexAppServerStdioTransportInput = {
 export type CodexAppServerAdapterConfig = RpcAdapterConfig;
 
 export const DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG: CodexAppServerAdapterConfig = {
-  id: "codex-app-server-default",
-  displayName: "Built-in Codex app-server",
+  id: "codex-rpc-default",
+  displayName: "Built-in Codex RPC",
+  provider: "codex-rpc",
   executable: "codex",
   args: ["app-server", "--listen", "stdio://"],
   transport: "stdio",
@@ -105,7 +106,7 @@ export const DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG: CodexAppServerAdapterConfi
 export function codexAppServerConfigToExecutionAdapterConfig(config: CodexAppServerAdapterConfig): RpcAdapterConfigV1 {
   return rpcAdapterConfigToExecutionAdapterConfig({
     config,
-    provider: "codex-app-server",
+    provider: "codex-rpc",
     capabilities: ["json-rpc", "thread", "turn", "approval", "event-stream", "skill-output-contract"],
     outputMapping: {
       eventStream: "json-rpc",
@@ -162,7 +163,7 @@ export function createCodexAppServerStdioTransport(input: CodexAppServerStdioTra
   });
   process.on("exit", (code, signal) => {
     closed = true;
-    const error = new Error(`Codex app-server exited before completing pending requests: code=${code ?? "null"} signal=${signal ?? "null"}`);
+    const error = new Error(`Codex RPC exited before completing pending requests: code=${code ?? "null"} signal=${signal ?? "null"}`);
     for (const request of pending.values()) {
       clearTimeout(request.timer);
       request.reject(error);
@@ -197,13 +198,13 @@ export function createCodexAppServerStdioTransport(input: CodexAppServerStdioTra
 
   return {
     request(method, params) {
-      if (closed) return Promise.reject(new Error("Codex app-server transport is closed."));
+      if (closed) return Promise.reject(new Error("Codex RPC transport is closed."));
       const id = `${method}:${randomUUID()}`;
       const payload: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
       return new Promise<Record<string, unknown>>((resolve, reject) => {
         const timer = setTimeout(() => {
           pending.delete(id);
-          reject(new Error(`Codex app-server request timed out: ${method}`));
+          reject(new Error(`Codex RPC request timed out: ${method}`));
         }, requestTimeoutMs);
         pending.set(id, { resolve, reject, timer });
         process.stdin.write(`${JSON.stringify(payload)}\n`);
@@ -238,7 +239,7 @@ export function createCodexAppServerTransportFromConfig(
   cwd: string,
 ): CodexAppServerTransport {
   if (config.transport !== "stdio") {
-    throw new Error(`Codex app-server transport is not supported yet: ${config.transport}`);
+    throw new Error(`Codex RPC transport is not supported yet: ${config.transport}`);
   }
   return createCodexAppServerStdioTransport({
     command: config.executable,
@@ -320,7 +321,7 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
       });
   const threadId = input.threadId ?? threadIdFromResult(threadResult);
   if (!threadId) {
-    throw new Error("Codex app-server did not return a thread id.");
+    throw new Error("Codex RPC did not return a thread id.");
   }
   const turnResult = await input.transport.request("turn/start", {
     threadId,
@@ -442,7 +443,7 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
   const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
   const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
   const providerSession: ExecutionAdapterProviderSessionV1 = {
-    provider: "codex-app-server",
+    provider: "codex-rpc",
     transport: "stdio",
     command: "codex",
     args: ["app-server"],
@@ -479,7 +480,7 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
         ? projection.skillOutput?.status ?? "completed"
         : "failed",
     providerSession,
-    summary: projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Codex app-server is waiting for approval." : `Codex app-server exit=${exitCode}.`),
+    summary: projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Codex RPC is waiting for approval." : `Codex RPC exit=${exitCode}.`),
     skillOutput: projection.skillOutput,
     producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
     traceability: projection.skillOutput?.traceability ?? input.skillInvocation?.traceability ?? { requirementIds: [], changeIds: [] },

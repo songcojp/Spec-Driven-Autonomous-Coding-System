@@ -2,13 +2,13 @@
 
 ## Summary
 
-基于 `docs/zh-CN/vscode-codex-app-server-prd.md`，SpecDrive IDE 按 5 个 Feature 交付：先做 VSCode 只读入口，再补文档交互和受控命令，随后实现 Codex app-server Adapter，最后闭合执行、审批、结果投影和体验增强。核心边界保持不变：VSCode 插件只做 IDE UI、查询、受控命令提交和状态订阅；Control Plane / Scheduler / Runner / Execution Record / 文件化 Spec 状态继续作为事实源。
+基于 `docs/zh-CN/vscode-codex-rpc-prd.md`，SpecDrive IDE 按 5 个 Feature 交付：先做 VSCode 只读入口，再补文档交互和受控命令，随后实现 Codex RPC Adapter，最后闭合执行、审批、结果投影和体验增强。核心边界保持不变：VSCode 插件只做 IDE UI、查询、受控命令提交和状态订阅；Control Plane / Scheduler / Runner / Execution Record / 文件化 Spec 状态继续作为事实源。
 
 建议新增 Feature Specs：
 
 - `FEAT-016 SpecDrive IDE Foundation`
 - `FEAT-017 IDE Spec Interaction`
-- `FEAT-018 Codex App Server Adapter`
+- `FEAT-018 Codex RPC Adapter`
 - `FEAT-019 IDE Execution Loop`
 - `FEAT-020 IDE Diagnostics and UX Refinement`
 
@@ -17,7 +17,7 @@
 - 新增 VSCode 插件包，默认放在 `apps/vscode-extension/`，使用 TypeScript + VSCode Extension API；新增脚本 `ide:build`、`ide:test`，不引入独立仓库。
 - 补齐 UI 中立的 Control Plane 接口，避免复用 `/console/*` 命名承载 IDE：新增查询接口用于 workspace context、spec tree、queue summary、execution detail；新增 command endpoint 接收 IDE action 并返回 command receipt。
 - 将 `ConsoleCommandAction` 泛化为控制面命令模型，新增 IDE 需要的动作：`submit_spec_change_request`、`enqueue_feature`、`run_feature_now`、`run_task_now`、`pause_job`、`resume_job`、`retry_execution`、`cancel_execution`、`skip_feature`、`reprioritize_job`、`approve_app_server_request`。
-- 新增 `codex.app_server.run` executor/adapter，与现有 `cli.run` 并存；Runner 是唯一调用 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt` 的组件。
+- 新增 `codex.rpc.run` executor/adapter，与现有 `cli.run` 并存；Runner 是唯一调用 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt` 的组件。
 - Execution Record 扩展记录 app-server `threadId`、`turnId`、transport、capabilities、raw event log reference、approval state、output schema validation result；不新增重型 Evidence Pack。
 - `feature-pool-queue.json` 和 `docs/features/<feature-id>/spec-state.json` 仍为 Feature 文件化状态事实源；SQLite 仍保存 scheduler job、execution record、adapter config、command receipt、raw logs 和轻量活动记录。
 
@@ -40,7 +40,7 @@
 
 ## Test Plan
 
-- Node tests：workspace/spec discovery、command validation、textHash stale detection、queue actions、retry/cancel state transitions、app-server adapter fixtures、Execution Record projection。
+- Node tests：workspace/spec discovery、command validation、textHash stale detection、queue actions、retry/cancel state transitions、Codex RPC adapter fixtures、Execution Record projection。
 - VSCode extension tests：activation、Spec Explorer rendering、file navigation、Hover/CodeLens providers、Comments lifecycle、Webview state rendering。
 - Integration tests：mock app-server JSON-RPC flow covering initialize、thread/start、turn/start、event stream、approval request、turn/completed success/failure。
 - Regression tests：existing `npm test` remains green; Product Console `/console/*` behavior must not regress.
@@ -51,4 +51,4 @@
 - 首轮实现放在当前 monorepo，不新建外部插件仓库。
 - 插件 UI 首版中文优先，但 factual artifacts、diff、logs、commands、paths 保持原文。
 - Product Console 不删除，只保留系统设置、adapter 配置、队列调试和全局状态总览。
-- 当前未跟踪的 `docs/zh-CN/vscode-codex-app-server-prd.md` 是本次规划来源；实施时需先把它纳入正式 Spec 流并避免误提交无关的 `docs/zh-CN/README.md` 现有改动。
+- 当前未跟踪的 `docs/zh-CN/vscode-codex-rpc-prd.md` 是本次规划来源；实施时需先把它纳入正式 Spec 流并避免误提交无关的 `docs/zh-CN/README.md` 现有改动。

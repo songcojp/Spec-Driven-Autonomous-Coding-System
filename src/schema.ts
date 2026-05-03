@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -1051,7 +1051,7 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 23,
-    description: "Add Codex app-server adapter configuration schema",
+    description: "Add Codex RPC adapter configuration schema",
     statements: [
       `CREATE TABLE IF NOT EXISTS codex_app_server_adapter_configs (
         id TEXT PRIMARY KEY,
@@ -1134,6 +1134,21 @@ export const MIGRATIONS: Migration[] = [
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       "CREATE INDEX IF NOT EXISTS idx_rpc_adapter_configs_status ON rpc_adapter_configs(status, updated_at)",
+    ],
+  },
+  {
+    version: 27,
+    description: "Rename Codex app-server provider to Codex RPC",
+    statements: [
+      "UPDATE rpc_adapter_configs SET provider = 'codex-rpc' WHERE provider = 'codex-app-server'",
+      `UPDATE rpc_adapter_configs
+        SET id = 'codex-rpc-default',
+            display_name = 'Built-in Codex RPC',
+            provider = 'codex-rpc'
+        WHERE id = 'codex-app-server-default'
+          AND NOT EXISTS (SELECT 1 FROM rpc_adapter_configs WHERE id = 'codex-rpc-default')`,
+      "UPDATE scheduler_job_records SET job_type = 'codex.rpc.run' WHERE job_type = 'codex.app_server.run'",
+      "UPDATE execution_records SET executor_type = 'codex.rpc' WHERE executor_type = 'codex.app_server'",
     ],
   },
 ];

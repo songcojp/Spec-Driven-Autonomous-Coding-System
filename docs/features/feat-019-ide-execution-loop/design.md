@@ -2,7 +2,7 @@
 
 Feature ID: FEAT-019
 来源需求: REQ-079、REQ-081、REQ-082
-HLD 参考: 第 7.15 节 VSCode SpecDrive Extension、第 9 节 Codex App Server Adapter
+HLD 参考: 第 7.15 节 VSCode SpecDrive Extension、第 9 节 Codex RPC Adapter
 
 ## 1. 架构决策
 

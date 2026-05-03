@@ -1,4 +1,4 @@
-# FEAT-018 Codex App Server Adapter — 任务
+# FEAT-018 Codex RPC Adapter — 任务
 
 Feature ID: FEAT-018
 来源需求: REQ-080、REQ-081
@@ -8,7 +8,7 @@ Feature ID: FEAT-018
 
 ### T-018-01 Adapter 配置与 Job 类型
 状态: done
-描述: 增加 `codex.app_server.run` executor/adapter 配置和 scheduler job routing。
+描述: 增加 `codex.rpc.run` executor/adapter 配置和 scheduler job routing。
 验证: scheduler/adapter 单测。
 
 ### T-018-02 JSON-RPC lifecycle

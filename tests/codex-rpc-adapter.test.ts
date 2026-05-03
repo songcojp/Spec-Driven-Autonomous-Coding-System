@@ -17,7 +17,7 @@ import {
 import { rpcAdapterConfigToExecutionAdapterConfig } from "../src/rpc-adapter.ts";
 import type { RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/cli-adapter.ts";
 
-test("Codex app-server request sequence initializes, starts a thread, and starts a schema-bound turn", () => {
+test("Codex RPC request sequence initializes, starts a thread, and starts a schema-bound turn", () => {
   const sequence = buildCodexAppServerRequestSequence({
     executionId: "RUN-APP",
     workspaceRoot: "/repo",
@@ -39,7 +39,7 @@ test("Codex app-server request sequence initializes, starts a thread, and starts
   ]);
 });
 
-test("Codex app-server request sequence resumes an existing thread", () => {
+test("Codex RPC request sequence resumes an existing thread", () => {
   const sequence = buildCodexAppServerRequestSequence({
     executionId: "RUN-APP",
     workspaceRoot: "/repo",
@@ -53,7 +53,7 @@ test("Codex app-server request sequence resumes an existing thread", () => {
   assert.equal(sequence.turn.params.threadId, "thread-1");
 });
 
-test("Codex app-server event projection extracts ids, streams, approvals, diffs, and Skill output", () => {
+test("Codex RPC event projection extracts ids, streams, approvals, diffs, and Skill output", () => {
   const output = skillOutput();
   const projection = projectCodexAppServerEvents([
     { type: "thread/started", id: "thread-1" },
@@ -75,7 +75,7 @@ test("Codex app-server event projection extracts ids, streams, approvals, diffs,
   assert.equal(projection.skillOutput?.executionId, "RUN-APP");
 });
 
-test("Codex app-server adapter result maps event projection to runner result", () => {
+test("Codex RPC adapter result maps event projection to runner result", () => {
   const result = buildCodexAppServerAdapterResult({
     runId: "RUN-APP",
     workspaceRoot: "/repo",
@@ -99,16 +99,16 @@ test("Codex app-server adapter result maps event projection to runner result", (
   assert.equal(result.result.featureId, "FEAT-016");
   assert.equal(result.result.skillOutput?.status, "completed");
   assert.equal(result.executionAdapterResult?.contractVersion, "execution-adapter/v1");
-  assert.equal(result.executionAdapterResult?.providerSession.provider, "codex-app-server");
+  assert.equal(result.executionAdapterResult?.providerSession.provider, "codex-rpc");
   assert.equal(result.executionAdapterResult?.providerSession.threadId, "thread-1");
   assert.equal(result.executionAdapterResult?.providerSession.turnId, "turn-1");
 });
 
-test("Codex app-server config exposes unified RPC adapter config", () => {
+test("Codex RPC config exposes unified RPC adapter config", () => {
   const config = codexAppServerConfigToExecutionAdapterConfig(DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG);
 
   assert.equal(config.kind, "rpc");
-  assert.equal(config.provider, "codex-app-server");
+  assert.equal(config.provider, "codex-rpc");
   assert.equal(config.transport, "stdio");
   assert.equal(config.inputMapping.executable, "codex");
   assert.equal(config.status, "active");
@@ -136,7 +136,7 @@ test("generic RPC adapter config exposes provider-neutral execution adapter conf
   assert.equal(config.outputMapping.eventStream, "json-rpc");
 });
 
-test("Codex app-server failed turn maps to failed adapter result", () => {
+test("Codex RPC failed turn maps to failed adapter result", () => {
   const result = buildCodexAppServerAdapterResult({
     runId: "RUN-APP",
     workspaceRoot: "/repo",
@@ -154,7 +154,7 @@ test("Codex app-server failed turn maps to failed adapter result", () => {
   assert.equal(result.result.exitCode, 1);
 });
 
-test("Codex app-server session runs initialize, thread, turn, and collects terminal events", async () => {
+test("Codex RPC session runs initialize, thread, turn, and collects terminal events", async () => {
   const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const transport: CodexAppServerTransport = {
     async request(method, params) {
@@ -190,7 +190,7 @@ test("Codex app-server session runs initialize, thread, turn, and collects termi
   assert.equal(result.result.skillOutput?.executionId, "RUN-APP");
 });
 
-test("Codex app-server session resumes supplied thread id", async () => {
+test("Codex RPC session resumes supplied thread id", async () => {
   const calls: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const transport: CodexAppServerTransport = {
     async request(method, params) {
@@ -228,7 +228,7 @@ test("Codex app-server session resumes supplied thread id", async () => {
   assert.equal(result.session.sessionId, "thread-existing");
 });
 
-test("Codex app-server adapter can interrupt a running turn", async () => {
+test("Codex RPC adapter can interrupt a running turn", async () => {
   const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
   const transport: CodexAppServerTransport = {
     async request(method, params) {
@@ -245,7 +245,7 @@ test("Codex app-server adapter can interrupt a running turn", async () => {
   assert.deepEqual(calls, [{ method: "turn/interrupt", params: { threadId: "thread-1", turnId: "turn-1" } }]);
 });
 
-test("Codex app-server session fails before turn start when thread id is missing", async () => {
+test("Codex RPC session fails before turn start when thread id is missing", async () => {
   const calls: string[] = [];
   const transport: CodexAppServerTransport = {
     async request(method) {
@@ -273,7 +273,7 @@ test("Codex app-server session fails before turn start when thread id is missing
   assert.deepEqual(calls, ["initialize", "initialized", "thread/start"]);
 });
 
-test("Codex app-server stdio transport writes JSON-RPC and matches responses by id", async () => {
+test("Codex RPC stdio transport writes JSON-RPC and matches responses by id", async () => {
   const process = new FakeJsonRpcProcess();
   const transport = createCodexAppServerStdioTransport({
     cwd: "/repo",
@@ -290,7 +290,7 @@ test("Codex app-server stdio transport writes JSON-RPC and matches responses by 
   transport.close?.();
 });
 
-test("Codex app-server stdio transport yields server notifications as events", async () => {
+test("Codex RPC stdio transport yields server notifications as events", async () => {
   const process = new FakeJsonRpcProcess();
   const transport = createCodexAppServerStdioTransport({
     cwd: "/repo",
@@ -307,7 +307,7 @@ test("Codex app-server stdio transport yields server notifications as events", a
   transport.close?.();
 });
 
-test("Codex app-server stdio transport rejects JSON-RPC errors", async () => {
+test("Codex RPC stdio transport rejects JSON-RPC errors", async () => {
   const process = new FakeJsonRpcProcess();
   const transport = createCodexAppServerStdioTransport({
     cwd: "/repo",

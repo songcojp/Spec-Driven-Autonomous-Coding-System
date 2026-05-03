@@ -18,7 +18,7 @@ Feature ID: FEAT-019
 
 ### T-019-03 Approval Pending 恢复
 状态: done
-描述: 展示 app-server approval request，并支持 accept、acceptForSession、decline、cancel。
+描述: 展示 Codex RPC approval request，并支持 accept、acceptForSession、decline、cancel。
 验证: `npm run ide:test` 覆盖 approval request projection；VSCode Task Queue context menu 提供 accept、acceptForSession、decline、cancel 命令并写回 Execution Record。
 
 ### T-019-04 Cancel / Retry / Resume

@@ -14,7 +14,7 @@
     {
       "at": "2026-05-02T00:00:00.000Z",
       "status": "done",
-      "summary": "Codex app-server adapter configuration, JSON-RPC lifecycle, event projection, raw logs, Execution Record metadata, startup failure handling, and SkillOutputContractV1 validation are complete.",
+      "summary": "Codex RPC adapter configuration, JSON-RPC lifecycle, event projection, raw logs, Execution Record metadata, startup failure handling, and SkillOutputContractV1 validation are complete.",
       "source": "implementation"
     }
   ]

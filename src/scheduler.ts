@@ -58,7 +58,7 @@ export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
 const MAX_CONTEXT_FILE_BYTES = 120_000;
 const MAX_CONTEXT_BUNDLE_BYTES = 360_000;
 
-export type SchedulerJobType = "cli.run" | "rpc.run" | "codex.app_server.run" | "native.run";
+export type SchedulerJobType = "cli.run" | "rpc.run" | "codex.rpc.run" | "codex.app_server.run" | "native.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "approval_needed" | "blocked" | "failed";
 
 export type SchedulerEnqueueResult = {
@@ -442,7 +442,7 @@ export async function runCodexAppServerRunJob(
         params: [
           payload.executionId,
           optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
-          "codex.app_server",
+          "codex.rpc",
           payload.operation,
           payload.projectId ?? null,
           JSON.stringify(context),
@@ -452,6 +452,7 @@ export async function runCodexAppServerRunJob(
           JSON.stringify({
             scheduler: "bullmq",
             jobType: "rpc.run",
+            provider: "codex-rpc",
             skillSlug,
             skillPhase,
             blockedReason: reason,
@@ -462,7 +463,7 @@ export async function runCodexAppServerRunJob(
     recordAuditEvent(dbPath, {
       entityType: taskId ? "task" : featureId ? "feature" : "project",
       entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
-      eventType: "codex_app_server_run_blocked",
+      eventType: "codex_rpc_run_blocked",
       source: "rpc_adapter",
       reason,
       payload,
@@ -498,7 +499,7 @@ export async function runCodexAppServerRunJob(
         params: [
           payload.executionId,
           optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
-          "codex.app_server",
+          "codex.rpc",
           payload.operation,
           loaded.projectId ?? payload.projectId ?? null,
           JSON.stringify(loaded.skillInvocation ?? context),
@@ -508,6 +509,7 @@ export async function runCodexAppServerRunJob(
           JSON.stringify({
             scheduler: "bullmq",
             jobType: "rpc.run",
+            provider: "codex-rpc",
             workspaceRoot: loaded.workspaceRoot,
             safety,
             skillSlug: loaded.skillInvocation?.skillSlug,
@@ -520,7 +522,7 @@ export async function runCodexAppServerRunJob(
   }
   const heartbeat = recordRunnerHeartbeat({
     runId: payload.executionId,
-    runnerId: "bullmq-app-server-runner",
+    runnerId: "bullmq-codex-rpc-adapter",
     policy,
     queueStatus: "running",
     message: `Running ${taskId ?? payload.operation}`,
@@ -535,7 +537,7 @@ export async function runCodexAppServerRunJob(
       params: [
         payload.executionId,
         optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
-        "codex.app_server",
+        "codex.rpc",
         payload.operation,
         loaded.projectId ?? payload.projectId ?? null,
         JSON.stringify(loaded.skillInvocation ?? { ...context, featureId: loaded.featureId ?? featureId, taskId }),
@@ -544,6 +546,7 @@ export async function runCodexAppServerRunJob(
         JSON.stringify({
           scheduler: "bullmq",
           jobType: "rpc.run",
+          provider: "codex-rpc",
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -569,7 +572,7 @@ export async function runCodexAppServerRunJob(
     featureId: loaded.featureId ?? featureId,
     context,
     status: "running",
-    summary: "Codex app-server started feature execution.",
+    summary: "Codex RPC started feature execution.",
     source: "rpc.run",
     schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
     executionId: payload.executionId,
@@ -596,7 +599,7 @@ export async function runCodexAppServerRunJob(
       policy,
       heartbeat: recordRunnerHeartbeat({
         runId: payload.executionId,
-        runnerId: "bullmq-app-server-runner",
+        runnerId: "bullmq-codex-rpc-adapter",
         policy,
         queueStatus: "failed",
         message: reason,
@@ -654,7 +657,7 @@ export async function runCodexAppServerRunJob(
     rawLog: adapterResult.rawLog,
     heartbeat: recordRunnerHeartbeat({
       runId: payload.executionId,
-      runnerId: "bullmq-app-server-runner",
+      runnerId: "bullmq-codex-rpc-adapter",
       policy,
       queueStatus: appServerResultStatus(adapterResult),
       message: adapterResult.result.skillOutput?.summary ?? adapterResult.rawLog.stderr,
@@ -662,10 +665,10 @@ export async function runCodexAppServerRunJob(
   });
     const finalStatus = appServerResultStatus(adapterResult);
   const finalSummary = finalStatus === "approval_needed"
-    ? "Codex app-server is waiting for approval; autonomous execution is paused for this Feature."
+    ? "Codex RPC is waiting for approval; autonomous execution is paused for this Feature."
     : finalStatus === "failed" && adapterResult.result.contractValidation && !adapterResult.result.contractValidation.valid
     ? `Skill output contract validation failed: ${adapterResult.result.contractValidation.reasons.join("; ")}`
-    : adapterResult.result.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex app-server ${finalStatus}.`);
+    : adapterResult.result.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex RPC ${finalStatus}.`);
   runSqlite(dbPath, [
     {
       sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -1114,7 +1117,7 @@ export function updateSchedulerJobRecord(dbPath: string, bullmqJobId: string | u
 async function dispatchCliJob(dbPath: string, job: Job, runner?: CliCommandRunner, appServerTransport?: CodexAppServerTransport): Promise<void> {
   updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
   try {
-    const result = job.name === "codex.app_server.run"
+    const result = job.name === "codex.rpc.run" || job.name === "codex.app_server.run"
       ? await runCodexAppServerRunJob(dbPath, job.data as AppServerRunJobPayload, appServerTransport)
       : job.name === "rpc.run"
       ? await runRpcRunJob(dbPath, job.data as AppServerRunJobPayload, appServerTransport)
@@ -1369,7 +1372,7 @@ function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig
   const row = result.queries.adapter[0];
   const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
   if (!row && adapterCount > 0) {
-    throw new Error("No active Codex app-server adapter configured. Activate an adapter in System Settings before starting app-server runs.");
+    throw new Error("No active Codex RPC adapter configured. Activate an adapter in System Settings before starting Codex RPC runs.");
   }
   if (!row) return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
   return {
@@ -1385,7 +1388,7 @@ function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig
   };
 }
 
-function loadActiveRpcProvider(dbPath: string): "codex-app-server" | "gemini-acp" {
+function loadActiveRpcProvider(dbPath: string): "codex-rpc" | "gemini-acp" {
   const result = runSqlite(dbPath, [], [
     { name: "adapter", sql: "SELECT provider FROM rpc_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
     { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM rpc_adapter_configs" },
@@ -1396,7 +1399,7 @@ function loadActiveRpcProvider(dbPath: string): "codex-app-server" | "gemini-acp
     throw new Error("No active RPC adapter configured. Activate an RPC adapter in System Settings before starting RPC runs.");
   }
   const provider = optionalString(row?.provider);
-  return provider === "gemini-acp" ? "gemini-acp" : "codex-app-server";
+  return provider === "gemini-acp" ? "gemini-acp" : "codex-rpc";
 }
 
 function loadGeminiAcpAdapterConfig(dbPath: string): GeminiAcpAdapterConfig {
