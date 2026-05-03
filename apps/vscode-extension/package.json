@@ -2,7 +2,7 @@
   "name": "specdrive-ide",
   "displayName": "SpecDrive IDE",
   "description": "VSCode-native SpecDrive explorer for Spec documents, Feature Specs, and execution queue state.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "specdrive",
   "type": "commonjs",
   "engines": {
@@ -39,7 +39,8 @@
     "commands": [
       {
         "command": "specdrive.refresh",
-        "title": "SpecDrive: Refresh"
+        "title": "SpecDrive: Refresh",
+        "icon": "$(refresh)"
       },
       {
         "command": "specdrive.filterQueue",
@@ -51,15 +52,18 @@
       },
       {
         "command": "specdrive.openExecutionWorkbench",
-        "title": "SpecDrive: Open Execution Workbench"
+        "title": "SpecDrive: Open Execution Workbench",
+        "icon": "$(run-all)"
       },
       {
         "command": "specdrive.openSpecWorkspace",
-        "title": "SpecDrive: Open Spec Workspace"
+        "title": "SpecDrive: Open Spec Workspace",
+        "icon": "$(checklist)"
       },
       {
         "command": "specdrive.openFeatureSpec",
-        "title": "SpecDrive: Open Feature Spec"
+        "title": "SpecDrive: Open Feature Spec",
+        "icon": "$(layout)"
       },
       {
         "command": "specdrive.openItem",
