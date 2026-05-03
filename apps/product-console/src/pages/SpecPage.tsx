@@ -52,7 +52,7 @@ const workflowStageIcons: Record<string, typeof Search> = {
   generate_ears: FileText,
   complete_clarifications: MessageSquare,
   run_requirement_quality_check: CheckCircle2,
-  feature_spec_pool: GitBranch,
+  task_scheduling: GitBranch,
   generate_hld: FileText,
   generate_ui_spec: Layers,
   split_feature_specs: Workflow,
@@ -74,7 +74,7 @@ function workflowStageLabel(key: string, text: UiStrings): string {
     generate_ears: text.generateEars,
     complete_clarifications: text.completeClarifications,
     run_requirement_quality_check: text.runRequirementQualityCheck,
-    feature_spec_pool: text.featureSpecPool,
+    task_scheduling: text.startAutoRun,
     generate_hld: text.generateHld,
     generate_ui_spec: text.generateUiSpec,
     split_feature_specs: text.splitFeatureSpecs,
@@ -134,8 +134,8 @@ function workflowStageAction(
         ? "generate_ui_spec"
         : stageKey === "split_feature_specs"
           ? "split_feature_specs"
-          : stageKey === "feature_spec_pool"
-            ? "push_feature_spec_pool"
+          : stageKey === "task_scheduling"
+            ? "start_auto_run"
             : stageKey === "status_scheduling" || stageKey === "status_check"
               ? "schedule_run"
               : undefined;
@@ -266,7 +266,7 @@ function SpecPrdWorkflowPanel({
       { key: "generate_hld", action: "generate_hld", status: "pending" as const },
       { key: "generate_ui_spec", action: "generate_ui_spec", status: "pending" as const },
       { key: "split_feature_specs", action: "split_feature_specs", status: "pending" as const },
-      { key: "feature_spec_pool", action: "push_feature_spec_pool", status: "pending" as const },
+      { key: "task_scheduling", action: "start_auto_run", status: "pending" as const },
       { key: "status_check", action: "schedule_run", status: "pending" as const },
     ],
   };
@@ -300,7 +300,7 @@ function SpecPrdWorkflowPanel({
       selectedFeatureId &&
       action !== "generate_hld" &&
       action !== "split_feature_specs" &&
-      action !== "push_feature_spec_pool"
+      action !== "start_auto_run"
         ? "feature"
         : "project";
     const entityId = entityType === "feature" && selectedFeatureId ? selectedFeatureId : currentProject.id;
@@ -467,7 +467,7 @@ function SpecPrdWorkflowPanel({
                       stageAction === "generate_hld" ||
                       stageAction === "generate_ui_spec" ||
                       stageAction === "split_feature_specs" ||
-                      stageAction === "push_feature_spec_pool");
+                      stageAction === "start_auto_run");
                   const isSpecSourceIntake =
                     phase.key === "requirement_intake" && stage.key === "spec_source_intake";
                   return (

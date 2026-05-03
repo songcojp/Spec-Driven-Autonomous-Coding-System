@@ -50,7 +50,7 @@ const MAX_CONTEXT_FILE_BYTES = 120_000;
 const MAX_CONTEXT_BUNDLE_BYTES = 360_000;
 
 export type SchedulerJobType = "cli.run" | "codex.app_server.run" | "native.run";
-export type SchedulerJobStatus = "queued" | "running" | "completed" | "blocked" | "failed";
+export type SchedulerJobStatus = "queued" | "running" | "completed" | "approval_needed" | "blocked" | "failed";
 
 export type SchedulerEnqueueResult = {
   schedulerJobId: string;
@@ -357,6 +357,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
         message: result.evidence,
       }),
     });
+    persistRunnerExecutionResult(dbPath, result.adapterResult.evidence);
   }
 
   const taskStatus = taskStatusFromRunnerStatus(result.status);
@@ -637,8 +638,11 @@ export async function runCodexAppServerRunJob(
       message: adapterResult.evidence.skillOutput?.summary ?? adapterResult.rawLog.stderr,
     }),
   });
+  persistRunnerExecutionResult(dbPath, adapterResult.evidence);
   const finalStatus = appServerResultStatus(adapterResult);
-  const finalSummary = finalStatus === "failed" && adapterResult.evidence.contractValidation && !adapterResult.evidence.contractValidation.valid
+  const finalSummary = finalStatus === "approval_needed"
+    ? "Codex app-server is waiting for approval; autonomous execution is paused for this Feature."
+    : finalStatus === "failed" && adapterResult.evidence.contractValidation && !adapterResult.evidence.contractValidation.valid
     ? `Skill output contract validation failed: ${adapterResult.evidence.contractValidation.reasons.join("; ")}`
     : adapterResult.evidence.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex app-server ${finalStatus}.`);
   runSqlite(dbPath, [
@@ -721,6 +725,8 @@ function updateFeatureSpecFileState(input: {
           blockedReasons: input.status === "blocked" || input.status === "failed" ? [input.summary] : [],
           nextAction: input.status === "running"
             ? "Runner is executing this Feature."
+            : input.status === "approval_needed"
+              ? "Resolve the pending approval request before autonomous execution can continue."
             : input.status === "completed"
               ? "Run status checks and prepare review."
               : "Review execution result and resume or skip.",
@@ -747,6 +753,7 @@ function updateFeatureSpecFileState(input: {
 
 function runnerStatusToFileSpecStatus(status: RunnerQueueStatus) {
   if (status === "completed") return "completed";
+  if (status === "approval_needed") return "approval_needed";
   if (status === "review_needed") return "review_needed";
   if (status === "blocked") return "blocked";
   if (status === "failed") return "failed";
@@ -799,20 +806,72 @@ async function dispatchCliJob(dbPath: string, job: Job, runner?: CodexCommandRun
     const result = job.name === "codex.app_server.run"
       ? await runCodexAppServerRunJob(dbPath, job.data as AppServerRunJobPayload, appServerTransport)
       : await runCliRunJob(dbPath, job.data as CliRunJobPayload, runner);
-    updateSchedulerJobRecord(dbPath, String(job.id), result.status === "blocked" ? "blocked" : "completed", undefined, job.attemptsMade);
+    updateSchedulerJobRecord(dbPath, String(job.id), result.status === "blocked" || result.status === "approval_needed" ? result.status : "completed", undefined, job.attemptsMade);
   } catch (error) {
     updateSchedulerJobRecord(dbPath, String(job.id), "failed", error, job.attemptsMade);
     throw error;
   }
 }
 
-function appServerResultStatus(result: { session: { exitCode: number | null }; evidence: { skillOutput?: SkillOutputContract } }): RunnerQueueStatus {
+function appServerResultStatus(result: { session: { exitCode: number | null }; evidence: { skillOutput?: SkillOutputContract; events?: Array<Record<string, unknown>> } }): RunnerQueueStatus {
+  if (hasApprovalRequest(result.evidence.events)) return "approval_needed";
   if ((result.session.exitCode ?? 0) !== 0) return "failed";
   const status = result.evidence.skillOutput?.status;
   if (status === "review_needed" || status === "blocked" || status === "failed" || status === "completed") {
     return status;
   }
   return "completed";
+}
+
+function hasApprovalRequest(events?: Array<Record<string, unknown>>): boolean {
+  return (events ?? []).some((event) => {
+    const type = optionalString(event.type) ?? optionalString(event.method) ?? "";
+    return type === "approval/request" || type.endsWith("/approval/request");
+  });
+}
+
+function persistRunnerExecutionResult(dbPath: string, evidence: {
+  runId: string;
+  taskId?: string;
+  featureId?: string;
+  exitCode?: number | null;
+  events?: Array<Record<string, unknown>>;
+  stdout?: string;
+  stderr?: string;
+  skillInvocation?: unknown;
+  skillOutput?: unknown;
+  contractValidation?: unknown;
+}): void {
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO status_check_results (
+        id, run_id, task_id, feature_id, status, summary, reasons_json, recommended_actions_json,
+        kind, metadata_json, execution_result_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        randomUUID(),
+        evidence.runId,
+        evidence.taskId ?? null,
+        evidence.featureId ?? null,
+        evidence.exitCode === 0 ? "done" : "review_needed",
+        `Codex runner exit=${evidence.exitCode ?? "unknown"} events=${evidence.events?.length ?? 0}`,
+        "[]",
+        "[]",
+        "codex_runner",
+        JSON.stringify({
+          sessionId: (evidence as Record<string, unknown>).sessionId,
+          exitCode: evidence.exitCode,
+          eventTypes: (evidence.events ?? []).map((event) => optionalString(event.type)).filter(Boolean),
+          stdout: evidence.stdout,
+          stderr: evidence.stderr,
+          skillInvocation: evidence.skillInvocation,
+          skillOutput: evidence.skillOutput,
+          contractValidation: evidence.contractValidation,
+        }),
+        "{}",
+      ],
+    },
+  ]);
 }
 
 function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
@@ -1004,6 +1063,7 @@ function transitionTaskIfAllowed(dbPath: string, taskId: string, from: BoardColu
 
 function taskStatusFromRunnerStatus(status: RunnerQueueStatus): BoardColumn {
   if (status === "completed") return "checking";
+  if (status === "approval_needed") return "review_needed";
   if (status === "review_needed") return "review_needed";
   if (status === "blocked") return "blocked";
   if (status === "failed") return "failed";

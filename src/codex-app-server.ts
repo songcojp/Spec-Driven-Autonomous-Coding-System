@@ -441,7 +441,7 @@ export function projectCodexAppServerEvents(events: CodexJsonEvent[]): CodexAppS
 export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterResultInput): CodexAdapterResult {
   const projection = projectCodexAppServerEvents(input.events);
   const contractValidation = validateSkillOutputContract(input.skillInvocation, projection.skillOutput);
-  const failedContract = input.skillInvocation && !contractValidation.valid;
+  const failedContract = input.skillInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
   const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
   const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
   const rawLog: RawExecutionLog = {

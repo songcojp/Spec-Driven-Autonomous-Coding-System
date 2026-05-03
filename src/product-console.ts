@@ -66,7 +66,7 @@ export type ConsoleCommandAction =
   | "generate_hld"
   | "generate_ui_spec"
   | "split_feature_specs"
-  | "push_feature_spec_pool"
+  | "start_auto_run"
   | "pause_runner"
   | "resume_runner"
   | "approve_review"
@@ -100,7 +100,7 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "generate_hld",
   "generate_ui_spec",
   "split_feature_specs",
-  "push_feature_spec_pool",
+  "start_auto_run",
   "pause_runner",
   "resume_runner",
   "approve_review",
@@ -368,12 +368,25 @@ type FeaturePoolSelectionInput = {
   docsById: Map<string, SpecWorkspaceFeatureListItem>;
   resumeFeatureId?: string;
   skipFeatureIds: string[];
+  payload?: Record<string, unknown>;
   now: Date;
 };
 
 type FeaturePoolSelectionResult = {
   selected?: FeaturePoolQueuePlanEntry;
   blockedReasons: string[];
+  decision?: FeatureSelectionDecision;
+};
+
+type FeatureSelectionDecision = {
+  decision: "selected" | "none" | "blocked";
+  featureId?: string;
+  reason: string;
+  blockedReasons: string[];
+  dependencyFindings: string[];
+  resumeRequiredFeatures: string[];
+  skippedFeatures: string[];
+  source: "feature-selection-skill" | "deterministic-fallback";
 };
 
 function listFeatureSpecsFromDocs(
@@ -554,7 +567,7 @@ function readFeaturePoolQueuePlan(projectPath: string): { path: string; entries:
     return {
       path: relativePath,
       entries: [],
-      blockedReasons: [`Feature Spec Pool queue plan is required before pushing to the pool: ${relativePath}`],
+      blockedReasons: [`Feature Pool Queue plan is required before autonomous Feature scheduling: ${relativePath}`],
     };
   }
 
@@ -577,19 +590,60 @@ function readFeaturePoolQueuePlan(projectPath: string): { path: string; entries:
       return reasons;
     });
     if (entries.length === 0) {
-      blockedReasons.push(`Feature Spec Pool queue plan has no features: ${relativePath}`);
+      blockedReasons.push(`Feature Pool Queue plan has no features: ${relativePath}`);
     }
     return { path: relativePath, entries, blockedReasons };
   } catch (error) {
     return {
       path: relativePath,
       entries: [],
-      blockedReasons: [`Feature Spec Pool queue plan is invalid: ${error instanceof Error ? error.message : String(error)}`],
+      blockedReasons: [`Feature Pool Queue plan is invalid: ${error instanceof Error ? error.message : String(error)}`],
     };
   }
 }
 
 function selectFeaturePoolQueueEntry(input: FeaturePoolSelectionInput): FeaturePoolSelectionResult {
+  const active = activeFeatureExecution(input.dbPath, input.projectId);
+  if (active) {
+    const reason = `Project already has an active feature_execution (${active.executionId}); autonomous selection is single-project serial.`;
+    return {
+      blockedReasons: [reason],
+      decision: {
+        decision: "blocked",
+        reason,
+        blockedReasons: [reason],
+        dependencyFindings: [],
+        resumeRequiredFeatures: [],
+        skippedFeatures: input.skipFeatureIds,
+        source: "deterministic-fallback",
+      },
+    };
+  }
+  const externalDecision = featureSelectionDecisionFromPayload(input.payload ?? {});
+  if (externalDecision) {
+    return validateFeatureSelectionDecision(input, externalDecision);
+  }
+  return deterministicFeaturePoolSelection(input);
+}
+
+function activeFeatureExecution(dbPath: string, projectId: string): { executionId: string; status: string } | undefined {
+  const rows = runSqlite(dbPath, [], [
+    {
+      name: "active",
+      sql: `SELECT id, status FROM execution_records
+        WHERE project_id = ?
+          AND operation = 'feature_execution'
+          AND status IN ('queued', 'running', 'approval_needed')
+        ORDER BY updated_at DESC
+        LIMIT 1`,
+      params: [projectId],
+    },
+  ]).queries.active;
+  const row = rows[0];
+  return row ? { executionId: String(row.id), status: String(row.status) } : undefined;
+}
+
+function deterministicFeaturePoolSelection(input: FeaturePoolSelectionInput): FeaturePoolSelectionResult {
   const completed = new Set(runSqlite(input.dbPath, [], [
     {
       name: "features",
@@ -664,9 +718,106 @@ function selectFeaturePoolQueueEntry(input: FeaturePoolSelectionInput): FeatureP
       blockedReasons.push(reason);
       continue;
     }
-    return { selected: entry, blockedReasons };
+    return {
+      selected: entry,
+      blockedReasons,
+      decision: {
+        decision: "selected",
+        featureId: entry.id,
+        reason: `${entry.id} is the highest-priority runnable Feature after deterministic safety checks.`,
+        blockedReasons,
+        dependencyFindings: entry.dependencies.map((dependency) => `${dependency}:completed`),
+        resumeRequiredFeatures: [],
+        skippedFeatures: input.skipFeatureIds,
+        source: "deterministic-fallback",
+      },
+    };
   }
-  return { blockedReasons };
+  return {
+    blockedReasons,
+    decision: {
+      decision: blockedReasons.length > 0 ? "blocked" : "none",
+      reason: blockedReasons.length > 0 ? "No Feature passed scheduler safety checks." : "No Feature entries were available for selection.",
+      blockedReasons,
+      dependencyFindings: [],
+      resumeRequiredFeatures: [],
+      skippedFeatures: input.skipFeatureIds,
+      source: "deterministic-fallback",
+    },
+  };
+}
+
+function featureSelectionDecisionFromPayload(payload: Record<string, unknown>): FeatureSelectionDecision | undefined {
+  const candidate = parseJsonObject(payload.featureSelectionResult ?? payload.selectionResult);
+  const result = isRecord(candidate.result) ? parseJsonObject(candidate.result) : candidate;
+  const decision = optionalString(result.decision);
+  if (decision !== "selected" && decision !== "none" && decision !== "blocked") return undefined;
+  return {
+    decision,
+    featureId: optionalString(result.featureId)?.toUpperCase(),
+    reason: optionalString(result.reason) ?? "Feature selection skill returned a decision.",
+    blockedReasons: optionalStringArray(result.blockedReasons),
+    dependencyFindings: optionalStringArray(result.dependencyFindings),
+    resumeRequiredFeatures: optionalStringArray(result.resumeRequiredFeatures).map((id) => id.toUpperCase()),
+    skippedFeatures: optionalStringArray(result.skippedFeatures).map((id) => id.toUpperCase()),
+    source: "feature-selection-skill",
+  };
+}
+
+function validateFeatureSelectionDecision(input: FeaturePoolSelectionInput, decision: FeatureSelectionDecision): FeaturePoolSelectionResult {
+  if (decision.decision !== "selected") {
+    return { blockedReasons: decision.blockedReasons.length > 0 ? decision.blockedReasons : [decision.reason], decision };
+  }
+  const featureId = decision.featureId;
+  const entry = input.entries.find((candidate) => candidate.id === featureId);
+  if (!featureId || !entry) {
+    return { blockedReasons: [`Feature selection skill returned an unknown Feature: ${featureId ?? "none"}.`], decision };
+  }
+  const feature = input.docsById.get(entry.id);
+  if (!feature?.folder) {
+    return { blockedReasons: [`Feature selection skill selected ${entry.id}, but it is not available as a Feature Spec directory.`], decision };
+  }
+  const completed = completedFeatureIds(input);
+  const dependencyMissing = entry.dependencies.filter((dependency) => !completed.has(dependency));
+  const state = readFileSpecState(input.projectPath, feature.folder, entry.id, input.now);
+  const readiness = validateFeatureSpecDirectory(input.projectPath, `docs/features/${feature.folder}`);
+  const blockedReasons = [
+    ...dependencyMissing.map((dependency) => `${entry.id} is blocked by incomplete dependency: ${dependency}.`),
+    ...readiness.map((reason) => `${entry.id} cannot run: ${reason}`),
+  ];
+  if (["blocked", "failed", "review_needed", "approval_needed"].includes(state.status) && input.resumeFeatureId !== entry.id) {
+    blockedReasons.push(`${entry.id} is ${state.status} and requires resume before it can run.`);
+  } else if (state.status !== "ready" && input.resumeFeatureId !== entry.id) {
+    blockedReasons.push(`${entry.id} is ${state.status}; scheduler only runs ready or explicitly resumed Features.`);
+  }
+  if (blockedReasons.length > 0) {
+    writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
+      status: "blocked",
+      dependencies: entry.dependencies,
+      blockedReasons,
+      nextAction: "Feature selection skill chose this Feature, but code safety checks blocked execution.",
+    }, { now: input.now, source: "feature-selection-skill", summary: blockedReasons.join(" ") }));
+    return { blockedReasons, decision };
+  }
+  return { selected: entry, blockedReasons: [], decision };
+}
+
+function completedFeatureIds(input: FeaturePoolSelectionInput): Set<string> {
+  const completed = new Set(runSqlite(input.dbPath, [], [
+    {
+      name: "features",
+      sql: "SELECT id FROM features WHERE project_id = ? AND status IN ('done', 'delivered')",
+      params: [input.projectId],
+    },
+  ]).queries.features.map((row) => String(row.id)));
+  for (const entry of input.entries) {
+    const feature = input.docsById.get(entry.id);
+    const state = feature?.folder ? readFileSpecState(input.projectPath, feature.folder, entry.id, input.now) : undefined;
+    if (state?.status === "completed" || state?.status === "delivered") {
+      completed.add(entry.id);
+    }
+  }
+  return completed;
 }
 
 function persistExecutionRecord(dbPath: string, input: {
@@ -1409,7 +1560,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
           'console_command_generate_hld',
           'console_command_generate_ui_spec',
           'console_command_split_feature_specs',
-          'console_command_push_feature_spec_pool',
+          'console_command_start_auto_run',
           'console_command_schedule_run'
         )
         AND (
@@ -1505,7 +1656,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
       { action: "upload_prd_source", entityType: "project" },
       { action: "generate_ears", entityType: "project" },
       { action: "update_spec", entityType: "spec" },
-      { action: "push_feature_spec_pool", entityType: "project" },
+      { action: "start_auto_run", entityType: "project" },
       { action: "schedule_run", entityType: "project" },
       { action: "schedule_run", entityType: "feature" },
     ],
@@ -1713,16 +1864,16 @@ function buildPrdWorkflow(input: {
       status: "pending" as const,
     },
     {
-      key: "feature_spec_pool",
-      action: "push_feature_spec_pool",
-      status: latestByAction.has("push_feature_spec_pool")
+      key: "task_scheduling",
+      action: "start_auto_run",
+      status: latestByAction.has("start_auto_run")
         ? "accepted" as const
         : input.features.some((feature) => feature.status === "ready")
           ? "completed" as const
           : input.features.length > 0
             ? "accepted" as const
             : "pending" as const,
-      updatedAt: optionalString(latestByAction.get("push_feature_spec_pool")?.created_at),
+      updatedAt: optionalString(latestByAction.get("start_auto_run")?.created_at),
     },
   ] satisfies SpecWorkspaceViewModel["prdWorkflow"]["phases"][number]["stages"];
   const planningBlockedReasons = intakePhaseStatus === "blocked"
@@ -2407,19 +2558,19 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const settingsValidation = executeCliAdapterCommand(dbPath, input, acceptedAt);
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt, scheduler);
+  const autoRunResult = executeAutoRunCommand(dbPath, input, acceptedAt, scheduler);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
   const projectInitializationResult = executeProjectInitializationCommand(dbPath, input);
   const specIntakeResult = executeSpecIntakeCommand(dbPath, input, acceptedAt);
   const specSkillResult = executeSpecSkillCommand(dbPath, input, acceptedAt, scheduler, specIntakeResult);
-  const specPoolResult = executeFeatureSpecPoolCommand(dbPath, input, acceptedAt, scheduler);
   const blockedReasons = [
     ...boardValidation.blockedReasons,
     ...(settingsValidation?.blockedReasons ?? []),
     ...(scheduleResult?.blockedReasons ?? []),
+    ...(autoRunResult?.blockedReasons ?? []),
     ...(boardResult?.blockedReasons ?? []),
     ...(projectInitializationResult?.blockedReasons ?? []),
     ...(specIntakeResult?.blockedReasons ?? []),
-    ...(specPoolResult?.blockedReasons ?? []),
   ];
   const auditEventId = recordAuditEvent(dbPath, {
     entityType,
@@ -2435,9 +2586,9 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
       projectInitialization: projectInitializationResult,
       specIntake: specIntakeResult,
       specSkill: specSkillResult,
-      specPool: specPoolResult,
+      autoRun: autoRunResult,
       scheduleTriggerId: scheduleResult?.triggerId,
-      schedulerJobId: scheduleResult?.schedulerJobId ?? specPoolResult?.schedulerJobId,
+      schedulerJobId: scheduleResult?.schedulerJobId ?? autoRunResult?.schedulerJobId,
       schedulerJobIds: boardResult?.schedulerJobIds,
       boardValidation,
       boardResult,
@@ -2456,10 +2607,10 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     acceptedAt,
     approvalRecordId: approvalRecord?.id,
     featureId: optionalString(specIntakeResult?.featureId),
-    scheduleTriggerId: scheduleResult?.triggerId ?? specPoolResult?.scheduleTriggerId,
-    schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId ?? specPoolResult?.schedulerJobId,
+    scheduleTriggerId: scheduleResult?.triggerId ?? autoRunResult?.scheduleTriggerId,
+    schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId ?? autoRunResult?.schedulerJobId,
     schedulerJobIds: boardResult?.schedulerJobIds,
-    executionId: specSkillResult?.executionId ?? scheduleResult?.executionId ?? specPoolResult?.executionId,
+    executionId: specSkillResult?.executionId ?? scheduleResult?.executionId ?? autoRunResult?.executionId,
     executionIds: boardResult?.runIds,
     runId: specSkillResult?.executionId,
     runIds: boardResult?.runIds,
@@ -2626,8 +2777,25 @@ function executeScheduleCommand(
   }
   const featureId = trigger.featureId ?? optionalString(payload.featureId);
   const taskId = optionalString(payload.taskId) ?? (input.entityType === "task" ? input.entityId : undefined);
-  const executionId = randomUUID();
   const operation = optionalString(payload.operation) ?? "feature_execution";
+  if (input.entityType === "project" && operation === "feature_execution" && !featureId && !taskId) {
+    const result = enqueueNextFeatureExecutionFromQueue(dbPath, {
+      projectId: input.entityId,
+      payload,
+      acceptedAt,
+      scheduler,
+      triggerId: trigger.id,
+      triggerAccepted: true,
+      commandSource: "schedule_run",
+    });
+    return {
+      triggerId: result.scheduleTriggerId ?? trigger.id,
+      schedulerJobId: result.schedulerJobId,
+      executionId: result.executionId,
+      blockedReasons: result.blockedReasons,
+    };
+  }
+  const executionId = randomUUID();
   const skillSlug = optionalString(payload.skillSlug) ?? (operation === "feature_execution" ? "codex-coding-skill" : undefined);
   const projectId = trigger.projectId ?? optionalString(payload.projectId);
   const project = projectId ? getProject(dbPath, projectId) : undefined;
@@ -2772,26 +2940,56 @@ function scheduleRunExpectedArtifacts(payload: Record<string, unknown>): string[
   return requested.length > 0 ? requested : [".autobuild/reports/feature-execution.json"];
 }
 
-function executeFeatureSpecPoolCommand(
+type EnqueueNextFeatureExecutionResult = {
+  featureIds: string[];
+  scheduleTriggerId?: string;
+  schedulerJobId?: string;
+  executionId?: string;
+  blockedReasons: string[];
+};
+
+function executeAutoRunCommand(
   dbPath: string,
   input: ConsoleCommandInput,
   acceptedAt: string,
   scheduler: SchedulerClient,
-): { featureIds: string[]; scheduleTriggerId?: string; schedulerJobId?: string; executionId?: string; blockedReasons: string[] } | undefined {
-  if (input.action !== "push_feature_spec_pool") {
+): EnqueueNextFeatureExecutionResult | undefined {
+  if (input.action !== "start_auto_run") {
     return undefined;
   }
   if (input.entityType !== "project") {
-    return { featureIds: [], blockedReasons: ["Feature Spec Pool commands require a project entity."] };
+    return { featureIds: [], blockedReasons: ["Auto Run commands require a project entity."] };
   }
-  const project = getProject(dbPath, input.entityId);
+  return enqueueNextFeatureExecutionFromQueue(dbPath, {
+    projectId: input.entityId,
+    payload: parseJsonObject(input.payload),
+    acceptedAt,
+    scheduler,
+    commandSource: "start_auto_run",
+  });
+}
+
+function enqueueNextFeatureExecutionFromQueue(
+  dbPath: string,
+  input: {
+    projectId: string;
+    payload: Record<string, unknown>;
+    acceptedAt: string;
+    scheduler: SchedulerClient;
+    triggerId?: string;
+    triggerAccepted?: boolean;
+    commandSource: "schedule_run" | "start_auto_run";
+  },
+): EnqueueNextFeatureExecutionResult {
+  const { acceptedAt, scheduler } = input;
+  const project = getProject(dbPath, input.projectId);
   if (!project) {
-    return { featureIds: [], blockedReasons: [`Project not found: ${input.entityId}`] };
+    return { featureIds: [], blockedReasons: [`Project not found: ${input.projectId}`] };
   }
   if (!project.targetRepoPath) {
-    return { featureIds: [], blockedReasons: ["Project repository path is required before pushing Feature Specs into the pool."] };
+    return { featureIds: [], blockedReasons: ["Project repository path is required before scheduling autonomous Feature execution."] };
   }
-  const payload = parseJsonObject(input.payload);
+  const payload = input.payload;
   const resumeFeatureId = optionalString(payload.resumeFeatureId)?.toUpperCase();
   const skipFeatureIds = [
     ...optionalStringArray(payload.skipFeatureIds),
@@ -2813,7 +3011,7 @@ function executeFeatureSpecPoolCommand(
   if (missingPlannedFeatures.length > 0) {
     return {
       featureIds: [],
-      blockedReasons: [`Feature Spec Pool queue plan references missing Feature Specs: ${missingPlannedFeatures.join(", ")}.`],
+      blockedReasons: [`Feature Pool Queue plan references missing Feature Specs: ${missingPlannedFeatures.join(", ")}.`],
     };
   }
   const missingDependencies = queuePlan.entries
@@ -2821,7 +3019,7 @@ function executeFeatureSpecPoolCommand(
   if (missingDependencies.length > 0) {
     return {
       featureIds: [],
-      blockedReasons: [`Feature Spec Pool queue plan references missing dependencies: ${missingDependencies.join(", ")}.`],
+      blockedReasons: [`Feature Pool Queue plan references missing dependencies: ${missingDependencies.join(", ")}.`],
     };
   }
   runSqlite(dbPath, queuePlan.entries.map((entry) => {
@@ -2862,18 +3060,20 @@ function executeFeatureSpecPoolCommand(
     };
   }));
 
-  const trigger = persistScheduleTrigger(
-    dbPath,
-    createScheduleTrigger({
-      projectId: project.id,
-      mode: "manual",
-      requestedFor: acceptedAt,
-      source: "product_console",
-      target: { type: "project", id: project.id },
-      boundaryEvidence: [queuePlan.path],
-      now: new Date(acceptedAt),
-    }),
-  );
+  const trigger = input.triggerId
+    ? { id: input.triggerId, result: input.triggerAccepted === false ? "blocked" : "accepted" }
+    : persistScheduleTrigger(
+      dbPath,
+      createScheduleTrigger({
+        projectId: project.id,
+        mode: "manual",
+        requestedFor: acceptedAt,
+        source: "product_console",
+        target: { type: "project", id: project.id },
+        boundaryEvidence: [queuePlan.path],
+        now: new Date(acceptedAt),
+      }),
+    );
   if (trigger.result !== "accepted") {
     return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: [] };
   }
@@ -2885,6 +3085,7 @@ function executeFeatureSpecPoolCommand(
     docsById,
     resumeFeatureId,
     skipFeatureIds,
+    payload,
     now: new Date(acceptedAt),
   });
   const selected = selection.selected;
@@ -2919,6 +3120,14 @@ function executeFeatureSpecPoolCommand(
     workspaceRoot: project.targetRepoPath,
     skillSlug: "codex-coding-skill",
     skillPhase: "feature_execution",
+    selection: selection.decision ? {
+      skillSlug: "feature-selection-skill",
+      requestedAction: "select_next_feature",
+      source: selection.decision.source,
+      reason: selection.decision.reason,
+      blockedReasons: selection.decision.blockedReasons,
+      dependencyFindings: selection.decision.dependencyFindings,
+    } : undefined,
   };
   const job = scheduler.enqueueCliRun({
     executionId,
@@ -2948,8 +3157,8 @@ function executeFeatureSpecPoolCommand(
     nextAction: "Waiting for Runner to start this Feature.",
   }, {
     now: new Date(acceptedAt),
-    source: "feature-pool-queue",
-    summary: resumeFeatureId === selected.id ? "Blocked Feature resumed and queued." : "Next ready Feature queued.",
+      source: input.commandSource,
+      summary: selection.decision?.reason ?? (resumeFeatureId === selected.id ? "Blocked Feature resumed and queued." : "Next ready Feature queued."),
     schedulerJobId: job.schedulerJobId,
     executionId,
   }));

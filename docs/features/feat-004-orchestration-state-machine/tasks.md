@@ -18,6 +18,6 @@
 - [x] TASK-016: 历史实现：旧 Feature Plan bridge-missing blocked 语义；该行为已由 TASK-018/TASK-019 废弃。
 - [x] TASK-017: 历史实现：旧 Workspace-aware planning CLI bridge；当前统一通过 `<executor>.run` + payload operation 表达执行入口。
 - [x] TASK-018: 将队列模型重构为 `<executor>.run` Job + Execution Record；取消 `feature.select`、`feature.plan`、FeatureSelectionDecision 和平台 TaskGraph 调度表，Feature/Task/Project 只进入 payload context。
-- [x] TASK-019: 将 `push_feature_spec_pool` 改为读取 `feature-pool-queue.json` 后直接入队 `cli.run` / 后续 `native.run`，Feature 执行统一使用 `operation = "feature_execution"`。
+- [x] TASK-019: 历史实现：曾将 `push_feature_spec_pool` 改为读取 `feature-pool-queue.json` 后直接入队 `cli.run` / 后续 `native.run`；当前该独立步骤已废弃，由项目级 `schedule_run` / `start_auto_run` 承担同一调度入口。
 - [x] TASK-020: 将 Feature 级 `schedule_run` 改为完整 Feature Spec 目录驱动；调度器校验 `requirements.md` / `design.md` / `tasks.md` 后直接入队 `feature_execution`，不再要求平台 `task_graph_tasks` / `tasks` 表存在。
 - [x] TASK-021: 将 Feature 调度状态投影到 `spec-state.json`，并支持 blocked/resume/skip/next 选择规则。

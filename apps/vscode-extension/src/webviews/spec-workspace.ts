@@ -127,7 +127,7 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
       label: "Feature Split",
       status: stageStatus("feature-split", hasFeatureSpecs),
       active: activeId === "feature-split",
-      description: "Turn accepted requirements into Feature Specs, planning outputs, task slices, and runnable Feature execution queue entries.",
+      description: "Turn accepted requirements into Feature Specs, planning outputs, task slices, and Feature Pool Queue planning artifacts.",
       documentKinds: ["feature-requirements", "feature-design", "feature-tasks", "tasks"],
       steps: [
         { label: "Feature Spec directory", status: hasFeatureSpecs ? "Ready" : "Not Started" },
@@ -135,7 +135,6 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
       ],
       actions: [
         { label: "Split Feature Specs", action: "split_feature_specs", reason: "Split Feature Specs from Feature Split lifecycle." },
-        { label: "Push Feature Pool", action: "push_feature_spec_pool", reason: "Push Feature Spec Pool from Feature Split lifecycle." },
       ],
     },
   ];

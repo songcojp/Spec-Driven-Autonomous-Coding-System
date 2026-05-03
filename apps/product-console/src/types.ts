@@ -11,7 +11,7 @@ export type CommandAction =
   | "generate_ears"
   | "generate_hld"
   | "split_feature_specs"
-  | "push_feature_spec_pool"
+  | "start_auto_run"
   | "pause_runner"
   | "resume_runner"
   | "approve_review"

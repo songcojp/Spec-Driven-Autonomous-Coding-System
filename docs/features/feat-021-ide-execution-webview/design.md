@@ -21,7 +21,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 | Execution Workbench | Auto Run Control | 提供 start auto run、pause automation、resume automation、stop、并发策略和下一步动作预览。 |
 | Execution Workbench | Current Execution | 展示当前 Execution Record、thread/turn、步骤进度、raw log refs、diff 摘要和输出校验状态。 |
 | Execution Workbench | Blockers and Approvals | 汇总 blocked reason、approval pending、失败原因和可执行恢复动作。 |
-| Execution Workbench | Result Projection | 展示 `spec-state.json.lastResult`、nextAction、produced artifacts 和最近状态投影。 |
+| Execution Workbench | Result Projection | 展示 `feature-selection-skill` 选择原因、`spec-state.json.lastResult`、nextAction、produced artifacts 和最近状态投影。 |
 | Spec Workspace | Lifecycle Pipeline | 展示 PRD 到 Delivery 的 Spec 全流程阶段、阶段状态、当前阶段和下一步动作。 |
 | Spec Workspace | Stage Detail | 展示当前阶段来源文档、traceability、required skills、evidence、blockers 和阶段推进按钮。 |
 | Spec Workspace | Control Guardrails | 展示 constitution checks、command approvals、safe action confirmations、spec consistency 和 manual approval。 |
@@ -39,6 +39,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - 查询输入：`projectId`、`workspaceRoot`、status filter、featureId、executionId。
 - 命令输入：`IdeCommandReceiptV1` 支持的 queue action、auto run / pause automation / resume automation 意图、Spec lifecycle controlled command 和 Feature schedule/open artifact intent。
 - 输出：Webview 只消费 Control Plane 返回的轻量 view model；完整 raw logs、diff、执行输出、evidence 和 Feature artifacts 通过引用或分页查询加载。
+- Execution Workbench 不自行选择下一 Feature；它展示 Control Plane 返回的 `feature-selection-skill` 决策、代码安全校验结果、approval pending、blocked/review_needed/failed 投影和可执行恢复动作。
 - Product Console 与三组 VSCode Webview 共用持久事实源，但不共用 UI ViewModel 作为事实源。
 - Spec Workspace 的全流程操作通过 `runControlledCommand` 或 Spec change request 进入 extension host，由 Control Plane 决定是否生成任务、记录审批或拒绝动作。
 - Feature Spec 的调度、打开文档和刷新动作在 VSCode extension host 内执行；调度类动作必须进入 Control Plane command API。

@@ -25,7 +25,7 @@ export function renderExecutionWorkbenchWebview(
   const blockers = queue.filter((item) => item.status === "blocked" || item.status === "approval_needed");
   return renderWorkbenchPage("Execution Workbench", nonce, `
     <section class="toolbar">
-      ${commandButton("Start Auto Run", "controlled", { action: "auto_run", entityType: "runner", entityId: view?.project?.id ?? "workspace", reason: "Start auto run from Execution Workbench." })}
+      ${commandButton("Start Auto Run", "controlled", { action: "start_auto_run", entityType: "project", entityId: view?.project?.id ?? "workspace", reason: "Start auto run from Execution Workbench." })}
       ${queueButton("Run Now", queue.find((item) => item.status === "ready" || item.status === "queued"), "run_now")}
       ${queueButton("Pause", detail, "pause")}
       ${queueButton("Resume", detail, "resume")}

@@ -390,7 +390,8 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "generate_hld"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "generate_ui_spec"), true);
   assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "status_check"), true);
-  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "feature_spec_pool"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "task_scheduling"), true);
+  assert.equal(specWorkspace.prdWorkflow.phases[2].stages.some((stage) => stage.key === "feature_spec_pool"), false);
   assert.equal(specWorkspace.prdWorkflow.stages.some((stage) => stage.key === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "generate_hld"), false);
   assert.equal(specWorkspace.commands.some((command) => command.action === "schedule_run"), true);
@@ -1143,6 +1144,7 @@ test("split Feature Specs dispatches task-slicing skill with PRD EARS HLD inputs
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
@@ -1192,6 +1194,7 @@ test("split Feature Specs preserves uploaded PRD source for task-slicing context
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
@@ -1218,11 +1221,11 @@ test("split Feature Specs preserves uploaded PRD source for task-slicing context
   assert.equal(payload.context.sourcePaths.includes("docs/PRD.md"), true);
 });
 
-test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
+test("project schedule_run executes the skill-planned queue artifact", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
-  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-"));
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-start-auto-run-"));
   mkdirSync(join(projectPath, "docs", "features", "feat-001-ticket-capture"), { recursive: true });
   mkdirSync(join(projectPath, "docs", "features", "feat-002-ticket-scan"), { recursive: true });
   writeFileSync(
@@ -1268,12 +1271,12 @@ test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
-    action: "push_feature_spec_pool",
+    action: "schedule_run",
     entityType: "project",
     entityId: "project-1",
     requestedBy: "operator",
-    reason: "Push split Feature Specs into the pool.",
-    payload: {},
+    reason: "Schedule autonomous Feature execution.",
+    payload: { mode: "manual" },
     now: stableDate,
   }, { scheduler });
   const result = runSqlite(dbPath, [], [
@@ -1302,11 +1305,122 @@ test("push Feature Spec Pool executes the skill-planned queue artifact", () => {
   assert.equal(result.queries.executions[0].operation, "feature_execution");
 });
 
-test("push Feature Spec Pool blocks when the skill queue plan is missing", () => {
+test("start Auto Run accepts a feature-selection skill decision before enqueuing execution", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
-  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-missing-plan-"));
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-start-auto-run-selector-"));
+  for (const folder of ["feat-001-ticket-capture", "feat-002-ticket-scan"]) {
+    mkdirSync(join(projectPath, "docs", "features", folder), { recursive: true });
+    const id = folder.startsWith("feat-001") ? "FEAT-001" : "FEAT-002";
+    writeFileSync(join(projectPath, "docs", "features", folder, "requirements.md"), `# Feature Spec: ${id} Demo\n`, "utf8");
+    writeFileSync(join(projectPath, "docs", "features", folder, "design.md"), "# Design\n", "utf8");
+    writeFileSync(join(projectPath, "docs", "features", folder, "tasks.md"), "# Tasks\n", "utf8");
+  }
+  writeFileSync(join(projectPath, "docs", "features", "feature-pool-queue.json"), JSON.stringify({
+    features: [
+      { id: "FEAT-001", priority: 20, dependencies: [] },
+      { id: "FEAT-002", priority: 10, dependencies: [] },
+    ],
+  }, null, 2), "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "start_auto_run",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Use feature-selection-skill output.",
+    payload: {
+      featureSelectionResult: {
+        decision: "selected",
+        featureId: "FEAT-002",
+        reason: "FEAT-002 is selected by reasoning over current operator context.",
+        blockedReasons: [],
+        dependencyFindings: ["FEAT-002:no-dependencies"],
+        resumeRequiredFeatures: [],
+        skippedFeatures: [],
+      },
+    },
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "execution", sql: "SELECT context_json FROM execution_records WHERE id = ?", params: [receipt.executionId] },
+  ]);
+  const context = JSON.parse(String(result.queries.execution[0].context_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(context.featureId, "FEAT-002");
+  assert.equal(context.selection.skillSlug, "feature-selection-skill");
+  assert.equal(context.selection.source, "feature-selection-skill");
+  assert.match(context.selection.reason, /selected by reasoning/);
+});
+
+test("start Auto Run rejects unsafe feature-selection skill decisions", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-start-auto-run-selector-block-"));
+  for (const folder of ["feat-001-foundation", "feat-002-dependent"]) {
+    mkdirSync(join(projectPath, "docs", "features", folder), { recursive: true });
+    const id = folder.startsWith("feat-001") ? "FEAT-001" : "FEAT-002";
+    writeFileSync(join(projectPath, "docs", "features", folder, "requirements.md"), `# Feature Spec: ${id} Demo\n`, "utf8");
+    writeFileSync(join(projectPath, "docs", "features", folder, "design.md"), "# Design\n", "utf8");
+    writeFileSync(join(projectPath, "docs", "features", folder, "tasks.md"), "# Tasks\n", "utf8");
+  }
+  writeFileSync(join(projectPath, "docs", "features", "feature-pool-queue.json"), JSON.stringify({
+    features: [
+      { id: "FEAT-001", priority: 20, dependencies: [] },
+      { id: "FEAT-002", priority: 10, dependencies: ["FEAT-001"] },
+    ],
+  }, null, 2), "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "start_auto_run",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Reject unsafe feature-selection-skill output.",
+    payload: {
+      featureSelectionResult: {
+        decision: "selected",
+        featureId: "FEAT-002",
+        reason: "Incorrectly selected before dependency completion.",
+        blockedReasons: [],
+        dependencyFindings: ["FEAT-001:incomplete"],
+        resumeRequiredFeatures: [],
+        skippedFeatures: [],
+      },
+    },
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "executions", sql: "SELECT id FROM execution_records" },
+  ]);
+  const state = JSON.parse(readFileSync(join(projectPath, "docs", "features", "feat-002-dependent", "spec-state.json"), "utf8"));
+
+  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.blockedReasons?.some((reason) => reason.includes("incomplete dependency")), true);
+  assert.deepEqual(result.queries.executions, []);
+  assert.equal(state.status, "blocked");
+});
+
+test("start Auto Run blocks when the skill queue plan is missing", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-start-auto-run-missing-plan-"));
   mkdirSync(join(projectPath, "docs", "features", "feat-001-ticket-capture"), { recursive: true });
   writeFileSync(
     join(projectPath, "docs", "features", "feat-001-ticket-capture", "requirements.md"),
@@ -1319,14 +1433,15 @@ test("push Feature Spec Pool blocks when the skill queue plan is missing", () =>
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
-    action: "push_feature_spec_pool",
+    action: "start_auto_run",
     entityType: "project",
     entityId: "project-1",
     requestedBy: "operator",
-    reason: "Push split Feature Specs into the pool.",
+    reason: "Start autonomous Feature scheduling.",
     payload: {},
     now: stableDate,
   }, { scheduler });
@@ -1341,11 +1456,11 @@ test("push Feature Spec Pool blocks when the skill queue plan is missing", () =>
   assert.deepEqual(result.queries.jobs, []);
 });
 
-test("push Feature Spec Pool writes file-backed state and can skip to the next Feature", () => {
+test("start Auto Run writes file-backed state and can skip to the next Feature", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
-  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-skip-"));
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-start-auto-run-skip-"));
   for (const folder of ["feat-001-ticket-capture", "feat-002-ticket-scan"]) {
     mkdirSync(join(projectPath, "docs", "features", folder), { recursive: true });
     const id = folder.startsWith("feat-001") ? "FEAT-001" : "FEAT-002";
@@ -1363,10 +1478,11 @@ test("push Feature Spec Pool writes file-backed state and can skip to the next F
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
-    action: "push_feature_spec_pool",
+    action: "start_auto_run",
     entityType: "project",
     entityId: "project-1",
     requestedBy: "operator",
@@ -1388,11 +1504,11 @@ test("push Feature Spec Pool writes file-backed state and can skip to the next F
   assert.equal(context.specStatePath, "docs/features/feat-002-ticket-scan/spec-state.json");
 });
 
-test("push Feature Spec Pool marks incomplete Feature Spec state as blocked", () => {
+test("start Auto Run marks incomplete Feature Spec state as blocked", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
-  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-blocked-state-"));
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-start-auto-run-blocked-state-"));
   mkdirSync(join(projectPath, "docs", "features", "feat-001-ticket-capture"), { recursive: true });
   writeFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "requirements.md"), "# Feature Spec: FEAT-001 Ticket Capture\n", "utf8");
   writeFileSync(join(projectPath, "docs", "features", "feature-pool-queue.json"), JSON.stringify({
@@ -1402,14 +1518,15 @@ test("push Feature Spec Pool marks incomplete Feature Spec state as blocked", ()
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
-    action: "push_feature_spec_pool",
+    action: "start_auto_run",
     entityType: "project",
     entityId: "project-1",
     requestedBy: "operator",
-    reason: "Push split Feature Specs into the pool.",
+    reason: "Start autonomous Feature scheduling.",
     payload: {},
     now: stableDate,
   }, { scheduler });
@@ -1421,11 +1538,11 @@ test("push Feature Spec Pool marks incomplete Feature Spec state as blocked", ()
   assert.equal(state.blockedReasons.some((reason: string) => reason.includes("tasks.md")), true);
 });
 
-test("push Feature Spec Pool accepts skill queue plan P-level priorities", () => {
+test("start Auto Run accepts skill queue plan P-level priorities", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
-  const projectPath = mkdtempSync(join(tmpdir(), "spec-push-feature-pool-priority-label-"));
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-start-auto-run-priority-label-"));
   mkdirSync(join(projectPath, "docs", "features", "FEAT-001"), { recursive: true });
   mkdirSync(join(projectPath, "docs", "features", "FEAT-002"), { recursive: true });
   writeFileSync(
@@ -1451,14 +1568,15 @@ test("push Feature Spec Pool accepts skill queue plan P-level priorities", () =>
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     { sql: "DELETE FROM features WHERE project_id = 'project-1'" },
+    { sql: "DELETE FROM execution_records" },
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
-    action: "push_feature_spec_pool",
+    action: "start_auto_run",
     entityType: "project",
     entityId: "project-1",
     requestedBy: "operator",
-    reason: "Push split Feature Specs into the pool.",
+    reason: "Start autonomous Feature scheduling.",
     payload: {},
     now: stableDate,
   }, { scheduler });

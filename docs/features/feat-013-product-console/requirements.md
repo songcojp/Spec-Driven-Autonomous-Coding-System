@@ -32,10 +32,10 @@ Spec Evolution:
 - Project Home 是当前单个项目的概览入口，展示项目身份、仓库/分支、活跃 Feature、运行摘要、风险、最近 PR、Evidence / 审计事件，并在页面内提供 Task Board 分区。
 - Task Board 分区支持受状态机约束的兼容看板拖拽、批量排期、批量运行，以及查看任务依赖、diff、测试结果、审批状态和失败恢复历史；编码执行的主路径以 Feature Spec 目录为输入，不依赖 Task Board 任务表。
 - Spec Workspace 支持创建 Feature，并查看 Spec、澄清记录、需求质量 checklist、技术计划、数据模型、契约、Feature Spec `tasks.md` 覆盖情况和 Spec 版本 diff。
-- Spec Workspace 的 Spec 操作流程必须拆为“阶段 1 项目初始化”、“阶段 2 需求录入”和“阶段 3 设计规划阶段”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 将 Spec Sources 自动扫描和 PRD 上传合并为一个“Spec 扫描与上传”步骤，并在该步骤中显示“扫描”和“上传”两个按钮，同时展示 PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS 文档生成、澄清和质量检查状态；阶段 3 展示已拆分 Feature Spec 推入 Pool、Feature Spec 目录完整性、调度、状态检查和状态聚合。
+- Spec Workspace 的 Spec 操作流程必须拆为“阶段 1 项目初始化”、“阶段 2 需求录入”和“阶段 3 设计规划与任务调度”：阶段 1 展示自动项目创建/导入、Git 仓库、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文状态；阶段 2 将 Spec Sources 自动扫描和 PRD 上传合并为一个“Spec 扫描与上传”步骤，并在该步骤中显示“扫描”和“上传”两个按钮，同时展示 PR/RP/PRD/EARS 识别、已有 HLD / Feature Spec / tasks 事实源盘点、EARS 文档生成、澄清和质量检查状态；阶段 3 展示 HLD、UI Spec、Feature Spec 拆分、Feature Spec 目录完整性、启动自动执行、调度、状态检查和状态聚合。
 - Spec Workspace 头部的阶段流程必须默认折叠为可点击状态标签，只展示阶段名称、状态和更新时间；点击阶段标签后展开阶段事实、阻塞原因和阶段内步骤。
 - Spec Workflow 的来源、版本、扫描模式、最后扫描时间、运行耗时和阻塞数量必须以标签形式显示在流程说明栏；流程后方不得保留独立提示信息栏。
-- 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；Feature Spec 拆分是独立受控操作，推入 Feature Spec Pool 只读取已拆分 Feature Spec 和 Skill 产出的队列规划，并按规划结果创建调度队列。
+- 阶段 2 不得展示 HLD 生成、Feature Spec 拆分或规划流水线入口；Feature Spec 拆分是独立受控操作，拆分后不再展示“推入 Feature Spec Pool”步骤，项目级任务调度直接读取已拆分 Feature Spec 和 Skill 产出的队列规划，并按规划结果创建调度队列。
 - Skill Center 已移除，Console 不展示平台 Skill 页面。
 - Subagent Console 已移除，Console 不展示平台 Subagent 页面或终止/重试动作。
 - Runner Console 展示 Runner 在线状态、Codex 版本、sandbox、approval policy、queue、最近日志、心跳、外部执行状态和证据，并支持暂停或恢复 Runner。
@@ -73,7 +73,7 @@ Spec Evolution:
 - Task Board 的拖拽或批量操作只能产生受状态机允许的状态变更或调度请求。
 - `schedule_board_tasks` 只执行兼容排期状态迁移；`run_board_tasks` 只入队 `cli.run`，不得由 Console 请求直接执行 CLI。Feature 级编码调度不需要先生成或读取平台 task 表。
 - 用户可以从 Spec Workspace 追踪需求到 Feature Spec 目录和 `tasks.md`。
-- 用户可以从 Spec Workspace 看到阶段 1 自动项目初始化是否阻塞阶段 2 需求录入，也可以看到阶段 3 设计规划阶段状态；没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 / 阶段 3 Spec 流程。
+- 用户可以从 Spec Workspace 看到阶段 1 自动项目初始化是否阻塞阶段 2 需求录入，也可以看到阶段 3 设计规划与任务调度状态；没有 Feature Spec 时仍能看到阶段 1 / 阶段 2 / 阶段 3 Spec 流程。
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。
 - 用户可以判断 Runner 是否可执行新任务。
 - 用户可以通过系统设置查看 active CLI Adapter，并通过原始 JSON 或 JSON Schema 表单编辑 adapter 配置。

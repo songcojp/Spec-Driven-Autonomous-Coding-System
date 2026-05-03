@@ -8,6 +8,7 @@ export type FileSpecLifecycleStatus =
   | "ready"
   | "queued"
   | "running"
+  | "approval_needed"
   | "blocked"
   | "review_needed"
   | "completed"

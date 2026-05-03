@@ -168,7 +168,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
       "generate_hld",
       "generate_ui_spec",
       "split_feature_specs",
-      "push_feature_spec_pool",
+      "start_auto_run",
     ]);
     const accepted = body.action === "create_project" || workflowActions.has(body.action);
     await route.fulfill({
@@ -195,7 +195,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("heading", { name: "Spec 操作流程" })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /阶段 3 Feature 执行/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /阶段 3 设计规划与任务调度/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /阶段 4 UI Spec/ })).toHaveCount(0);
   await page.getByRole("button", { name: /阶段 1 项目初始化/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "true");
@@ -204,9 +204,9 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await page.getByRole("button", { name: /阶段 2 需求录入/ }).click();
   await expect(page.getByRole("button", { name: /阶段 1 项目初始化/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "true");
-  await expect(page.getByRole("button", { name: /阶段 3 Feature 执行/ })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByRole("button", { name: /阶段 3 设计规划与任务调度/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("创建/导入项目")).toHaveCount(0);
-  await expect(page.getByText("推入 Feature Spec Pool")).toHaveCount(0);
+  await expect(page.getByText("启动自动执行")).toHaveCount(0);
   await expect(page.getByText("Spec 扫描与上传")).toBeVisible();
   await expect(page.getByRole("button", { name: "扫描", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "上传", exact: true })).toBeVisible();
@@ -220,12 +220,12 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByText("EARS").first()).toBeVisible();
   await expect(page.getByText("HLD").first()).toBeVisible();
   await expect(page.getByText("workspace/acme-returns-portal/docs/zh-CN/PRD.md").first()).toBeVisible();
-  await page.getByRole("button", { name: /阶段 3 Feature 执行/ }).click();
+  await page.getByRole("button", { name: /阶段 3 设计规划与任务调度/ }).click();
   await expect(page.getByRole("button", { name: /阶段 2 需求录入/ })).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("生成 HLD").first()).toBeVisible();
   await expect(page.getByText("生成 UI Spec").first()).toBeVisible();
   await expect(page.getByText("拆分 Feature Spec").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "推入 Feature Spec Pool" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "启动自动执行" })).toBeVisible();
   await expect(page.getByText("调度运行").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "生成 HLD" })).toBeVisible();
   await page.getByRole("button", { name: "生成 HLD" }).click();
@@ -249,7 +249,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("button", { name: "Spec Diff" })).toHaveCount(0);
   await page.getByRole("button", { name: "任务", exact: true }).click();
   await expect(page.getByText("Connect carrier label quote mock.")).toBeVisible();
-  await page.getByRole("button", { name: "设计" }).click();
+  await page.getByRole("button", { name: "设计", exact: true }).click();
   await expect(page.getByText("Mobile returns are implemented as a guided customer workflow with mocked carrier labels.")).toBeVisible();
   await expect(page.getByRole("button", { name: "创建 Feature" })).toBeVisible();
   await expect(page.getByRole("button", { name: "调度运行" })).toBeVisible();
@@ -463,7 +463,7 @@ async function installConsoleRoutes(page: Page) {
       "generate_hld",
       "generate_ui_spec",
       "split_feature_specs",
-      "push_feature_spec_pool",
+      "start_auto_run",
     ]);
     const accepted = body.action === "create_project" || workflowActions.has(body.action);
     await route.fulfill({

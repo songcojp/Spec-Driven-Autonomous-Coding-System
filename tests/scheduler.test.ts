@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema, listTables } from "../src/schema.ts";
@@ -321,6 +321,56 @@ test("codex.app_server.run executes mocked app-server transport and persists run
   assert.equal(rows.session[0].exit_code, 0);
   assert.equal(rows.log[0].stdout, "done");
   assert.equal(rows.evidence[0].kind, "codex_runner");
+});
+
+test("codex.app_server.run projects approval pending to Feature spec-state", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-approval-"));
+  prepareSkillWorkspace(root);
+  const featureDir = join(root, "docs", "features", "feat-cli");
+  mkdirSync(featureDir, { recursive: true });
+  writeFileSync(join(featureDir, "requirements.md"), "# Feature Spec: FEAT-CLI\n");
+  writeFileSync(join(featureDir, "design.md"), "# Design\n");
+  writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n");
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const transport: CodexAppServerTransport = {
+    async request(method) {
+      if (method === "thread/start") return { threadId: "THREAD-APPROVAL" };
+      if (method === "turn/start") return { turnId: "TURN-APPROVAL" };
+      return {};
+    },
+    notify() {},
+    async *events() {
+      yield {
+        type: "approval/request",
+        threadId: "THREAD-APPROVAL",
+        turnId: "TURN-APPROVAL",
+        request: { id: "APPROVAL-1", summary: "Approve file write." },
+      };
+    },
+  };
+  const payload = cliRunPayload("RUN-APPROVAL");
+
+  const result = await runCodexAppServerRunJob(dbPath, {
+    ...payload,
+    context: {
+      ...payload.context,
+      featureSpecPath: "docs/features/feat-cli",
+      skillSlug: "codex-coding-skill",
+    },
+  }, transport);
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status, summary, metadata_json FROM execution_records WHERE id = 'RUN-APPROVAL'" },
+  ]).queries.run;
+  const state = JSON.parse(readFileSync(join(featureDir, "spec-state.json"), "utf8"));
+  const metadata = JSON.parse(String(rows[0].metadata_json));
+
+  assert.equal(result.status, "approval_needed");
+  assert.equal(rows[0].status, "approval_needed");
+  assert.match(String(rows[0].summary), /waiting for approval/i);
+  assert.equal(metadata.approvalState, "pending");
+  assert.equal(state.status, "approval_needed");
+  assert.match(state.nextAction, /approval/i);
 });
 
 test("codex.app_server.run fails when app-server cannot be started", async () => {

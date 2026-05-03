@@ -22,6 +22,8 @@ SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。
 
 2026-05-03 VSCode Execution Workbench：VSCode 插件 UI 必须作为独立 Webview Web UI 开发，不复用当前 Product Console 的页面、路由、导航、App Shell 或组件实现。插件 Web UI 的首要产品目标是任务调度和自动执行，默认第一屏围绕 Job 队列、当前运行、下一步动作、阻塞原因、自动执行控制、审批待办和执行结果观察组织。
 
+2026-05-03 Feature Selection Skill：Project Scheduler 的下一 Feature 选择由 `feature-selection-skill` 推理完成，输入为 Feature Pool Queue、Feature index、各 Feature `spec-state.json`、依赖完成情况、最近 Execution Record 和 operator resume/skip hints。Control Plane 只信任通过代码安全校验的技能决策，并负责创建 `<executor>.run` Job 与 Execution Record。`approval_needed`、`blocked`、`review_needed`、`failed` 等非可持续 CLI/app-server 状态必须投影回 Feature `spec-state.json`，阻止自动循环继续越权推进。
+
 本 HLD 定义项目级架构边界、技术栈、核心子系统、数据域、集成方式、运行拓扑、安全治理、可观测性和 Feature Spec 拆分方向。本文不定义具体接口字段、数据库迁移、函数签名、任务实现步骤或单个 Feature 的低层设计。
 
 MVP 采用本地优先的控制面架构：
@@ -248,11 +250,13 @@ Collaborates With:
 Responsibilities:
 
 - Scheduler Trigger 从 `feature-pool-queue.json` 读取已规划 Feature 队列，并接收立即执行、指定时间、周期巡检、依赖完成、CI 失败和审批通过等触发模式。
+- Auto Run Controller 调用 `feature-selection-skill` 执行 `select_next_feature`，由技能推理候选 Feature、依赖、状态和执行历史；代码随后校验返回 Feature 是否属于队列、三件套完整、依赖满足、已显式 resume 且同项目没有 active `feature_execution`。
 - Scheduler Trigger 创建 `<executor>.run` Job；当前为 `cli.run`，后续可扩展 `native.run`。
 - Feature/Task/Project 不作为 Job 顶层属性，只进入 payload context。
 - 平台不维护 Feature 内 TaskGraph / tasks 执行表；Feature 内任务排序、并行和完成状态由执行 LLM 读取 Feature Spec 目录中的 `requirements.md`、`design.md` 和 `tasks.md` 后自行管理。
 - Feature 执行的唯一受控输入是当前项目 workspace 中的 Feature Spec 目录；`feature_execution` 不依赖 `task_graph_tasks` / `tasks` 表是否存在。
 - Feature Aggregator 根据 Execution Record、执行结果、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
+- Runner 将 `completed`、`approval_needed`、`blocked`、`review_needed`、`failed` 和 SkillOutput contract validation failure 投影为 Feature `spec-state.json.lastResult`、blockedReasons 和 nextAction；approval pending 不写入 `SkillOutputContractV1.status`，只作为 Execution Record / app-server projection 状态。
 - 维护 Feature、Execution Record 与受控命令的状态；Task Board 仅作为兼容展示或手动状态入口，不是编码执行的必需事实源。
 
 Owns:
@@ -640,7 +644,7 @@ flowchart TD
 | HLD 生成 | EARS 完成后手动或受控命令触发 | **Skill**（内容）+ **Code**（artifact 落地） | PRD + EARS Requirements | HLD 文档（`docs/zh-CN/hld.md`）+ **一级页面清单** | `create-project-hld` |
 | UI Spec + 主要页面概念图 | HLD 完成后触发（含 UI 的产品） | **Skill** | PRD + EARS Requirements + HLD + 一级页面清单 | UI Spec 文档（`docs/ui/ui-spec.md` 或 Feature 级 `ui-spec.md`）+ 主要页面概念图（`docs/ui/concepts/*.svg`） | `ui-spec-skill` |
 | Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill** | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`） | `task-slicing-skill`（Feature 级） |
-| 推入 Feature Spec Pool | Feature Spec 拆分完成后触发 | **Code** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` | SQLite Feature 候选记录 + BullMQ `<executor>.run` Job + Execution Record；Job payload 指向 Feature Spec 目录 | — |
+| 启动项目级任务调度 | `schedule_run(project)` 或 `start_auto_run` 触发 | **Code + Skill** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` + Feature `spec-state.json` | SQLite Feature 候选记录 + BullMQ `<executor>.run` Job + Execution Record；Job payload 指向 Feature Spec 目录 | `feature-selection-skill` |
 | 需求质量检查 | Feature Spec 创建后 | **Skill** | Feature Spec requirements.md | 通过 → `ready`；歧义 → ClarificationLog + `draft` | `requirements-checklist-skill`、`ambiguity-clarification-skill` |
 | Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Runner / Memory）+ **CLI/native** | Job payload + Project Memory + Feature Spec `requirements.md` / `design.md` / `tasks.md` | 代码/测试/配置/文档变更、Execution Record、心跳、RawLog、Execution Result | `codex-coding-skill` |
 | Status 检查 | Execution Record 结束 | **Code**（确定性检查）+ **Skill**（Spec Alignment） | Execution Result | StatusCheckResult（Done / Review Needed / Failed / Blocked） | — |
@@ -824,9 +828,9 @@ Decomposition rules:
 |---|---|---|
 | Spec 来源扫描与上传 | **Skill** | `repo-probe-skill`；CLI 已提供文件读取机制。Product Console 在同一个阶段内步骤中显示“扫描”和“上传”两个动作。 |
 | 识别需求格式 | **Skill** | LLM 分类推理，是 `pr-ears-requirement-decomposition-skill` 前置步骤 |
-| 生成 EARS | **Skill** | `pr-ears-requirement-decomposition-skill` 只生成 EARS requirements 文档，不拆分 Feature Spec、不写入 Feature Spec Pool |
-| Feature Spec 拆分 | **Skill** | `task-slicing-skill` 只负责生成或更新 `docs/features/*` Feature Spec 文档，不负责推入 Pool |
-| 推入 Feature Spec Pool | **Code** | Product Console 读取已拆分 Feature Spec 和 Skill 产出的 `feature-pool-queue.json`，按规划结果写入 SQLite Feature 候选并创建调度队列 |
+| 生成 EARS | **Skill** | `pr-ears-requirement-decomposition-skill` 只生成 EARS requirements 文档，不拆分 Feature Spec、不启动调度 |
+| Feature Spec 拆分 | **Skill** | `task-slicing-skill` 只负责生成或更新 `docs/features/*` Feature Spec 文档和 `feature-pool-queue.json`，不负责启动调度 |
+| 启动项目级任务调度 | **Code + Skill** | Product Console / VSCode 通过 `schedule_run(project)` 或 `start_auto_run` 触发；Control Plane 调用 `feature-selection-skill`，校验后创建 `<executor>.run` Job 和 Execution Record |
 | 完成关键澄清 | **Skill** | `ambiguity-clarification-skill` |
 | 需求质量检查 | **Skill** | `requirements-checklist-skill` |
 | Feature 状态 → `ready` | **Code** | 状态迁移必须强制、持久化、可审计；CLI 无法保证 |

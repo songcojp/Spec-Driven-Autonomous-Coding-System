@@ -36,7 +36,7 @@ import {
 export type RunnerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type RunnerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never" | "bypass";
 export type RunnerReasoningEffort = "low" | "medium" | "high" | "xhigh";
-export type RunnerQueueStatus = "queued" | "running" | "completed" | "review_needed" | "blocked" | "failed";
+export type RunnerQueueStatus = "queued" | "running" | "completed" | "approval_needed" | "review_needed" | "blocked" | "failed";
 
 export type RunnerPolicy = {
   id: string;
@@ -2083,7 +2083,7 @@ function extractReportedStatus(events: CodexJsonEvent[]): RunnerQueueStatus | un
 }
 
 function normalizeQueueStatus(status?: string): RunnerQueueStatus | undefined {
-  return status === "review_needed" || status === "blocked" || status === "failed" || status === "completed"
+  return status === "approval_needed" || status === "review_needed" || status === "blocked" || status === "failed" || status === "completed"
     ? status
     : undefined;
 }
