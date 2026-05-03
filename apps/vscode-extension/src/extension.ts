@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createServer } from "node:net";
+import { join } from "node:path";
 import * as vscode from "vscode";
 import type {
   ApprovalDecision,
@@ -20,9 +23,14 @@ import { currentExecutionItem, renderExecutionWebview, renderExecutionWorkbenchW
 import { preferredFeature, preferredFeatureReviewSource, renderFeatureSpecWebview } from "./webviews/feature-spec";
 import { preferredWorkspaceRequestSource, renderSpecWorkspaceWebview } from "./webviews/spec-workspace";
 
+let controlPlaneManager: BundledControlPlaneManager | undefined;
+let startupSpecWorkspaceOpened = false;
+
 export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection("specdrive");
   context.subscriptions.push(diagnostics);
+  controlPlaneManager = new BundledControlPlaneManager(context);
+  context.subscriptions.push(controlPlaneManager);
   const provider = new SpecExplorerProvider(diagnostics, context);
   context.subscriptions.push(vscode.window.createTreeView("specdrive.specExplorer", { treeDataProvider: provider }));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.refresh", () => provider.refresh()));
@@ -49,11 +57,120 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(createSpecCommentController(context, provider));
   context.subscriptions.push(vscode.languages.registerHoverProvider({ language: "markdown", scheme: "file" }, new SpecHoverProvider(provider)));
   context.subscriptions.push(vscode.languages.registerCodeLensProvider({ language: "markdown", scheme: "file" }, new SpecCodeLensProvider(provider)));
-  void provider.refresh();
+  void provider.refresh().then(() => openSpecWorkspaceOnStartup(provider));
 }
 
 export function deactivate(): void {
+  controlPlaneManager?.dispose();
   return;
+}
+
+class BundledControlPlaneManager implements vscode.Disposable {
+  private process: ChildProcessWithoutNullStreams | undefined;
+  private runtimeUrl: string | undefined;
+  private startPromise: Promise<string> | undefined;
+
+  constructor(private readonly context: vscode.ExtensionContext) {}
+
+  async ensureReady(): Promise<string> {
+    const configuredUrl = configuredControlPlaneUrlFromSettings();
+    if (await isHealthy(configuredUrl)) {
+      this.runtimeUrl = configuredUrl;
+      return configuredUrl;
+    }
+
+    const mode = extensionConfig<"auto" | "external" | "off">("serverMode", "auto");
+    if (mode === "external" || mode === "off") {
+      return configuredUrl;
+    }
+
+    if (!this.startPromise) {
+      this.startPromise = this.startBundledServer().catch((error) => {
+        this.startPromise = undefined;
+        throw error;
+      });
+    }
+    return this.startPromise;
+  }
+
+  currentUrl(): string | undefined {
+    return this.runtimeUrl;
+  }
+
+  dispose(): void {
+    this.process?.kill();
+    this.process = undefined;
+    this.startPromise = undefined;
+  }
+
+  private async startBundledServer(): Promise<string> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!workspaceRoot) return configuredControlPlaneUrlFromSettings();
+
+    const portStart = extensionConfig("serverPortStart", 43117);
+    const port = await findFreePort(Number.isInteger(portStart) ? portStart : 43117);
+    const serverPath = join(__dirname, "..", "server", "index.cjs");
+    const configuredNodePath = extensionConfig("serverNodePath", "").trim();
+    const command = configuredNodePath.length > 0 ? configuredNodePath : process.execPath;
+    const workerMode = extensionConfig<"off" | "embedded" | "worker-only">("serverWorkerMode", "off");
+    const args = [
+      serverPath,
+      "--port",
+      String(port),
+      ...(workerMode === "off" ? ["--no-worker"] : []),
+      ...(workerMode === "worker-only" ? ["--worker-only"] : []),
+    ];
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      AUTOBUILD_PORT: String(port),
+    };
+    if (!configuredNodePath) env.ELECTRON_RUN_AS_NODE = "1";
+
+    const child = spawn(command, args, { cwd: workspaceRoot, env, stdio: "pipe" });
+    this.process = child;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+
+    const url = `http://127.0.0.1:${port}`;
+    return await new Promise((resolve, reject) => {
+      let stderr = "";
+      const timeout = setTimeout(() => {
+        reject(new Error(`SpecDrive bundled server did not become ready on ${url}. ${stderr.trim()}`.trim()));
+      }, 15000);
+
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.stdout.on("data", (chunk) => {
+        for (const line of chunk.split(/\r?\n/)) {
+          if (!line.trim()) continue;
+          try {
+            const message = JSON.parse(line) as { status?: string; port?: number };
+            if (message.status === "listening") {
+              clearTimeout(timeout);
+              this.runtimeUrl = `http://127.0.0.1:${message.port ?? port}`;
+              void this.context.workspaceState.update("specdrive.runtimeControlPlaneUrl", this.runtimeUrl);
+              resolve(this.runtimeUrl);
+            }
+          } catch {
+            // Non-JSON stdout is ignored; server readiness is reported as JSON.
+          }
+        }
+      });
+      child.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      });
+      child.once("exit", (code, signal) => {
+        this.process = undefined;
+        this.startPromise = undefined;
+        if (!this.runtimeUrl) {
+          clearTimeout(timeout);
+          reject(new Error(`SpecDrive bundled server exited before ready: code=${String(code)} signal=${String(signal)} ${stderr.trim()}`.trim()));
+        }
+      });
+    });
+  }
 }
 
 class SpecExplorerProvider implements vscode.TreeDataProvider<SpecExplorerItem> {
@@ -328,7 +445,7 @@ class SpecCodeLensProvider implements vscode.CodeLensProvider {
 }
 
 async function fetchSpecDriveView(): Promise<SpecDriveIdeView> {
-  const controlPlaneUrl = configuredControlPlaneUrl();
+  const controlPlaneUrl = await ensureControlPlaneReady();
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const url = new URL("/ide/spec-tree", controlPlaneUrl);
   if (workspaceRoot) url.searchParams.set("workspaceRoot", workspaceRoot);
@@ -388,7 +505,7 @@ async function submitSpecChangeRequest(input: unknown, provider: SpecExplorerPro
 }
 
 async function postIdeCommand(input: (ControlledCommandInput & { requestedBy: string }) | SpecChangeRequestV1 | IdeQueueCommandV1): Promise<Record<string, unknown>> {
-  const controlPlaneUrl = configuredControlPlaneUrl();
+  const controlPlaneUrl = await ensureControlPlaneReady();
   const response = await fetchJson(new URL("/ide/commands", controlPlaneUrl), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1161,14 +1278,60 @@ function formatExecutionDetails(item: SpecDriveIdeQueueItem): string {
 
 async function fetchExecutionDetail(item: SpecDriveIdeQueueItem): Promise<SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem> {
   if (!item.executionId) return item;
-  const controlPlaneUrl = configuredControlPlaneUrl();
+  const controlPlaneUrl = await ensureControlPlaneReady();
   const response = await fetchJson(new URL(`/ide/executions/${encodeURIComponent(item.executionId)}`, controlPlaneUrl));
   if (!response.ok) return item;
   return await response.json() as SpecDriveIdeExecutionDetail;
 }
 
 function configuredControlPlaneUrl(): string {
-  return vscode.workspace.getConfiguration("specdrive").get("controlPlaneUrl", "http://127.0.0.1:4317");
+  return controlPlaneManager?.currentUrl() ?? configuredControlPlaneUrlFromSettings();
+}
+
+function configuredControlPlaneUrlFromSettings(): string {
+  return extensionConfig("controlPlaneUrl", "http://127.0.0.1:43117");
+}
+
+async function ensureControlPlaneReady(): Promise<string> {
+  return await controlPlaneManager?.ensureReady() ?? configuredControlPlaneUrl();
+}
+
+function extensionConfig<T>(key: string, defaultValue: T): T {
+  return vscode.workspace.getConfiguration("specdrive").get(key, defaultValue);
+}
+
+async function openSpecWorkspaceOnStartup(provider: SpecExplorerProvider): Promise<void> {
+  if (startupSpecWorkspaceOpened || !extensionConfig("openSpecWorkspaceOnStartup", true)) return;
+  if (!provider.currentView()?.recognized) return;
+  startupSpecWorkspaceOpened = true;
+  await openSpecWorkspace(provider);
+}
+
+async function isHealthy(baseUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/health", baseUrl));
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function findFreePort(startPort: number): Promise<number> {
+  const boundedStart = Math.min(Math.max(startPort, 1024), 65535);
+  for (let port = boundedStart; port <= 65535; port += 1) {
+    if (await canListen(port)) return port;
+  }
+  throw new Error(`No free port found at or above ${boundedStart}.`);
+}
+
+function canListen(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once("error", () => resolve(false));
+    server.listen(port, "127.0.0.1", () => {
+      server.close(() => resolve(true));
+    });
+  });
 }
 
 async function fetchJson(input: URL, init?: RequestInit): Promise<Response> {
@@ -1176,6 +1339,6 @@ async function fetchJson(input: URL, init?: RequestInit): Promise<Response> {
     return await fetch(input, init);
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cannot reach SpecDrive Control Plane at ${input.origin}. Start it with npm run dev or update specdrive.controlPlaneUrl. Cause: ${cause}`);
+    throw new Error(`Cannot reach SpecDrive Control Plane at ${input.origin}. Use serverMode=auto to start the bundled server, or update specdrive.controlPlaneUrl. Cause: ${cause}`);
   }
 }

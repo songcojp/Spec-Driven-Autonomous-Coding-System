@@ -4,6 +4,56 @@ declare module "node:crypto" {
   };
 }
 
+declare module "node:child_process" {
+  import type { EventEmitter } from "node:events";
+
+  export type ChildProcessWithoutNullStreams = EventEmitter & {
+    stdout: {
+      setEncoding(encoding: string): void;
+      on(event: "data", listener: (chunk: string) => void): void;
+    };
+    stderr: {
+      setEncoding(encoding: string): void;
+      on(event: "data", listener: (chunk: string) => void): void;
+    };
+    kill(signal?: string): boolean;
+  };
+
+  export function spawn(command: string, args?: string[], options?: {
+    cwd?: string;
+    env?: Record<string, string | undefined>;
+    stdio?: "pipe";
+  }): ChildProcessWithoutNullStreams;
+}
+
+declare module "node:events" {
+  export class EventEmitter {
+    on(event: string, listener: (...args: unknown[]) => void): this;
+    once(event: string, listener: (...args: unknown[]) => void): this;
+  }
+}
+
+declare module "node:net" {
+  import type { EventEmitter } from "node:events";
+
+  export type Server = EventEmitter & {
+    listen(port: number, host: string, callback: () => void): void;
+    close(callback?: () => void): void;
+  };
+
+  export function createServer(): Server;
+}
+
+declare module "node:path" {
+  export function join(...paths: string[]): string;
+}
+
+declare const __dirname: string;
+declare const process: {
+  execPath: string;
+  env: Record<string, string | undefined>;
+};
+
 declare module "vscode" {
   export type Disposable = { dispose(): void };
 

@@ -68,7 +68,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
 
   const merged: AppConfig = {
     projectRoot: cwd,
-    port: Number(cliConfig.port ?? envConfig.port ?? fileConfig.port ?? 4731),
+    port: Number(cliConfig.port ?? envConfig.port ?? fileConfig.port ?? 43117),
     artifactRoot,
     dbPath,
     logLevel: validateLogLevel(cliConfig.logLevel ?? envConfig.logLevel ?? fileConfig.logLevel ?? "info"),

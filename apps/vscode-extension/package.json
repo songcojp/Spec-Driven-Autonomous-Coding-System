@@ -1,15 +1,31 @@
 {
   "name": "specdrive-ide",
-  "displayName": "SpecDrive IDE",
-  "description": "VSCode-native SpecDrive explorer for Spec documents, Feature Specs, and execution queue state.",
-  "version": "0.1.1",
+  "displayName": "Spec Explore",
+  "description": "VSCode-native SpecDrive workbench for Spec documents, Feature Specs, and execution queue state.",
+  "version": "0.1.2",
   "publisher": "specdrive",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/songcojp/Spec-Driven-Autonomous-Coding-System.git"
+  },
+  "homepage": "https://github.com/songcojp/Spec-Driven-Autonomous-Coding-System#readme",
+  "bugs": {
+    "url": "https://github.com/songcojp/Spec-Driven-Autonomous-Coding-System/issues"
+  },
   "type": "commonjs",
   "engines": {
     "vscode": "^1.96.0"
   },
   "categories": [
     "Other"
+  ],
+  "files": [
+    "out/**",
+    "server/**",
+    "resources/**",
+    "LICENSE",
+    "README.md"
   ],
   "activationEvents": [
     "onView:specdrive.specExplorer",
@@ -22,16 +38,53 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "SpecDrive IDE",
+      "title": "Spec Explore",
       "properties": {
         "specdrive.controlPlaneUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:4317",
-          "description": "Local SpecDrive Control Plane URL."
+          "default": "http://127.0.0.1:43117",
+          "description": "Preferred SpecDrive Control Plane URL. The extension may use a nearby free port when auto-starting the bundled server."
+        },
+        "specdrive.serverMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "external",
+            "off"
+          ],
+          "default": "auto",
+          "description": "Controls whether Spec Explore starts the bundled Control Plane server automatically."
+        },
+        "specdrive.serverPortStart": {
+          "type": "number",
+          "default": 43117,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "First high port to try when auto-starting the bundled Control Plane server."
+        },
+        "specdrive.serverWorkerMode": {
+          "type": "string",
+          "enum": [
+            "off",
+            "embedded",
+            "worker-only"
+          ],
+          "default": "off",
+          "description": "Scheduler worker mode for the auto-started bundled server."
+        },
+        "specdrive.serverNodePath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Node.js executable path for the bundled server. Empty uses VSCode's extension host executable in Node mode."
+        },
+        "specdrive.openSpecWorkspaceOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the Spec Workspace webview after the Spec Explore view activates and the Control Plane is ready."
         },
         "specdrive.productConsoleUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:5173",
+          "default": "http://127.0.0.1:45173",
           "description": "Local SpecDrive Product Console URL."
         }
       }
@@ -138,6 +191,11 @@
           "command": "specdrive.openExecutionWorkbench",
           "when": "view == specdrive.specExplorer",
           "group": "navigation@3"
+        },
+        {
+          "command": "specdrive.refresh",
+          "when": "view == specdrive.specExplorer",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
@@ -217,8 +275,8 @@
       "activitybar": [
         {
           "id": "specdrive",
-          "title": "SpecDrive",
-          "icon": "resources/specdrive.svg"
+          "title": "Spec Explore",
+          "icon": "resources/spec-explore.svg"
         }
       ]
     },
@@ -226,7 +284,7 @@
       "specdrive": [
         {
           "id": "specdrive.specExplorer",
-          "name": "Spec Explorer"
+          "name": "Spec Explore"
         }
       ]
     }

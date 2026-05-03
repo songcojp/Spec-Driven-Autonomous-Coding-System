@@ -25,6 +25,18 @@ fi
 echo "Building SpecDrive IDE extension..."
 npm run ide:build
 
+echo "Bundling SpecDrive Control Plane server..."
+rm -rf "${EXTENSION_DIR}/server"
+mkdir -p "${EXTENSION_DIR}/server"
+npx --yes esbuild src/index.ts \
+  --bundle \
+  --platform=node \
+  --format=cjs \
+  --target=node20 \
+  --banner:js='const { pathToFileURL: __specdrivePathToFileURL } = require("url"); const import_meta_url = __specdrivePathToFileURL(__filename).href;' \
+  --define:import.meta.url=import_meta_url \
+  --outfile="${EXTENSION_DIR}/server/index.cjs"
+
 echo "Packaging VSIX: ${OUT_FILE}"
 (
   cd "${EXTENSION_DIR}"

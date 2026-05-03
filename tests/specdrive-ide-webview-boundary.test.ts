@@ -53,11 +53,13 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
     "specdrive.openSpecWorkspace",
     "specdrive.openFeatureSpec",
     "specdrive.openExecutionWorkbench",
+    "specdrive.refresh",
   ]);
   assert.deepEqual(titleActions.map((action) => action.group), [
     "navigation@1",
     "navigation@2",
     "navigation@3",
+    "navigation@4",
   ]);
 });
 
