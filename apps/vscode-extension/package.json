@@ -33,6 +33,7 @@
     "onCommand:specdrive.openExecutionWorkbench",
     "onCommand:specdrive.openSpecWorkspace",
     "onCommand:specdrive.openFeatureSpec",
+    "onCommand:specdrive.openSystemSettings",
     "onLanguage:markdown"
   ],
   "main": "./out/extension.js",
@@ -119,6 +120,11 @@
         "icon": "$(layout)"
       },
       {
+        "command": "specdrive.openSystemSettings",
+        "title": "SpecDrive: Open System Settings",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "specdrive.openItem",
         "title": "SpecDrive: Open Item"
       },
@@ -193,9 +199,14 @@
           "group": "navigation@3"
         },
         {
-          "command": "specdrive.refresh",
+          "command": "specdrive.openSystemSettings",
           "when": "view == specdrive.specExplorer",
           "group": "navigation@4"
+        },
+        {
+          "command": "specdrive.refresh",
+          "when": "view == specdrive.specExplorer",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [

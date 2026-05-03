@@ -239,6 +239,11 @@ async function routeRequest(
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/ide/system-settings") {
+      writeJson(response, 200, buildSystemSettingsView(config.dbPath));
+      return;
+    }
+
     const ideExecutionMatch = url.pathname.match(/^\/ide\/executions\/([^/]+)$/);
     if (request.method === "GET" && ideExecutionMatch) {
       const detail = buildSpecDriveIdeExecutionDetail(config.dbPath, decodeURIComponent(ideExecutionMatch[1]), {

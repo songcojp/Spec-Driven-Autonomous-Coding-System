@@ -279,6 +279,73 @@ test("SpecDrive IDE HTTP routes expose spec tree and controlled command receipts
   }
 });
 
+test("SpecDrive IDE system settings route exposes shared adapter settings and governed commands", async () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const config = makeConfig(workspaceRoot, dbPath);
+  const controlPlane = createControlPlaneServer(config, {
+    status: "ready",
+    version: "test",
+    schemaVersion: 23,
+    artifactRoot: join(workspaceRoot, ".autobuild"),
+  });
+
+  await listen(controlPlane.server, config);
+  const address = controlPlane.server.address();
+  const port = address && typeof address === "object" ? address.port : 0;
+
+  try {
+    const settings = await getJson(`http://127.0.0.1:${port}/ide/system-settings`);
+    assert.equal((settings.cliAdapter as { active?: { id?: string } }).active?.id, "codex-cli");
+    assert.equal((settings.rpcAdapter as { active?: { id?: string } }).active?.id, "codex-rpc-default");
+
+    const invalidReceipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "activate_cli_adapter_config",
+      entityType: "cli_adapter",
+      entityId: "codex-cli",
+      requestedBy: "vscode-extension",
+      reason: "Reject invalid CLI adapter from VSCode settings.",
+      payload: { config: { id: "codex-cli", status: "disabled" } },
+    });
+    assert.equal(invalidReceipt.status, "blocked");
+
+    const afterInvalid = await getJson(`http://127.0.0.1:${port}/ide/system-settings`);
+    assert.equal((afterInvalid.cliAdapter as { active?: { id?: string } }).active?.id, "codex-cli");
+
+    const receipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "activate_rpc_adapter_config",
+      entityType: "rpc_adapter",
+      entityId: "gemini-acp-default",
+      requestedBy: "vscode-extension",
+      reason: "Switch RPC adapter from VSCode settings.",
+      payload: {
+        config: {
+          id: "gemini-acp-default",
+          displayName: "Built-in Gemini ACP",
+          provider: "gemini-acp",
+          executable: "gemini",
+          args: ["--acp", "--skip-trust"],
+          transport: "stdio",
+          endpoint: "stdio://",
+          requestTimeoutMs: 120000,
+          status: "active",
+        },
+      },
+    });
+    assert.equal(receipt.status, "accepted");
+
+    const rpcSettings = await getJson(`http://127.0.0.1:${port}/ide/system-settings`);
+    assert.equal((rpcSettings.rpcAdapter as { active?: { id?: string; provider?: string } }).active?.id, "gemini-acp-default");
+    assert.equal((rpcSettings.rpcAdapter as { active?: { id?: string; provider?: string } }).active?.provider, "gemini-acp");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      controlPlane.server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
 test("SpecDrive IDE SpecChangeRequest validates textHash and routes requirement intake", () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();

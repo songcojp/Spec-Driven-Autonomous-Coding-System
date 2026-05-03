@@ -27,7 +27,7 @@ const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.
   };
 };
 
-test("VSCode IDE Webviews expose three independent workbench commands", () => {
+test("VSCode IDE Webviews expose independent workbench commands", () => {
   const activationEvents = new Set(extensionPackage.activationEvents ?? []);
   const commands = new Set((extensionPackage.contributes?.commands ?? []).map((command) => command.command));
 
@@ -35,6 +35,7 @@ test("VSCode IDE Webviews expose three independent workbench commands", () => {
     "specdrive.openExecutionWorkbench",
     "specdrive.openSpecWorkspace",
     "specdrive.openFeatureSpec",
+    "specdrive.openSystemSettings",
   ]) {
     assert.equal(activationEvents.has(`onCommand:${command}`), true);
     assert.equal(commands.has(command), true);
@@ -43,6 +44,7 @@ test("VSCode IDE Webviews expose three independent workbench commands", () => {
   assert.match(extensionSource, /renderExecutionWorkbenchWebview/);
   assert.match(extensionSource, /renderSpecWorkspaceWebview/);
   assert.match(extensionSource, /renderFeatureSpecWebview/);
+  assert.match(extensionSource, /renderSystemSettingsWebview/);
   assert.match(extensionSource, /onDidReceiveMessage/);
   assert.match(extensionSource, /Content-Security-Policy/);
 });
@@ -53,6 +55,7 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
     "specdrive.openSpecWorkspace",
     "specdrive.openFeatureSpec",
     "specdrive.openExecutionWorkbench",
+    "specdrive.openSystemSettings",
     "specdrive.refresh",
   ]);
   assert.deepEqual(titleActions.map((action) => action.group), [
@@ -60,7 +63,22 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
     "navigation@2",
     "navigation@3",
     "navigation@4",
+    "navigation@5",
   ]);
+});
+
+test("VSCode System Settings Webview manages adapter configs through controlled commands", () => {
+  assert.match(extensionSource, /renderSystemSettingsWebview/);
+  assert.match(extensionSource, new RegExp('new URL\\("/ide/system-settings", controlPlaneUrl\\)'));
+  assert.match(extensionSource, /message\.command === "settingsCommand"/);
+  assert.match(extensionSource, /JSON\.parse\(message\.configText\)/);
+  assert.match(extensionSource, /entityType: message\.entityType/);
+  assert.match(extensionSource, /payload: \{ config \}/);
+  assert.match(extensionSource, /"validate_cli_adapter_config"/);
+  assert.match(extensionSource, /"activate_rpc_adapter_config"/);
+  assert.match(extensionSource, /settingsCommandButton\("Validate"/);
+  assert.match(extensionSource, /class="settings-editor"/);
+  assert.match(extensionSource, /"loadSettingsPreset"/);
 });
 
 test("VSCode Feature Spec Webview switches between list and dependency graph views", () => {

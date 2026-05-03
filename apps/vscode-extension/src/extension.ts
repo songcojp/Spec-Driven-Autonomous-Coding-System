@@ -17,11 +17,13 @@ import type {
   SpecDriveIdeQueueItem,
   SpecDriveIdeView,
   SpecExplorerItem,
+  SystemSettingsViewModel,
   UiConceptImage,
 } from "./types";
 import { currentExecutionItem, renderExecutionWebview, renderExecutionWorkbenchWebview } from "./webviews/execution";
 import { preferredFeature, preferredFeatureReviewSource, renderFeatureSpecWebview } from "./webviews/feature-spec";
 import { preferredWorkspaceRequestSource, renderSpecWorkspaceWebview } from "./webviews/spec-workspace";
+import { renderSystemSettingsWebview } from "./webviews/system-settings";
 
 let controlPlaneManager: BundledControlPlaneManager | undefined;
 let startupSpecWorkspaceOpened = false;
@@ -39,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecutionWorkbench", () => openExecutionWorkbench(provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openSpecWorkspace", () => openSpecWorkspace(provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openFeatureSpec", (item: unknown) => openFeatureSpec(provider, item)));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.openSystemSettings", () => openSystemSettings(provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openItem", (item: unknown) => openItem(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecution", (item: unknown) => openExecution(item)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.queueRunNow", (item: unknown) => runQueueAction("run_now", item, provider)));
@@ -456,6 +459,15 @@ async function fetchSpecDriveView(): Promise<SpecDriveIdeView> {
   return await response.json() as SpecDriveIdeView;
 }
 
+async function fetchSystemSettings(): Promise<SystemSettingsViewModel> {
+  const controlPlaneUrl = await ensureControlPlaneReady();
+  const response = await fetchJson(new URL("/ide/system-settings", controlPlaneUrl));
+  if (!response.ok) {
+    throw new Error(`SpecDrive settings request failed: ${response.status} ${response.statusText}`);
+  }
+  return await response.json() as SystemSettingsViewModel;
+}
+
 async function runControlledCommand(input: unknown, provider: SpecExplorerProvider): Promise<void> {
   if (!isControlledCommandInput(input)) {
     await vscode.window.showErrorMessage("SpecDrive command input is invalid.");
@@ -516,6 +528,34 @@ async function postIdeCommand(input: (ControlledCommandInput & { requestedBy: st
     throw new Error(typeof body.error === "string" ? body.error : `SpecDrive command failed: ${response.status}`);
   }
   return body;
+}
+
+async function runSettingsCommand(message: Record<string, unknown>, provider: SpecExplorerProvider): Promise<void> {
+  if (typeof message.action !== "string"
+    || !isControlledEntityType(message.entityType)
+    || typeof message.configText !== "string") {
+    await vscode.window.showErrorMessage("SpecDrive settings command input is invalid.");
+    return;
+  }
+  let config: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(message.configText) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      await vscode.window.showErrorMessage("SpecDrive settings JSON must be an object.");
+      return;
+    }
+    config = parsed as Record<string, unknown>;
+  } catch {
+    await vscode.window.showErrorMessage("SpecDrive settings JSON is invalid.");
+    return;
+  }
+  await runControlledCommand({
+    action: message.action,
+    entityType: message.entityType,
+    entityId: typeof config.id === "string" ? config.id : "adapter",
+    payload: { config },
+    reason: typeof message.reason === "string" ? message.reason : "Update adapter config from VSCode System Settings.",
+  }, provider);
 }
 
 async function postQueueCommand(
@@ -862,6 +902,32 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
   await render();
 }
 
+async function openSystemSettings(provider: SpecExplorerProvider): Promise<void> {
+  const panel = vscode.window.createWebviewPanel("specdriveSystemSettings", "System Settings", vscode.ViewColumn.Active, {
+    enableScripts: true,
+    retainContextWhenHidden: true,
+  });
+  const render = async (): Promise<void> => {
+    panel.webview.html = renderSystemSettingsWebview(await fetchSystemSettings());
+  };
+  panel.webview.onDidReceiveMessage(async (message: unknown) => {
+    if (!isWorkbenchMessage(message)) return;
+    try {
+      if (message.command === "refresh") {
+        await render();
+        return;
+      }
+      if (message.command === "settingsCommand") {
+        await runSettingsCommand(message, provider);
+        await render();
+      }
+    } catch (error) {
+      await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+    }
+  });
+  await render();
+}
+
 async function handleWorkbenchMessage(
   message: unknown,
   provider: SpecExplorerProvider,
@@ -1185,6 +1251,7 @@ function isControlledEntityType(value: unknown): value is ControlledCommandInput
     || value === "rule"
     || value === "spec"
     || value === "cli_adapter"
+    || value === "rpc_adapter"
     || value === "settings";
 }
 

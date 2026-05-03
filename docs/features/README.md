@@ -26,6 +26,7 @@
 | FEAT-019 | IDE Execution Loop | `feat-019-ide-execution-loop` | done | REQ-079、REQ-081、REQ-082 | M8 | FEAT-016、FEAT-018、FEAT-004、FEAT-008、FEAT-014 |
 | FEAT-020 | IDE Diagnostics and UX Refinement | `feat-020-ide-diagnostics-ux` | done | REQ-083 | M8 | FEAT-016、FEAT-017、FEAT-019 |
 | FEAT-021 | IDE Workbench Webviews | `feat-021-ide-execution-webview` | done | REQ-084 | M8 | FEAT-016、FEAT-019、FEAT-020 |
+| FEAT-022 | IDE System Settings Webview | `feat-022-ide-system-settings-webview` | done | REQ-085 | M8 | FEAT-016、FEAT-018、FEAT-021 |
 
 FEAT-013 当前补充 Execution Adapter / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `rpc.run` Job，并下钻到 Execution Record、payload context、执行结果 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃；Feature 级编码执行由 `codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md`，不再依赖平台 `task_graph_tasks` / `tasks` 表。
 
@@ -73,6 +74,7 @@ FEAT-000 System Bootstrap
         │       └── FEAT-020 IDE Diagnostics and UX Refinement
         │           (also requires FEAT-017)
         │           └── FEAT-021 IDE Workbench Webviews
+        │               └── FEAT-022 IDE System Settings Webview
 ```
 
 ### Direct Dependencies
@@ -101,6 +103,7 @@ FEAT-000 System Bootstrap
 | FEAT-019 | FEAT-016、FEAT-018、FEAT-004、FEAT-008、FEAT-014 |
 | FEAT-020 | FEAT-016、FEAT-017、FEAT-019 |
 | FEAT-021 | FEAT-016、FEAT-019、FEAT-020 |
+| FEAT-022 | FEAT-016、FEAT-018、FEAT-021 |
 
 ## Delivery Order
 

@@ -97,7 +97,7 @@ MVP 采用本地优先的控制面架构：
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | REQ-069, REQ-070, REQ-071, REQ-072, REQ-073 | 7.14, 8, 9 | Chat Interface 提供悬浮面板、意图分类、受控命令派发、高风险二次确认和会话/消息持久化。 |
 | REQ-074, REQ-075, REQ-076, REQ-077, REQ-078, REQ-079 | 7.15, 8, 9, 10, 15 | VSCode Extension 提供工作区识别、Spec Explorer、文档交互、SpecChangeRequest、IDE command receipt 和 Task Queue 管理。 |
-| REQ-080, REQ-081, REQ-082, REQ-083, REQ-084 | 7.8, 7.15, 8, 9, 10, 11, 13, 15 | RPC Adapter、Execution Projection、Codex RPC approval、VSCode Diagnostics 和独立 Execution Workbench Webview 属于 Execution Adapter + IDE 联合边界。 |
+| REQ-080, REQ-081, REQ-082, REQ-083, REQ-084, REQ-085 | 7.8, 7.15, 8, 9, 10, 11, 13, 15 | RPC Adapter、Execution Projection、Codex RPC approval、VSCode Diagnostics、独立 Execution Workbench Webview 和 IDE System Settings 属于 Execution Adapter + IDE 联合边界。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
 | NFR-007, NFR-008, NFR-009, NFR-011 | 11, 12, 13, 14 | 性能指标作为基线记录，只读 Subagent 并发作为受控并行能力。 |
@@ -172,8 +172,8 @@ Rejected / deferred alternatives:
 
 | Layer | Responsibility | Key Decision |
 |---|---|---|
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Execution Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区；保留系统设置、adapter 配置、队列调试和全局状态总览。 |
-| VSCode SpecDrive Extension | Spec Explorer、文档 Hover/CodeLens/Comments/Diagnostics、Execution Workbench Webview、Task Queue、Execution Record 面板、approval pending 面板 | IDE 原生入口；只提交受控命令和订阅状态，不直接写运行事实源或调用 Codex turn API；Execution Workbench 是独立插件 Web UI，核心关注任务调度和自动执行。 |
+| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Execution Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区；保留系统设置、adapter 配置、队列调试和全局状态总览，并与 VSCode System Settings 共享同一配置事实源。 |
+| VSCode SpecDrive Extension | Spec Explorer、文档 Hover/CodeLens/Comments/Diagnostics、Execution Workbench Webview、System Settings Webview、Task Queue、Execution Record 面板、approval pending 面板 | IDE 原生入口；只提交受控命令和订阅状态，不直接写运行事实源或调用 Codex turn API；Execution Workbench 核心关注任务调度和自动执行，System Settings 管理共享 CLI/RPC Adapter 配置。 |
 | Control Plane | 项目、Spec、Skill、调度、状态、审批、证据和查询 API | 是状态与调度决策的协调层。 |
 | Orchestration | Project Scheduler、Executor Job Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
 | Execution | Execution Adapter Layer、CLI Adapter、RPC Adapter、Status Checker、Recovery Manager | 每次执行都受 Invocation Contract、Execution Policy 和 SkillOutput/Execution Result schema 约束。 |
@@ -508,6 +508,7 @@ Responsibilities:
 - 识别 VSCode workspace 中的 SpecDrive 文档结构、Feature 队列、`spec-state.json` 和 `.autobuild` 运行状态。
 - 提供 Spec Explorer，展示 PRD、requirements、HLD、Feature Specs、Task Queue、Execution Record 和最近 Codex 会话。
 - 提供独立 Execution Workbench Webview，默认聚焦 Job 队列、自动执行控制、当前运行、阻塞/审批、Execution Record 和运行结果投影。
+- 提供独立 System Settings Webview，展示并管理 CLI Adapter 与 RPC Adapter active/draft/preset、校验结果、dry-run/probe 和 JSON 配置。
 - 提供 Feature Spec Webview 的 New Feature 受控输入、Feature index 与 Feature 文件夹同步刷新、Feature 详情 `tasks.md` 解析和任务状态展示。
 - 在 Spec 文档中提供 Hover、CodeLens、Comments 和 Diagnostics，支持行级/段落级澄清、需求新增、需求变更、EARS 生成、设计更新和 Feature 拆分意图。
 - 将所有有副作用的 IDE action 转换为 Control Plane command API 请求，接收 `IdeCommandReceiptV1` 并刷新 UI。
@@ -516,11 +517,11 @@ Responsibilities:
 
 Owns:
 
-- VSCode UI state、Execution Workbench Webview state、Feature Spec Webview state、SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1 view model、Diagnostics projection。
+- VSCode UI state、Execution Workbench Webview state、Feature Spec Webview state、System Settings Webview state、SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1 view model、Diagnostics projection。
 
 Collaborates With:
 
-- Control Plane query/command API、Scheduler、RPC Adapter、Execution Record Store、Workspace Files、Product Console。
+- Control Plane query/command API、Scheduler、RPC Adapter、Execution Record Store、Workspace Files、Product Console、CLI/RPC Adapter 配置事实源。
 
 Boundary:
 
@@ -528,6 +529,7 @@ Boundary:
 - 插件不得直接调用 `thread/start`、`thread/resume`、`turn/start` 或 `turn/interrupt`。
 - 查询类动作可以读取 workspace 文件或调用 query API；落盘、调度、取消、重试、审批和配置修改必须走受控命令。
 - Execution Workbench 不复用 Product Console 页面、路由、导航、App Shell、组件实现或 ViewModel；只允许复用 shared contract/type 和 Control Plane query/command API。
+- VSCode System Settings 与 Product Console System Settings 是两个 UI 入口，不得创建第二套配置状态；CLI/RPC Adapter 配置事实源仍为 Control Plane 持久层。
 
 ## 8. Data Domains and Ownership
 
@@ -538,7 +540,7 @@ Boundary:
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
 | Orchestration State | Orchestration and State Machine | Feature、StateTransition、ScheduleTrigger、SchedulerJobRecord、ExecutionRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
 | Runtime Execution | Execution Adapter Layer | ExecutionRecord、ExecutionAdapterConfig、ExecutionHeartbeat、ExecutionSessionRecord、RawExecutionLog、TokenConsumptionRecord | SQLite + JSON adapter config + execution logs；`cli.run` / `rpc.run` 由 BullMQ Worker 触发；token/cost 只从 adapter event/raw log 提取消费事实。 |
-| IDE Integration | VSCode SpecDrive Extension / Control Plane | SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1、AppServerExecutionProjectionV1 | Workspace 文件 + Control Plane query/command API；IDE 本地只缓存 UI 状态。 |
+| IDE Integration | VSCode SpecDrive Extension / Control Plane | SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1、AppServerExecutionProjectionV1、IdeSystemSettingsProjectionV1 | Workspace 文件 + Control Plane query/command API；IDE 本地只缓存 UI 状态。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
 | Execution Results and Audit | Status Checker | ExecutionResult、AuditTimelineEvent、MetricSample | SQLite + `.autobuild/reports/` artifact。 |
@@ -859,6 +861,7 @@ Quality gates:
 | IDE Execution Loop | Feature/Task 执行闭环、Execution Record 状态面板、approval pending 恢复、取消/重试/恢复、输出校验和状态投影。 | REQ-079、REQ-081、REQ-082 |
 | IDE Diagnostics and UX Refinement | Diagnostics、日志增量渲染、diff 摘要、状态过滤、Product Console 跳转、插件重载恢复、性能优化和多语言 UI 预留。 | REQ-083 |
 | IDE Execution Webview | 独立 VSCode Webview Web UI、任务调度第一屏、自动执行控制、审批/中断、阻塞恢复、Execution Record / raw log / diff / spec-state 投影展示。 | REQ-084 |
+| IDE System Settings Webview | VSCode 内系统设置入口、CLI/RPC Adapter JSON 配置查看与编辑、validate/save/activate/disable 受控命令、共享配置事实源。 | REQ-085 |
 
 Decomposition rules:
 

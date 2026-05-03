@@ -106,10 +106,41 @@ export type UiConceptImage = {
 
 export type ControlledCommandInput = {
   action: string;
-  entityType: "project" | "feature" | "task" | "run" | "runner" | "review_item" | "rule" | "spec" | "cli_adapter" | "settings";
+  entityType: "project" | "feature" | "task" | "run" | "runner" | "review_item" | "rule" | "spec" | "cli_adapter" | "rpc_adapter" | "settings";
   entityId: string;
   payload?: Record<string, unknown>;
   reason: string;
+};
+
+export type AdapterSettingsSection = {
+  active: Record<string, unknown>;
+  draft?: Record<string, unknown>;
+  presets: Array<Record<string, unknown>>;
+  validation: {
+    valid: boolean;
+    errors?: string[];
+  };
+  lastDryRun?: {
+    status: string;
+    errors: string[];
+    command?: string;
+    args?: string[];
+    at?: string;
+  };
+  lastProbe?: {
+    status: string;
+    errors: string[];
+    command?: string;
+    args?: string[];
+    at?: string;
+  };
+};
+
+export type SystemSettingsViewModel = {
+  cliAdapter: AdapterSettingsSection;
+  rpcAdapter: AdapterSettingsSection;
+  commands: Array<{ action: string; entityType: ControlledCommandInput["entityType"] }>;
+  factSources: string[];
 };
 
 export type QueueAction = "enqueue" | "run_now" | "pause" | "resume" | "retry" | "cancel" | "skip" | "reprioritize" | "refresh" | "approve";
