@@ -1351,7 +1351,6 @@ function renderSpecWorkspaceWebview(view: SpecDriveIdeView | undefined): string 
     <section class="toolbar">
       ${commandButton("Spec Change", "openWorkbenchForm", { formMode: "specChange", intent: "requirement_change_or_intake" })}
       ${commandButton("Clarification", "openWorkbenchForm", { formMode: "specClarification", intent: "clarification" })}
-      ${commandButton("Diagnostics & Blockers", "showDiagnostics", {})}
       ${commandButton("Refresh", "refresh", {})}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
@@ -1362,6 +1361,9 @@ function renderSpecWorkspaceWebview(view: SpecDriveIdeView | undefined): string 
           <span>${escapeHtml(stage.index)} · ${escapeHtml(stage.status)}</span>${escapeHtml(stage.label)}
         </button>
       `).join("")}
+      <button class="stage" data-command="showDiagnostics" aria-pressed="false">
+        <span>4 · ${view?.diagnostics.length ?? 0} active</span>Diagnostics & Blockers
+      </button>
     </section>
     <main class="grid">
       <section class="panel span-12 spec-stage-panel">
@@ -1705,14 +1707,11 @@ function documentList(documents: SpecDriveIdeDocument[]): string {
 
 function renderSpecLifecycleDetail(stage: SpecLifecycleStage, view: SpecDriveIdeView | undefined, projectId: string, hidden: boolean): string {
   const documents = filterLifecycleDocuments(view?.documents ?? [], stage.documentKinds);
-  const diagnostics = filterLifecycleDiagnostics(view?.diagnostics ?? [], documents, stage);
   return `<div data-workspace-panel="stage" data-stage-detail="${escapeAttr(stage.id)}" ${hidden ? "hidden" : ""}>
     <div class="panel-title"><h2>${escapeHtml(stage.label)}</h2><span class="${statusClass(stage.status)}">${escapeHtml(stage.status)}</span></div>
     <p class="muted">${escapeHtml(stage.description)}</p>
     <h3>Stage Steps</h3>
     ${stage.steps.map((step) => `<div class="row"><span>${escapeHtml(step.label)}</span><strong class="${statusClass(step.status)}">${escapeHtml(step.status)}</strong></div>`).join("")}
-    <h3>Diagnostics & Blockers</h3>
-    ${diagnostics.length === 0 ? emptyState("No active diagnostics or blockers.") : diagnostics.slice(0, 8).map(renderLifecycleDiagnostic).join("")}
     <h3>Spec Documents</h3>
     ${documentList(documents)}
     <h3>Stage Actions</h3>
@@ -1732,21 +1731,6 @@ function filterLifecycleDocuments(documents: SpecDriveIdeDocument[], kinds: stri
   const accepted = new Set(kinds);
   const filtered = documents.filter((document) => accepted.has(document.kind) || kinds.some((kind) => document.kind.includes(kind)));
   return filtered.length > 0 ? filtered : documents.slice(0, 8);
-}
-
-function filterLifecycleDiagnostics(
-  diagnostics: SpecDriveIdeDiagnostic[],
-  documents: SpecDriveIdeDocument[],
-  stage: SpecLifecycleStage,
-): SpecDriveIdeDiagnostic[] {
-  if (diagnostics.length === 0) return [];
-  const documentPaths = new Set(documents.map((document) => document.path));
-  const stageKinds = new Set(stage.documentKinds);
-  const matching = diagnostics.filter((diagnostic) =>
-    documentPaths.has(diagnostic.path)
-    || stage.documentKinds.some((kind) => diagnostic.path.toLowerCase().includes(kind.replace("feature-", "")))
-    || (diagnostic.featureId && stageKinds.has("feature-requirements")));
-  return matching.length > 0 ? matching : diagnostics.slice(0, 5);
 }
 
 function renderLifecycleDiagnostic(diagnostic: SpecDriveIdeDiagnostic): string {

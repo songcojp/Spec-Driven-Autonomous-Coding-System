@@ -73,9 +73,10 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /renderSpecWorkspaceWebview/);
   assert.match(extensionSource, /commandButton\("Spec Change", "openWorkbenchForm", \{ formMode: "specChange", intent: "requirement_change_or_intake" \}\)/);
   assert.match(extensionSource, /commandButton\("Clarification", "openWorkbenchForm", \{ formMode: "specClarification", intent: "clarification" \}\)/);
-  assert.match(extensionSource, /commandButton\("Diagnostics & Blockers", "showDiagnostics", \{\}\)/);
+  assert.doesNotMatch(extensionSource, /commandButton\("Diagnostics & Blockers", "showDiagnostics", \{\}\)/);
   assert.match(extensionSource, /vscode\.postMessage\(\{command:"specWorkspaceRequest", intent: form\.dataset\.intent, content\}\)/);
   assert.match(extensionSource, /data-command="selectSpecStage" data-stage-id/);
+  assert.match(extensionSource, /<span>4 · \$\{view\?\.diagnostics\.length \?\? 0\} active<\/span>Diagnostics & Blockers/);
   assert.match(extensionSource, /payload\.command === "showDiagnostics"/);
   assert.match(extensionSource, /entry\.id !== "spec-diagnostics-panel"/);
   assert.match(extensionSource, /class="panel span-12 spec-stage-panel"/);
@@ -87,8 +88,8 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /renderSpecLifecycleDetail\(stage, view, projectId, stage\.id !== active\.id\)/);
   assert.match(extensionSource, /<h3>Spec Documents<\/h3>/);
   assert.match(extensionSource, /<h3>Stage Actions<\/h3>/);
-  assert.match(extensionSource, /<h3>Diagnostics & Blockers<\/h3>/);
-  assert.match(extensionSource, /function filterLifecycleDiagnostics/);
+  assert.doesNotMatch(extensionSource, /<h3>Diagnostics & Blockers<\/h3>/);
+  assert.doesNotMatch(extensionSource, /function filterLifecycleDiagnostics/);
   assert.match(extensionSource, /function renderLifecycleDiagnostic/);
   assert.match(extensionSource, /No active diagnostics or blockers\./);
   assert.match(extensionSource, /label: "Requirement Intake"/);
