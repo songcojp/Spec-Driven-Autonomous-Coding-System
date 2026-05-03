@@ -10,7 +10,7 @@
 
 ## 1. Overview
 
-SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。系统以 Spec Protocol 管理目标、需求、验收和交付证据，以 Scheduler 选择 Feature、排期任务和记录触发，以 Project Memory 为编码 CLI 提供跨会话恢复能力，以 Codex Runner 观测外部执行队列、心跳、日志、证据和状态检测，以内部任务状态机维护任务、审批、恢复和交付流转，并通过 Product Console / Dashboard 呈现状态。
+SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。系统以 Spec Protocol 管理目标、需求、验收和交付证据，以 Scheduler 选择 Feature、排期任务和记录触发，以 Project Memory 为编码 CLI 提供跨会话恢复能力，以 Execution Adapter Layer 适配本地 CLI 与远程/RPC 执行通道，采集外部执行队列、心跳、日志、证据和状态检测，以内部任务状态机维护任务、审批、恢复和交付流转，并通过 Product Console / Dashboard 呈现状态。
 
 2026-04-29 边界更新：平台不再提供 Skill System、Subagent Runtime、Agent Run Contract、Context Broker、Planning Pipeline、Skill Center 或 Subagent Console。本文后续旧名称若仍出现在历史映射中，均由 Scheduler and State Maintenance、Runner observation、执行结果、Status Check、Review、Recovery 和 Audit 替代。
 
@@ -18,36 +18,38 @@ SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。
 
 2026-05-02 Spec 状态文件化：Spec / Feature 流程状态以当前项目 workspace 内文件为准。`docs/features/feature-pool-queue.json` 保存全局 Feature 队列，`docs/features/<feature-id>/spec-state.json` 保存单 Feature 的机器可读状态、依赖、blocked reason、当前 Job、最近 Skill 输出和下一步动作。SQLite 不再作为 Spec 状态主事实源，只保存 Scheduler Job、Execution Record、heartbeat、logs、adapter config、command receipt、执行结果 和轻量活动记录。
 
-2026-05-02 VSCode IDE 入口：新增 VSCode SpecDrive Extension 作为 IDE 原生日常入口。插件只负责工作区识别、Spec Explorer、Hover、CodeLens、Comments、Diagnostics、状态面板、受控命令提交和状态订阅；不直接写运行事实源，不直接调用 Codex turn API。Runner 新增 Codex app-server Adapter，与 CLI Adapter 并存，负责 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt`、approval response、事件流 raw logs 和 Execution Record 投影。
+2026-05-02 VSCode IDE 入口：新增 VSCode SpecDrive Extension 作为 IDE 原生日常入口。插件只负责工作区识别、Spec Explorer、Hover、CodeLens、Comments、Diagnostics、状态面板、受控命令提交和状态订阅；不直接写运行事实源，不直接调用 Codex turn API。Codex app-server 作为 RPC Adapter 与 CLI Adapter 并存，负责 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt`、approval response、事件流 raw logs 和 Execution Record 投影。
 
 2026-05-03 VSCode Execution Workbench：VSCode 插件 UI 必须作为独立 Webview Web UI 开发，不复用当前 Product Console 的页面、路由、导航、App Shell 或组件实现。插件 Web UI 的首要产品目标是任务调度和自动执行，默认第一屏围绕 Job 队列、当前运行、下一步动作、阻塞原因、自动执行控制、审批待办和执行结果观察组织。
 
 2026-05-03 Feature Selection Skill：Project Scheduler 的下一 Feature 选择由 `feature-selection-skill` 推理完成，输入为 Feature Pool Queue、Feature index、各 Feature `spec-state.json`、依赖完成情况、最近 Execution Record 和 operator resume/skip hints。Control Plane 只信任通过代码安全校验的技能决策，并负责创建 `<executor>.run` Job 与 Execution Record。`approval_needed`、`blocked`、`review_needed`、`failed` 等非可持续 CLI/app-server 状态必须投影回 Feature `spec-state.json`，阻止自动循环继续越权推进。
+
+2026-05-03 Execution Adapter Layer 重构：平台不再使用 Runner 作为核心架构概念。执行层统一称为 Execution Adapter Layer，下分 CLI Adapter 与 RPC Adapter。CLI Adapter 适配 `codex exec`、Gemini headless CLI 或其他本机编码 CLI；RPC Adapter 适配 `codex app-server`、app-server HTTP/JSON-RPC、WebSocket、stdio 或后续远程执行服务。Scheduler 只创建 `cli.run`、`rpc.run` 等 executor job；Execution Adapter Layer 负责把统一的 `ExecutionAdapterInvocationV1` 转换为具体 provider 调用，并把 provider events 投影为 `ExecutionAdapterResultV1`、Execution Record、raw logs、approval request 和 Feature `spec-state.json`。
 
 本 HLD 定义项目级架构边界、技术栈、核心子系统、数据域、集成方式、运行拓扑、安全治理、可观测性和 Feature Spec 拆分方向。本文不定义具体接口字段、数据库迁移、函数签名、任务实现步骤或单个 Feature 的低层设计。
 
 MVP 采用本地优先的控制面架构：
 
 - Control Plane 维护项目、Spec、Skill、调度、状态、审批、执行结果、审计和查询。
-- Execution Layer 通过 Subagent Runtime 与 Codex Runner 执行受约束的代码修改、测试和恢复。
+- Execution Layer 通过 Execution Adapter Layer 执行受约束的代码修改、测试和恢复。
 - Git repository、worktree 和 branch 是写入隔离边界。
 - Persistent Store 是调度和状态真实来源；Project Memory 是 CLI 恢复投影，不是调度真实来源。
 - Dashboard 只展示控制面状态，并通过受控命令触发操作，不直接修改 Git 工作区。
 
 ### 1.1 Controlled Command, API, and Code Boundary
 
-受控命令是 Product Console、Spec Workspace、Task Board、Runner Console 或系统设置发起有后果操作的唯一入口。凡是会改变持久状态、触发 Scheduler/Run、写入 执行结果/Project Memory、修改配置、推进审批或可能被安全策略阻塞的用户/系统意图，必须先转换为 schema-validated command，写入审计并返回 command receipt；不得由前端、查询接口或普通 ViewModel 直接修改 Git、worktree、artifact、数据库状态或执行 CLI。
+受控命令是 Product Console、Spec Workspace、Task Board、Execution Console 或系统设置发起有后果操作的唯一入口。凡是会改变持久状态、触发 Scheduler/Run、写入 执行结果/Project Memory、修改配置、推进审批或可能被安全策略阻塞的用户/系统意图，必须先转换为 schema-validated command，写入审计并返回 command receipt；不得由前端、查询接口或普通 ViewModel 直接修改 Git、worktree、artifact、数据库状态或执行 CLI。
 
 使用受控命令的情况包括：
 
 - 创建或导入项目后触发初始化闭环、连接仓库、初始化 Spec Protocol、创建 Project Memory 或项目宪章。
 - Spec Sources 扫描、上传、EARS 生成、Feature Spec 拆分、需求质量检查、阶段 3 调度和状态检查等会产生写入或运行副作用的 Spec 操作。
-- Task Board 拖拽、批量排期、批量运行、Runner 暂停/恢复、Review 审批、规则写入、Spec Evolution 写入和 CLI Adapter 配置 validate/save/activate/disable。
-- 所有执行类命令必须携带当前 `project_id`，并在进入 Runner 前解析为当前项目 repository `local_path` 或 `target_repo_path`；缺失、不匹配或不可读时返回 blocked receipt。
+- Task Board 拖拽、批量排期、批量运行、Execution Adapter 暂停/恢复、Review 审批、规则写入、Spec Evolution 写入和 CLI Adapter 配置 validate/save/activate/disable。
+- 所有执行类命令必须携带当前 `project_id`，并在进入 Execution Adapter 前解析为当前项目 repository `local_path` 或 `target_repo_path`；缺失、不匹配或不可读时返回 blocked receipt。
 
-普通接口用于读取和展示事实，不承担写入副作用。Dashboard、Project Home、Runner Console、Review Center、Spec Workspace ViewModel、项目列表、执行结果摘要、审计时间线、配置 schema、表单选项、加载态、空态、过滤、排序和语言切换应使用查询接口或前端本地状态。只读预览类接口可以扫描目录或配置并返回事实，但一旦需要落库、调度、写 artifact 或改变状态，必须切换为受控命令。
+普通接口用于读取和展示事实，不承担写入副作用。Dashboard、Project Home、Execution Console、Review Center、Spec Workspace ViewModel、项目列表、执行结果摘要、审计时间线、配置 schema、表单选项、加载态、空态、过滤、排序和语言切换应使用查询接口或前端本地状态。只读预览类接口可以扫描目录或配置并返回事实，但一旦需要落库、调度、写 artifact 或改变状态，必须切换为受控命令。
 
-代码负责实现受控命令背后的确定性机制：持久化 Project/Feature/Task/Run/执行结果/Audit，执行状态机迁移、幂等去重、审批约束、危险命令和 forbidden files 检查、workspace root 校验、CLI Adapter dry-run、Scheduler job 入队、Runner 心跳、失败指纹、重试上限和 执行结果汇总。Skill 或 CLI prompt 负责推理、拆解、评审和生成内容；不能替代代码维护结构性不变式。
+代码负责实现受控命令背后的确定性机制：持久化 Project/Feature/Task/Run/执行结果/Audit，执行状态机迁移、幂等去重、审批约束、危险命令和 forbidden files 检查、workspace root 校验、CLI Adapter dry-run、Scheduler job 入队、Execution Adapter 心跳、失败指纹、重试上限和 执行结果汇总。Skill 或 CLI prompt 负责推理、拆解、评审和生成内容；不能替代代码维护结构性不变式。
 
 ## 2. Goals and Non-Goals
 
@@ -85,17 +87,17 @@ MVP 采用本地优先的控制面架构：
 | REQ-024, REQ-025, REQ-026, REQ-027 | 7.4, 7.11, 8, 10, 14, 15 | Feature Spec `tasks.md`、兼容 Kanban Board 和状态机支撑任务可追踪执行。 |
 | REQ-028, REQ-029, REQ-030, REQ-031, REQ-032 | 7.4, 7.7, 10, 13, 14, 15 | Feature 状态机、选择器、计划流水线、聚合和并行策略由 Orchestration 负责。 |
 | REQ-033, REQ-034, REQ-035, REQ-036, REQ-060 | 7.4, 7.7, 10, 12, 13, 14 | Project Scheduler、executor job 调度、触发模式、worktree 生命周期和恢复启动是调度运行时核心。 |
-| REQ-037, REQ-038, REQ-039, REQ-065, REQ-066 | 5, 7.8, 9, 11, 12, 13 | Runner CLI Adapter 受 Runner Policy、Safety Gate、workspace root、JSON 配置和审批策略约束。 |
+| REQ-037, REQ-038, REQ-039, REQ-065, REQ-066 | 5, 7.8, 9, 11, 12, 13 | CLI Adapter 受 Execution Policy、Safety Gate、workspace root、JSON 配置和审批策略约束。 |
 | REQ-040, REQ-041, REQ-042 | 7.9, 9, 10, 12, 14 | Status Checker 执行 diff、测试、安全、Spec Alignment 和状态判断。 |
 | REQ-043, REQ-044, REQ-045 | 7.10, 10, 11, 12, 14 | Recovery Manager 管理恢复任务、回滚、拆分、重试退避和失败指纹。 |
 | REQ-046, REQ-047, REQ-057 | 7.12, 9, 10, 11, 12, 15 | Review Center 是高风险、阻塞、澄清和审批动作的统一入口。 |
 | REQ-048, REQ-049, REQ-050 | 7.13, 8, 9, 10, 12, 14, 15 | Delivery Manager 生成 PR、交付报告和 Spec Evolution 建议。 |
 | REQ-051 | 7.9, 8, 9, 10, 12, 14 | Execution Result 是状态判断、恢复、审批和交付报告的共享证据格式。 |
-| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Runner 状态，并提供项目创建、项目切换、Spec Sources 扫描状态、系统设置、CLI Adapter JSON 表单配置和默认中文的界面语言切换。 |
+| REQ-052, REQ-053, REQ-054, REQ-055, REQ-056, REQ-061, REQ-062, REQ-063, REQ-064, REQ-066, REQ-067 | 7.11, 9, 12, 14, 15 | Product Console 展示 Dashboard、Dashboard Board、Spec、Skill、Subagent 和 Execution Adapter 状态，并提供项目创建、项目切换、Spec Sources 扫描状态、系统设置、CLI Adapter JSON 表单配置和默认中文的界面语言切换。 |
 | REQ-058 | 8, 12, 13 | MVP 核心实体必须持久化并支持恢复。 |
 | REQ-069, REQ-070, REQ-071, REQ-072, REQ-073 | 7.14, 8, 9 | Chat Interface 提供悬浮面板、意图分类、受控命令派发、高风险二次确认和会话/消息持久化。 |
 | REQ-074, REQ-075, REQ-076, REQ-077, REQ-078, REQ-079 | 7.15, 8, 9, 10, 15 | VSCode Extension 提供工作区识别、Spec Explorer、文档交互、SpecChangeRequest、IDE command receipt 和 Task Queue 管理。 |
-| REQ-080, REQ-081, REQ-082, REQ-083, REQ-084 | 7.8, 7.15, 8, 9, 10, 11, 13, 15 | Codex app-server Adapter、Execution Projection、app-server approval、VSCode Diagnostics 和独立 Execution Workbench Webview 属于 Runner + IDE 联合边界。 |
+| REQ-080, REQ-081, REQ-082, REQ-083, REQ-084 | 7.8, 7.15, 8, 9, 10, 11, 13, 15 | RPC Adapter、Execution Projection、app-server approval、VSCode Diagnostics 和独立 Execution Workbench Webview 属于 Execution Adapter + IDE 联合边界。 |
 | NFR-001, NFR-002, NFR-003, NFR-004 | 5, 10, 11, 12, 13, 14 | 默认沙箱、回滚、幂等和崩溃恢复是平台级质量属性。 |
 | NFR-005, NFR-006, NFR-010, NFR-012 | 11, 12, 14 | 审计时间线、成本、成功率、心跳和成功指标进入可观测性体系。 |
 | NFR-007, NFR-008, NFR-009, NFR-011 | 11, 12, 13, 14 | 性能指标作为基线记录，只读 Subagent 并发作为受控并行能力。 |
@@ -113,13 +115,15 @@ flowchart LR
   Control --> Review[Review Center]
   Control --> Dashboard[Dashboard Query]
 
-  Orchestration --> Subagent[Subagent Runtime]
-  Subagent --> Runner[Codex Runner]
-  Runner --> Git[Git Repository / Worktree / Branch]
-  Runner --> Checks[Build / Test / Lint / Security]
+  Orchestration --> ExecAdapter[Execution Adapter Layer]
+  ExecAdapter --> CliAdapter[CLI Adapter]
+  ExecAdapter --> RpcAdapter[RPC Adapter]
+  CliAdapter --> Git[Git Repository / Worktree / Branch]
+  CliAdapter --> Checks[Build / Test / Lint / Security]
+  RpcAdapter --> Remote[App Server / HTTP / JSON-RPC / WebSocket]
 
   Orchestration --> Memory[Project Memory Service]
-  Runner --> 执行结果[Execution Result]
+  ExecAdapter --> 执行结果[Execution Result]
   Checks --> 执行结果
   Review --> 执行结果
   execution result --> Delivery[PR + Delivery Report]
@@ -132,32 +136,33 @@ flowchart LR
 
 外部边界：
 
-- Codex CLI / Google Gemini CLI：通过 Runner CLI Adapter 执行代码修改、测试、修复和结构化结果输出。
+- Codex CLI / Google Gemini CLI：通过 CLI Adapter 执行代码修改、测试、修复和结构化结果输出。
+- Codex app-server / HTTP / JSON-RPC / WebSocket 服务：通过 RPC Adapter 远程或进程内调用执行 turn、approval、event stream 和结构化结果输出。
 - Git CLI：读取状态、管理 branch/worktree、采集 diff 和支持回滚。
 - GitHub `gh` CLI：MVP 用于读取必要 PR 状态和创建 PR。
 - 目标代码仓库：系统修改的实际代码来源和 Git 事实来源。
 - 本地文件系统：承载 worktree、Project Memory、Spec artifact、执行结果 artifact 和交付报告。
-- 项目自身构建与测试工具：由健康检查发现，由 Runner/Status Checker 调用。
+- 项目自身构建与测试工具：由健康检查发现，由 Execution Adapter/Status Checker 调用。
 
 ## 5. Technology Stack
 
 | Layer / Concern | Decision | Rationale | Constraints / Notes |
 |---|---|---|---|
-| Frontend | TypeScript + React + Next.js 或 Vite React，MVP 优先单页 Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 都是状态密集型工作台，React 生态适合看板、表格、日志、实时状态 UI 和界面多语言切换。 | 当前仓库没有既有实现栈；若实现阶段已有宿主框架，以宿主框架优先；Product Console 首次打开默认中文，语言选择应可持久化。 |
+| Frontend | TypeScript + React + Next.js 或 Vite React，MVP 优先单页 Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Execution Console 和 Review Center 都是状态密集型工作台，React 生态适合看板、表格、日志、实时状态 UI 和界面多语言切换。 | 当前仓库没有既有实现栈；若实现阶段已有宿主框架，以宿主框架优先；Product Console 首次打开默认中文，语言选择应可持久化。 |
 | IDE Extension | TypeScript + VSCode Extension API + 独立 Webview Web UI | VSCode 已提供文件树、编辑器、Markdown 预览、CodeLens、Hover、Comments、Diagnostics、Terminal、Output Channel、Webview、Status Bar 和 Git 集成，适合作为 SpecDrive 的日常操作入口；独立 Webview 承载任务调度和自动执行工作台。 | 插件只调用 Control Plane query/command API；不依赖 Codex VS 插件私有 Webview 协议，不模拟其输入框；Execution Workbench 不复用 Product Console 页面、路由、导航、App Shell 或组件实现。 |
 | UI Component System | shadcn/ui + Tailwind CSS + Radix UI primitives | Product Console 需要稳定、可组合、可审计的工作台组件体系；shadcn/ui 以源码方式进入项目，便于定制表格、表单、弹窗、标签页、命令菜单、状态徽标和 Review 操作面板，同时保留无障碍基础能力。 | 不引入重型封闭组件库；组件主题、设计 token、暗色模式和状态语义应在 Product Console Feature Spec 中细化。 |
-| Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
+| Backend / Runtime | TypeScript + Node.js Control Plane API + Execution Adapter Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令、文件系统和远程/RPC 执行服务；Node.js 对 CLI 编排、JSON-RPC、HTTP、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程、CLI Adapter 或 RPC Adapter 执行，不改变控制面事实源。 |
 | Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、执行结果、审计、通用指标和 token 消费明细。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
-| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter 和 Codex app-server adapter | UI、IDE、调度器、Runner 和审批动作需要统一入口；Codex/Gemini/Git/GitHub 先走稳定 adapter 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；app-server Adapter 负责 JSON-RPC protocol/capability/schema detection。 |
+| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI Adapter 和 RPC Adapter | UI、IDE、调度器、Execution Adapter 和审批动作需要统一入口；Codex/Gemini/Git/GitHub/app-server/HTTP 服务先走稳定 adapter 边界，减少平台权限建模。 | CLI/RPC Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；RPC Adapter 负责 protocol/capability/schema detection。 |
 | Background Jobs / Scheduler | BullMQ + Redis queue + Worker；SQLite 保存 scheduler job record、Run、心跳、状态和 execution result | 长时间任务不能只存在内存；延迟/周期/Worker 执行交给成熟队列，业务事实仍可恢复。 | Redis 不可用时 scheduler health 为 blocked；写任务默认串行，写入型并行必须绑定 worktree。 |
-| Testing | Vitest/Jest 覆盖服务与状态机；Playwright 覆盖 Console；CLI adapter 使用 fixture 和本地集成测试 | 核心风险在状态机、schema、Runner policy、工作区隔离和 UI 状态展示，测试应围绕这些边界。 | 目标仓库的测试命令由项目健康检查发现，不由本系统固定。 |
-| Deployment / Operations | MVP 本地进程：Control Plane + Runner Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合编码 CLI、Git worktree 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Runner 池。 |
+| Testing | Vitest/Jest 覆盖服务与状态机；Playwright 覆盖 Console；CLI adapter 使用 fixture 和本地集成测试 | 核心风险在状态机、schema、Execution Policy、工作区隔离和 UI 状态展示，测试应围绕这些边界。 | 目标仓库的测试命令由项目健康检查发现，不由本系统固定。 |
+| Deployment / Operations | MVP 本地进程：Control Plane + Execution Adapter Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合编码 CLI、Git worktree、app-server 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Adapter Worker 池。 |
 
 Rejected / deferred alternatives:
 
-- 不采用自研大模型；模型能力由 Codex CLI、Google Gemini CLI 或后续 Runner adapter 提供。
-- 不在 MVP 中引入复杂微服务；控制面和 Runner Worker 可先在同一主机运行。
+- 不采用自研大模型；模型能力由 Codex CLI、Google Gemini CLI、Codex app-server 或后续 Execution Adapter 提供。
+- 不在 MVP 中引入复杂微服务；控制面和 Execution Adapter Worker 可先在同一主机运行。
 - 不以 Project Memory 作为调度数据库；Memory 只为 CLI 恢复提供压缩上下文。
 - `docs/zh-CN/design.md` 已作废；若历史内容与本文、PRD 或 requirements 冲突，以本文和当前 Feature Spec 为准。
 
@@ -167,11 +172,11 @@ Rejected / deferred alternatives:
 
 | Layer | Responsibility | Key Decision |
 |---|---|---|
-| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区；保留系统设置、adapter 配置、队列调试和全局状态总览。 |
+| Product Console | Dashboard、Spec Workspace、Skill Center、Subagent Console、Execution Console、Review Center、System Settings | 只通过 Control Plane 查询和发起命令，不直接写 Git 工作区；保留系统设置、adapter 配置、队列调试和全局状态总览。 |
 | VSCode SpecDrive Extension | Spec Explorer、文档 Hover/CodeLens/Comments/Diagnostics、Execution Workbench Webview、Task Queue、Execution Record 面板、approval pending 面板 | IDE 原生入口；只提交受控命令和订阅状态，不直接写运行事实源或调用 Codex turn API；Execution Workbench 是独立插件 Web UI，核心关注任务调度和自动执行。 |
 | Control Plane | 项目、Spec、Skill、调度、状态、审批、证据和查询 API | 是状态与调度决策的协调层。 |
 | Orchestration | Project Scheduler、Executor Job Scheduler、Planning Pipeline、State Machine、Recovery Bootstrap | 所有状态变化先持久化，再触发副作用。 |
-| Execution | Subagent Runtime、Context Broker、Codex Runner、Status Checker、Recovery Manager | 每次执行都受 Run Contract、Runner Policy 和 SkillOutput/Execution Result schema 约束。 |
+| Execution | Execution Adapter Layer、CLI Adapter、RPC Adapter、Status Checker、Recovery Manager | 每次执行都受 Invocation Contract、Execution Policy 和 SkillOutput/Execution Result schema 约束。 |
 | Workspace | Git repository、worktree、branch、merge readiness、rollback | 写任务以独立 worktree 和分支隔离。 |
 | Execution Results and Governance | Execution Result、Audit Timeline、Metrics、Token Consumption、Review、Delivery Report、Spec Evolution | 支撑审计、审批、恢复、成本追踪和交付闭环。 |
 
@@ -256,7 +261,7 @@ Responsibilities:
 - 平台不维护 Feature 内 TaskGraph / tasks 执行表；Feature 内任务排序、并行和完成状态由执行 LLM 读取 Feature Spec 目录中的 `requirements.md`、`design.md` 和 `tasks.md` 后自行管理。
 - Feature 执行的唯一受控输入是当前项目 workspace 中的 Feature Spec 目录；`feature_execution` 不依赖 `task_graph_tasks` / `tasks` 表是否存在。
 - Feature Aggregator 根据 Execution Record、执行结果、Feature 验收、Spec Alignment 和测试结果判断 Feature 状态。
-- Runner 将 `completed`、`approval_needed`、`blocked`、`review_needed`、`failed` 和 SkillOutput contract validation failure 投影为 Feature `spec-state.json.lastResult`、blockedReasons 和 nextAction；approval pending 不写入 `SkillOutputContractV1.status`，只作为 Execution Record / app-server projection 状态。
+- Execution Adapter 将 `completed`、`approval_needed`、`blocked`、`review_needed`、`failed` 和 SkillOutput contract validation failure 投影为 Feature `spec-state.json.lastResult`、blockedReasons 和 nextAction；approval pending 不写入 `SkillOutputContractV1.status`，只作为 Execution Record / app-server projection 状态。
 - 维护 Feature、Execution Record 与受控命令的状态；Task Board 仅作为兼容展示或手动状态入口，不是编码执行的必需事实源。
 
 Owns:
@@ -265,7 +270,7 @@ Owns:
 
 Collaborates With:
 
-- Spec Protocol Engine、Workspace Manager、BullMQ Scheduler Worker、Codex Runner、Project Memory Service、Review Center。
+- Spec Protocol Engine、Workspace Manager、BullMQ Scheduler Worker、Execution Adapter Layer、Project Memory Service、Review Center。
 
 ### 7.5 Subagent Runtime and Context Broker
 
@@ -282,7 +287,7 @@ Owns:
 
 Collaborates With:
 
-- Project Memory Service、Codex Runner、Workspace Manager、Status Checker、Runner Queue。
+- Project Memory Service、Execution Adapter Layer、Workspace Manager、Status Checker、Execution Adapter Queue。
 
 ### 7.6 Project Memory Service
 
@@ -300,14 +305,14 @@ Owns:
 
 Collaborates With:
 
-- Orchestration Layer、Subagent Runtime、Codex Runner、Status Checker、Audit Timeline。
+- Orchestration Layer、Subagent Runtime、Execution Adapter Layer、Status Checker、Audit Timeline。
 
 ### 7.7 Workspace Manager
 
 Responsibilities:
 
 - 为项目级并行 Feature 或 Feature 内并行写任务创建独立 Git worktree 与分支。
-- 记录 worktree 路径、分支名、base commit、目标分支、关联 Feature/Task、Runner 和清理状态。
+- 记录 worktree 路径、分支名、base commit、目标分支、关联 Feature/Task、执行通道 和清理状态。
 - 判断同文件、锁文件、数据库 schema、公共配置和共享运行时资源是否必须串行。
 - 合并前执行冲突检测、Spec Alignment Check 和必要测试。
 
@@ -317,25 +322,77 @@ Owns:
 
 Collaborates With:
 
-- Repository Adapter、Executor Job Scheduler、Codex Runner、Status Checker、Recovery Manager。
+- Repository Adapter、Executor Job Scheduler、Execution Adapter Layer、Status Checker、Recovery Manager。
 
-### 7.8 Codex Runner
+### 7.8 Execution Adapter Layer
 
 Responsibilities:
 
-- 通过 Runner CLI Adapter 调用 Codex CLI、Google Gemini CLI 或后续等价 CLI 执行代码修改、测试或修复。
-- 读取 active CLI Adapter JSON 配置，并将 executable、argument template、workspace policy、output mode、执行结果映射和 session resume 映射转换为实际执行计划。
-- 按任务风险解析 sandbox、approval policy、model、reasoning effort、profile、workspace root、session resume 和 output schema。
-- 采集命令输出、JSON/JSONL event stream、CLI session、心跳和原始日志。
+- 提供统一的执行适配接口，不再以 Runner 作为核心抽象。
+- 按 executor kind 分发 `cli.run`、`rpc.run` 等 job；Scheduler 只认识 job kind、payload context 和 Execution Record，不硬编码 Codex、Gemini、app-server 或 HTTP 细节。
+- CLI Adapter 调用 Codex CLI、Google Gemini CLI 或后续等价 CLI 执行代码修改、测试或修复。
+- RPC Adapter 调用 Codex app-server、HTTP/JSON-RPC/WebSocket app-server 或后续远程执行服务，并处理 thread/turn、approval、event stream 和 interrupt/cancel。
+- 读取 active adapter JSON 配置，并将 executable、argument template、endpoint、transport、capabilities、workspace policy、output mode、执行结果映射和 session resume/thread resume 映射转换为实际执行计划。
+- 按任务风险解析 sandbox、approval policy、model、reasoning effort、profile、workspace root、session/thread resume 和 output schema。
+- 采集命令输出、RPC event stream、provider session/thread、心跳和原始日志。
 - 生成或转交 Execution Result。
 
 Owns:
 
-- RunnerPolicy、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog。
+- ExecutionPolicy、ExecutionAdapterConfig、ExecutionHeartbeat、ExecutionSessionRecord、RawExecutionLog。
 
 Collaborates With:
 
-- Subagent Runtime、Project Memory Injector、Workspace Manager、Safety Gate、Status Checker。
+- Project Memory Injector、Workspace Manager、Safety Gate、Status Checker、Review Center、VSCode Extension。
+
+#### 7.8.1 Unified Adapter Interface
+
+所有执行适配器必须实现同一组平台接口：
+
+| Interface | Purpose | Required Fields |
+|---|---|---|
+| `ExecutionAdapterConfigV1` | 适配器机器可查询配置。 | `id`、`kind` (`cli`/`rpc`)、`displayName`、`provider`、`schemaVersion`、`transport`、`capabilities`、`defaults`、`inputMapping`、`outputMapping`、`security`、`status`、`updatedAt`。 |
+| `ExecutionAdapterInvocationV1` | Control Plane 传给适配器的唯一执行输入。 | `executionId`、`jobId`、`projectId`、`workspaceRoot`、`operation`、`featureId`、`taskId`、`skillSlug`、`requestedAction`、`sourcePaths`、`imagePaths`、`expectedArtifacts`、`specState`、`traceability`、`constraints`、`outputSchema`、`resume`。 |
+| `ExecutionAdapterEventV1` | 适配器运行中回传的事件。 | `executionId`、`provider`、`sequence`、`timestamp`、`type`、`severity`、`message`、`payloadRef`、`approvalRequest`、`tokenUsage`。 |
+| `ExecutionAdapterResultV1` | 适配器完成后回传的结构化结果。 | `executionId`、`status` (`completed`/`failed`/`blocked`/`review_needed`/`approval_needed`/`cancelled`)、`providerSession`、`summary`、`skillOutput`、`producedArtifacts`、`traceability`、`nextAction`、`rawLogRefs`、`error`。 |
+
+`SkillInvocationContractV1` 与 `SkillOutputContractV1` 保持为面向 Skill 的内容协议；Execution Adapter 接口是面向 provider 的运行协议。CLI/RPC adapter 可以复用 Skill contract，但不得把 Skill contract 当作 adapter 配置、状态机或审计事实源。
+
+#### 7.8.2 CLI Adapter
+
+CLI Adapter 只负责把 `ExecutionAdapterInvocationV1` 映射为本机进程调用：
+
+- `codex-cli`：默认内置 preset，当前实现迁移来源为 `src/cli-runner.ts` 中 Codex preset、policy、contract validation、raw log、token usage 和 session record 逻辑。
+- `gemini-cli`：内置可选 preset，继续使用 headless JSON/JSONL 输出和事后 `SkillOutputContractV1` 校验。
+- 后续 CLI：通过 adapter JSON 增加 executable、argument template、resume template、environment allowlist、output mapping 和 dry-run，不修改 Scheduler 或状态机。
+
+CLI Adapter 必须在目标项目 workspace root 中启动进程。workspace root 不得回退到 SpecDrive Control Plane 进程 cwd。路径缺失、不可读、不是可用 workspace，或缺少执行所需 `.agents/skills/*` / `AGENTS.md` 时，新 Execution Record 必须 blocked。
+
+#### 7.8.3 RPC Adapter
+
+RPC Adapter 只负责把 `ExecutionAdapterInvocationV1` 映射为远程或进程内协议调用：
+
+- `codex-app-server`：当前实现迁移来源为 `src/codex-app-server.ts`，负责 stdio JSON-RPC、initialize、thread/start、thread/resume、turn/start、turn/interrupt、approval response、event stream 和 output schema。
+- `http-app-server`：后续通用 HTTP/JSON-RPC adapter，可通过 endpoint、headers allowlist、auth ref、capability detection、request/response mapping 和 event stream mapping 接入。
+- `websocket-app-server`：后续长连接 adapter，用于需要双向 event stream、approval 和 cancel/interrupt 的远程执行服务。
+
+RPC Adapter 的远程 provider 不得直接写入 SpecDrive SQLite、Feature `spec-state.json` 或 Git 工作区事实源。所有 provider 输出必须先投影为 `ExecutionAdapterEventV1` / `ExecutionAdapterResultV1`，再由 Control Plane 按状态机、审计和 Safety Gate 规则落库或写文件。
+
+#### 7.8.4 Terminology Migration
+
+旧实现和历史文档中的 Runner、Codex Runner、Runner Policy、Runner Heartbeat、CodexSessionRecord 迁移为：
+
+| Legacy Term | New Term |
+|---|---|
+| Runner / Codex Runner | Execution Adapter Layer |
+| Runner CLI Adapter | CLI Adapter |
+| Codex app-server Adapter | RPC Adapter: `codex-app-server` provider |
+| RunnerPolicy | ExecutionPolicy |
+| RunnerHeartbeat | ExecutionHeartbeat |
+| CodexSessionRecord / CliSessionRecord | ExecutionSessionRecord with provider-specific details |
+| Runner Console | Execution Console |
+
+迁移顺序必须先落接口，再迁移 Codex CLI provider，再迁移 Codex app-server provider，最后清理 UI、数据库兼容字段和历史命名。兼容期间可以保留旧文件名或数据库表名作为实现过渡，但对外设计、Feature Spec、API view model 和新任务不得继续引入 Runner 概念。
 
 ### 7.9 Status Checker and Status Checker
 
@@ -351,7 +408,7 @@ Owns:
 
 Collaborates With:
 
-- Codex Runner、Workspace Manager、Review Center、Recovery Manager、Delivery Manager。
+- Execution Adapter Layer、Workspace Manager、Review Center、Recovery Manager、Delivery Manager。
 
 ### 7.10 Recovery Manager
 
@@ -379,8 +436,8 @@ Responsibilities:
 - Spec Workspace 展示 Feature、Spec、澄清、Checklist、计划、数据模型、契约、Feature Spec `tasks.md` 覆盖情况和版本 diff。
 - Skill Center 展示 Skill 列表、详情、版本、schema、启用状态、执行日志、成功率、阶段和风险等级。
 - Subagent Console 展示 Run Contract、上下文切片、执行结果、token 使用、运行状态，并支持终止和重试。
-- Runner Console 展示 Runner 在线状态、active CLI adapter、当前模型、sandbox、approval policy、queue、日志、心跳和 CLI Adapter 配置健康摘要。
-- System Settings 提供 CLI Adapter 配置管理，支持 Codex/Gemini preset、原始 JSON、JSON Schema 表单、dry-run 校验、保存草稿、启用/禁用和字段级错误展示；Runner Console 仅提供状态摘要和跳转入口。
+- Execution Console 展示 Execution Adapter 在线状态、active CLI adapter、当前模型、sandbox、approval policy、queue、日志、心跳和 CLI Adapter 配置健康摘要。
+- System Settings 提供 CLI Adapter 配置管理，支持 Codex/Gemini preset、原始 JSON、JSON Schema 表单、dry-run 校验、保存草稿、启用/禁用和字段级错误展示；Execution Console 仅提供状态摘要和跳转入口。
 
 Owns:
 
@@ -388,7 +445,7 @@ Owns:
 
 Collaborates With:
 
-- Control Plane API、Audit and Metrics Store、Review Center、Runner Queue。
+- Control Plane API、Audit and Metrics Store、Review Center、Execution Adapter Queue。
 
 ### 7.12 Review Center
 
@@ -438,7 +495,7 @@ Owns:
 
 Collaborates With:
 
-- Product Console（UI 挂载）、submitConsoleCommand（命令派发）、Codex Runner（意图分类调用）、Status Checker（查询上下文构建）。
+- Product Console（UI 挂载）、submitConsoleCommand（命令派发）、Execution Adapter Layer（意图分类调用）、Status Checker（查询上下文构建）。
 
 ### 7.15 VSCode SpecDrive Extension
 
@@ -459,7 +516,7 @@ Owns:
 
 Collaborates With:
 
-- Control Plane query/command API、Scheduler、Runner Codex app-server Adapter、Execution Record Store、Workspace Files、Product Console。
+- Control Plane query/command API、Scheduler、RPC Adapter、Execution Record Store、Workspace Files、Product Console。
 
 Boundary:
 
@@ -476,7 +533,7 @@ Boundary:
 | Spec Protocol | Spec Protocol Engine | Feature、Requirement、ClarificationLog、Checklist、SpecVersion、SpecSlice | SQLite + Markdown/JSON artifact。 |
 | Skill Governance | Skill System | Skill、SkillVersion、SkillRun、SchemaValidationResult | SQLite + skill artifact。 |
 | Orchestration State | Orchestration and State Machine | Feature、StateTransition、ScheduleTrigger、SchedulerJobRecord、ExecutionRecord | SQLite source of truth；BullMQ/Redis 只负责调度和 Worker 投递。 |
-| Runtime Execution | Codex Runner | ExecutionRecord、CliAdapterConfig、RunnerHeartbeat、CodexSessionRecord、RawExecutionLog、TokenConsumptionRecord | SQLite + JSON adapter config + execution logs；`cli.run` 由 BullMQ Worker 触发；token/cost 只从 `.autobuild/runs/<runId>/stdout.log` 提取消费事实。 |
+| Runtime Execution | Execution Adapter Layer | ExecutionRecord、ExecutionAdapterConfig、ExecutionHeartbeat、ExecutionSessionRecord、RawExecutionLog、TokenConsumptionRecord | SQLite + JSON adapter config + execution logs；`cli.run` / `rpc.run` 由 BullMQ Worker 触发；token/cost 只从 adapter event/raw log 提取消费事实。 |
 | IDE Integration | VSCode SpecDrive Extension / Control Plane | SpecDriveWorkspaceContextV1、SpecTreeNodeV1、SpecChangeRequestV1、IdeCommandReceiptV1、AppServerExecutionProjectionV1 | Workspace 文件 + Control Plane query/command API；IDE 本地只缓存 UI 状态。 |
 | Workspace Isolation | Workspace Manager | WorktreeRecord、ConflictCheckResult、MergeReadinessResult | SQLite + Git/worktree facts。 |
 | Project Memory | Project Memory Service | ProjectMemory、MemoryVersionRecord | `.autobuild/memory/project.md` for CLI injection + SQLite version index。 |
@@ -497,32 +554,36 @@ Data ownership rules:
 ### Internal Collaboration Style
 
 - Control Plane 通过同步命令处理用户动作、调度触发、审批动作和查询。
-- Scheduler、Runner、Status Checker、Recovery 和 Delivery 之间通过 SQLite 状态、BullMQ job 和 execution result 解耦。
+- Scheduler、Execution Adapter、Status Checker、Recovery 和 Delivery 之间通过 SQLite 状态、BullMQ job 和 execution result 解耦。
 - Planning 类 Skill 仍由编码 CLI 工作流执行；平台在 planning bridge 未实现前不得伪造 Skill 输出或 Feature Spec `tasks.md` 覆盖结果。
 
 ### External Integrations
 
 | Integration | MVP Strategy | Constraint |
 |---|---|---|
-| BullMQ + Redis | `specdrive:feature-scheduler` 和 `specdrive:cli-runner` 两个 queue 承担 delayed、repeatable 和 Worker job 执行。 | Redis 不保存业务事实；断连时 scheduler health 为 blocked，SQLite 保留 trigger/job/audit。 |
-| Codex CLI / Google Gemini CLI | 由 Runner CLI Adapter 调用 `codex exec`、Gemini headless `stream-json` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行；命令模板和输出映射来自 active JSON adapter 配置。 |
-| Codex app-server | 由 Runner Codex app-server Adapter 连接或启动 `codex app-server`，执行 initialize、thread/start、thread/resume、turn/start、turn/interrupt 和 approval response。 | Runner 是唯一调用 app-server turn API 的组件；VSCode 插件只能提交受控命令和订阅状态。 |
+| BullMQ + Redis | `specdrive:feature-scheduler` 和 Execution Adapter queue 承担 delayed、repeatable 和 Worker job 执行。 | Redis 不保存业务事实；断连时 scheduler health 为 blocked，SQLite 保留 trigger/job/audit。 |
+| Codex CLI / Google Gemini CLI | 由 CLI Adapter 调用 `codex exec`、Gemini headless `stream-json` 或等价执行入口，并要求结构化输出。 | 高风险任务不得自动高权限执行；命令模板和输出映射来自 active JSON adapter 配置。 |
+| Codex app-server / HTTP / JSON-RPC / WebSocket | 由 RPC Adapter 连接或启动 provider，执行 initialize/capability detection、thread/session start/resume、turn/request、interrupt/cancel、approval response 和 event stream 消费。 | RPC provider 不直接写事实源；VSCode 插件只能提交受控命令和订阅状态。 |
 | Git CLI | 由 Repository Adapter 和 Workspace Manager 读取状态、创建分支和管理 worktree。 | Git 状态是代码事实来源。 |
 | GitHub `gh` CLI | 由 Delivery Manager 创建 PR，读取必要 PR 状态。 | MVP 不单独建模 Git 平台权限矩阵。 |
 | Local filesystem | 保存 Project Memory、Spec artifact、执行结果 artifact 和 Delivery Report。 | Artifact root 统一为 `.autobuild/`。 |
-| Build/test tools | 由 Status Checker 和 Runner 根据项目健康检查发现并执行。 | 命令结果必须进入 执行结果。 |
+| Build/test tools | 由 Status Checker 和 Execution Adapter 根据项目健康检查发现并执行。 | 命令结果必须进入 执行结果。 |
 
-### CLI Adapter Configuration
+### Execution Adapter Configuration
 
-CLI Adapter 配置是 Runner 的机器可查询事实源，使用 JSON 持久化并由 JSON Schema 校验。配置变更流程为 draft -> dry-run validated -> active；启用失败时保留上一份 active 配置。Product Console 系统设置中的 JSON 表单只编辑该 JSON，不创建第二套配置事实源。模型 token 价格表属于 active CLI Adapter defaults，用于将 TokenConsumptionRecord 的 token usage 转换为成本；缺失价格时记录 token 且成本为 0。
+Execution Adapter 配置是执行适配层的机器可查询事实源，使用 JSON 持久化并由 JSON Schema 校验。配置变更流程为 draft -> dry-run validated -> active；启用失败时保留上一份 active 配置。Product Console 系统设置中的 JSON 表单只编辑该 JSON，不创建第二套配置事实源。模型 token 价格表属于 active adapter defaults，用于将 TokenConsumptionRecord 的 token usage 转换为成本；缺失价格时记录 token 且成本为 0。
 
-### Codex App Server Adapter
+### CLI Adapter
 
-Codex app-server Adapter 是 Runner 的第二类执行 adapter，job type 为 `codex.app_server.run`。它与 `cli.run` 并存，不替换现有 CLI Adapter。Runner 消费 Job 后读取 active adapter config，连接已有 app-server 或启动 `codex app-server`，完成 protocol initialize，再根据 Execution Record / payload context 选择 `thread/start` 或 `thread/resume`，随后调用 `turn/start`。
+CLI Adapter 的 job type 为 `cli.run`。它读取 active `kind=cli` adapter config，合并 Execution Policy，构建 `ExecutionAdapterInvocationV1`，在目标 workspace root 中启动 CLI 进程，并把 stdout/stderr、JSON/JSONL events、session id 和结构化输出投影为 `ExecutionAdapterEventV1` / `ExecutionAdapterResultV1`。
 
-Adapter 输入至少包含 `workspaceRoot`、`featureId`、`taskId`、`sourcePaths`、`expectedArtifacts`、`specState`、`skillSlug`、`requestedAction` 和 `outputSchema`。输出投影为 `AppServerExecutionProjectionV1`，包含 `executionId`、`threadId`、`turnId`、`eventRefs`、`approvalState`、`producedArtifacts`、`summary` 和 `error`。
+### RPC Adapter
 
-app-server 事件流持续写入 raw logs，并投影到 Execution Record progress。`SkillOutputContractV1` 校验通过后，Control Plane 更新 `docs/features/<feature-id>/spec-state.json.lastResult`、next action 和 history；校验失败时保留 raw output 并将 Execution Record 标记为 failed。审批请求必须写入 pending approval，等待 VSCode 插件或其他 UI 通过 Control Plane approval command 返回决策。
+RPC Adapter 的 job type 为 `rpc.run`，`codex.app_server.run` 是迁移期兼容别名。它读取 active `kind=rpc` adapter config，连接已有 app-server 或启动本地 app-server，完成 protocol initialize/capability detection，再根据 Execution Record / payload context 选择 session/thread start/resume，随后发起 turn/request。
+
+Adapter 输入至少包含 `workspaceRoot`、`featureId`、`taskId`、`sourcePaths`、`expectedArtifacts`、`specState`、`skillSlug`、`requestedAction` 和 `outputSchema`。Codex app-server provider 的输出投影为 `ExecutionAdapterResultV1.providerSession`，其中包含 `threadId`、`turnId`、`transport`、`model`、`cwd` 和 event refs。
+
+RPC 事件流持续写入 raw logs，并投影到 Execution Record progress。`SkillOutputContractV1` 校验通过后，Control Plane 更新 `docs/features/<feature-id>/spec-state.json.lastResult`、next action 和 history；校验失败时保留 raw output 并将 Execution Record 标记为 failed。审批请求必须写入 pending approval，等待 VSCode 插件或其他 UI 通过 Control Plane approval command 返回决策。
 
 ### Artifact Root Decision
 
@@ -578,10 +639,10 @@ flowchart TD
 flowchart TD
   Pool[Feature Pool Queue<br/>feature-pool-queue.json] --> SchedulerJob["<executor>.run Job"]
   SchedulerJob --> ExecRecord[Execution Record]
-  ExecRecord --> CliJob[cli.run / native.run]
-  CliJob --> Memory[Project Memory Injection]
-  Memory --> Runner[Codex Runner]
-  Runner --> 执行结果[Execution Result]
+  ExecRecord --> AdapterJob[cli.run / rpc.run]
+  AdapterJob --> Memory[Project Memory Injection]
+  Memory --> ExecAdapter[Execution Adapter Layer]
+  ExecAdapter --> 执行结果[Execution Result]
   execution result --> Check[Status Checker]
   Check -->|Done| Merge[Result Merger]
   Check -->|Review Needed| Review[Review Center]
@@ -646,7 +707,7 @@ flowchart TD
 | Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill** | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`） | `task-slicing-skill`（Feature 级） |
 | 启动项目级任务调度 | `schedule_run(project)` 或 `start_auto_run` 触发 | **Code + Skill** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` + Feature `spec-state.json` | SQLite Feature 候选记录 + BullMQ `<executor>.run` Job + Execution Record；Job payload 指向 Feature Spec 目录 | `feature-selection-skill` |
 | 需求质量检查 | Feature Spec 创建后 | **Skill** | Feature Spec requirements.md | 通过 → `ready`；歧义 → ClarificationLog + `draft` | `requirements-checklist-skill`、`ambiguity-clarification-skill` |
-| Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Runner / Memory）+ **CLI/native** | Job payload + Project Memory + Feature Spec `requirements.md` / `design.md` / `tasks.md` | 代码/测试/配置/文档变更、Execution Record、心跳、RawLog、Execution Result | `codex-coding-skill` |
+| Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Execution Adapter / Memory）+ **CLI/RPC** | Job payload + Project Memory + Feature Spec `requirements.md` / `design.md` / `tasks.md` | 代码/测试/配置/文档变更、Execution Record、心跳、RawLog、Execution Result | `codex-coding-skill` |
 | Status 检查 | Execution Record 结束 | **Code**（确定性检查）+ **Skill**（Spec Alignment） | Execution Result | StatusCheckResult（Done / Review Needed / Failed / Blocked） | — |
 | Review / Recovery | Status 触发 | **Code**（状态）+ **Skill**（内容） | StatusCheckResult + execution result | ReviewItem / RecoveryTask | `review-report-skill`、`failure-recovery-skill` |
 | Feature 交付 | Feature Aggregator 判断 done | **Code**（PR / Delivery）+ **Skill**（内容） | execution result + Task 结果 | PR、Delivery Report、Spec Evolution 建议 | `pr-generation-skill`、`spec-evolution-skill` |
@@ -658,7 +719,7 @@ flowchart TD
 | 阶段 | 触发 | 实现归因 | 状态迁移 | 产出物 |
 |---|---|---|---|---|
 | **intake** | Feature Spec 创建（手动 / Skill 拆分） | Skill（EARS 内容 + Checklist + 澄清）+ Code（Feature 记录写入、状态迁移） | `draft` → `ready`（或 `review_needed`） | EARS Requirements、ClarificationLog、RequirementChecklist |
-| **execution** | `<executor>.run` job 被 Worker 消费 | Code（BullMQ Worker、Project Memory 注入、CLI/native executor、心跳、Execution Record）+ Skill（按 Feature Spec 执行） | `ready` → `implementing`；Execution Record：`running` → `completed/review_needed/failed/blocked` | 代码/测试/配置/文档变更、Execution Record、RunnerHeartbeat、RawExecutionLog、Execution Result |
+| **execution** | `<executor>.run` job 被 Worker 消费 | Code（BullMQ Worker、Project Memory 注入、CLI/native executor、心跳、Execution Record）+ Skill（按 Feature Spec 执行） | `ready` → `implementing`；Execution Record：`running` → `completed/review_needed/failed/blocked` | 代码/测试/配置/文档变更、Execution Record、ExecutionHeartbeat、RawExecutionLog、Execution Result |
 | **checking** | 每次 Execution Record 结束后 Status Checker 触发 | Code（diff/build/test/lint/security 命令执行）+ Skill（Spec Alignment 语义比对） | `running` → `done` / `review_needed` / `blocked` / `failed` | StatusCheckResult、SpecAlignmentResult、ExecutionResult（更新） |
 | **closing** | Feature Aggregator 判断所有任务完成且验收通过 | Code（PR 创建、Delivery Record）+ Skill（PR 内容、Spec Evolution 建议） | `in-progress` → `done` → `delivered`；未通过 → `review_needed` | PullRequestRecord、Delivery Report、SpecEvolutionSuggestion |
 
@@ -698,7 +759,7 @@ Governance:
 Observability:
 
 - 每个 Run、Task、Feature、Execution Result、Review Item 和 State Transition 必须有可追踪 ID。
-- Runner 每 10 至 30 秒更新心跳，Runner Console 展示最近心跳时间。
+- Execution Adapter 每 10 至 30 秒更新心跳，Execution Console 展示最近心跳时间。
 - Audit Timeline 记录状态变化、触发原因、执行者、来源证据和时间。
 - Token Consumption 记录每次 CLI run 的 token、成本、模型、价格快照和 `stdout.log` 来源路径，并以 `run_id` 唯一约束防止重复计数。
 - Metrics 记录成功率、失败率、看板加载耗时、状态刷新耗时和 执行结果记录耗时；不承载 token 或成本消费事实。
@@ -707,7 +768,7 @@ Observability:
 Operability:
 
 - Project Health Checker 发现 Git、包管理器、测试命令、构建命令、Codex 配置、AGENTS.md、Spec 目录、未提交变更和敏感文件风险。
-- Recovery Bootstrap 在重启后恢复 Run、任务、Runner 心跳、worktree、CLI session、执行结果 和 Project Memory。
+- Recovery Bootstrap 在重启后恢复 Run、任务、Execution Adapter 心跳、worktree、CLI session、执行结果 和 Project Memory。
 - 状态冲突时先核查 Persistent Store、Git/worktree 和文件系统，再修正 Dashboard 或 Project Memory 投影。
 - 执行结果记录失败时任务进入 blocked 或 failed，并保留诊断错误。
 
@@ -720,18 +781,19 @@ flowchart TB
   Browser[Browser / Product Console] --> API[Local Control Plane API]
   API --> DB[(SQLite Persistent Store)]
   API --> FeatureQueue[BullMQ feature-scheduler queue]
-  API --> CliQueue[BullMQ cli-runner queue]
+  API --> AdapterQueue[BullMQ execution-adapter queue]
   FeatureQueue --> Redis[(Redis)]
-  CliQueue --> Redis
+  AdapterQueue --> Redis
   API --> Files[.autobuild Artifact Root]
   FeatureQueue --> FeatureWorker[Executor Job Scheduler Worker]
-  CliQueue --> Runner[Local Runner Worker]
-  Runner --> CodingCLI[Codex CLI / Gemini CLI]
-  Runner --> Repo[Target Repository]
+  AdapterQueue --> ExecAdapter[Local Execution Adapter Worker]
+  ExecAdapter --> CodingCLI[Codex CLI / Gemini CLI]
+  ExecAdapter --> RpcProvider[Codex app-server / HTTP / JSON-RPC]
+  ExecAdapter --> Repo[Target Repository]
   Repo --> WT1[Task Worktree]
   Repo --> WT2[Feature Worktree]
-  Runner --> Tools[Build/Test/Lint/Security Tools]
-  Runner --> Files
+  ExecAdapter --> Tools[Build/Test/Lint/Security Tools]
+  ExecAdapter --> Files
 ```
 
 Runtime decisions:
@@ -740,7 +802,7 @@ Runtime decisions:
 - 只读 Subagent 可并发共享只读上下文，不写共享工作区。
 - 写入型并行必须使用独立 worktree 和隔离分支。
 - 同一文件、锁文件、数据库 schema、公共配置和不可隔离共享运行时资源默认串行。
-- Runner 与 Control Plane 通过队列、持久状态和 execution result 协同，避免长时间任务只存在于内存。
+- Execution Adapter 与 Control Plane 通过队列、持久状态和 execution result 协同，避免长时间任务只存在于内存。
 - Worker 拓扑默认为 backend embedded；`--worker-only` 可只启动 Worker，`--no-worker` 可关闭内嵌 Worker。
 - Persistent Store 是恢复和状态真实来源；artifact 文件用于 CLI 注入、审计附件和人类阅读。
 
@@ -751,12 +813,12 @@ Testing strategy:
 - Requirement-level：每条 EARS Requirement 应可映射到验收标准和测试场景。
 - Skill-level：校验每个 Skill 的 input/output schema、失败处理和 execution result 生成。
 - State-machine-level：覆盖 Feature 与 Task 的合法状态迁移、Review Needed reason、Blocked/Failed 路径。
-- Runner-level：覆盖 Runner Policy、sandbox/approval、心跳、CLI session、输出 schema 和命令失败。
+- Execution Adapter-level：覆盖 Execution Policy、sandbox/approval、心跳、CLI session、输出 schema 和命令失败。
 - Workspace-level：覆盖 worktree 创建、冲突检测、合并前检查、回滚和清理状态。
 - Status-level：覆盖 diff、构建、测试、lint、安全、敏感信息、Spec Alignment 和完成度判断。
 - Recovery-level：覆盖失败指纹、禁止重复策略、最大重试、退避和人工 Review 路由。
 - Delivery-level：覆盖 PR 内容、Delivery Report、执行结果 汇总、回滚方案和 Spec Evolution 建议。
-- UI-level：覆盖 Dashboard、Spec Workspace、Skill Center、Subagent Console、Runner Console 和 Review Center 的关键状态展示。
+- UI-level：覆盖 Dashboard、Spec Workspace、Skill Center、Subagent Console、Execution Console 和 Review Center 的关键状态展示。
 
 Quality gates:
 
@@ -780,12 +842,12 @@ Quality gates:
 | Subagent Runtime and Context Broker | Agent 类型、Run Contract、最小上下文、Subagent Console 后端数据层。 | REQ-014 至 REQ-018（REQ-017 写入隔离实现于 feat-007，feat-005 依赖其结果）、REQ-055（后端数据层主导实现于此，UI 由 feat-013 交付）。 |
 | Project Memory and Recovery Projection | Memory 初始化、注入、更新、压缩、版本和状态冲突修复。 | REQ-019 至 REQ-023、REQ-036 |
 | Workspace Isolation | worktree、分支、并行写入隔离、冲突检测和回滚边界。 | REQ-017（主导实现）、REQ-032、REQ-035；REQ-017 同时被 Subagent Runtime and Context Broker 依赖。 |
-| Codex Runner | CLI Adapter 调用、Runner Policy、JSON 配置、心跳、session resume、结构化输出。 | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066 |
+| Execution Adapter Layer | CLI Adapter 调用、Execution Policy、JSON 配置、心跳、session resume、结构化输出。 | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066 |
 | Status Checker | 检测项、Spec Alignment、状态判断、Execution Result。 | REQ-040 至 REQ-042、REQ-051 |
 | Failure Recovery | 恢复任务、恢复策略、失败指纹、重试退避和禁止重复。 | REQ-043 至 REQ-045 |
 | Review Center | Review Needed 触发、审批页面、审批动作和状态回流。 | REQ-046、REQ-047、REQ-057 |
 | Delivery and Spec Evolution | PR 创建、交付报告、Spec Evolution 建议。 | REQ-048 至 REQ-050 |
-| Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Spec Sources 扫描状态、Skill Center、Subagent Console UI、Runner Console、系统设置、CLI Adapter JSON 表单、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066、REQ-067（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
+| Product Console | 项目创建入口、项目列表、项目切换、Dashboard、Dashboard Board、Spec Workspace、Spec Sources 扫描状态、Skill Center、Subagent Console UI、Execution Console、系统设置、CLI Adapter JSON 表单、语言切换、shadcn/ui 基础组件与主题规范。 | REQ-052 至 REQ-056、REQ-061 至 REQ-064、REQ-066、REQ-067（REQ-055 Subagent Console UI 消费 feat-005 后端数据层）。 |
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 | SpecDrive IDE Foundation | VSCode 插件骨架、Control Plane client、workspace 识别、Spec Explorer 只读树、文件导航和 Task Queue 只读展示。 | REQ-074、REQ-075 |
 | IDE Spec Interaction | Hover、CodeLens、Comments 草稿与提交、`SpecChangeRequestV1`、textHash 校验、stale source 处理和 IDE command receipt。 | REQ-076、REQ-077、REQ-078 |
@@ -797,9 +859,9 @@ Quality gates:
 Decomposition rules:
 
 - System Bootstrap 是所有其他 Feature Spec 的先决条件，必须优先实现、独立验证和出货。
-- 优先拆出可独立验证的控制面能力，再接 Runner 写入能力。
+- 优先拆出可独立验证的控制面能力，再接 Execution Adapter 写入能力。
 - 任何 Feature Spec 都必须声明对应数据域、状态机影响、执行结果输出和 Review 触发条件。
-- 涉及写代码、测试执行或 Git 修改的 Feature Spec 必须明确 Workspace Manager 与 Runner Policy。
+- 涉及写代码、测试执行或 Git 修改的 Feature Spec 必须明确 Workspace Manager 与 Execution Policy。
 - UI Feature Spec 只消费控制面状态，不重新定义调度真实来源。
 - Project Memory 相关 Feature Spec 必须处理压缩、版本、冲突修复和投影与真实状态的边界。
 
@@ -846,7 +908,7 @@ Decomposition rules:
 | Feature 状态 → `tasked`，兼容看板展示 | **Code** | 状态机迁移 + 兼容看板投影持久化 |
 | 调度 Feature 执行 | **Code**（状态迁移 + `cli.run` 入队） | 完整 Feature Spec 目录校验、去重、重试限制和 Job/Execution Record 创建，是结构不变式 |
 | Project Memory 注入 CLI 上下文 | **Code** | 会话启动前注入文件，是触发侧副作用 |
-| Codex Runner 执行编码、测试、修复 | **CLI 原生**（执行）+ **Code**（BullMQ Worker / Execution Record / 心跳 / 日志 / 执行结果） | CLI 读取 Feature Spec 目录并执行；Code 记录并回写 Execution Record / Feature 状态 |
+| Execution Adapter Layer 执行编码、测试、修复 | **CLI 原生**（执行）+ **Code**（BullMQ Worker / Execution Record / 心跳 / 日志 / 执行结果） | CLI 读取 Feature Spec 目录并执行；Code 记录并回写 Execution Record / Feature 状态 |
 | Project Memory 更新 | **Code** | Execution Result 驱动的结构化文件更新，含 token 预算压缩逻辑 |
 | Status Checker 判断任务状态 | **Code**（diff / build / test / lint / security 命令执行）+ **Skill**（Spec Alignment 语义比对） | 确定性检查是 Code；语义对齐是 LLM 推理 |
 | Done → 更新 Feature / Execution 状态 | **Code** | 状态机迁移 |
@@ -861,7 +923,7 @@ Decomposition rules:
 
 Console command 到 CLI Skill 的执行链路为：Console command → scheduler job → Run → active CLI Adapter → project workspace → skill prompt → execution result / Status。Control Plane 只生成可审计 invocation contract 和运行事实，不注册、不发现、不校验 Skill schema，也不恢复平台级 SkillRun 表。
 
-invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability` 和 `requestedAction`。workspace root 必须来自当前项目 repository `local_path`，其次使用项目 `target_repo_path`；不得回退到 SpecDrive Control Plane 进程 cwd。项目路径缺失、不可读、不是可用 Git workspace，或缺少执行所需 `.agents/skills/*` / `AGENTS.md` 时，Run 必须 blocked 并把原因写入 执行结果、Runner Console 和 Spec Workspace 回执。
+invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability` 和 `requestedAction`。workspace root 必须来自当前项目 repository `local_path`，其次使用项目 `target_repo_path`；不得回退到 SpecDrive Control Plane 进程 cwd。项目路径缺失、不可读、不是可用 Git workspace，或缺少执行所需 `.agents/skills/*` / `AGENTS.md` 时，Run 必须 blocked 并把原因写入 执行结果、Execution Console 和 Spec Workspace 回执。
 
 ### 汇总：Code 与 Skill 的职责边界
 
@@ -913,9 +975,9 @@ invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`
 
 ### Tradeoffs
 
-- 本地优先拓扑降低 MVP 复杂度，但多项目能力先限定为本地项目目录和当前项目切换；团队级多项目协作、多 Runner 和云端协作仍需后续架构扩展。
-- TypeScript/Node.js 能简化 Console、schema 和 CLI 编排的一体化实现，但 Python Skill 需要通过进程 adapter 或 Runner adapter 接入。
-- SQLite 降低本地运维成本，但团队协作、远程 Runner 和高并发场景需要迁移 PostgreSQL 或等价外部数据库。
+- 本地优先拓扑降低 MVP 复杂度，但多项目能力先限定为本地项目目录和当前项目切换；团队级多项目协作、多 Execution Adapter 和云端协作仍需后续架构扩展。
+- TypeScript/Node.js 能简化 Console、schema 和 CLI 编排的一体化实现，但 Python Skill 需要通过进程 adapter 或 Execution Adapter 接入。
+- SQLite 降低本地运维成本，但团队协作、远程 Execution Adapter 和高并发场景需要迁移 PostgreSQL 或等价外部数据库。
 - Project Memory 作为文件注入适配 CLI 恢复，但需要额外机制避免与持久状态漂移。
 - worktree 隔离适合代码写入并行，但对数据库、缓存和外部服务仍需额外运行时隔离。
 - MVP 使用本机 `gh` CLI 简化 GitHub 集成，但暂不提供完整 Git 平台权限模型。
@@ -927,5 +989,5 @@ invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`
 - 哪些风险等级、文件模式和命令必须强制触发人工审批？
 - Project Memory 默认 8000 tokens 预算是否需要按项目规模配置？
 - MVP 是否允许用户在本地单用户模式之外启用多用户访问？
-- 多 CLI Runner 抽象属于 MVP 内还是 M2 扩展？
+- 多 CLI/RPC Adapter 抽象属于 MVP 内还是 M2 扩展？
 - 完整 diff 是否默认进入 执行结果 artifact，还是只保存摘要并按需引用 Git commit？

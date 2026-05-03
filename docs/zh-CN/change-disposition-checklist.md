@@ -48,6 +48,7 @@
 | CHG-024 | VSCode Feature Spec Webview 新增需求输入、刷新同步和 tasks 详情 | 用户指令：顶部 New Feature 弹窗提交后交给模型判定需求新增或变更；刷新同步 Feature index 与 Feature 文件夹；需求新增 Skill 写入 Feature index；点击 Feature 解析 `tasks.md` 任务状态 | 已增强 `REQ-084`、PRD、HLD、Feature Index、FEAT-021 和 `requirement-intake-skill` | 已完成 FEAT-021 follow-up：`T-021-09` 至 `T-021-12` 均已实现并验证。 |
 | CHG-025 | 自主执行下一 Feature 选择改为 Skill 推理，并修正非持续状态投影 | 用户指令：调整下一个 Feature 的选择逻辑，创建新的技能；CLI 执行结果中 approve/blocked 等非可持续状态要正确投射到 Feature 执行结果 | 已增强 PRD、requirements、HLD、skills、Feature Index、FEAT-004、FEAT-019、FEAT-021；已新增 `.agents/skills/feature-selection-skill/SKILL.md` | 已执行 FEAT-004 / FEAT-008 / FEAT-019 / FEAT-021 联合 patch：`feature-selection-skill` 负责 `select_next_feature` 推理，代码保留结构安全闸；`approval_needed`、`blocked`、`review_needed`、`failed` 和 contract validation failure 投影到 Feature `spec-state.json` / Execution Record / Workbench。 |
 | CHG-026 | 移除独立 Push Feature Pool 步骤并收拢到任务调度全流程 | 用户指令：彻底移除该步骤，在任务调度全流程中实现任务调度的全流程 | 已增强 PRD、requirements、HLD、Feature Index、FEAT-004、FEAT-013 和 VSCode/Product Console 流程 | 已执行 FEAT-004 / FEAT-013 / FEAT-019 / FEAT-021 patch：删除 `push_feature_spec_pool` public action 和 UI 步骤；项目级 `schedule_run` 与 `start_auto_run` 读取 Feature Pool Queue、调用 `feature-selection-skill`、通过安全闸后创建 `<executor>.run` Job 和 Execution Record。 |
+| CHG-028 | 执行层重构为 Execution Adapter Layer | 用户指令：重新设计适配层，针对现有功能设计 CLI 和 RPC 适配层，不再使用 Runner 概念，先定接口再迁移 Codex | 已增强 requirements、HLD、Feature Index、FEAT-008、FEAT-018 | 先完成设计：定义 `ExecutionAdapterConfigV1`、`ExecutionAdapterInvocationV1`、`ExecutionAdapterEventV1`、`ExecutionAdapterResultV1`；FEAT-008 作为 CLI Adapter 迁移来源，FEAT-018 作为 RPC Adapter / Codex app-server provider 迁移来源。 |
 
 ## 人工处置顺序建议
 
@@ -97,6 +98,7 @@
 | CHG-024 | 进入 FEAT-021 patch；Feature Spec Webview 支持 New Feature 弹窗提交、模型判定新增/变更、刷新同步 index 与目录、Feature 详情解析 `tasks.md`。 | 已同步 PRD、REQ-084、HLD、Feature Index、FEAT-021 requirements/design/tasks、实现和测试，并更新 `requirement-intake-skill` 的 Feature index 同步责任。 | 已同步实现 |
 | CHG-025 | 进入 FEAT-004 / FEAT-008 / FEAT-019 / FEAT-021 patch；自主执行下一 Feature 选择由 `feature-selection-skill` 推理返回 `select_next_feature` 决策，Control Plane 只执行通过队列、三件套、依赖、resume 和 active execution 安全校验的选择；CLI/app-server `approval_needed`、`blocked`、`review_needed`、`failed` 统一投影到 Feature 执行结果。 | 已同步 PRD、REQ-033、HLD、Feature Index、FEAT-004 requirements/design、FEAT-019 design、FEAT-021 design、`docs/zh-CN/skills.md` 和新增 skill；实现覆盖 selection result 校验、单项目串行 active execution 闸、app-server approval pending 投影、codex runner evidence 持久化；`node --test tests/product-console.test.ts tests/scheduler.test.ts tests/specdrive-ide.test.ts` 68 项通过。 | 已同步实现 |
 | CHG-026 | 独立 `push_feature_spec_pool` 步骤废弃；任务调度全流程由项目级 `schedule_run` 和 `start_auto_run` 承担。 | 已同步 PRD、REQ-006、REQ-029、REQ-033、HLD、Feature Index、FEAT-004 requirements/design/tasks、FEAT-013 requirements/design、Product Console Spec flow、VSCode Webview 和测试；`push_feature_spec_pool` 已从 public command action、Spec Workspace action 和工作流阶段移除。 | 已同步实现 |
+| CHG-028 | 执行层重构为 Execution Adapter Layer，CLI 与 RPC 使用统一适配层接口。 | 已同步 REQ-037、REQ-065、REQ-080、HLD 7.8 / 9、Feature Index、FEAT-008 requirements/design、FEAT-018 requirements/design；实现迁移尚未开始。 | 需同步实现 |
 
 ## Feature Spec Execute 评估
 
