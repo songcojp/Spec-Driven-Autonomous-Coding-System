@@ -19,6 +19,15 @@ Feature 名称: IDE Workbench Webviews
 ## 变更记录
 
 - CHG-024（2026-05-03）：用户要求 VSCode Feature Spec Webview 顶部 New Feature 输入提交后进入需求新增或需求变更流程，由模型自行判定；刷新时同时同步 Feature index 与 Feature 文件夹；需求新增 Skill 必须写入 Feature index；点击 Feature 后详情解析 `tasks.md` 并展示任务状态。影响 REQ-084 和 FEAT-021，已作为 follow-up 完成。
+- CHG-025（2026-05-03）：用户要求 VSCode Feature Spec Webview 中状态为 `need review` / `review_needed` 的 Feature Spec 提供 Review 入口；点击后弹出澄清输入框，提交后进入需求澄清流程；Feature Spec 详情不再展示 Evidence 项。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-026（2026-05-03）：用户要求 VSCode Feature Spec Webview 调整分类显示顺序和展示方式：改为横向分类 panel，支持点击折叠/展开；`Block / in-process / Todo` 合并为一个 panel，`Ready` 单独一个 panel，`Done` 单独一个 panel，且 Done 默认折叠、其它默认展开。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-027（2026-05-03）：用户要求在 VSCode Feature Spec Webview 的 Refresh 按钮后增加 `Dependency Graph` 入口；点击后显示 Feature 依赖关系图，并以树状层级关系展示。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-028（2026-05-03）：用户要求 VSCode Feature Spec Webview 不显示 `Feature Index Sync` 信息。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订；刷新仍保留 Feature index 与目录扫描合并能力，但界面移除独立同步信息区块。
+- CHG-029（2026-05-03）：用户要求 Feature panel 中的 Feature list 自适应换行，不出现 panel 内垂直滚动条，也不出现水平滚动条。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-030（2026-05-03）：用户要求 VSCode Feature Spec Webview 将 Dependency Graph 入口移到第一个按钮前，并改为 `Feature List` / `Dependency Graph` 视图模式切换；依赖图谱树状节点支持折叠和展开，默认展开二级节点。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-031（2026-05-03）：用户要求 Feature 分类 panel 增加展开和折叠状态图标。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-032（2026-05-03）：用户要求 `Blocked`、`In-Process`、`Todo` 拆分为三个独立 Feature 分类 panel，不再合并展示。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-033（2026-05-03）：用户要求 `Feature List` 和 `Dependency Graph` 合并为一个按钮，点击后修改按钮文字并切换视图。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -43,6 +52,10 @@ Feature 名称: IDE Workbench Webviews
 - [x] `Feature Spec` 顶部提供 New Feature 按钮，点击后弹出输入框；输入自然语言内容并提交后，Webview 只提交受控需求输入，后续由模型判定进入 `requirement-intake-skill` 或 `spec-evolution-skill` 流程。
 - [x] New Feature 提交必须展示 command receipt、路由结论、影响文档和阻塞原因；前端不得用关键字、是否填写 requirement id 等规则硬编码新增/变更判定。
 - [x] `Feature Spec` 刷新时同时读取 `docs/features/README.md` 和 `docs/features/*` 目录中的 `requirements.md` / `design.md` / `tasks.md`，并识别 index 漏项、孤儿目录、缺失三件套和状态冲突。
-- [x] 因需求新增流程未经过 Feature 拆分而导致 `docs/features/README.md` 未更新时，刷新流程必须补齐 Feature index，或在存在冲突时展示 `clarification_needed` / `risk_review_needed` 阻塞。
+- [x] 因需求新增流程未经过 Feature 拆分而导致 `docs/features/README.md` 未更新时，刷新流程必须保留 Feature index 与目录扫描合并能力；Feature Spec Webview 不显示独立 `Feature Index Sync` 信息区块。
 - [x] 需求新增 Skill 创建或更新 Feature Spec 时必须同步 `docs/features/README.md`，写入 Feature ID、Feature、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
 - [x] 点击 Feature 后，详情面板必须解析该 Feature 的 `tasks.md`，展示任务 ID、任务标题、状态、描述和验证命令；Markdown 缺失或格式无法解析时展示 blocked reason。
+- [x] 状态为 `need review` / `review_needed` 的 Feature Spec 必须在 Feature Spec Webview 工具栏和详情面板提供 Review 入口；点击后弹出澄清输入框，提交内容以 `clarification` 意图进入 Spec change request，不由前端硬编码需求变更或新增路由。
+- [x] Feature Spec 详情面板不得展示 Evidence 区域或 Evidence 验收项；详情只展示 artifacts、tasks、acceptance、blockers、traceability 和可执行动作。
+- [x] Feature Spec Webview 必须按分类 panel 展示 Feature：依次为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`；每组可点击折叠/展开并显示展开/折叠状态图标，Done 默认折叠，其它默认展开；panel 中 Feature list 必须自适应换行，不依赖 panel 内垂直滚动条或水平滚动条展示卡片。
+- [x] Feature Spec Webview 顶部第一个控件必须是单个视图切换按钮；Feature List 视图下按钮文字显示 `Dependency Graph`，点击后切换到 Dependency Graph 视图并将按钮文字改为 `Feature List`；`Dependency Graph` 视图以树状层级展示 Feature 之间的依赖关系，标出缺失依赖，树节点支持折叠和展开，并默认展开到二级节点。

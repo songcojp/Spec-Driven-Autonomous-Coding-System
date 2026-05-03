@@ -30,6 +30,22 @@ test("VSCode IDE Webviews expose three independent workbench commands", () => {
   assert.match(extensionSource, /Content-Security-Policy/);
 });
 
+test("VSCode Feature Spec Webview switches between list and dependency graph views", () => {
+  assert.match(extensionSource, /data-command="toggleFeatureSpecView" data-view-mode="list"/);
+  assert.match(extensionSource, /target\.textContent = mode === "dependency" \? "Feature List" : "Dependency Graph"/);
+  assert.doesNotMatch(extensionSource, /data-command="setFeatureSpecView"/);
+  assert.match(extensionSource, /data-view-panel="list"/);
+  assert.match(extensionSource, /data-view-panel="dependency"/);
+  assert.match(extensionSource, /class="dependency-branch"\$\{open\}/);
+  assert.match(extensionSource, /const open = depth < 2/);
+  assert.match(extensionSource, /\.feature-panel summary::before\{content:"\+"/);
+  assert.match(extensionSource, /\.feature-panel\[open\] summary::before\{content:"-"\}/);
+  assert.match(extensionSource, /title: "Blocked"/);
+  assert.match(extensionSource, /title: "In-Process"/);
+  assert.match(extensionSource, /title: "Todo"/);
+  assert.doesNotMatch(extensionSource, /Block \/ In Process \/ Todo/);
+});
+
 test("VSCode IDE Webviews do not import Product Console UI surfaces", () => {
   const forbiddenPatterns = [
     /from\s+["'][^"']*apps\/product-console/i,

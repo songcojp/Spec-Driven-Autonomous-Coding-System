@@ -26,11 +26,13 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 | Spec Workspace | Stage Detail | 展示当前阶段来源文档、traceability、required skills、evidence、blockers 和阶段推进按钮。 |
 | Spec Workspace | Control Guardrails | 展示 constitution checks、command approvals、safe action confirmations、spec consistency 和 manual approval。 |
 | Spec Workspace | Evidence & Traceability | 以表格展示 requirement、feature、artifact、evidence、validation result 和更新时间。 |
-| Feature Spec | Feature Card Board | 通过卡片按状态展示 Feature，卡片包含需求覆盖、任务进度、执行状态、Review 状态、依赖、下一步动作和阻塞提示。 |
+| Feature Spec | Feature Category Panels | 通过可折叠分类 panel 展示 Feature；顺序固定为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`，其中 Done 默认折叠，其它默认展开；panel header 显示展开/折叠状态图标；panel 内 Feature list 自适应换行，不显示水平滚动条。 |
 | Feature Spec | Feature Detail Drawer | 展示选中 Feature 的 artifacts、acceptance、latest run、blockers、traceability 和可执行动作。 |
 | Feature Spec | New Feature Dialog | 顶部 New Feature 按钮打开弹出输入框，提交自然语言需求；Webview 只提交受控需求输入，模型按需求新增/变更边界自行判定后续流程。 |
-| Feature Spec | Feature Index Sync | 刷新时读取 Feature index 与 `docs/features/*` 目录，合并 Feature 三件套事实，识别 index 漏项、孤儿目录、缺失文件和状态冲突。 |
+| Feature Spec | Feature Index Sync | 刷新时仍读取 Feature index 与 `docs/features/*` 目录用于合并 Feature 三件套事实，但 Webview 不显示独立 `Feature Index Sync` 信息区块。 |
+| Feature Spec | View Toggle | 顶部第一个控件是单个视图切换按钮；Feature List 视图下按钮显示 `Dependency Graph`，Dependency Graph 视图下按钮显示 `Feature List`。 |
 | Feature Spec | Tasks Projection | 点击 Feature 后解析对应 `tasks.md`，在详情中展示任务 ID、标题、状态、描述和验证命令。 |
+| Feature Spec | Review Clarification Dialog | 当选中 Feature 状态为 `need review` / `review_needed` 时显示 Review 入口；点击后弹出澄清输入框，提交后以 `clarification` 意图进入 Spec change request。 |
 
 ## 3. Contract 边界
 
@@ -41,12 +43,20 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - Spec Workspace 的全流程操作通过 `runControlledCommand` 或 Spec change request 进入 extension host，由 Control Plane 决定是否生成任务、记录审批或拒绝动作。
 - Feature Spec 的调度、打开文档和刷新动作在 VSCode extension host 内执行；调度类动作必须进入 Control Plane command API。
 - New Feature 提交使用 Spec change request 或等价受控命令进入需求处理链路，payload 包含 workspaceRoot、source surface、freeform content、current feature selection、visible Feature index snapshot 和 traceability hints；模型负责判定 `requirement-intake-skill` 或 `spec-evolution-skill`，前端不得硬编码路由规则。
-- Feature Spec 刷新返回的 view model 必须同时表达 index rows 与 folder scan rows：缺失 index 的目录可生成 sync candidate，存在冲突时返回 blocked reason 和建议路由。
+- Review 澄清提交使用 Spec change request，payload 包含 workspaceRoot、Feature ID、Feature status、来源 Feature Spec 文档和澄清文本；前端固定提交 `clarification` 意图，不直接生成需求变更、需求新增或 Review 结论。
+- Feature Spec 刷新返回的 view model 必须同时表达 index rows 与 folder scan rows：缺失 index 的目录可生成 sync candidate，存在冲突时返回 blocked reason 和建议路由；Webview 不渲染独立 `Feature Index Sync` 区块。
+- Dependency Graph 只读取 Feature view model 中的 `dependencies`，按“依赖项 -> 依赖它的 Feature”展示层级；缺失依赖必须作为 missing dependency 节点展示，不得静默丢弃；树节点支持折叠和展开，默认展开根节点及二级节点。
 - `tasks.md` 解析只生成 UI 投影，不写入平台 task 表；任务状态以 Markdown 中的状态字段、checkbox 或既有任务段落约定为事实源，无法解析时保留原文引用和 blocked reason。
+- Feature Spec 详情面板不展示 Evidence 区域或 Evidence 验收项；Evidence 已从该详情上下文移除，详情只保留 artifacts、tasks、acceptance、blockers、traceability 和操作入口。
+- Feature 分类展示只影响 VSCode Webview 投影，不改变 Feature 状态机；存在 blocked reason 或 blocked 状态的 Feature 进入 `Blocked` panel；运行中、执行中或 in-progress 的 Feature 进入 `In-Process` panel；除 `ready`、`done` / `delivered` / `completed`、blocked 和 in-process 外，其它状态进入 `Todo` panel。
+- Feature panel 内的 Feature list 使用自适应换行布局，不能依赖水平滚动条或 panel 内垂直滚动条展示卡片。
 
 ## 4. 验证策略
 
 - VSCode extension build 覆盖 Webview HTML 生成、CSP、消息路由和 command API 调用的类型约束。
 - Node tests 覆盖 IDE query/command contract、queue action payload 和 controlled command receipt。
 - Webview 级验证覆盖桌面尺寸下的三组入口可打开、第一屏关键区域可见、审批卡片、失败/阻塞状态和 Feature 卡片详情。
-- Webview 级验证覆盖 New Feature 弹窗提交、模型路由 receipt、刷新时 index + folder 同步、index 漏项提示或补齐，以及 Feature 详情 `tasks.md` 任务状态解析。
+- Webview 级验证覆盖 New Feature 弹窗提交、模型路由 receipt、刷新时 index + folder 同步内部数据仍保留、界面不显示 `Feature Index Sync` 信息区块，以及 Feature 详情 `tasks.md` 任务状态解析。
+- Webview 级验证覆盖 `need review` / `review_needed` Feature 的 Review 入口、澄清提交 receipt，以及 Feature 详情不再出现 Evidence 验收项。
+- Webview 级验证覆盖 Feature 分类 panel 顺序、折叠/展开行为、展开/折叠状态图标、Done 默认折叠，以及 panel 内 Feature list 自适应换行且不出现水平滚动条。
+- Webview 级验证覆盖单个视图切换按钮显示在第一个控件位置、点击后切换 Feature List / Dependency Graph 并修改按钮文字、树状层级展示、默认展开二级节点、节点折叠/展开、缺失依赖提示，以及点击 Feature 节点后仍能选中详情。

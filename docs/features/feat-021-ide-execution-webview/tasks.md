@@ -65,3 +65,28 @@ Feature ID: FEAT-021
 状态: done
 描述: 点击 Feature 后在详情面板解析对应 `tasks.md`，展示任务 ID、标题、状态、描述和验证命令；缺失或无法解析时显示 blocked reason，并保留打开原始 `tasks.md` 的操作。
 验证: `node --test tests/specdrive-ide.test.ts` 覆盖 checkbox 和“状态/描述/验证”段落格式；`npm run ide:build` 验证 Webview 编译。
+
+### T-021-13 Need Review 澄清入口
+状态: done
+描述: 状态为 `need review` / `review_needed` 的 Feature Spec 在工具栏和详情面板显示 Review 入口；点击后弹出澄清输入框，提交后以 `clarification` 意图进入 Spec change request。Feature Spec 详情移除 Evidence 验收项。
+验证: `npm run ide:build` 验证 VSCode Webview 编译；`node --test tests/specdrive-ide.test.ts` 验证现有 IDE contract 未回归。
+
+### T-021-14 Feature 分类横向折叠 Panel
+状态: done
+描述: 将 Feature Spec Webview 的状态看板改为横向分类 panel，固定显示顺序为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`；每组支持点击折叠/展开，并在 panel header 显示展开/折叠状态图标；Done 默认折叠，其它默认展开。
+验证: `npm run ide:build` 验证 VSCode Webview 编译；`npm run ide:test` 验证现有 IDE contract 和 Webview 边界未回归。
+
+### T-021-15 Feature Dependency Graph
+状态: done
+描述: 将 `Feature List` 和 `Dependency Graph` 合并为顶部第一个单按钮视图切换；Feature List 视图下按钮显示 `Dependency Graph`，点击后切换到 Dependency Graph 并将文字改为 `Feature List`。Dependency Graph 视图按“依赖项 -> 依赖它的 Feature”展示树状层级，标出缺失依赖，节点支持折叠和展开，并默认展开到二级节点。
+验证: `npm run ide:build` 验证 VSCode Webview 编译；`npm run ide:test` 验证现有 IDE contract 和 Webview 边界未回归。
+
+### T-021-16 移除 Feature Index Sync 显示
+状态: done
+描述: Feature Spec Webview 刷新仍保留 Feature index 与目录扫描合并能力，但不再渲染独立 `Feature Index Sync` 信息区块。
+验证: `npm run ide:build` 验证 VSCode Webview 编译；`git diff --check` 验证文档和代码格式。
+
+### T-021-17 Feature List 自适应换行
+状态: done
+描述: Feature panel 中的 Feature list 改为自适应换行布局，不使用水平滚动条，也不依赖 panel 内垂直滚动条展示卡片。
+验证: `npm run ide:build` 验证 VSCode Webview 编译；`git diff --check` 验证文档和代码格式。

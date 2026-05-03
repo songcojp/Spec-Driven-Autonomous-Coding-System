@@ -54,7 +54,6 @@ type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   metadata: Record<string, unknown>;
   rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
   producedArtifacts: unknown[];
-  evidence: Array<{ id: string; kind: string; path?: string; summary?: string; metadata: Record<string, unknown>; createdAt?: string }>;
   diffSummary?: unknown;
   contractValidation?: unknown;
   outputSchema?: unknown;
@@ -874,6 +873,12 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
       await render();
       return;
     }
+    if (isWorkbenchMessage(message) && message.command === "reviewFeature" && typeof message.featureId === "string" && typeof message.comment === "string") {
+      const feature = provider.currentView()?.features.find((entry) => entry.id === message.featureId);
+      if (feature) await submitFeatureReviewClarification(feature, message.comment, provider);
+      await render();
+      return;
+    }
     await handleWorkbenchMessage(message, provider, render);
   });
   await render();
@@ -967,6 +972,58 @@ async function submitNewFeatureRequest(content: string, provider: SpecExplorerPr
     ? ` blocked=${response.blockedReasons.join("; ")}`
     : "";
   await vscode.window.showInformationMessage(`SpecDrive New Feature ${status}.${routed}${blocked}`);
+  await provider.refresh();
+}
+
+async function submitFeatureReviewClarification(
+  feature: SpecDriveIdeFeatureNode,
+  comment: string,
+  provider: SpecExplorerProvider,
+): Promise<void> {
+  const view = provider.currentView();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!view?.project?.id || !workspaceRoot) {
+    await vscode.window.showErrorMessage("SpecDrive Feature review requires a recognized project.");
+    return;
+  }
+  const trimmed = comment.trim();
+  if (!trimmed) {
+    await vscode.window.showErrorMessage("SpecDrive Feature review clarification is empty.");
+    return;
+  }
+  const sourcePath = preferredFeatureReviewSource(feature);
+  const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), ...sourcePath.split("/")));
+  const firstLine = document.lineCount > 0 ? document.lineAt(0).text : "";
+  const request: SpecChangeRequestV1 = {
+    schemaVersion: 1,
+    projectId: view.project.id,
+    workspaceRoot,
+    source: {
+      file: sourcePath,
+      range: {
+        startLine: 0,
+        endLine: 0,
+        startCharacter: 0,
+        endCharacter: firstLine.length,
+      },
+      textHash: hashText(firstLine),
+    },
+    intent: "clarification",
+    comment: trimmed,
+    traceability: [
+      "VSCode Feature Spec Webview",
+      "Feature Review",
+      feature.id,
+      feature.status,
+    ],
+  };
+  const response = await postIdeCommand(request);
+  const status = typeof response.status === "string" ? response.status : "unknown";
+  const routed = typeof response.routedIntent === "string" ? ` routed=${response.routedIntent}` : "";
+  const blocked = Array.isArray(response.blockedReasons) && response.blockedReasons.length > 0
+    ? ` blocked=${response.blockedReasons.join("; ")}`
+    : "";
+  await vscode.window.showInformationMessage(`SpecDrive Feature review ${status}.${routed}${blocked}`);
   await provider.refresh();
 }
 
@@ -1226,8 +1283,6 @@ function renderExecutionWorkbenchWebview(
         <div class="panel-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
         <h3>Produced Artifacts</h3>
         ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).producedArtifacts ?? [] : [])}
-        <h3>Evidence</h3>
-        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).evidence ?? [] : [])}
       </section>
     </main>
   `);
@@ -1286,28 +1341,27 @@ function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, selectedFe
   const nonce = webviewNonce();
   const features = view?.features ?? [];
   const selected = features.find((feature) => feature.id === selectedFeatureId) ?? preferredFeature(view);
-  const groups = groupFeatures(features);
-  const syncIssues = features.filter((feature) => feature.indexStatus && feature.indexStatus !== "indexed");
+  const groups = groupFeaturePanels(features);
   return renderWorkbenchPage("Feature Spec", nonce, `
     <section class="toolbar">
+      <button class="view-toggle" data-command="toggleFeatureSpecView" data-view-mode="list" aria-pressed="false">Dependency Graph</button>
       ${commandButton("New Feature", "newFeaturePrompt", {})}
       ${commandButton("Refresh", "refresh", {})}
       ${selected ? commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: selected.id, reason: `Schedule ${selected.id} from Feature Spec Webview.` }) : ""}
+      ${selected && isReviewNeededFeature(selected) ? commandButton("Review", "reviewFeaturePrompt", { featureId: selected.id }) : ""}
     </section>
-    ${syncIssues.length > 0 ? `<section class="panel sync-panel"><div class="panel-title"><h2>Feature Index Sync</h2><span>${syncIssues.length} issues</span></div>${syncIssues.map((feature) => `<div class="issue warn"><strong>${escapeHtml(feature.id)}</strong><br><span>${escapeHtml(feature.blockedReasons.join("; "))}</span></div>`).join("")}</section>` : ""}
-    <main class="feature-layout">
+    <main id="feature-list-panel" class="feature-layout" data-view-panel="list">
       <section class="feature-board">
-        ${Object.entries(groups).map(([status, items]) => `
-          <section>
-            <h2>${escapeHtml(status)} <span>${items.length}</span></h2>
-            ${items.map((feature) => renderFeatureCard(feature, feature.id === selected?.id)).join("")}
-          </section>
-        `).join("")}
+        ${groups.map((group) => renderFeaturePanel(group, selected?.id)).join("")}
       </section>
       <aside class="panel detail-panel">
         ${selected ? renderFeatureDetail(selected) : emptyState("No Feature Specs discovered.")}
       </aside>
     </main>
+    <section id="dependency-graph-panel" class="panel dependency-panel hidden" data-view-panel="dependency">
+      <div class="panel-title"><h2>Dependency Graph</h2><span>${features.length} Feature Specs</span></div>
+      ${renderDependencyGraph(features)}
+    </section>
   `);
 }
 
@@ -1345,25 +1399,43 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
     *{box-sizing:border-box}body{margin:0;padding:14px 16px 18px;font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);line-height:1.45}
     h1{font-size:22px;margin:4px 0 12px;font-weight:650}h2{font-size:14px;margin:0;font-weight:650}h3{font-size:12px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase}
     button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}
-    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}
-    .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.sync-panel{margin-bottom:10px}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title span,.muted{color:var(--muted)}
+    .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.view-toggle{min-width:132px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}
+    .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title span,.muted{color:var(--muted)}
     .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px}.row{grid-template-columns:1fr auto}
     .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
     pre{max-height:180px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;font-family:var(--vscode-editor-font-family);font-size:11px}.issue{border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0}.issue span{color:var(--muted)}
     .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}
-    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:10px}.feature-board section{border:1px solid var(--border);border-radius:6px;padding:8px;min-width:0}.feature-board h2{display:flex;justify-content:space-between;margin-bottom:8px}.feature-card{width:100%;text-align:left;background:var(--panel);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;padding:9px}.feature-card.selected{border-color:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
-    @media (max-width:980px){.grid,.feature-layout,.feature-board{display:block}.panel,.feature-board section{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    .hidden{display:none}.dependency-panel{margin-bottom:10px}.dependency-tree,.dependency-tree ul{list-style:none;margin:0;padding-left:18px}.dependency-tree{padding-left:0}.dependency-tree li{position:relative;margin:4px 0;padding-left:14px}.dependency-tree li::before{content:"";position:absolute;left:0;top:13px;width:9px;border-top:1px solid var(--border)}.dependency-tree ul{border-left:1px solid var(--border);margin-left:8px}.dependency-branch>summary{list-style:none;cursor:pointer}.dependency-branch>summary::-webkit-details-marker{display:none}.dependency-branch>summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted)}.dependency-branch[open]>summary::before{content:"-"}.dependency-leaf{margin-left:16px}.dependency-node{display:inline-flex;align-items:center;gap:7px;min-height:26px;border:1px solid var(--border);border-radius:5px;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 7px}.dependency-node button{padding:2px 6px}.dependency-node.missing{color:var(--warn)}.dependency-node .muted{font-size:11px}
+    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:flex;flex-direction:column;gap:10px;min-width:0}.feature-panel{border:1px solid var(--border);border-radius:6px;background:var(--panel);min-width:0;overflow:hidden}.feature-panel summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;cursor:pointer;background:var(--vscode-list-hoverBackground);user-select:none;list-style:none}.feature-panel summary::-webkit-details-marker{display:none}.feature-panel summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted);font-weight:650}.feature-panel[open] summary::before{content:"-"}.feature-panel summary h2{display:flex;gap:8px;align-items:center;margin-right:auto}.feature-panel summary span{color:var(--muted);font-size:12px}.feature-panel-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;align-items:stretch;padding:9px;overflow:visible}.feature-panel-items .muted{padding:2px}.feature-card{width:100%;min-width:0;min-height:154px;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;padding:9px}.feature-card.selected{border-color:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
+    @media (max-width:980px){.grid,.feature-layout{display:block}.panel,.feature-panel{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.feature-panel-items{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}}
   </style></head><body><h1>${escapeHtml(title)}</h1>${body}<script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.addEventListener("click", (event) => {
       const target = event.target.closest("[data-command]");
       if (!target) return;
+      if (target.closest(".dependency-branch > summary")) event.preventDefault();
       const payload = {...target.dataset};
       if (payload.command === "selectFeature") payload.featureId = target.dataset.featureId;
       if (payload.command === "newFeaturePrompt") {
         const content = window.prompt("New Feature");
         if (!content || !content.trim()) return;
         vscode.postMessage({command:"newFeature", content});
+        return;
+      }
+      if (payload.command === "toggleFeatureSpecView") {
+        const mode = target.dataset.viewMode === "dependency" ? "list" : "dependency";
+        document.querySelectorAll("[data-view-panel]").forEach((panel) => {
+          panel.classList.toggle("hidden", panel.dataset.viewPanel !== mode);
+        });
+        target.dataset.viewMode = mode;
+        target.textContent = mode === "dependency" ? "Feature List" : "Dependency Graph";
+        target.setAttribute("aria-pressed", mode === "dependency" ? "true" : "false");
+        return;
+      }
+      if (payload.command === "reviewFeaturePrompt") {
+        const comment = window.prompt("Review clarification");
+        if (!comment || !comment.trim()) return;
+        vscode.postMessage({command:"reviewFeature", featureId: target.dataset.featureId, comment});
         return;
       }
       vscode.postMessage(payload);
@@ -1460,6 +1532,70 @@ function guardrailRow(label: string, status: string): string {
   return `<div class="row"><span>${escapeHtml(label)}</span><strong class="${statusClass(status)}">${escapeHtml(status)}</strong></div>`;
 }
 
+type DependencyTreeNode = {
+  id: string;
+  feature?: SpecDriveIdeFeatureNode;
+  missing?: boolean;
+};
+
+function renderDependencyGraph(features: SpecDriveIdeFeatureNode[]): string {
+  if (features.length === 0) return emptyState("No Feature Specs discovered.");
+  const byId = new Map(features.map((feature) => [feature.id, feature]));
+  const childIdsByDependency = new Map<string, string[]>();
+  const missingDependencyIds = new Set<string>();
+  for (const feature of features) {
+    for (const dependencyId of feature.dependencies) {
+      childIdsByDependency.set(dependencyId, [...(childIdsByDependency.get(dependencyId) ?? []), feature.id]);
+      if (!byId.has(dependencyId)) missingDependencyIds.add(dependencyId);
+    }
+  }
+  const roots: DependencyTreeNode[] = [
+    ...Array.from(missingDependencyIds).sort().map((id) => ({ id, missing: true })),
+    ...features.filter((feature) => feature.dependencies.length === 0).map((feature) => ({ id: feature.id, feature })),
+  ];
+  const effectiveRoots = roots.length > 0 ? roots : features.map((feature) => ({ id: feature.id, feature }));
+  return `<ul class="dependency-tree">${effectiveRoots.map((node) => renderDependencyNode(node, byId, childIdsByDependency, new Set(), 0)).join("")}</ul>`;
+}
+
+function renderDependencyNode(
+  node: DependencyTreeNode,
+  byId: Map<string, SpecDriveIdeFeatureNode>,
+  childIdsByDependency: Map<string, string[]>,
+  path: Set<string>,
+  depth: number,
+): string {
+  const feature = node.feature ?? byId.get(node.id);
+  const children = (childIdsByDependency.get(node.id) ?? [])
+    .filter((childId) => !path.has(childId))
+    .map((childId) => ({ id: childId, feature: byId.get(childId) }));
+  const nextPath = new Set(path);
+  nextPath.add(node.id);
+  const label = feature
+    ? `<button data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}">${escapeHtml(feature.id)}</button><span>${escapeHtml(feature.title)}</span><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span>`
+    : `<strong>${escapeHtml(node.id)}</strong><span class="muted">missing dependency</span>`;
+  const nodeHtml = `<span class="dependency-node ${feature ? "" : "missing"}">${label}</span>`;
+  if (children.length === 0) return `<li><div class="dependency-leaf">${nodeHtml}</div></li>`;
+  const open = depth < 2 ? " open" : "";
+  return `<li><details class="dependency-branch"${open}><summary>${nodeHtml}</summary><ul>${children.map((child) => renderDependencyNode(child, byId, childIdsByDependency, nextPath, depth + 1)).join("")}</ul></details></li>`;
+}
+
+type FeaturePanelGroup = {
+  id: "blocked" | "in-process" | "todo" | "ready" | "done";
+  title: string;
+  statuses: string;
+  features: SpecDriveIdeFeatureNode[];
+  open: boolean;
+};
+
+function renderFeaturePanel(group: FeaturePanelGroup, selectedFeatureId: string | undefined): string {
+  return `<details class="feature-panel" data-panel="${escapeAttr(group.id)}" ${group.open ? "open" : ""}>
+    <summary><h2>${escapeHtml(group.title)} <span>${group.features.length}</span></h2><span>${escapeHtml(group.statuses)}</span></summary>
+    <div class="feature-panel-items">
+      ${group.features.length === 0 ? emptyState("No Feature Specs in this category.") : group.features.map((feature) => renderFeatureCard(feature, feature.id === selectedFeatureId)).join("")}
+    </div>
+  </details>`;
+}
+
 function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean): string {
   const taskCount = feature.tasks?.length ?? 0;
   const doneTasks = (feature.tasks ?? []).filter((task) => ["done", "completed", "x"].includes(task.status.toLowerCase())).length;
@@ -1487,12 +1623,12 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode): string {
     <h3>Tasks</h3>
     ${renderFeatureTasks(feature)}
     <h3>Acceptance</h3>
-    ${["Requirements traced", "Task queue visible", "Execution state persisted", "Evidence generated", "Adapter failures handled"].map((item, index) => `<div class="row"><span>${escapeHtml(item)}</span><strong class="${index < 3 ? "ok" : "draft"}">${index < 3 ? "Passed" : "Draft"}</strong></div>`).join("")}
+    ${["Requirements traced", "Task queue visible", "Execution state persisted", "Adapter failures handled"].map((item, index) => `<div class="row"><span>${escapeHtml(item)}</span><strong class="${index < 3 ? "ok" : "draft"}">${index < 3 ? "Passed" : "Draft"}</strong></div>`).join("")}
     <h3>Blockers</h3>
     ${feature.blockedReasons.length === 0 ? emptyState("No blockers.") : feature.blockedReasons.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")}
     <h3>Traceability</h3>
     <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>
-    <div class="toolbar">${commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: feature.id, reason: `Schedule ${feature.id} from Feature Detail.` })}</div>`;
+    <div class="toolbar">${commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: feature.id, reason: `Schedule ${feature.id} from Feature Detail.` })}${isReviewNeededFeature(feature) ? commandButton("Review", "reviewFeaturePrompt", { featureId: feature.id }) : ""}</div>`;
 }
 
 function renderFeatureTasks(feature: SpecDriveIdeFeatureNode): string {
@@ -1528,13 +1664,73 @@ function preferredFeature(view: SpecDriveIdeView | undefined): SpecDriveIdeFeatu
     ?? view?.features[0];
 }
 
-function groupFeatures(features: SpecDriveIdeFeatureNode[]): Record<string, SpecDriveIdeFeatureNode[]> {
-  const groups: Record<string, SpecDriveIdeFeatureNode[]> = {};
+function groupFeaturePanels(features: SpecDriveIdeFeatureNode[]): FeaturePanelGroup[] {
+  const blocked: SpecDriveIdeFeatureNode[] = [];
+  const inProcess: SpecDriveIdeFeatureNode[] = [];
+  const todo: SpecDriveIdeFeatureNode[] = [];
+  const ready: SpecDriveIdeFeatureNode[] = [];
+  const done: SpecDriveIdeFeatureNode[] = [];
   for (const feature of features) {
-    const key = feature.blockedReasons.length > 0 ? "Blocked" : titleCase(feature.status || "Planning");
-    groups[key] = [...(groups[key] ?? []), feature];
+    if (isDoneFeature(feature)) {
+      done.push(feature);
+    } else if (isReadyFeature(feature)) {
+      ready.push(feature);
+    } else if (isBlockedFeature(feature)) {
+      blocked.push(feature);
+    } else if (isInProcessFeature(feature)) {
+      inProcess.push(feature);
+    } else {
+      todo.push(feature);
+    }
   }
-  return groups;
+  return [
+    { id: "blocked", title: "Blocked", statuses: "Blocked", features: blocked, open: true },
+    { id: "in-process", title: "In-Process", statuses: "In process, running", features: inProcess, open: true },
+    { id: "todo", title: "Todo", statuses: "Todo, planning, draft", features: todo, open: true },
+    { id: "ready", title: "Ready", statuses: "Ready", features: ready, open: true },
+    { id: "done", title: "Done", statuses: "Done", features: done, open: false },
+  ];
+}
+
+function isBlockedFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  const status = normalizedFeatureStatus(feature);
+  return feature.blockedReasons.length > 0 || status === "blocked" || status === "block";
+}
+
+function isInProcessFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  const status = normalizedFeatureStatus(feature);
+  const executionStatus = (feature.latestExecutionStatus ?? "").toLowerCase().replaceAll("_", " ").replaceAll("-", " ");
+  return status === "in process"
+    || status === "in progress"
+    || status === "in execution"
+    || status === "running"
+    || executionStatus === "running"
+    || executionStatus === "in process"
+    || executionStatus === "in progress";
+}
+
+function isReadyFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  return normalizedFeatureStatus(feature) === "ready";
+}
+
+function isDoneFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  const status = normalizedFeatureStatus(feature);
+  return status === "done" || status === "delivered" || status === "completed";
+}
+
+function isReviewNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  const status = normalizedFeatureStatus(feature);
+  return status === "need review" || status === "review needed" || status === "review";
+}
+
+function normalizedFeatureStatus(feature: SpecDriveIdeFeatureNode): string {
+  return (feature.blockedReasons.length > 0 ? "blocked" : feature.status).toLowerCase().replaceAll("_", " ").replaceAll("-", " ");
+}
+
+function preferredFeatureReviewSource(feature: SpecDriveIdeFeatureNode): string {
+  return feature.documents.find((document) => document.kind === "feature-requirements" && document.exists)?.path
+    ?? feature.documents.find((document) => document.exists)?.path
+    ?? "docs/features/README.md";
 }
 
 function statusClass(status: string | undefined): string {
@@ -1560,10 +1756,6 @@ function webviewNonce(): string {
 
 function kebab(value: string): string {
   return value.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`);
-}
-
-function titleCase(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
