@@ -28,6 +28,7 @@ import {
 } from "./orchestration.ts";
 import {
   DEFAULT_CLI_ADAPTER_CONFIG,
+  GEMINI_CLI_ADAPTER_CONFIG,
   dryRunCliAdapterConfig,
   normalizeCliAdapterConfig,
   validateCliAdapterConfig,
@@ -949,6 +950,7 @@ export type SystemSettingsViewModel = {
   cliAdapter: {
     active: CliAdapterConfig;
     draft?: CliAdapterConfig;
+    presets: CliAdapterConfig[];
     validation: CliAdapterValidationResult;
     lastDryRun?: {
       status: string;
@@ -2222,6 +2224,7 @@ export function buildSystemSettingsView(dbPath: string): SystemSettingsViewModel
     cliAdapter: {
       active,
       draft,
+      presets: [DEFAULT_CLI_ADAPTER_CONFIG, GEMINI_CLI_ADAPTER_CONFIG],
       validation: validateCliAdapterConfig(draft ?? active),
       lastDryRun: dryRun,
     },

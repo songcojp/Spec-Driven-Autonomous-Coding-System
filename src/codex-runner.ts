@@ -128,6 +128,7 @@ export type CliAdapterConfig = {
     eventStream: "json";
     outputSchema: string;
     sessionIdPath: string;
+    responseTextPaths?: string[];
   };
   status: CliAdapterStatus;
   updatedAt: string;
@@ -446,6 +447,51 @@ export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   status: "active",
   updatedAt: new Date(0).toISOString(),
 };
+export const GEMINI_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
+  id: "gemini-cli",
+  displayName: "Google Gemini CLI",
+  schemaVersion: 1,
+  executable: "gemini",
+  argumentTemplate: [
+    "--model",
+    "{{model}}",
+    "--output-format",
+    "stream-json",
+    "-p",
+    "{{prompt}}",
+  ],
+  resumeArgumentTemplate: [
+    "--model",
+    "{{model}}",
+    "--output-format",
+    "stream-json",
+    "--resume",
+    "{{resume_session_id}}",
+    "-p",
+    "{{resume_prompt}}",
+  ],
+  configSchema: {
+    type: "object",
+    required: ["id", "executable", "argumentTemplate", "outputMapping"],
+  },
+  formSchema: DEFAULT_CLI_ADAPTER_CONFIG.formSchema,
+  defaults: {
+    model: "gemini-3-pro-preview",
+    reasoningEffort: DEFAULT_REASONING_EFFORT,
+    sandbox: "danger-full-access",
+    approval: "never",
+    costRates: {},
+  },
+  environmentAllowlist: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_GENAI_USE_VERTEXAI"],
+  outputMapping: {
+    eventStream: "json",
+    outputSchema: "skill-output.schema.json",
+    sessionIdPath: "session_id",
+    responseTextPaths: ["response", "result.response", "message.content", "content", "text"],
+  },
+  status: "draft",
+  updatedAt: new Date(0).toISOString(),
+};
 const DEFAULT_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -660,6 +706,7 @@ export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Rec
         optionalConfigString(outputMapping.output_schema) ??
         DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.outputSchema,
       sessionIdPath: optionalConfigString(outputMapping.sessionIdPath) ?? optionalConfigString(outputMapping.session_id_path) ?? DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.sessionIdPath,
+      responseTextPaths: stringArray(outputMapping.responseTextPaths ?? outputMapping.response_text_paths, []),
     },
     status: normalizeAdapterStatus(input.status) ?? DEFAULT_CLI_ADAPTER_CONFIG.status,
     updatedAt: optionalConfigString(input.updatedAt) ?? optionalConfigString(input.updated_at) ?? new Date().toISOString(),
@@ -691,8 +738,8 @@ export function validateCliAdapterConfig(config: CliAdapterConfig): CliAdapterVa
   if (!Number.isInteger(config.schemaVersion) || config.schemaVersion < 1) errors.push("schemaVersion must be a positive integer");
   if (config.argumentTemplate.length === 0) errors.push("argumentTemplate must contain at least one argument");
   if (!config.argumentTemplate.some((entry) => entry.includes("{{prompt}}"))) errors.push("argumentTemplate must include {{prompt}}");
-  if (!config.argumentTemplate.some((entry) => entry.includes("{{output_schema}}"))) errors.push("argumentTemplate must include {{output_schema}}");
   if (config.outputMapping.eventStream !== "json") errors.push("outputMapping.eventStream must be json");
+  if (!config.outputMapping.outputSchema.trim()) errors.push("outputMapping.outputSchema is required");
   if (!config.outputMapping.sessionIdPath.trim()) errors.push("outputMapping.sessionIdPath is required");
   if (config.defaults.approval === "bypass") errors.push("default approval may not bypass approvals");
   if (!normalizeReasoningEffort(config.defaults.reasoningEffort)) errors.push("default reasoning effort must be low, medium, high, or xhigh");
@@ -727,6 +774,10 @@ export function dryRunCliAdapterConfig(input: {
         runId: "DRY-RUN",
         risk: "low",
         workspaceRoot: "/workspace/project",
+        model: input.config.defaults.model,
+        reasoningEffort: input.config.defaults.reasoningEffort,
+        requestedSandboxMode: input.config.defaults.sandbox,
+        requestedApprovalPolicy: input.config.defaults.approval,
         now: new Date(0),
       }),
       prompt: input.prompt ?? "Dry-run prompt",
@@ -864,10 +915,11 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
 
 export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapterResult> {
   const now = input.now ?? new Date();
+  const adapterConfig = input.adapterConfig ?? DEFAULT_CLI_ADAPTER_CONFIG;
   const shouldCleanupOutputSchema = !input.outputSchemaPath;
   const outputSchemaPath = input.outputSchemaPath ?? writeOutputSchema(input.policy);
   const rendered = renderCliAdapterCommand({
-    config: input.adapterConfig,
+    config: adapterConfig,
     policy: input.policy,
     prompt: input.prompt,
     outputSchemaPath,
@@ -914,7 +966,9 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
     const stderr = [result.stderr, result.error?.message].filter(Boolean).join("\n");
     const events = parseJsonEvents(stdout);
     const redactedEvents = events.map(redactEvent);
-    const sessionId = events.find((event) => typeof event.session_id === "string")?.session_id ?? input.policy.resumeSessionId;
+    const sessionId = extractMappedString(events, adapterConfig.outputMapping.sessionIdPath) ??
+      events.find((event) => typeof event.session_id === "string")?.session_id ??
+      input.policy.resumeSessionId;
     const completedAt = new Date().toISOString();
     const session: CodexSessionRecord = {
       id: randomUUID(),
@@ -936,10 +990,9 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
       files: logFiles,
       createdAt: completedAt,
     };
-    const skillOutput = extractSkillOutputContract(events);
+    const skillOutput = extractSkillOutputContract(events, adapterConfig.outputMapping.responseTextPaths);
     const contractValidation = validateSkillOutputContract(input.skillInvocation, skillOutput);
-    const completedEvent = events.find((e) => e.type === "turn.completed" && e.usage);
-    const usage = completedEvent?.usage as Record<string, number> | undefined;
+    const usage = extractUsage(events);
     writeCliOutputLog(logFiles, {
       status: result.status,
       stdout,
@@ -974,7 +1027,7 @@ export async function runCodexCli(input: CodexAdapterInput): Promise<CodexAdapte
   }
 }
 
-function extractSkillOutputContract(events: CodexJsonEvent[]): SkillOutputContract | undefined {
+function extractSkillOutputContract(events: CodexJsonEvent[], responseTextPaths: string[] = []): SkillOutputContract | undefined {
   for (const event of events) {
     const direct = parseSkillOutputRecord(event);
     if (direct) return direct;
@@ -983,11 +1036,29 @@ function extractSkillOutputContract(events: CodexJsonEvent[]): SkillOutputContra
     const fromOutput = parseSkillOutputRecord(output);
     if (fromOutput) return fromOutput;
 
+    for (const path of responseTextPaths) {
+      const value = readJsonPath(event, path);
+      const fromMappedText = parseSkillOutputText(typeof value === "string" ? value : undefined);
+      if (fromMappedText) return fromMappedText;
+    }
+
     const item = typeof event.item === "object" && event.item !== null ? event.item as Record<string, unknown> : undefined;
     const itemText = typeof item?.text === "string" ? item.text : undefined;
-    if (!itemText) continue;
+    const fromItemText = parseSkillOutputText(itemText);
+    if (fromItemText) return fromItemText;
+
+    const responseText = typeof event.response === "string" ? event.response : undefined;
+    const fromResponseText = parseSkillOutputText(responseText);
+    if (fromResponseText) return fromResponseText;
+  }
+  return undefined;
+}
+
+function parseSkillOutputText(text: string | undefined): SkillOutputContract | undefined {
+  if (!text) return undefined;
+  for (const candidate of candidateJsonTexts(text)) {
     try {
-      const parsed = JSON.parse(itemText) as Record<string, unknown>;
+      const parsed = JSON.parse(candidate) as Record<string, unknown>;
       const fromText = parseSkillOutputRecord(parsed);
       if (fromText) return fromText;
     } catch {
@@ -2128,6 +2199,57 @@ function parseJsonEvents(stdout: string): CodexJsonEvent[] {
         return [];
       }
     });
+}
+
+function extractMappedString(events: CodexJsonEvent[], path: string): string | undefined {
+  for (const event of events) {
+    const value = readJsonPath(event, path);
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return undefined;
+}
+
+function readJsonPath(value: unknown, path: string): unknown {
+  const segments = path.split(".").map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length === 0) return undefined;
+  let current: unknown = value;
+  for (const segment of segments) {
+    if (typeof current !== "object" || current === null) return undefined;
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0) return undefined;
+      current = current[index];
+      continue;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function candidateJsonTexts(text: string): string[] {
+  const trimmed = text.trim();
+  const candidates = [trimmed];
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced?.[1]) candidates.push(fenced[1].trim());
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function extractUsage(events: CodexJsonEvent[]): Record<string, number> | undefined {
+  for (const event of events) {
+    const usage = readJsonPath(event, "usage") ?? readJsonPath(event, "stats") ?? readJsonPath(event, "result.stats");
+    if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+      return Object.fromEntries(
+        Object.entries(usage)
+          .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])),
+      );
+    }
+  }
+  return undefined;
 }
 
 function clampHeartbeat(value: number): number {

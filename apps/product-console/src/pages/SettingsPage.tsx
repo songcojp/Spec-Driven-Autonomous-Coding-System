@@ -105,6 +105,10 @@ export function SettingsPage({
     onCommand(action, "cli_adapter", adapterId, { adapterId, config: parsed.config });
   }
 
+  function loadPreset(preset: Record<string, unknown>) {
+    setJsonText(JSON.stringify({ ...preset, status: "draft" }, null, 2));
+  }
+
   const validation = data.settings.cliAdapter.validation;
   const lastDryRun = data.settings.cliAdapter.lastDryRun;
   const defaults = parsed.config?.defaults as Record<string, unknown> | undefined;
@@ -169,6 +173,21 @@ export function SettingsPage({
                     {text.disableConfig}
                   </Button>
                 ) : null}
+              </div>
+            </div>
+            <div className="mb-4 rounded-md border border-line bg-slate-50 p-3">
+              <div className="mb-2 text-[12px] font-semibold text-ink">{text.adapterPresets}</div>
+              <div className="flex flex-wrap gap-2">
+                {data.settings.cliAdapter.presets.map((preset) => (
+                  <Button
+                    key={preset.id}
+                    disabled={busy}
+                    onClick={() => loadPreset(preset as unknown as Record<string, unknown>)}
+                  >
+                    <Settings size={14} />
+                    {preset.displayName}
+                  </Button>
+                ))}
               </div>
             </div>
             <label className="text-[12px] font-medium text-muted">{text.adapterJson}</label>

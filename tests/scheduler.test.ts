@@ -255,6 +255,41 @@ test("cli.run uses default built-in adapter when cli_adapter_configs table is em
   assert.equal(result.status, "completed");
 });
 
+test("cli.run uses active Gemini CLI adapter from adapter configuration", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const calls: Array<{ command: string; args: string[]; cwd: string }> = [];
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO cli_adapter_configs (id, display_name, schema_version, executable, argument_template_json,
+          resume_argument_template_json, config_schema_json, form_schema_json, defaults_json,
+          environment_allowlist_json, output_mapping_json, status, updated_at)
+        VALUES ('gemini-cli', 'Google Gemini CLI', 1, 'gemini', ?, '[]', '{}', '{}', ?, '[]', ?, 'active', CURRENT_TIMESTAMP)`,
+      params: [
+        JSON.stringify(["--model", "{{model}}", "--output-format", "stream-json", "-p", "{{prompt}}"]),
+        JSON.stringify({ model: "gemini-3-pro-preview", reasoningEffort: "medium", sandbox: "danger-full-access", approval: "never" }),
+        JSON.stringify({ eventStream: "json", outputSchema: "skill-output.schema.json", sessionIdPath: "session_id", responseTextPaths: ["response"] }),
+      ],
+    },
+  ]);
+
+  const result = await runCliRunJob(dbPath, cliRunPayload("RUN-GEMINI-ADAPTER"), (command, args, cwd) => {
+    calls.push({ command, args, cwd });
+    return {
+      status: 0,
+      stdout: `{"type":"init","session_id":"SESSION-GEMINI"}\n${JSON.stringify({ type: "message", response: JSON.stringify(skillOutputObject("RUN-GEMINI-ADAPTER")) })}`,
+      stderr: "",
+    };
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(calls[0].command, "gemini");
+  assert.deepEqual(calls[0].args.slice(0, 5), ["--model", "gemini-3-pro-preview", "--output-format", "stream-json", "-p"]);
+  assert.equal(calls[0].cwd, root);
+});
+
 test("codex.app_server.run executes mocked app-server transport and persists runner artifacts", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
   prepareSkillWorkspace(root);
@@ -544,6 +579,24 @@ function skillOutputEvent(executionId: string, overrides: {
     },
   };
   return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
+}
+
+function skillOutputObject(executionId: string): Record<string, unknown> {
+  return {
+    contractVersion: "skill-contract/v1",
+    executionId,
+    skillSlug: "codex-coding-skill",
+    requestedAction: "feature_execution",
+    status: "completed",
+    summary: "Skill completed.",
+    producedArtifacts: [],
+    traceability: {
+      featureId: "FEAT-CLI",
+      taskId: "TASK-CLI",
+      requirementIds: [],
+      changeIds: ["CHG-016"],
+    },
+  };
 }
 
 function prepareSkillWorkspace(root: string): void {

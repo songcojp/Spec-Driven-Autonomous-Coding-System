@@ -10,6 +10,7 @@ import {
   buildSkillInvocationPrompt,
   buildRunnerConsoleSnapshot,
   DEFAULT_CLI_ADAPTER_CONFIG,
+  GEMINI_CLI_ADAPTER_CONFIG,
   dryRunCliAdapterConfig,
   evaluateRunnerSafety,
   listDueRecoveryDispatches,
@@ -132,6 +133,26 @@ test("CLI adapter dry-run validates JSON-managed command templates", () => {
   assert.equal(result.command, "codex");
   assert.equal(result.args?.includes("--output-schema"), true);
   assert.equal(result.args?.includes("/tmp/runner-output.schema.json"), true);
+});
+
+test("Gemini CLI adapter preset validates and dry-renders headless stream-json command", () => {
+  const result = dryRunCliAdapterConfig({
+    config: GEMINI_CLI_ADAPTER_CONFIG,
+    prompt: "Implement bounded task",
+    outputSchemaPath: "/tmp/runner-output.schema.json",
+  });
+
+  assert.equal(result.valid, true);
+  assert.equal(result.command, "gemini");
+  assert.deepEqual(result.args, [
+    "--model",
+    "gemini-3-pro-preview",
+    "--output-format",
+    "stream-json",
+    "-p",
+    "Implement bounded task",
+  ]);
+  assert.equal(result.args?.includes("--output-schema"), false);
 });
 
 test("default SkillOutputContract schema is valid for Codex strict JSON schema", () => {
@@ -573,6 +594,95 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.equal(executionResult.featureId, "FEAT-008");
   assert.match(executionResult.summary, /exit=0/);
   assert.deepEqual(executionResult.metadata.logFiles, expectedLogFiles);
+});
+
+test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from stream-json response text", async () => {
+  const workspaceRoot = makeWorkspacePath();
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-GEMINI",
+    risk: "low",
+    workspaceRoot,
+    model: "gemini-3-pro-preview",
+    now: stableDate,
+  });
+  const invocation = skillInvocationContract({
+    executionId: "RUN-GEMINI",
+    workspaceRoot,
+    expectedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", required: false }],
+  });
+  const output = {
+    contractVersion: "skill-contract/v1",
+    executionId: "RUN-GEMINI",
+    skillSlug: "pr-ears-requirement-decomposition-skill",
+    requestedAction: "generate_ears",
+    status: "completed",
+    summary: "Gemini completed.",
+    nextAction: "Continue.",
+    producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
+    traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+    result: {},
+  };
+
+  const result = await runCodexCli({
+    policy,
+    adapterConfig: GEMINI_CLI_ADAPTER_CONFIG,
+    prompt: buildSkillInvocationPrompt(invocation, "Context"),
+    outputSchemaPath: "/tmp/runner-output.schema.json",
+    skillInvocation: invocation,
+    now: stableDate,
+    runner: (command, args, cwd) => {
+      assert.equal(command, "gemini");
+      assert.deepEqual(args.slice(0, 5), ["--model", "gemini-3-pro-preview", "--output-format", "stream-json", "-p"]);
+      assert.equal(cwd, workspaceRoot);
+      return {
+        status: 0,
+        stdout: [
+          JSON.stringify({ type: "init", session_id: "GEMINI-SESSION", model: "gemini-3-pro-preview" }),
+          JSON.stringify({ type: "message", response: `\`\`\`json\n${JSON.stringify(output)}\n\`\`\`` }),
+          JSON.stringify({ type: "result", stats: { inputTokens: 11, outputTokens: 7 } }),
+        ].join("\n"),
+        stderr: "",
+      };
+    },
+  });
+
+  assert.equal(result.session.sessionId, "GEMINI-SESSION");
+  assert.equal(result.result.skillOutput?.summary, "Gemini completed.");
+  assert.equal(result.result.contractValidation?.valid, true);
+
+  const outputLog = JSON.parse(readFileSync(result.rawLog.files?.output ?? "", "utf8"));
+  assert.deepEqual(outputLog.usage, { inputTokens: 11, outputTokens: 7 });
+});
+
+test("Gemini CLI adapter routes successful runs with missing SkillOutputContract to review", async () => {
+  const workspaceRoot = makeWorkspacePath();
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-GEMINI-MISSING",
+    risk: "low",
+    workspaceRoot,
+    model: "gemini-3-pro-preview",
+    now: stableDate,
+  });
+  const invocation = skillInvocationContract({
+    executionId: "RUN-GEMINI-MISSING",
+    workspaceRoot,
+    expectedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", required: false }],
+  });
+
+  const result = await processRunnerQueueItem({
+    runId: "RUN-GEMINI-MISSING",
+    policy,
+    prompt: buildSkillInvocationPrompt(invocation, "Context"),
+    adapterConfig: GEMINI_CLI_ADAPTER_CONFIG,
+    skillInvocation: invocation,
+  }, () => ({
+    status: 0,
+    stdout: JSON.stringify({ type: "result", response: "Done, but not JSON." }),
+    stderr: "",
+  }));
+
+  assert.equal(result.status, "review_needed");
+  assert.match(result.summary, /Skill output contract review needed/);
 });
 
 test("Codex CLI adapter passes output schema for new exec runs", async () => {

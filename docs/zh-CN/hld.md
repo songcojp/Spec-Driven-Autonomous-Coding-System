@@ -10,7 +10,7 @@
 
 ## 1. Overview
 
-SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。系统以 Spec Protocol 管理目标、需求、验收和交付证据，以 Scheduler 选择 Feature、排期任务和记录触发，以 Project Memory 为 Codex CLI 提供跨会话恢复能力，以 Codex Runner 观测外部执行队列、心跳、日志、证据和状态检测，以内部任务状态机维护任务、审批、恢复和交付流转，并通过 Product Console / Dashboard 呈现状态。
+SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。系统以 Spec Protocol 管理目标、需求、验收和交付证据，以 Scheduler 选择 Feature、排期任务和记录触发，以 Project Memory 为编码 CLI 提供跨会话恢复能力，以 Codex Runner 观测外部执行队列、心跳、日志、证据和状态检测，以内部任务状态机维护任务、审批、恢复和交付流转，并通过 Product Console / Dashboard 呈现状态。
 
 2026-04-29 边界更新：平台不再提供 Skill System、Subagent Runtime、Agent Run Contract、Context Broker、Planning Pipeline、Skill Center 或 Subagent Console。本文后续旧名称若仍出现在历史映射中，均由 Scheduler and State Maintenance、Runner observation、执行结果、Status Check、Review、Recovery 和 Audit 替代。
 
@@ -132,7 +132,7 @@ flowchart LR
 
 外部边界：
 
-- Codex CLI：执行代码修改、测试、修复和结构化结果输出。
+- Codex CLI / Google Gemini CLI：通过 Runner CLI Adapter 执行代码修改、测试、修复和结构化结果输出。
 - Git CLI：读取状态、管理 branch/worktree、采集 diff 和支持回滚。
 - GitHub `gh` CLI：MVP 用于读取必要 PR 状态和创建 PR。
 - 目标代码仓库：系统修改的实际代码来源和 Git 事实来源。
@@ -149,14 +149,14 @@ flowchart LR
 | Backend / Runtime | TypeScript + Node.js Control Plane API + Runner Worker | 产品需要调用本机 `codex`、`git`、`gh`、构建测试命令和文件系统；Node.js 对 CLI 编排、JSON schema、前后端类型共享和本地开发友好。 | 若后续接入 Python Skill，可通过独立进程或 Runner adapter 执行，不改变控制面事实源。 |
 | Database / Storage | MVP 使用嵌入式 SQLite 作为 Persistent Store；`.autobuild/` 保存人类可读 artifact | 本地优先、多项目目录、长时间恢复和审计需要持久化，但 MVP 不需要外部数据库运维复杂度。SQLite 足够承载项目、项目选择、Feature、Task、Run、执行结果、审计、通用指标和 token 消费明细。 | 团队协作阶段可迁移 PostgreSQL；Project Memory 是文件投影，不替代数据库。 |
 | Authentication / Authorization | MVP 本地单用户/可信环境，关键动作用 Review Center 和 Safety Gate 审批；不建复杂 RBAC | PRD 明确 MVP 不做企业级复杂权限矩阵；当前风险重点是自动执行权限、敏感文件和高风险操作。 | 远程部署或团队协作阶段需要补充身份认证、角色、项目权限和审计主体。 |
-| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter 和 Codex app-server adapter | UI、IDE、调度器、Runner 和审批动作需要统一入口；Codex/Git/GitHub 先走稳定 adapter 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；app-server Adapter 负责 JSON-RPC protocol/capability/schema detection。 |
+| API / Integration | Control Plane 暴露本地 HTTP API；内部命令使用 schema-validated command/event；外部集成通过 CLI adapter 和 Codex app-server adapter | UI、IDE、调度器、Runner 和审批动作需要统一入口；Codex/Gemini/Git/GitHub 先走稳定 adapter 边界，减少平台权限建模。 | CLI Adapter 配置统一使用 JSON + JSON Schema，并可投影为 Console JSON 表单；app-server Adapter 负责 JSON-RPC protocol/capability/schema detection。 |
 | Background Jobs / Scheduler | BullMQ + Redis queue + Worker；SQLite 保存 scheduler job record、Run、心跳、状态和 execution result | 长时间任务不能只存在内存；延迟/周期/Worker 执行交给成熟队列，业务事实仍可恢复。 | Redis 不可用时 scheduler health 为 blocked；写任务默认串行，写入型并行必须绑定 worktree。 |
 | Testing | Vitest/Jest 覆盖服务与状态机；Playwright 覆盖 Console；CLI adapter 使用 fixture 和本地集成测试 | 核心风险在状态机、schema、Runner policy、工作区隔离和 UI 状态展示，测试应围绕这些边界。 | 目标仓库的测试命令由项目健康检查发现，不由本系统固定。 |
 | Deployment / Operations | MVP 本地进程：Control Plane + Runner Worker + Browser Console；artifact root 使用 `.autobuild/` | 本地优先符合 Codex CLI、Git worktree 和目标仓库操作模型，降低 MVP 部署成本。 | 生产/团队化阶段需要服务化部署、队列、数据库、密钥管理和 Runner 池。 |
 
 Rejected / deferred alternatives:
 
-- 不采用自研大模型；模型能力由 Codex CLI 或后续 Runner adapter 提供。
+- 不采用自研大模型；模型能力由 Codex CLI、Google Gemini CLI 或后续 Runner adapter 提供。
 - 不在 MVP 中引入复杂微服务；控制面和 Runner Worker 可先在同一主机运行。
 - 不以 Project Memory 作为调度数据库；Memory 只为 CLI 恢复提供压缩上下文。
 - `docs/zh-CN/design.md` 已作废；若历史内容与本文、PRD 或 requirements 冲突，以本文和当前 Feature Spec 为准。
@@ -323,7 +323,7 @@ Collaborates With:
 
 Responsibilities:
 
-- 通过 Runner CLI Adapter 调用 Codex CLI 或后续等价 CLI 执行代码修改、测试或修复。
+- 通过 Runner CLI Adapter 调用 Codex CLI、Google Gemini CLI 或后续等价 CLI 执行代码修改、测试或修复。
 - 读取 active CLI Adapter JSON 配置，并将 executable、argument template、workspace policy、output mode、执行结果映射和 session resume 映射转换为实际执行计划。
 - 按任务风险解析 sandbox、approval policy、model、reasoning effort、profile、workspace root、session resume 和 output schema。
 - 采集命令输出、JSON event stream、Codex session、心跳和原始日志。

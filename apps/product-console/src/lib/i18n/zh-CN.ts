@@ -218,6 +218,7 @@ export const zhCN = {
   systemSettingsSubtitle: "管理影响所有项目的运行时配置。",
   cliConfig: "CLI Adapter 配置",
   cliConfigSubtitle: "通过 JSON 或表单编辑 Runner 调用适配器，保存前会执行 dry-run 校验。",
+  adapterPresets: "Adapter 预设",
   activeAdapter: "当前生效 Adapter",
   draftAdapter: "草稿 Adapter",
   openSettings: "打开系统设置",

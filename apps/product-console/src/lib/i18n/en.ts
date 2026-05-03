@@ -218,6 +218,7 @@ export const en = {
   systemSettingsSubtitle: "Manage runtime configuration that applies across projects.",
   cliConfig: "CLI Adapter Config",
   cliConfigSubtitle: "Edit the Runner invocation adapter through JSON or a form, with dry-run validation before activation.",
+  adapterPresets: "Adapter Presets",
   activeAdapter: "Active Adapter",
   draftAdapter: "Draft Adapter",
   openSettings: "Open Settings",

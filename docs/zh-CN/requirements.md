@@ -434,16 +434,16 @@ THE SYSTEM SHALL 恢复未完成 Run、Running 任务、Scheduled 任务、Runne
 验收：
 - [ ] 重启后系统能继续未完成流程或明确标记阻塞原因。
 
-### REQ-037：执行 Codex CLI Run
+### REQ-037：执行编码 CLI Run
 来源：PRD 第 6.9 节 FR-070
 优先级：Must
 
 WHEN 任务需要代码修改、测试或修复
-THE SYSTEM SHALL 通过 Runner CLI Adapter 在目标项目 workspace 中调用 Codex CLI，并要求输出符合 SkillOutput/Execution Result schema。
+THE SYSTEM SHALL 通过 Runner CLI Adapter 在目标项目 workspace 中调用 Codex CLI、Google Gemini CLI 或后续等价编码 CLI，并要求输出符合 SkillOutput/Execution Result schema。
 
 验收：
 - [ ] Codex Runner 产出结构化 Execution Result。
-- [ ] Codex CLI 进程的 workspace root 来自当前项目 repository `local_path` 或 `target_repo_path`，不得使用 SpecDrive Control Plane 进程目录作为兜底。
+- [ ] 编码 CLI 进程的 workspace root 来自当前项目 repository `local_path` 或 `target_repo_path`，不得使用 SpecDrive Control Plane 进程目录作为兜底。
 
 ### REQ-038：应用 Codex Runner 安全配置
 来源：PRD 第 6.9 节 FR-071 至 FR-072
@@ -471,10 +471,11 @@ THE SYSTEM SHALL 阻止自动执行或路由到人工审批。
 优先级：Must
 
 WHEN Runner 需要启动外部 CLI 执行任务
-THE SYSTEM SHALL 通过 active CLI Adapter 解析 executable、argument template、workspace root、session resume、output mode、执行结果映射和安全能力，不得在调度器或状态机中硬编码 Codex 命令细节。
+THE SYSTEM SHALL 通过 active CLI Adapter 解析 executable、argument template、workspace root、session resume、output mode、执行结果映射和安全能力，不得在调度器或状态机中硬编码 Codex 或 Gemini 命令细节。
 
 验收：
 - [ ] 默认 `codex-cli` adapter 能生成与现有 Codex 执行等价的命令。
+- [ ] 系统提供 `codex-cli` 和 `gemini-cli` 内置 preset；Gemini CLI 通过 headless JSON/JSONL 输出接入，并由 Runner 对 SkillOutputContractV1 做事后校验。
 - [ ] Runner Policy 解析结果与 adapter 配置合并后仍保留 sandbox、approval、model、profile、output schema 和 workspace root 约束。
 - [ ] active CLI Adapter 必须在启动前解析并校验项目 workspace root；项目路径缺失、不可读或不是可用 workspace 时，新 Run 进入 blocked 并展示原因。
 - [ ] CLI Adapter 变更写入审计日志，并且不影响已经 running 的 Run。

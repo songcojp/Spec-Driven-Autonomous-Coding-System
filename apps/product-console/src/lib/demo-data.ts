@@ -45,6 +45,24 @@ const cliAdapterConfig = {
 const settings = {
   cliAdapter: {
     active: cliAdapterConfig,
+    presets: [
+      cliAdapterConfig,
+      {
+        id: "gemini-cli",
+        displayName: "Google Gemini CLI",
+        schemaVersion: 1,
+        executable: "gemini",
+        argumentTemplate: ["--model", "{{model}}", "--output-format", "stream-json", "-p", "{{prompt}}"],
+        resumeArgumentTemplate: ["--model", "{{model}}", "--output-format", "stream-json", "--resume", "{{resume_session_id}}", "-p", "{{resume_prompt}}"],
+        configSchema: { type: "object" },
+        formSchema: cliAdapterConfig.formSchema,
+        defaults: { model: "gemini-3-pro-preview", reasoningEffort: "medium", sandbox: "danger-full-access", approval: "never" },
+        environmentAllowlist: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_GENAI_USE_VERTEXAI"],
+        outputMapping: { eventStream: "json", outputSchema: "skill-output.schema.json", sessionIdPath: "session_id", responseTextPaths: ["response", "result.response", "message.content", "content", "text"] },
+        status: "draft",
+        updatedAt: "1970-01-01T00:00:00.000Z",
+      },
+    ],
     validation: { valid: true, errors: [], warnings: [], command: "codex", args: cliAdapterConfig.argumentTemplate },
     lastDryRun: { status: "passed", errors: [], command: "codex", args: cliAdapterConfig.argumentTemplate, at: "2026-04-29T03:45:00.000Z" },
   },

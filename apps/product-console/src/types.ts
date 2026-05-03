@@ -363,6 +363,7 @@ export type SystemSettingsModel = {
   cliAdapter: {
     active: CliAdapterConfigModel;
     draft?: CliAdapterConfigModel;
+    presets: CliAdapterConfigModel[];
     validation: { valid: boolean; errors: string[]; warnings?: string[]; command?: string; args?: string[] };
     lastDryRun?: { status: string; errors: string[]; command?: string; args?: string[]; at?: string };
   };

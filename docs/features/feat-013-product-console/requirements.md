@@ -47,7 +47,7 @@ Spec Evolution:
 - Runner Console 的任务列表必须优先展示可读执行意图；scheduler job id、BullMQ job id、execution id 等 GUID 只能作为辅助事实。
 - Runner Console 必须提供 scheduler job / execution detail，展示 Job 基础信息、payload/context、Execution Record、CLI skill 或 native handler、Evidence、logs、error/blocked reason。
 - Spec Workspace 和 Runner Console 必须展示 workspace-aware skill invocation 反馈，包括 scheduler job、execution id、workspace、skill phase、blocked reason 和最近 Evidence。
-- System Settings 提供 CLI Adapter 配置管理入口，支持原始 JSON 查看/编辑、JSON Schema 表单编辑、token 价格表配置、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
+- System Settings 提供 CLI Adapter 配置管理入口，支持 Codex/Gemini adapter preset、原始 JSON 查看/编辑、JSON Schema 表单编辑、token 价格表配置、dry-run 校验、保存草稿、启用/禁用、字段级错误和审计反馈；Runner Console 只展示 active adapter、配置状态和跳转入口。
 - Product Console 的查询接口只读取 ViewModel、Evidence、审计、配置 schema 和状态摘要；任何写入状态、触发 Scheduler / Execution Record、执行 CLI、改变审批/规则/配置或写入 Evidence / Project Memory 的动作都必须通过 Console Command Gateway 产生受控命令回执。
 - Review Center 页面展示待审批列表、风险筛选、diff、Evidence、审批操作、项目规则写入和 Spec Evolution 写入入口。
 - Audit Center 页面展示审计摘要、Audit Timeline、命令回执、阻塞原因、状态转换、Evidence、Execution Record、Job 和 Approval 关联记录，并使用 `docs/ui/audit-center-concept.png` 作为实现基线。
@@ -117,7 +117,7 @@ Spec Evolution:
 - [ ] 阶段 2 扫描结果展示 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等来源类型，并标记缺失项、冲突项和需要澄清的问题。
 - [ ] Spec Workspace 阶段流程默认不展开阶段内步骤；用户点击阶段状态标签后才展开对应阶段详情，且头部流程只以标签承载状态和提示信息。
 - [ ] Product Console 提供系统设置入口，系统设置至少包含 CLI 配置页。
-- [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖原始 JSON 编辑、JSON Schema 表单编辑、token 价格表编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
+- [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖 Codex/Gemini preset、原始 JSON 编辑、JSON Schema 表单编辑、token 价格表编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
 - [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
 - [ ] Runner Console 浏览器级验证覆盖 `cli.run` / `native.run` 执行队列、Job 列表、execution detail、payload context、workspace、Runner heartbeat、blocked reason 或 Evidence 摘要。
 - [ ] Runner Console 浏览器级验证覆盖 Job 队列筛选、执行详情、可读执行描述，以及详情来自真实 ViewModel 字段而不是静态 demo 文案。

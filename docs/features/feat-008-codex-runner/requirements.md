@@ -31,7 +31,7 @@
 
 ## User Value
 
-系统可以用受安全策略约束的方式调用 Codex CLI，让自动编码、测试和修复具备可审计输出、可恢复 session 和可观察心跳。
+系统可以用受安全策略约束的方式调用 Codex CLI 或 Google Gemini CLI 等编码 CLI，让自动编码、测试和修复具备可审计输出、可恢复 session 和可观察心跳。
 
 ## Requirements
 
@@ -49,6 +49,7 @@
 - Runner 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配或必需 artifact 缺失时，Execution Record 必须进入 `review_needed` 并保留原因。
 - Runner 必须以 `execution_records` 作为执行状态主表；不得为 `cli.run` 创建或更新旧 `runs` 记录。
 - CLI Adapter 配置必须以 JSON 为唯一事实源，并支持 dry-run 校验。
+- Runner 必须提供 `codex-cli` 和 `gemini-cli` 内置 adapter preset；Gemini CLI preset 必须通过 headless JSON/JSONL 输出和 SkillOutputContractV1 事后校验接入，不要求 Gemini CLI 支持 Codex 风格自定义 output schema 参数。
 - 开发阶段高风险任务默认以 `danger-full-access` 和 `approval=never` 执行；敏感文件、危险命令和 forbidden files 仍必须触发安全规则。
 - 认证、权限、支付、迁移、密钥和 forbidden files 修改必须触发安全规则。
 - Runner 在线时必须每 10 至 30 秒更新心跳。
@@ -56,6 +57,7 @@
 ## Acceptance Criteria
 
 - [ ] `codex-cli` adapter 可以在指定 workspace root 中启动 Codex CLI。
+- [ ] `gemini-cli` adapter 可以通过 active CLI Adapter 配置在指定 workspace root 中启动 Google Gemini CLI。
 - [ ] `codex-cli` adapter 在 mock runner 中收到的 cwd 等于目标项目 workspace root。
 - [ ] Feature 级 `schedule_run` 可以在完整 Feature Spec 目录存在时产生 `cli.run` scheduler job，Worker 执行后持久化 session/log/status check 并回写 Execution Record 状态。
 - [ ] `run_board_tasks` 作为兼容入口仍可产生 `cli.run` scheduler job，但编码执行不依赖 Task Board 或旧 task 表。
