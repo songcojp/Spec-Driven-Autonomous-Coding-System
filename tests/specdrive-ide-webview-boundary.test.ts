@@ -70,6 +70,7 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
 test("VSCode System Settings Webview manages adapter configs through controlled commands", () => {
   assert.match(extensionSource, /renderSystemSettingsWebview/);
   assert.match(extensionSource, new RegExp('new URL\\("/ide/system-settings", controlPlaneUrl\\)'));
+  assert.match(extensionSource, new RegExp('new URL\\("/console/system-settings", controlPlaneUrl\\)'));
   assert.match(extensionSource, /message\.command === "settingsCommand"/);
   assert.match(extensionSource, /JSON\.parse\(message\.configText\)/);
   assert.match(extensionSource, /entityType: message\.entityType/);

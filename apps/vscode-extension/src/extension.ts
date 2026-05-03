@@ -461,7 +461,10 @@ async function fetchSpecDriveView(): Promise<SpecDriveIdeView> {
 
 async function fetchSystemSettings(): Promise<SystemSettingsViewModel> {
   const controlPlaneUrl = await ensureControlPlaneReady();
-  const response = await fetchJson(new URL("/ide/system-settings", controlPlaneUrl));
+  let response = await fetchJson(new URL("/ide/system-settings", controlPlaneUrl));
+  if (response.status === 404) {
+    response = await fetchJson(new URL("/console/system-settings", controlPlaneUrl));
+  }
   if (!response.ok) {
     throw new Error(`SpecDrive settings request failed: ${response.status} ${response.statusText}`);
   }
