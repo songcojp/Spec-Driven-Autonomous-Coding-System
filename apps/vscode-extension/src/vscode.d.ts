@@ -114,6 +114,8 @@ declare module "vscode" {
 
   export interface Webview {
     html: string;
+    readonly cspSource: string;
+    asWebviewUri(localResource: Uri): Uri;
     onDidReceiveMessage(listener: (message: unknown) => unknown): Disposable;
   }
 
@@ -186,7 +188,12 @@ declare module "vscode" {
   export namespace window {
     const activeTextEditor: TextEditor | undefined;
     function createTreeView<T>(viewId: string, options: { treeDataProvider: TreeDataProvider<T> }): Disposable;
-    function createWebviewPanel(viewType: string, title: string, showOptions: ViewColumn, options?: { enableScripts?: boolean; retainContextWhenHidden?: boolean }): WebviewPanel;
+    function createWebviewPanel(
+      viewType: string,
+      title: string,
+      showOptions: ViewColumn,
+      options?: { enableScripts?: boolean; retainContextWhenHidden?: boolean; localResourceRoots?: Uri[] },
+    ): WebviewPanel;
     function showErrorMessage(message: string): Thenable<string | undefined>;
     function showInputBox(options?: { prompt?: string; value?: string }): Thenable<string | undefined>;
     function showQuickPick(items: string[], options?: { placeHolder?: string }): Thenable<string | undefined>;
@@ -200,6 +207,9 @@ declare module "vscode" {
 
   export namespace workspace {
     const workspaceFolders: Array<{ uri: Uri; name: string }> | undefined;
+    const fs: {
+      stat(uri: Uri): Thenable<unknown>;
+    };
     function getConfiguration(section?: string): {
       get<T>(key: string, defaultValue: T): T;
     };

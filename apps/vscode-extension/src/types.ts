@@ -98,6 +98,12 @@ export type SpecDriveIdeView = {
   };
 };
 
+export type UiConceptImage = {
+  label: string;
+  path: string;
+  uri: string;
+};
+
 export type ControlledCommandInput = {
   action: string;
   entityType: "project" | "feature" | "task" | "run" | "runner" | "review_item" | "rule" | "spec" | "cli_adapter" | "settings";

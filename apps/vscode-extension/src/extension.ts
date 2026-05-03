@@ -14,6 +14,7 @@ import type {
   SpecDriveIdeQueueItem,
   SpecDriveIdeView,
   SpecExplorerItem,
+  UiConceptImage,
 } from "./types";
 import { currentExecutionItem, renderExecutionWebview, renderExecutionWorkbenchWebview } from "./webviews/execution";
 import { preferredFeature, preferredFeatureReviewSource, renderFeatureSpecWebview } from "./webviews/feature-spec";
@@ -686,13 +687,16 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
 }
 
 async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
   const panel = vscode.window.createWebviewPanel("specdriveSpecWorkspace", "Spec Workspace", vscode.ViewColumn.Active, {
     enableScripts: true,
     retainContextWhenHidden: true,
+    localResourceRoots: workspaceRoot ? [workspaceRoot] : [],
   });
   const render = async (): Promise<void> => {
     await provider.refresh();
-    panel.webview.html = renderSpecWorkspaceWebview(provider.currentView());
+    const uiConceptImages = await collectUiConceptImages(panel.webview);
+    panel.webview.html = renderSpecWorkspaceWebview(provider.currentView(), uiConceptImages, panel.webview.cspSource);
   };
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "specWorkspaceRequest" && typeof message.content === "string") {
@@ -959,6 +963,30 @@ async function openProductConsole(item: unknown, provider: SpecExplorerProvider)
   if (isQueueItem(item) && item.item.featureId) url.searchParams.set("featureId", item.item.featureId);
   if (isFeatureItem(item)) url.searchParams.set("featureId", item.feature.id);
   await vscode.env.openExternal(vscode.Uri.parse(url.toString()));
+}
+
+async function collectUiConceptImages(webview: vscode.Webview): Promise<UiConceptImage[]> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (!workspaceRoot) return [];
+  const candidates = [
+    ["Spec Workspace PRD Flow", "docs/ui/spec-workspace-prd-flow-concept.png"],
+    ["Execution Workbench", "docs/ui/feat-021-execution-workbench-concept.png"],
+    ["Spec Workspace", "docs/ui/feat-021-spec-workspace-concept.png"],
+    ["Feature Spec", "docs/ui/feat-021-feature-spec-concept.png"],
+    ["Task Scheduler Console", "docs/ui/task-scheduler-console-concept.png"],
+    ["Audit Center", "docs/ui/audit-center-concept.png"],
+  ];
+  const images: UiConceptImage[] = [];
+  for (const [label, path] of candidates) {
+    const uri = vscode.Uri.joinPath(workspaceRoot, ...path.split("/"));
+    try {
+      await vscode.workspace.fs.stat(uri);
+      images.push({ label, path, uri: webview.asWebviewUri(uri).toString() });
+    } catch {
+      // Missing concept images are expected in early projects.
+    }
+  }
+  return images;
 }
 
 function isDocumentItem(item: unknown): item is Extract<SpecExplorerItem, { type: "document" }> {
