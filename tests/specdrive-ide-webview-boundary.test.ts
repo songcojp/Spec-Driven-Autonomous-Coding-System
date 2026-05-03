@@ -31,11 +31,17 @@ test("VSCode IDE Webviews expose three independent workbench commands", () => {
 });
 
 test("VSCode Feature Spec Webview switches between list and dependency graph views", () => {
-  assert.match(extensionSource, /data-command="toggleFeatureSpecView" data-view-mode="list"/);
+  assert.match(extensionSource, /data-command="toggleFeatureSpecView" data-view-mode="dependency"/);
+  assert.match(extensionSource, /const mode = target\.dataset\.viewMode === "dependency" \? "dependency" : "list"/);
+  assert.match(extensionSource, /target\.dataset\.viewMode = mode === "dependency" \? "list" : "dependency"/);
   assert.match(extensionSource, /target\.textContent = mode === "dependency" \? "Feature List" : "Dependency Graph"/);
   assert.doesNotMatch(extensionSource, /data-command="setFeatureSpecView"/);
+  assert.match(extensionSource, /\.hidden\{display:none!important\}/);
   assert.match(extensionSource, /data-view-panel="list"/);
   assert.match(extensionSource, /data-view-panel="dependency"/);
+  assert.match(extensionSource, /data-command="toggleDependencyGraphBranches" data-expanded="true"/);
+  assert.match(extensionSource, /#dependency-graph-panel \.dependency-branch/);
+  assert.match(extensionSource, /target\.textContent = expanded \? "Collapse All" : "Expand All"/);
   assert.match(extensionSource, /class="dependency-branch"\$\{open\}/);
   assert.match(extensionSource, /const open = depth < 2/);
   assert.match(extensionSource, /\.feature-panel summary::before\{content:"\+"/);

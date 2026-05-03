@@ -1344,7 +1344,7 @@ function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, selectedFe
   const groups = groupFeaturePanels(features);
   return renderWorkbenchPage("Feature Spec", nonce, `
     <section class="toolbar">
-      <button class="view-toggle" data-command="toggleFeatureSpecView" data-view-mode="list" aria-pressed="false">Dependency Graph</button>
+      <button class="view-toggle" data-command="toggleFeatureSpecView" data-view-mode="dependency" aria-pressed="false">Dependency Graph</button>
       ${commandButton("New Feature", "newFeaturePrompt", {})}
       ${commandButton("Refresh", "refresh", {})}
       ${selected ? commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: selected.id, reason: `Schedule ${selected.id} from Feature Spec Webview.` }) : ""}
@@ -1359,7 +1359,7 @@ function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, selectedFe
       </aside>
     </main>
     <section id="dependency-graph-panel" class="panel dependency-panel hidden" data-view-panel="dependency">
-      <div class="panel-title"><h2>Dependency Graph</h2><span>${features.length} Feature Specs</span></div>
+      <div class="panel-title"><h2>Dependency Graph</h2><span>${features.length} Feature Specs</span><button class="dependency-toggle" data-command="toggleDependencyGraphBranches" data-expanded="true">Collapse All</button></div>
       ${renderDependencyGraph(features)}
     </section>
   `);
@@ -1405,7 +1405,7 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
     .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
     pre{max-height:180px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;font-family:var(--vscode-editor-font-family);font-size:11px}.issue{border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0}.issue span{color:var(--muted)}
     .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}
-    .hidden{display:none}.dependency-panel{margin-bottom:10px}.dependency-tree,.dependency-tree ul{list-style:none;margin:0;padding-left:18px}.dependency-tree{padding-left:0}.dependency-tree li{position:relative;margin:4px 0;padding-left:14px}.dependency-tree li::before{content:"";position:absolute;left:0;top:13px;width:9px;border-top:1px solid var(--border)}.dependency-tree ul{border-left:1px solid var(--border);margin-left:8px}.dependency-branch>summary{list-style:none;cursor:pointer}.dependency-branch>summary::-webkit-details-marker{display:none}.dependency-branch>summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted)}.dependency-branch[open]>summary::before{content:"-"}.dependency-leaf{margin-left:16px}.dependency-node{display:inline-flex;align-items:center;gap:7px;min-height:26px;border:1px solid var(--border);border-radius:5px;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 7px}.dependency-node button{padding:2px 6px}.dependency-node.missing{color:var(--warn)}.dependency-node .muted{font-size:11px}
+    .hidden{display:none!important}.dependency-panel{margin-bottom:10px}.dependency-tree,.dependency-tree ul{list-style:none;margin:0;padding-left:18px}.dependency-tree{padding-left:0}.dependency-tree li{position:relative;margin:4px 0;padding-left:14px}.dependency-tree li::before{content:"";position:absolute;left:0;top:13px;width:9px;border-top:1px solid var(--border)}.dependency-tree ul{border-left:1px solid var(--border);margin-left:8px}.dependency-branch>summary{list-style:none;cursor:pointer}.dependency-branch>summary::-webkit-details-marker{display:none}.dependency-branch>summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted)}.dependency-branch[open]>summary::before{content:"-"}.dependency-leaf{margin-left:16px}.dependency-node{display:inline-flex;align-items:center;gap:7px;min-height:26px;border:1px solid var(--border);border-radius:5px;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 7px}.dependency-node button{padding:2px 6px}.dependency-node.missing{color:var(--warn)}.dependency-node .muted{font-size:11px}
     .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:flex;flex-direction:column;gap:10px;min-width:0}.feature-panel{border:1px solid var(--border);border-radius:6px;background:var(--panel);min-width:0;overflow:hidden}.feature-panel summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;cursor:pointer;background:var(--vscode-list-hoverBackground);user-select:none;list-style:none}.feature-panel summary::-webkit-details-marker{display:none}.feature-panel summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted);font-weight:650}.feature-panel[open] summary::before{content:"-"}.feature-panel summary h2{display:flex;gap:8px;align-items:center;margin-right:auto}.feature-panel summary span{color:var(--muted);font-size:12px}.feature-panel-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;align-items:stretch;padding:9px;overflow:visible}.feature-panel-items .muted{padding:2px}.feature-card{width:100%;min-width:0;min-height:154px;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;padding:9px}.feature-card.selected{border-color:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
     @media (max-width:980px){.grid,.feature-layout{display:block}.panel,.feature-panel{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.feature-panel-items{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}}
   </style></head><body><h1>${escapeHtml(title)}</h1>${body}<script nonce="${nonce}">
@@ -1423,13 +1423,22 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
         return;
       }
       if (payload.command === "toggleFeatureSpecView") {
-        const mode = target.dataset.viewMode === "dependency" ? "list" : "dependency";
+        const mode = target.dataset.viewMode === "dependency" ? "dependency" : "list";
         document.querySelectorAll("[data-view-panel]").forEach((panel) => {
           panel.classList.toggle("hidden", panel.dataset.viewPanel !== mode);
         });
-        target.dataset.viewMode = mode;
+        target.dataset.viewMode = mode === "dependency" ? "list" : "dependency";
         target.textContent = mode === "dependency" ? "Feature List" : "Dependency Graph";
         target.setAttribute("aria-pressed", mode === "dependency" ? "true" : "false");
+        return;
+      }
+      if (payload.command === "toggleDependencyGraphBranches") {
+        const expanded = target.dataset.expanded !== "true";
+        document.querySelectorAll("#dependency-graph-panel .dependency-branch").forEach((branch) => {
+          branch.open = expanded;
+        });
+        target.dataset.expanded = expanded ? "true" : "false";
+        target.textContent = expanded ? "Collapse All" : "Expand All";
         return;
       }
       if (payload.command === "reviewFeaturePrompt") {
