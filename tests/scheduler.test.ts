@@ -7,16 +7,20 @@ import { initializeSchema, listTables } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
   BULLMQ_CLI_RUNNER_QUEUE,
+  BULLMQ_EXECUTION_ADAPTER_QUEUE,
   CLI_WORKER_LOCK_DURATION_MS,
   CLI_RUNNER_QUEUE,
+  EXECUTION_ADAPTER_QUEUE,
   createMemoryScheduler,
   runCodexAppServerRunJob,
   runCliRunJob,
 } from "../src/scheduler.ts";
-import type { CodexAppServerTransport } from "../src/codex-app-server.ts";
+import type { CodexAppServerTransport } from "../src/codex-rpc-adapter.ts";
 
 test("BullMQ queue names avoid reserved colon separator while logical queue names stay traceable", () => {
-  assert.equal(CLI_RUNNER_QUEUE, "specdrive:cli-runner");
+  assert.equal(EXECUTION_ADAPTER_QUEUE, "specdrive:execution-adapter");
+  assert.equal(CLI_RUNNER_QUEUE, EXECUTION_ADAPTER_QUEUE);
+  assert.equal(BULLMQ_EXECUTION_ADAPTER_QUEUE.includes(":"), false);
   assert.equal(BULLMQ_CLI_RUNNER_QUEUE.includes(":"), false);
 });
 
@@ -37,14 +41,14 @@ test("scheduler schema records executor job metadata without feature target colu
     projectId: "project-1",
     context: { featureId: "FEAT-001", featureSpecPath: "docs/features/feat-001" },
   });
-  assert.equal(job.queueName, "specdrive:cli-runner");
-  const appServerJob = scheduler.enqueueAppServerRun?.({
+  assert.equal(job.queueName, "specdrive:execution-adapter");
+  const appServerJob = scheduler.enqueueRpcRun?.({
     executionId: "EXEC-APP",
     operation: "feature_execution",
     projectId: "project-1",
     context: { featureId: "FEAT-001", featureSpecPath: "docs/features/feat-001" },
   });
-  assert.equal(appServerJob?.jobType, "codex.app_server.run");
+  assert.equal(appServerJob?.jobType, "rpc.run");
   const query = runSqlite(dbPath, [], [
     { name: "jobs", sql: "SELECT id, queue_name, job_type, status, payload_json FROM scheduler_job_records ORDER BY rowid" },
     { name: "columns", sql: "PRAGMA table_info(scheduler_job_records)" },
@@ -54,8 +58,8 @@ test("scheduler schema records executor job metadata without feature target colu
   assert.equal(columns.includes("target_type"), false);
   assert.equal(columns.includes("target_id"), false);
   assert.deepEqual(rows.map((row) => [row.queue_name, row.job_type, row.status, JSON.parse(String(row.payload_json)).operation]), [
-    ["specdrive:cli-runner", "cli.run", "queued", "feature_execution"],
-    ["specdrive:cli-runner", "codex.app_server.run", "queued", "feature_execution"],
+    ["specdrive:execution-adapter", "cli.run", "queued", "feature_execution"],
+    ["specdrive:execution-adapter", "rpc.run", "queued", "feature_execution"],
   ]);
 });
 

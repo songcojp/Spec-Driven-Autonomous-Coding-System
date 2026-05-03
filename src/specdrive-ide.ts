@@ -6,7 +6,7 @@ import {
   DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
   interruptCodexAppServerTurn,
   type CodexAppServerAdapterConfig,
-} from "./codex-app-server.ts";
+} from "./codex-rpc-adapter.ts";
 import { submitConsoleCommand, type ConsoleCommandInput, type ConsoleCommandReceipt } from "./product-console.ts";
 import type { SchedulerClient } from "./scheduler.ts";
 import { runSqlite } from "./sqlite.ts";
@@ -465,8 +465,9 @@ export async function submitIdeQueueCommand(
     }
     const payload = retryPayload(previous, command, acceptedAt);
     const scheduler = options.scheduler;
-    const job = previous.jobType === "codex.app_server.run" && scheduler?.enqueueAppServerRun
-      ? scheduler.enqueueAppServerRun(payload)
+    const isRpcRetry = previous.jobType === "rpc.run" || previous.jobType === "codex.app_server.run" || previous.executorType === "codex.app_server";
+    const job = isRpcRetry && (scheduler?.enqueueRpcRun || scheduler?.enqueueAppServerRun)
+      ? (scheduler.enqueueRpcRun ?? scheduler.enqueueAppServerRun)?.(payload)
       : scheduler?.enqueueCliRun(payload);
     if (!job) {
       blockedReasons.push("Scheduler is required to retry an execution.");

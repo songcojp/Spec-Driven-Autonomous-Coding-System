@@ -115,7 +115,7 @@ test("SpecDrive IDE view scopes queue and latest executions to the current works
       params: [
         "JOB-CURRENT-ONLY",
         "bull-current-only",
-        "specdrive:cli-runner",
+        "specdrive:execution-adapter",
         "cli.run",
         "queued",
         JSON.stringify({
@@ -156,7 +156,7 @@ test("SpecDrive IDE view hides completed schedule-only rows from execution queue
       params: [
         "JOB-SCHEDULE-COMPLETED",
         "bull-schedule-completed",
-        "specdrive:cli-runner",
+        "specdrive:execution-adapter",
         "cli.run",
         "completed",
         JSON.stringify({ projectId: "project-ide", requestedAction: "split_feature_specs" }),
@@ -169,7 +169,7 @@ test("SpecDrive IDE view hides completed schedule-only rows from execution queue
       params: [
         "JOB-SCHEDULE-QUEUED",
         "bull-schedule-queued",
-        "specdrive:cli-runner",
+        "specdrive:execution-adapter",
         "cli.run",
         "queued",
         JSON.stringify({ projectId: "project-ide", requestedAction: "generate_ears" }),
@@ -414,7 +414,7 @@ test("SpecDrive IDE queue actions retry failed executions and preserve previous 
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.previousExecutionId, "RUN-FAILED");
   assert.equal(typeof receipt.executionId, "string");
-  assert.equal(scheduler.jobs[0].jobType, "codex.app_server.run");
+  assert.equal(scheduler.jobs[0].jobType, "rpc.run");
   const rows = runSqlite(dbPath, [], [
     { name: "run", sql: "SELECT scheduler_job_id, status, context_json, metadata_json FROM execution_records WHERE id = ?", params: [receipt.executionId] },
   ]).queries.run;
@@ -647,8 +647,8 @@ function seedOtherProjectRuntimeState(dbPath: string, workspaceRoot: string): vo
       params: [
         "JOB-OTHER",
         "bull-other",
-        "specdrive:cli-runner",
-        "codex.app_server.run",
+        "specdrive:execution-adapter",
+        "rpc.run",
         "running",
         JSON.stringify({ executionId: "RUN-OTHER", operation: "feature_execution", projectId: "project-other", context: { featureId: "FEAT-016" } }),
         "2026-05-02T12:03:00.000Z",
@@ -678,7 +678,7 @@ function seedOtherProjectRuntimeState(dbPath: string, workspaceRoot: string): vo
       params: [
         "JOB-OTHER-ONLY",
         "bull-other-only",
-        "specdrive:cli-runner",
+        "specdrive:execution-adapter",
         "cli.run",
         "queued",
         JSON.stringify({ executionId: "RUN-OTHER-ONLY", operation: "feature_execution", projectId: "project-other", context: { featureId: "FEAT-016" } }),
@@ -712,7 +712,7 @@ function seedRuntimeState(dbPath: string): void {
     },
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
-        VALUES ('JOB-IDE', 'bull-ide', 'specdrive:cli-runner', 'codex.app_server.run', 'running', '{}')`,
+        VALUES ('JOB-IDE', 'bull-ide', 'specdrive:execution-adapter', 'rpc.run', 'running', '{}')`,
     },
     {
       sql: `INSERT INTO execution_records (
@@ -739,7 +739,7 @@ function seedFailedRuntimeState(dbPath: string): void {
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
-        VALUES ('JOB-FAILED', 'bull-failed', 'specdrive:cli-runner', 'codex.app_server.run', 'failed', '{}')`,
+        VALUES ('JOB-FAILED', 'bull-failed', 'specdrive:execution-adapter', 'rpc.run', 'failed', '{}')`,
     },
     {
       sql: `INSERT INTO execution_records (
@@ -767,7 +767,7 @@ function seedApprovalRuntimeState(dbPath: string): void {
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
-        VALUES ('JOB-APPROVAL', 'bull-approval', 'specdrive:cli-runner', 'codex.app_server.run', 'running', '{}')`,
+        VALUES ('JOB-APPROVAL', 'bull-approval', 'specdrive:execution-adapter', 'rpc.run', 'running', '{}')`,
     },
     {
       sql: `INSERT INTO execution_records (

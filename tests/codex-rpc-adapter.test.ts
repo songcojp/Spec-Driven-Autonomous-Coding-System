@@ -5,14 +5,17 @@ import { PassThrough } from "node:stream";
 import {
   buildCodexAppServerAdapterResult,
   buildCodexAppServerRequestSequence,
+  codexAppServerConfigToExecutionAdapterConfig,
   createCodexAppServerStdioTransport,
+  DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
   interruptCodexAppServerTurn,
   projectCodexAppServerEvents,
   runCodexAppServerSession,
   type CodexAppServerTransport,
   type JsonRpcStdioProcess,
-} from "../src/codex-app-server.ts";
-import type { RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/cli-runner.ts";
+} from "../src/codex-rpc-adapter.ts";
+import { rpcAdapterConfigToExecutionAdapterConfig } from "../src/rpc-adapter.ts";
+import type { RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/cli-adapter.ts";
 
 test("Codex app-server request sequence initializes, starts a thread, and starts a schema-bound turn", () => {
   const sequence = buildCodexAppServerRequestSequence({
@@ -95,6 +98,42 @@ test("Codex app-server adapter result maps event projection to runner result", (
   assert.equal(result.rawLog.stdout, "done");
   assert.equal(result.result.featureId, "FEAT-016");
   assert.equal(result.result.skillOutput?.status, "completed");
+  assert.equal(result.executionAdapterResult?.contractVersion, "execution-adapter/v1");
+  assert.equal(result.executionAdapterResult?.providerSession.provider, "codex-app-server");
+  assert.equal(result.executionAdapterResult?.providerSession.threadId, "thread-1");
+  assert.equal(result.executionAdapterResult?.providerSession.turnId, "turn-1");
+});
+
+test("Codex app-server config exposes unified RPC adapter config", () => {
+  const config = codexAppServerConfigToExecutionAdapterConfig(DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG);
+
+  assert.equal(config.kind, "rpc");
+  assert.equal(config.provider, "codex-app-server");
+  assert.equal(config.transport, "stdio");
+  assert.equal(config.inputMapping.executable, "codex");
+  assert.equal(config.status, "active");
+});
+
+test("generic RPC adapter config exposes provider-neutral execution adapter config", () => {
+  const config = rpcAdapterConfigToExecutionAdapterConfig({
+    config: {
+      id: "http-app-server",
+      displayName: "HTTP app-server",
+      executable: "node",
+      args: ["server.js"],
+      transport: "http",
+      endpoint: "https://example.test/rpc",
+      requestTimeoutMs: 30_000,
+      status: "active",
+    },
+    provider: "http-app-server",
+  });
+
+  assert.equal(config.kind, "rpc");
+  assert.equal(config.provider, "http-app-server");
+  assert.equal(config.transport, "http");
+  assert.equal(config.inputMapping.endpoint, "https://example.test/rpc");
+  assert.equal(config.outputMapping.eventStream, "json-rpc");
 });
 
 test("Codex app-server failed turn maps to failed adapter result", () => {

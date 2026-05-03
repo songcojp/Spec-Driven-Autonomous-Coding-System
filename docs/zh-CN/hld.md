@@ -349,6 +349,8 @@ Collaborates With:
 
 所有执行适配器必须实现同一组平台接口：
 
+TypeScript 契约定义集中在 `src/execution-adapter-contracts.ts`；该文件只定义共享 contract、provider session、event 和 result shape，不承载 CLI/RPC provider 的运行实现。
+
 | Interface | Purpose | Required Fields |
 |---|---|---|
 | `ExecutionAdapterConfigV1` | 适配器机器可查询配置。 | `id`、`kind` (`cli`/`rpc`)、`displayName`、`provider`、`schemaVersion`、`transport`、`capabilities`、`defaults`、`inputMapping`、`outputMapping`、`security`、`status`、`updatedAt`。 |
@@ -362,7 +364,7 @@ Collaborates With:
 
 CLI Adapter 只负责把 `ExecutionAdapterInvocationV1` 映射为本机进程调用：
 
-- `codex-cli`：默认内置 preset，当前实现迁移来源为 `src/cli-runner.ts` 中 Codex preset、policy、contract validation、raw log、token usage 和 session record 逻辑。
+- `codex-cli`：默认内置 preset，provider 专用配置位于 `src/codex-cli-adapter.ts`；通用 CLI 执行、policy、contract validation、raw log、token usage 和 session record 逻辑位于 `src/cli-adapter.ts`。
 - `gemini-cli`：内置可选 preset，继续使用 headless JSON/JSONL 输出和事后 `SkillOutputContractV1` 校验。
 - 后续 CLI：通过 adapter JSON 增加 executable、argument template、resume template、environment allowlist、output mapping 和 dry-run，不修改 Scheduler 或状态机。
 
@@ -372,7 +374,8 @@ CLI Adapter 必须在目标项目 workspace root 中启动进程。workspace roo
 
 RPC Adapter 只负责把 `ExecutionAdapterInvocationV1` 映射为远程或进程内协议调用：
 
-- `codex-app-server`：当前实现迁移来源为 `src/codex-app-server.ts`，负责 stdio JSON-RPC、initialize、thread/start、thread/resume、turn/start、turn/interrupt、approval response、event stream 和 output schema。
+- 通用 RPC 配置、JSON-RPC request/notification、transport interface 和 provider-neutral config 投影位于 `src/rpc-adapter.ts`。
+- `codex-app-server`：Codex RPC provider 实现位于 `src/codex-rpc-adapter.ts`，负责 stdio JSON-RPC、initialize、thread/start、thread/resume、turn/start、turn/interrupt、approval response、event stream 和 output schema。
 - `http-app-server`：后续通用 HTTP/JSON-RPC adapter，可通过 endpoint、headers allowlist、auth ref、capability detection、request/response mapping 和 event stream mapping 接入。
 - `websocket-app-server`：后续长连接 adapter，用于需要双向 event stream、approval 和 cancel/interrupt 的远程执行服务。
 
@@ -851,7 +854,7 @@ Quality gates:
 | Persistence and Auditability | 核心实体持久化、审计时间线、指标和恢复能力。 | REQ-058、NFR-001 至 NFR-012 |
 | SpecDrive IDE Foundation | VSCode 插件骨架、Control Plane client、workspace 识别、Spec Explorer 只读树、文件导航和 Task Queue 只读展示。 | REQ-074、REQ-075 |
 | IDE Spec Interaction | Hover、CodeLens、Comments 草稿与提交、`SpecChangeRequestV1`、textHash 校验、stale source 处理和 IDE command receipt。 | REQ-076、REQ-077、REQ-078 |
-| Codex App Server Adapter | `codex.app_server.run` executor/adapter、app-server lifecycle、initialize、thread/turn、capability/schema 检测和事件流 raw logs。 | REQ-080、REQ-081 |
+| RPC Adapter: `codex-app-server` provider | `rpc.run` adapter、app-server lifecycle、initialize、thread/turn、capability/schema 检测和事件流 raw logs；`codex.app_server.run` 仅作为迁移期兼容别名。 | REQ-080、REQ-081 |
 | IDE Execution Loop | Feature/Task 执行闭环、Execution Record 状态面板、approval pending 恢复、取消/重试/恢复、输出校验和状态投影。 | REQ-079、REQ-081、REQ-082 |
 | IDE Diagnostics and UX Refinement | Diagnostics、日志增量渲染、diff 摘要、状态过滤、Product Console 跳转、插件重载恢复、性能优化和多语言 UI 预留。 | REQ-083 |
 | IDE Execution Webview | 独立 VSCode Webview Web UI、任务调度第一屏、自动执行控制、审批/中断、阻塞恢复、Execution Record / raw log / diff / spec-state 投影展示。 | REQ-084 |

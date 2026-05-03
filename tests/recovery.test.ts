@@ -436,7 +436,7 @@ test("recovery task blocks existing forbidden records until a distinct proposal 
     forbiddenRetryItems: [failed.forbiddenRetryRecord!],
     proposedStrategy: "different-auto-fix",
     proposedCommand: "node safer-fix.js",
-    proposedFileScope: ["src/cli-runner.ts"],
+    proposedFileScope: ["src/cli-adapter.ts"],
     now: stableDate,
   });
 
@@ -447,13 +447,13 @@ test("recovery task blocks existing forbidden records until a distinct proposal 
   assert.equal(distinctProposal.retrySchedule?.backoffMinutes, 4);
   assert.equal(distinctProposal.proposedStrategy, "different-auto-fix");
   assert.equal(distinctProposal.proposedCommand, "node safer-fix.js");
-  assert.deepEqual(distinctProposal.proposedFileScope, ["src/cli-runner.ts"]);
+  assert.deepEqual(distinctProposal.proposedFileScope, ["src/cli-adapter.ts"]);
   const dispatchInput = buildRecoveryDispatchInput(distinctProposal);
-  assert.deepEqual(dispatchInput.failure.related_files, ["src/cli-runner.ts"]);
+  assert.deepEqual(dispatchInput.failure.related_files, ["src/cli-adapter.ts"]);
   assert.deepEqual(dispatchInput.recovery_plan, {
     strategy: "different-auto-fix",
     command: "node safer-fix.js",
-    file_scope: ["src/cli-runner.ts"],
+    file_scope: ["src/cli-adapter.ts"],
   });
   const completedWithoutOverrides = handleRecoveryResult({
     recoveryTask: distinctProposal,
@@ -464,7 +464,7 @@ test("recovery task blocks existing forbidden records until a distinct proposal 
     now: stableDate,
   });
   assert.equal(completedWithoutOverrides.attempt.command, "node safer-fix.js");
-  assert.deepEqual(completedWithoutOverrides.attempt.fileScope, ["src/cli-runner.ts"]);
+  assert.deepEqual(completedWithoutOverrides.attempt.fileScope, ["src/cli-adapter.ts"]);
   assert.equal(completedWithoutOverrides.forbiddenRetryRecord?.failedCommand, "node safer-fix.js");
 });
 

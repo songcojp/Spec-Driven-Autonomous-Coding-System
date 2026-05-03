@@ -47,7 +47,7 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByText("Connect carrier label quote mock").first()).toBeVisible();
       await expect(page.getByText("1-1 / 1")).toBeVisible();
       await page.getByPlaceholder("搜索任务...").fill("");
-      await page.getByLabel("类型/队列").selectOption("queue:specdrive:cli-runner");
+      await page.getByLabel("类型/队列").selectOption("queue:specdrive:execution-adapter");
       await expect(page.getByText("1-10 / 13")).toBeVisible();
       await expect(page.getByText("Job 总数").first()).toBeVisible();
       await expect(page.getByText("队列中").first()).toBeVisible();

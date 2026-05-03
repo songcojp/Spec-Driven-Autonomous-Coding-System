@@ -9,6 +9,7 @@ import {
   buildExecutionResultInput,
   buildSkillInvocationPrompt,
   buildRunnerConsoleSnapshot,
+  cliAdapterConfigToExecutionAdapterConfig,
   DEFAULT_CLI_ADAPTER_CONFIG,
   GEMINI_CLI_ADAPTER_CONFIG,
   dryRunCliAdapterConfig,
@@ -24,7 +25,7 @@ import {
   runCliAdapter,
   runDueRecoveryDispatches,
   validateCliAdapterConfig,
-} from "../src/cli-runner.ts";
+} from "../src/cli-adapter.ts";
 import { listStatusCheckResults } from "../src/status-checker.ts";
 import { handleRecoveryResult, persistRecoveryResultHandling } from "../src/recovery.ts";
 
@@ -178,6 +179,17 @@ test("CLI adapter dry-run validates JSON-managed command templates", () => {
   assert.equal(result.command, "codex");
   assert.equal(result.args?.includes("--output-schema"), true);
   assert.equal(result.args?.includes("/tmp/runner-output.schema.json"), true);
+});
+
+test("CLI adapter exposes unified execution adapter config", () => {
+  const config = cliAdapterConfigToExecutionAdapterConfig(DEFAULT_CLI_ADAPTER_CONFIG);
+
+  assert.equal(config.contractVersion, undefined);
+  assert.equal(config.kind, "cli");
+  assert.equal(config.provider, "codex-cli");
+  assert.equal(config.transport, "process");
+  assert.equal(config.defaults.model, "gpt-5.3-codex-spark");
+  assert.deepEqual(config.inputMapping.argumentTemplate, DEFAULT_CLI_ADAPTER_CONFIG.argumentTemplate);
 });
 
 test("Gemini CLI adapter preset validates and dry-renders headless stream-json command", () => {
@@ -444,7 +456,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       skillSlug: "codex-coding-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [{ path: ".autobuild/reports/cli-runner.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/reports/cli-adapter.json", kind: "json", required: true }],
       requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
     }),
@@ -459,7 +471,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       skillSlug: "codex-coding-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [{ path: ".autobuild/reports/cli-runner.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/reports/cli-adapter.json", kind: "json", required: true }],
       requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
     }),
@@ -639,6 +651,10 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.equal(executionResult.featureId, "FEAT-008");
   assert.match(executionResult.summary, /exit=0/);
   assert.deepEqual(executionResult.metadata.logFiles, expectedLogFiles);
+  assert.equal(result.executionAdapterResult?.contractVersion, "execution-adapter/v1");
+  assert.equal(result.executionAdapterResult?.providerSession.provider, "codex-cli");
+  assert.equal(result.executionAdapterResult?.providerSession.transport, "process");
+  assert.equal(result.executionAdapterResult?.providerSession.cwd, workspaceRoot);
 });
 
 test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from stream-json response text", async () => {
@@ -1955,7 +1971,7 @@ test("log redaction covers common secret formats", () => {
 });
 
 function makeDbPath(): string {
-  return join(mkdtempSync(join(tmpdir(), "specdrive-cli-runner-")), "control-plane.sqlite");
+  return join(mkdtempSync(join(tmpdir(), "specdrive-cli-adapter-")), "control-plane.sqlite");
 }
 
 function makeWorkspacePath(): string {

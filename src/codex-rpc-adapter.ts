@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { validateSkillOutputContract } from "./cli-runner.ts";
+import { validateSkillOutputContract } from "./cli-adapter.ts";
 import type {
   CliAdapterResult,
   CliJsonEvent,
@@ -10,20 +10,19 @@ import type {
   RunnerPolicy,
   SkillInvocationContract,
   SkillOutputContract,
-} from "./cli-runner.ts";
-
-export type JsonRpcRequest = {
-  jsonrpc: "2.0";
-  id: string;
-  method: string;
-  params: Record<string, unknown>;
-};
-
-export type JsonRpcNotification = {
-  jsonrpc: "2.0";
-  method: string;
-  params?: Record<string, unknown>;
-};
+} from "./cli-adapter.ts";
+import type {
+  ExecutionAdapterProviderSessionV1,
+  ExecutionAdapterResultV1,
+} from "./execution-adapter-contracts.ts";
+import {
+  rpcAdapterConfigToExecutionAdapterConfig,
+  type JsonRpcNotification,
+  type JsonRpcRequest,
+  type RpcAdapterConfig,
+  type RpcAdapterConfigV1,
+  type RpcAdapterTransport,
+} from "./rpc-adapter.ts";
 
 export type CodexAppServerRequestSequenceInput = {
   executionId: string;
@@ -68,12 +67,7 @@ export type CodexAppServerAdapterResultInput = {
   skillInvocation?: SkillInvocationContract;
 };
 
-export type CodexAppServerTransport = {
-  request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>;
-  notify(method: string, params?: Record<string, unknown>): Promise<void> | void;
-  events(): AsyncIterable<CliJsonEvent>;
-  close?(): Promise<void> | void;
-};
+export type CodexAppServerTransport = RpcAdapterTransport;
 
 export type CodexAppServerSessionInput = {
   runId: string;
@@ -95,17 +89,7 @@ export type CodexAppServerStdioTransportInput = {
   process?: JsonRpcStdioProcess;
 };
 
-export type CodexAppServerAdapterConfig = {
-  id: string;
-  displayName: string;
-  executable: string;
-  args: string[];
-  transport: "stdio" | "unix" | "websocket";
-  endpoint?: string;
-  requestTimeoutMs: number;
-  status: "active" | "disabled";
-  updatedAt?: string;
-};
+export type CodexAppServerAdapterConfig = RpcAdapterConfig;
 
 export const DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG: CodexAppServerAdapterConfig = {
   id: "codex-app-server-default",
@@ -117,6 +101,19 @@ export const DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG: CodexAppServerAdapterConfi
   requestTimeoutMs: 120_000,
   status: "active",
 };
+
+export function codexAppServerConfigToExecutionAdapterConfig(config: CodexAppServerAdapterConfig): RpcAdapterConfigV1 {
+  return rpcAdapterConfigToExecutionAdapterConfig({
+    config,
+    provider: "codex-app-server",
+    capabilities: ["json-rpc", "thread", "turn", "approval", "event-stream", "skill-output-contract"],
+    outputMapping: {
+      eventStream: "json-rpc",
+      outputSchema: "skill-output.schema.json",
+      sessionIdPath: "threadId",
+    },
+  });
+}
 
 export type JsonRpcStdioProcess = {
   stdin: Pick<Writable, "write" | "end">;
@@ -444,6 +441,27 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
   const failedContract = input.skillInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
   const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
   const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
+  const providerSession: ExecutionAdapterProviderSessionV1 = {
+    provider: "codex-app-server",
+    transport: "stdio",
+    command: "codex",
+    args: ["app-server"],
+    cwd: input.workspaceRoot,
+    sessionId: projection.threadId,
+    threadId: projection.threadId,
+    turnId: projection.turnId,
+    model: input.policy.model,
+    exitCode,
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+    eventRefs: input.events.map((event, index) => ({
+      index,
+      type: optionalString(event.type) ?? optionalString(event.method),
+      threadId: optionalString(event.threadId) ?? optionalString(event.thread_id),
+      turnId: optionalString(event.turnId) ?? optionalString(event.turn_id),
+    })),
+    approvalState: projection.status === "approval_needed" ? "pending" : "none",
+  };
   const rawLog: RawExecutionLog = {
     id: `${input.runId}:app-server-log`,
     runId: input.runId,
@@ -451,6 +469,23 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
     stderr,
     events: input.events,
     createdAt: input.completedAt,
+  };
+  const executionAdapterResult: ExecutionAdapterResultV1 = {
+    contractVersion: "execution-adapter/v1",
+    executionId: input.runId,
+    status: projection.status === "approval_needed"
+      ? "approval_needed"
+      : exitCode === 0
+        ? projection.skillOutput?.status ?? "completed"
+        : "failed",
+    providerSession,
+    summary: projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Codex app-server is waiting for approval." : `Codex app-server exit=${exitCode}.`),
+    skillOutput: projection.skillOutput,
+    producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
+    traceability: projection.skillOutput?.traceability ?? input.skillInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
+    nextAction: projection.skillOutput?.nextAction,
+    rawLogRefs: [rawLog.id],
+    error: stderr || undefined,
   };
   return {
     session: {
@@ -478,6 +513,7 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
       skillOutput: projection.skillOutput,
       contractValidation,
     },
+    executionAdapterResult,
   };
 }
 

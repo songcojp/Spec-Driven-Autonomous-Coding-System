@@ -38,7 +38,7 @@ import {
   type RunnerQueueStatus,
   type RunnerSandboxMode,
   type TokenCostRate,
-} from "./cli-runner.ts";
+} from "./cli-adapter.ts";
 import {
   createUnavailableScheduler,
   type SchedulerClient,

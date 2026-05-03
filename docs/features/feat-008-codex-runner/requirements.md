@@ -58,7 +58,7 @@
 
 - FEAT-008 原名 CLI Runner；自 2026-05-03 起作为 CLI Adapter 迁移来源维护。
 - 新设计不再新增 Runner、Codex Runner、Runner Policy、Runner Heartbeat 或 Runner Console 概念；对外规格统一使用 Execution Adapter Layer、Execution Policy、Execution Heartbeat 和 Execution Console。
-- `src/cli-runner.ts`、旧数据库表或旧 UI 字段可作为兼容实现逐步迁移，但不得成为新接口命名依据。
+- `src/cli-adapter.ts`、provider 专用 `src/codex-cli-adapter.ts`、旧数据库表或旧 UI 字段可作为兼容实现逐步迁移，但不得成为新接口命名依据。
 
 ## Acceptance Criteria
 

@@ -1,8 +1,8 @@
 import { loadConfig } from "./config.ts";
 import { initialReadyState, runBootstrap } from "./bootstrap.ts";
 import { createControlPlaneServer, listen } from "./server.ts";
-import { createBullMqScheduler, createSchedulerWorkers, createUnavailableScheduler, type SchedulerWorkers } from "./scheduler.ts";
-import { runCommand } from "./cli-runner.ts";
+import { createBullMqScheduler, createSchedulerWorkers, createUnavailableScheduler, EXECUTION_ADAPTER_QUEUE, type SchedulerWorkers } from "./scheduler.ts";
+import { runCommand } from "./cli-adapter.ts";
 
 
 async function main(): Promise<void> {
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
       redisUrl: config.schedulerConfig.redisUrl,
       scheduler,
     });
-    console.log(JSON.stringify({ status: "worker-only", queues: ["specdrive:feature-scheduler", "specdrive:cli-runner"] }));
+    console.log(JSON.stringify({ status: "worker-only", queues: ["specdrive:feature-scheduler", EXECUTION_ADAPTER_QUEUE] }));
     await waitForShutdown(async () => {
       await workers?.close();
       await scheduler.close?.();

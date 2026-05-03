@@ -28,14 +28,14 @@ import {
   type SkillArtifactContract,
   type SkillInvocationContract,
   type SkillOutputContract,
-} from "./cli-runner.ts";
+} from "./cli-adapter.ts";
 import {
   createCodexAppServerTransportFromConfig,
   DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
   runCodexAppServerSession,
   type CodexAppServerAdapterConfig,
   type CodexAppServerTransport,
-} from "./codex-app-server.ts";
+} from "./codex-rpc-adapter.ts";
 import {
   mergeFileSpecState,
   readFileSpecState,
@@ -43,13 +43,15 @@ import {
   writeFileSpecState,
 } from "./spec-protocol.ts";
 
-export const CLI_RUNNER_QUEUE = "specdrive:cli-runner";
-export const BULLMQ_CLI_RUNNER_QUEUE = "specdrive-cli-runner";
+export const EXECUTION_ADAPTER_QUEUE = "specdrive:execution-adapter";
+export const BULLMQ_EXECUTION_ADAPTER_QUEUE = "specdrive-execution-adapter";
+export const CLI_RUNNER_QUEUE = EXECUTION_ADAPTER_QUEUE;
+export const BULLMQ_CLI_RUNNER_QUEUE = BULLMQ_EXECUTION_ADAPTER_QUEUE;
 export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
 const MAX_CONTEXT_FILE_BYTES = 120_000;
 const MAX_CONTEXT_BUNDLE_BYTES = 360_000;
 
-export type SchedulerJobType = "cli.run" | "codex.app_server.run" | "native.run";
+export type SchedulerJobType = "cli.run" | "rpc.run" | "codex.app_server.run" | "native.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "approval_needed" | "blocked" | "failed";
 
 export type SchedulerEnqueueResult = {
@@ -96,6 +98,7 @@ export type NativeRunJobPayload = ExecutorRunJobPayload & { nativeHandler?: stri
 
 export type SchedulerClient = {
   enqueueCliRun(payload: CliRunJobPayload): SchedulerEnqueueResult;
+  enqueueRpcRun?(payload: AppServerRunJobPayload): SchedulerEnqueueResult;
   enqueueAppServerRun?(payload: AppServerRunJobPayload): SchedulerEnqueueResult;
   enqueueNativeRun?(payload: NativeRunJobPayload): SchedulerEnqueueResult;
   health?: () => SchedulerHealth;
@@ -115,7 +118,7 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
   connection.on("ready", () => {
     lastError = undefined;
   });
-  const cliQueue = new Queue(BULLMQ_CLI_RUNNER_QUEUE, { connection });
+  const cliQueue = new Queue(BULLMQ_EXECUTION_ADAPTER_QUEUE, { connection });
 
   return {
     enqueueCliRun(payload) {
@@ -128,15 +131,22 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
         .catch((error) => markSchedulerJobFailed(dbPath, result.bullmqJobId, error));
       return result;
     },
-    enqueueAppServerRun(payload) {
+    enqueueRpcRun(payload) {
       const result = createQueuedJobRecord(dbPath, {
-        queueName: CLI_RUNNER_QUEUE,
-        jobType: "codex.app_server.run",
+        queueName: EXECUTION_ADAPTER_QUEUE,
+        jobType: "rpc.run",
         payload,
       });
-      void cliQueue.add("codex.app_server.run", { ...payload, schedulerJobId: result.schedulerJobId }, { jobId: result.bullmqJobId, attempts: 1 })
+      void cliQueue.add("rpc.run", { ...payload, schedulerJobId: result.schedulerJobId }, { jobId: result.bullmqJobId, attempts: 1 })
         .catch((error) => markSchedulerJobFailed(dbPath, result.bullmqJobId, error));
       return result;
+    },
+    enqueueAppServerRun(payload) {
+      return this.enqueueRpcRun?.(payload) ?? createQueuedJobRecord(dbPath, {
+        queueName: EXECUTION_ADAPTER_QUEUE,
+        jobType: "rpc.run",
+        payload,
+      });
     },
     health() {
       return connection.status === "ready"
@@ -159,8 +169,11 @@ export function createUnavailableScheduler(dbPath: string, reason: string): Sche
     enqueueCliRun(payload) {
       return enqueue("cli.run", CLI_RUNNER_QUEUE, payload);
     },
+    enqueueRpcRun(payload) {
+      return enqueue("rpc.run", EXECUTION_ADAPTER_QUEUE, payload);
+    },
     enqueueAppServerRun(payload) {
-      return enqueue("codex.app_server.run", CLI_RUNNER_QUEUE, payload);
+      return enqueue("rpc.run", EXECUTION_ADAPTER_QUEUE, payload);
     },
     health() {
       return { status: "blocked", reason };
@@ -180,8 +193,11 @@ export function createMemoryScheduler(dbPath: string): SchedulerClient & { jobs:
     enqueueCliRun(payload) {
       return enqueue("cli.run", CLI_RUNNER_QUEUE, payload);
     },
+    enqueueRpcRun(payload) {
+      return enqueue("rpc.run", EXECUTION_ADAPTER_QUEUE, payload);
+    },
     enqueueAppServerRun(payload) {
-      return enqueue("codex.app_server.run", CLI_RUNNER_QUEUE, payload);
+      return enqueue("rpc.run", EXECUTION_ADAPTER_QUEUE, payload);
     },
     health() {
       return { status: "ready" };
@@ -201,7 +217,7 @@ export async function createSchedulerWorkers(input: {
   const scheduler = input.scheduler ?? createBullMqScheduler(input.dbPath, input.redisUrl);
   const cliWorkerOptions = workerOptions(connection, CLI_WORKER_LOCK_DURATION_MS);
   const cliWorker = new Worker(
-    BULLMQ_CLI_RUNNER_QUEUE,
+    BULLMQ_EXECUTION_ADAPTER_QUEUE,
     async (job) => dispatchCliJob(input.dbPath, job, input.runner, input.appServerTransport),
     cliWorkerOptions,
   );
@@ -428,7 +444,7 @@ export async function runCodexAppServerRunJob(
           reason,
           JSON.stringify({
             scheduler: "bullmq",
-            jobType: "codex.app_server.run",
+            jobType: "rpc.run",
             skillSlug,
             skillPhase,
             blockedReason: reason,
@@ -440,7 +456,7 @@ export async function runCodexAppServerRunJob(
       entityType: taskId ? "task" : featureId ? "feature" : "project",
       entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
       eventType: "codex_app_server_run_blocked",
-      source: "codex_app_server_runner",
+      source: "rpc_adapter",
       reason,
       payload,
     });
@@ -484,7 +500,7 @@ export async function runCodexAppServerRunJob(
           safety.summary,
           JSON.stringify({
             scheduler: "bullmq",
-            jobType: "codex.app_server.run",
+            jobType: "rpc.run",
             workspaceRoot: loaded.workspaceRoot,
             safety,
             skillSlug: loaded.skillInvocation?.skillSlug,
@@ -520,7 +536,7 @@ export async function runCodexAppServerRunJob(
         now.toISOString(),
         JSON.stringify({
           scheduler: "bullmq",
-          jobType: "codex.app_server.run",
+          jobType: "rpc.run",
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -547,7 +563,7 @@ export async function runCodexAppServerRunJob(
     context,
     status: "running",
     summary: "Codex app-server started feature execution.",
-    source: "codex.app_server.run",
+    source: "rpc.run",
     schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
     executionId: payload.executionId,
   });
@@ -588,7 +604,7 @@ export async function runCodexAppServerRunJob(
           reason,
           JSON.stringify({
             scheduler: "bullmq",
-            jobType: "codex.app_server.run",
+            jobType: "rpc.run",
             workspaceRoot: loaded.workspaceRoot,
             skillSlug: loaded.skillInvocation?.skillSlug,
             skillPhase: loaded.skillInvocation?.requestedAction,
@@ -617,7 +633,7 @@ export async function runCodexAppServerRunJob(
       context,
       status: "failed",
       summary: reason,
-      source: "codex.app_server.run",
+      source: "rpc.run",
       schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
       executionId: payload.executionId,
     });
@@ -652,7 +668,7 @@ export async function runCodexAppServerRunJob(
         finalSummary,
         JSON.stringify({
           scheduler: "bullmq",
-          jobType: "codex.app_server.run",
+          jobType: "rpc.run",
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -691,13 +707,15 @@ export async function runCodexAppServerRunJob(
     context,
     status: finalStatus,
     summary: finalSummary,
-    source: "codex.app_server.run",
+    source: "rpc.run",
     schedulerJobId: optionalString((payload as unknown as Record<string, unknown>).schedulerJobId),
     executionId: payload.executionId,
     skillOutput: adapterResult.result.skillOutput,
   });
   return { executionId: payload.executionId, status: finalStatus };
 }
+
+export const runRpcRunJob = runCodexAppServerRunJob;
 
 function updateFeatureSpecFileState(input: {
   workspaceRoot?: string;
@@ -801,7 +819,7 @@ export function updateSchedulerJobRecord(dbPath: string, bullmqJobId: string | u
 async function dispatchCliJob(dbPath: string, job: Job, runner?: CliCommandRunner, appServerTransport?: CodexAppServerTransport): Promise<void> {
   updateSchedulerJobRecord(dbPath, String(job.id), "running", undefined, job.attemptsMade);
   try {
-    const result = job.name === "codex.app_server.run"
+    const result = job.name === "codex.app_server.run" || job.name === "rpc.run"
       ? await runCodexAppServerRunJob(dbPath, job.data as AppServerRunJobPayload, appServerTransport)
       : await runCliRunJob(dbPath, job.data as CliRunJobPayload, runner);
     updateSchedulerJobRecord(dbPath, String(job.id), result.status === "blocked" || result.status === "approval_needed" ? result.status : "completed", undefined, job.attemptsMade);
@@ -1070,7 +1088,7 @@ function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig
 }
 
 function normalizeAppServerTransport(value: unknown): CodexAppServerAdapterConfig["transport"] {
-  if (value === "unix" || value === "websocket") return value;
+  if (value === "unix" || value === "http" || value === "jsonrpc" || value === "websocket") return value;
   return "stdio";
 }
 
@@ -1132,7 +1150,7 @@ function buildCliSkillInvocation(input: {
   const expectedArtifacts = contextExpectedArtifacts.length
     ? contextExpectedArtifacts
     : input.taskId
-      ? normalizeArtifactContracts([".autobuild/runs/cli-runner.json"])
+      ? normalizeArtifactContracts([".autobuild/runs/cli-adapter.json"])
       : input.featureId
         ? normalizeArtifactContracts([`docs/features/${input.featureId}/design.md`, `docs/features/${input.featureId}/tasks.md`])
         : normalizeArtifactContracts([".autobuild/reports/spec-intake.json"]);

@@ -718,7 +718,7 @@ test("runner and spec workspace record token consumption only from stdout.log", 
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
-        VALUES ('JOB-SKILL', 'BULL-SKILL', 'specdrive:cli-runner', 'cli.run', 'completed', ?, 1, '2026-04-28T12:04:00.000Z')`,
+        VALUES ('JOB-SKILL', 'BULL-SKILL', 'specdrive:execution-adapter', 'cli.run', 'completed', ?, 1, '2026-04-28T12:04:00.000Z')`,
       params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-SKILL", operation: "split_feature_specs", context: { featureId: "FEAT-013" } })],
     },
     {
@@ -761,7 +761,7 @@ test("runner and spec workspace record token consumption only from stdout.log", 
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
-        VALUES ('JOB-MISSING', 'BULL-MISSING', 'specdrive:cli-runner', 'cli.run', 'completed', ?, 1, '2026-04-28T12:05:00.000Z')`,
+        VALUES ('JOB-MISSING', 'BULL-MISSING', 'specdrive:execution-adapter', 'cli.run', 'completed', ?, 1, '2026-04-28T12:05:00.000Z')`,
       params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-MISSING", operation: "generate_ui_spec", context: { featureId: "FEAT-013" } })],
     },
   ]);
@@ -790,7 +790,7 @@ test("runner and spec workspace record token consumption only from stdout.log", 
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
-        VALUES ('JOB-INVALID', 'BULL-INVALID', 'specdrive:cli-runner', 'cli.run', 'completed', ?, 1, '2026-04-28T12:06:00.000Z')`,
+        VALUES ('JOB-INVALID', 'BULL-INVALID', 'specdrive:execution-adapter', 'cli.run', 'completed', ?, 1, '2026-04-28T12:06:00.000Z')`,
       params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-INVALID", operation: "generate_ui_spec", context: { featureId: "FEAT-013" } })],
     },
   ]);
@@ -1300,7 +1300,7 @@ test("project schedule_run executes the skill-planned queue artifact", () => {
   ]);
   assert.equal(Number(result.queries.features[0].priority) > Number(result.queries.features[1].priority), true);
   assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.status, JSON.parse(String(row.payload_json)).operation]), [
-    ["cli.run", "specdrive:cli-runner", "queued", "feature_execution"],
+    ["cli.run", "specdrive:execution-adapter", "queued", "feature_execution"],
   ]);
   assert.equal(result.queries.executions[0].operation, "feature_execution");
 });
@@ -1886,7 +1886,7 @@ test("console schedule command records scheduler triggers without bypassing boun
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/design.md"), true);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/tasks.md"), true);
   assert.deepEqual(result.queries.jobs.map((row) => [row.job_type, row.queue_name, row.status, JSON.parse(String(row.payload_json)).operation]), [
-    ["cli.run", "specdrive:cli-runner", "queued", "feature_execution"],
+    ["cli.run", "specdrive:execution-adapter", "queued", "feature_execution"],
   ]);
   assert.deepEqual(result.queries.decisions, []);
 });

@@ -30,7 +30,7 @@ import {
 } from "./product-console.ts";
 import type { SchedulerClient } from "./scheduler.ts";
 import { getOrCreateSession, processChatMessage, getChatHistory } from "./chat.ts";
-import { runCommand } from "./cli-runner.ts";
+import { runCommand } from "./cli-adapter.ts";
 import {
   buildSpecDriveIdeExecutionDetail,
   buildSpecDriveIdeView,

@@ -32,6 +32,14 @@ import {
   type StatusCheckResult,
   type StatusDecision,
 } from "./status-checker.ts";
+import type {
+  ExecutionAdapterConfigV1,
+  ExecutionAdapterProviderSessionV1,
+  ExecutionAdapterResultV1,
+} from "./execution-adapter-contracts.ts";
+import { DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
+
+export { CODEX_CLI_ADAPTER_CONFIG, DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
 
 export type RunnerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type RunnerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never" | "bypass";
@@ -134,6 +142,10 @@ export type CliAdapterConfig = {
   updatedAt: string;
 };
 
+export type ExecutionPolicy = RunnerPolicy;
+export type ExecutionHeartbeat = RunnerHeartbeat;
+export type ExecutionSessionRecord = CliSessionRecord;
+
 export type CliAdapterValidationResult = {
   valid: boolean;
   errors: string[];
@@ -227,6 +239,7 @@ export type CliAdapterResult = {
   session: CliSessionRecord;
   rawLog: RawExecutionLog;
   result: RunnerExecutionResultInput;
+  executionAdapterResult?: ExecutionAdapterResultV1;
 };
 
 export type RunnerQueueItem = {
@@ -372,81 +385,6 @@ export type RunnerConsoleSnapshot = {
 const DEFAULT_MODEL = "gpt-5.3-codex-spark";
 const DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
-export const DEFAULT_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
-  id: "codex-cli",
-  displayName: "Codex CLI",
-  schemaVersion: 2,
-  executable: "codex",
-  argumentTemplate: [
-    "-a",
-    "{{approval}}",
-    "-c",
-    "model_reasoning_effort=\"{{reasoning_effort}}\"",
-    "--cd",
-    "{{workspace}}",
-    "exec",
-    "--ignore-user-config",
-    "--json",
-    "--sandbox",
-    "{{sandbox}}",
-    "--model",
-    "{{model}}",
-    "--output-schema",
-    "{{output_schema}}",
-    "{{prompt}}",
-  ],
-  resumeArgumentTemplate: [
-    "-a",
-    "{{approval}}",
-    "--sandbox",
-    "{{sandbox}}",
-    "-c",
-    "model_reasoning_effort=\"{{reasoning_effort}}\"",
-    "--cd",
-    "{{workspace}}",
-    "{{profile_flag}}",
-    "{{profile}}",
-    "exec",
-    "resume",
-    "--ignore-user-config",
-    "--json",
-    "-m",
-    "{{model}}",
-    "{{resume_session_id}}",
-    "{{resume_prompt}}",
-  ],
-  configSchema: {
-    type: "object",
-    required: ["id", "executable", "argumentTemplate", "outputMapping"],
-  },
-  formSchema: {
-    fields: [
-      { path: "executable", label: "Executable", type: "text" },
-      { path: "argumentTemplate", label: "Arguments", type: "list" },
-      { path: "defaults.model", label: "Default model", type: "text" },
-      { path: "defaults.reasoningEffort", label: "Default reasoning effort", type: "select" },
-      { path: "defaults.sandbox", label: "Sandbox", type: "select" },
-      { path: "defaults.approval", label: "Approval", type: "select" },
-      { path: "defaults.costRates", label: "Token cost rates", type: "object" },
-      { path: "outputMapping.sessionIdPath", label: "Session id path", type: "text" },
-    ],
-  },
-  defaults: {
-    model: DEFAULT_MODEL,
-    reasoningEffort: DEFAULT_REASONING_EFFORT,
-    sandbox: "danger-full-access",
-    approval: "never",
-    costRates: {},
-  },
-  environmentAllowlist: [],
-  outputMapping: {
-    eventStream: "json",
-    outputSchema: "skill-output.schema.json",
-    sessionIdPath: "session_id",
-  },
-  status: "active",
-  updatedAt: new Date(0).toISOString(),
-};
 export const GEMINI_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "gemini-cli",
   displayName: "Google Gemini CLI",
@@ -492,6 +430,37 @@ export const GEMINI_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   status: "draft",
   updatedAt: new Date(0).toISOString(),
 };
+
+export function cliAdapterConfigToExecutionAdapterConfig(config: CliAdapterConfig): ExecutionAdapterConfigV1 {
+  return {
+    id: config.id,
+    kind: "cli",
+    displayName: config.displayName,
+    provider: config.id,
+    schemaVersion: config.schemaVersion,
+    transport: "process",
+    capabilities: ["process", "json-events", "skill-output-contract"],
+    defaults: {
+      model: config.defaults.model,
+      reasoningEffort: config.defaults.reasoningEffort ?? config.defaults.reasoning_effort,
+      profile: config.defaults.profile,
+      sandbox: config.defaults.sandbox,
+      approval: config.defaults.approval,
+      costRates: config.defaults.costRates,
+    },
+    inputMapping: {
+      executable: config.executable,
+      argumentTemplate: config.argumentTemplate,
+      resumeArgumentTemplate: config.resumeArgumentTemplate,
+    },
+    outputMapping: config.outputMapping,
+    security: {
+      environmentAllowlist: config.environmentAllowlist,
+    },
+    status: config.status,
+    updatedAt: config.updatedAt,
+  };
+}
 const DEFAULT_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -1018,8 +987,39 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       contractValidation,
       logFiles,
     };
+    const providerSession: ExecutionAdapterProviderSessionV1 = {
+      provider: adapterConfig.id,
+      transport: "process",
+      command: rendered.command,
+      args: rendered.args.map(redactLog),
+      cwd: input.policy.workspaceRoot,
+      sessionId,
+      model: input.policy.model,
+      exitCode: result.status,
+      startedAt: now.toISOString(),
+      completedAt,
+      eventRefs: redactedEvents.map((event, index) => ({
+        index,
+        type: typeof event.type === "string" ? event.type : undefined,
+      })),
+    };
+    const executionAdapterResult: ExecutionAdapterResultV1 = {
+      contractVersion: "execution-adapter/v1",
+      executionId: input.policy.runId,
+      status: contractValidation && !contractValidation.valid
+        ? "failed"
+        : skillOutput?.status ?? ((result.status ?? 1) === 0 ? "completed" : "failed"),
+      providerSession,
+      summary: skillOutput?.summary ?? `CLI adapter ${adapterConfig.id} exit=${result.status ?? "unknown"}.`,
+      skillOutput,
+      producedArtifacts: skillOutput?.producedArtifacts ?? [],
+      traceability: skillOutput?.traceability ?? input.skillInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
+      nextAction: skillOutput?.nextAction,
+      rawLogRefs: [logFiles.input, logFiles.output, logFiles.stdout, logFiles.stderr],
+      error: rawLog.stderr || undefined,
+    };
 
-    return { session, rawLog, result: executionResult };
+    return { session, rawLog, result: executionResult, executionAdapterResult };
   } finally {
     if (shouldCleanupOutputSchema) {
       rmSync(dirname(outputSchemaPath), { recursive: true, force: true });
