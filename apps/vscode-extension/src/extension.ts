@@ -1351,6 +1351,7 @@ function renderSpecWorkspaceWebview(view: SpecDriveIdeView | undefined): string 
     <section class="toolbar">
       ${commandButton("Spec Change", "openWorkbenchForm", { formMode: "specChange", intent: "requirement_change_or_intake" })}
       ${commandButton("Clarification", "openWorkbenchForm", { formMode: "specClarification", intent: "clarification" })}
+      ${commandButton("Diagnostics & Blockers", "showDiagnostics", {})}
       ${commandButton("Refresh", "refresh", {})}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
@@ -1363,12 +1364,9 @@ function renderSpecWorkspaceWebview(view: SpecDriveIdeView | undefined): string 
       `).join("")}
     </section>
     <main class="grid">
-      <section class="panel span-3">
-        <div class="panel-title"><h2>Lifecycle</h2><span>${stages.length} stages</span></div>
-        ${stages.map((stage) => `<div class="row"><span>${escapeHtml(stage.index)} ${escapeHtml(stage.label)}</span><strong class="${statusClass(stage.status)}">${escapeHtml(stage.status)}</strong></div>`).join("")}
-      </section>
-      <section class="panel span-9">
+      <section class="panel span-12 spec-stage-panel">
         ${stages.map((stage) => renderSpecLifecycleDetail(stage, view, projectId, stage.id !== active.id)).join("")}
+        ${renderGlobalDiagnosticsPanel(view)}
       </section>
     </main>
   `);
@@ -1438,12 +1436,12 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
     *{box-sizing:border-box}body{margin:0;padding:14px 16px 18px;font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);line-height:1.45}
     h1{font-size:22px;margin:4px 0 12px;font-weight:650}h2{font-size:14px;margin:0;font-weight:650}h3{font-size:12px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase}
     button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}
-    [hidden]{display:none!important}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.view-toggle{min-width:132px}.status-text{color:var(--muted);font-size:12px;min-height:18px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}
+    [hidden]{display:none!important}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.view-toggle{min-width:132px}.status-text{color:var(--muted);font-size:12px;min-height:18px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}.span-12{grid-column:span 12}
     .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title span,.muted{color:var(--muted)}
     .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px}.row{grid-template-columns:1fr auto}
     .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
     pre{max-height:180px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;font-family:var(--vscode-editor-font-family);font-size:11px}.issue{border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0}.issue span{color:var(--muted)}
-    .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}
+    .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}.spec-stage-panel{width:100%;min-height:320px}
     .hidden{display:none!important}.workbench-form{margin-bottom:10px}.workbench-form textarea{width:100%;min-height:96px;resize:vertical;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--border);border-radius:4px;padding:8px;font:inherit}.workbench-form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}.dependency-panel{margin-bottom:10px}.dependency-tree,.dependency-tree ul{list-style:none;margin:0;padding-left:18px}.dependency-tree{padding-left:0}.dependency-tree li{position:relative;margin:4px 0;padding-left:14px}.dependency-tree li::before{content:"";position:absolute;left:0;top:13px;width:9px;border-top:1px solid var(--border)}.dependency-tree ul{border-left:1px solid var(--border);margin-left:8px}.dependency-branch>summary{list-style:none;cursor:pointer}.dependency-branch>summary::-webkit-details-marker{display:none}.dependency-branch>summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted)}.dependency-branch[open]>summary::before{content:"-"}.dependency-leaf{margin-left:16px}.dependency-node{display:inline-flex;align-items:center;gap:7px;min-height:26px;border:1px solid var(--border);border-radius:5px;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 7px}.dependency-node button{padding:2px 6px}.dependency-node.missing{color:var(--warn)}.dependency-node .muted{font-size:11px}
     .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:flex;flex-direction:column;gap:10px;min-width:0}.feature-panel{border:1px solid var(--border);border-radius:6px;background:var(--panel);min-width:0;overflow:hidden}.feature-panel summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;cursor:pointer;background:var(--vscode-list-hoverBackground);user-select:none;list-style:none}.feature-panel summary::-webkit-details-marker{display:none}.feature-panel summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted);font-weight:650}.feature-panel[open] summary::before{content:"-"}.feature-panel summary h2{display:flex;gap:8px;align-items:center;margin-right:auto}.feature-panel summary span{color:var(--muted);font-size:12px}.feature-panel-items{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;align-items:stretch;padding:9px;overflow:visible}.feature-panel-items .muted{padding:2px}.feature-card{width:100%;min-width:0;min-height:154px;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;padding:9px;position:relative}.feature-card.selected{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 65%,transparent)}.feature-card.selected::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
     @media (max-width:980px){.grid,.feature-layout{display:block}.panel,.feature-panel{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.feature-panel-items{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}}
@@ -1532,12 +1530,21 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
       }
       if (payload.command === "selectSpecStage") {
         const stageId = target.dataset.stageId;
-        document.querySelectorAll("[data-stage-detail]").forEach((entry) => entry.hidden = entry.dataset.stageDetail !== stageId);
+        document.querySelectorAll("[data-workspace-panel]").forEach((entry) => entry.hidden = entry.dataset.stageDetail !== stageId);
         document.querySelectorAll(".stage[data-stage-id]").forEach((entry) => {
           const selected = entry.dataset.stageId === stageId;
           entry.classList.toggle("active", selected);
           entry.setAttribute("aria-pressed", selected ? "true" : "false");
         });
+        return;
+      }
+      if (payload.command === "showDiagnostics") {
+        document.querySelectorAll("[data-workspace-panel]").forEach((entry) => entry.hidden = entry.id !== "spec-diagnostics-panel");
+        document.querySelectorAll(".stage[data-stage-id]").forEach((entry) => {
+          entry.classList.remove("active");
+          entry.setAttribute("aria-pressed", "false");
+        });
+        setWorkbenchStatus("Showing diagnostics and blockers.");
         return;
       }
       if (payload.command === "toggleDependencyGraphBranches") {
@@ -1699,7 +1706,7 @@ function documentList(documents: SpecDriveIdeDocument[]): string {
 function renderSpecLifecycleDetail(stage: SpecLifecycleStage, view: SpecDriveIdeView | undefined, projectId: string, hidden: boolean): string {
   const documents = filterLifecycleDocuments(view?.documents ?? [], stage.documentKinds);
   const diagnostics = filterLifecycleDiagnostics(view?.diagnostics ?? [], documents, stage);
-  return `<div data-stage-detail="${escapeAttr(stage.id)}" ${hidden ? "hidden" : ""}>
+  return `<div data-workspace-panel="stage" data-stage-detail="${escapeAttr(stage.id)}" ${hidden ? "hidden" : ""}>
     <div class="panel-title"><h2>${escapeHtml(stage.label)}</h2><span class="${statusClass(stage.status)}">${escapeHtml(stage.status)}</span></div>
     <p class="muted">${escapeHtml(stage.description)}</p>
     <h3>Stage Steps</h3>
@@ -1710,6 +1717,14 @@ function renderSpecLifecycleDetail(stage: SpecLifecycleStage, view: SpecDriveIde
     ${documentList(documents)}
     <h3>Stage Actions</h3>
     <div class="toolbar">${stage.actions.map((action) => commandButton(action.label, "controlled", { action: action.action, entityType: "spec", entityId: projectId, reason: action.reason })).join("")}</div>
+  </div>`;
+}
+
+function renderGlobalDiagnosticsPanel(view: SpecDriveIdeView | undefined): string {
+  const diagnostics = view?.diagnostics ?? [];
+  return `<div id="spec-diagnostics-panel" data-workspace-panel="diagnostics" hidden>
+    <div class="panel-title"><h2>Diagnostics & Blockers</h2><span>${diagnostics.length} active</span></div>
+    ${diagnostics.length === 0 ? emptyState("No active diagnostics or blockers.") : diagnostics.map(renderLifecycleDiagnostic).join("")}
   </div>`;
 }
 

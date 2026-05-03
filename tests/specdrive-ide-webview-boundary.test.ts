@@ -73,8 +73,17 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /renderSpecWorkspaceWebview/);
   assert.match(extensionSource, /commandButton\("Spec Change", "openWorkbenchForm", \{ formMode: "specChange", intent: "requirement_change_or_intake" \}\)/);
   assert.match(extensionSource, /commandButton\("Clarification", "openWorkbenchForm", \{ formMode: "specClarification", intent: "clarification" \}\)/);
+  assert.match(extensionSource, /commandButton\("Diagnostics & Blockers", "showDiagnostics", \{\}\)/);
   assert.match(extensionSource, /vscode\.postMessage\(\{command:"specWorkspaceRequest", intent: form\.dataset\.intent, content\}\)/);
   assert.match(extensionSource, /data-command="selectSpecStage" data-stage-id/);
+  assert.match(extensionSource, /payload\.command === "showDiagnostics"/);
+  assert.match(extensionSource, /entry\.id !== "spec-diagnostics-panel"/);
+  assert.match(extensionSource, /class="panel span-12 spec-stage-panel"/);
+  assert.match(extensionSource, /\.span-12\{grid-column:span 12\}/);
+  assert.match(extensionSource, /\.spec-stage-panel\{width:100%;min-height:320px\}/);
+  assert.match(extensionSource, /data-workspace-panel="stage" data-stage-detail/);
+  assert.match(extensionSource, /id="spec-diagnostics-panel" data-workspace-panel="diagnostics" hidden/);
+  assert.match(extensionSource, /function renderGlobalDiagnosticsPanel/);
   assert.match(extensionSource, /renderSpecLifecycleDetail\(stage, view, projectId, stage\.id !== active\.id\)/);
   assert.match(extensionSource, /<h3>Spec Documents<\/h3>/);
   assert.match(extensionSource, /<h3>Stage Actions<\/h3>/);
@@ -88,6 +97,7 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /action: "upload_prd_source"/);
   assert.match(extensionSource, /action: "generate_ears"/);
   assert.match(extensionSource, /action: "split_feature_specs"/);
+  assert.doesNotMatch(extensionSource, /<h2>Lifecycle<\/h2>/);
   assert.doesNotMatch(extensionSource, /<h2>Control Guardrails<\/h2>/);
   assert.doesNotMatch(extensionSource, /function guardrailRow/);
   assert.doesNotMatch(extensionSource, /Command Approvals/);
