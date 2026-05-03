@@ -898,18 +898,13 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
     .filter((entry) => statSync(join(featureRoot, entry)).isDirectory())
     .sort());
   const latestExecutions = readLatestExecutionsByFeature(dbPath, projectId);
+  const indexedEntries = Array.from(indexById.values());
 
-  const indexOnlyFolders = indexEntries
-    .map((entry) => entry.folder)
-    .filter((folder): folder is string => Boolean(folder) && !folders.has(folder));
-  const allFolders = [...new Set([...folders, ...indexOnlyFolders])].sort();
-
-  return allFolders
-    .map((folder) => {
+  return indexedEntries
+    .map((indexEntry) => {
+      const featureId = indexEntry.id;
+      const folder = indexEntry.folder ?? featureId.toLowerCase();
       const state = readJson(join(featureRoot, folder, "spec-state.json"));
-      const fallbackFeatureId = folderToFeatureId(folder);
-      const indexEntry = indexEntries.find((entry) => entry.folder === folder || entry.id === fallbackFeatureId);
-      const featureId = optionalString(state.featureId) ?? indexEntry?.id ?? fallbackFeatureId;
       const queueEntry = queueById.get(featureId);
       const latestExecution = latestExecutions.get(featureId);
       const indexed = indexById.has(featureId);
@@ -1530,11 +1525,6 @@ function statusFromTaskLine(line: string, checkbox?: string): string {
   if (explicit) return explicit.trim();
   if (checkbox) return checkbox.toLowerCase() === "x" ? "done" : "todo";
   return "unknown";
-}
-
-function folderToFeatureId(folder: string): string {
-  const match = folder.match(/^feat-(\d+)/i);
-  return match ? `FEAT-${match[1]}` : folder.toUpperCase();
 }
 
 function titleFromFolder(folder: string): string {

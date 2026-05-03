@@ -28,6 +28,7 @@ Feature 名称: IDE Workbench Webviews
 - CHG-031（2026-05-03）：用户要求 Feature 分类 panel 增加展开和折叠状态图标。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-032（2026-05-03）：用户要求 `Blocked`、`In-Process`、`Todo` 拆分为三个独立 Feature 分类 panel，不再合并展示。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-033（2026-05-03）：用户要求 `Feature List` 和 `Dependency Graph` 合并为一个按钮，点击后修改按钮文字并切换视图。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-034（2026-05-03）：用户确认 VSCode Feature Spec Webview 中 Feature 身份必须从 `docs/features/README.md` 获取，数据库 Feature 记录和非 index 目录不得生成 Feature 列表项；目录扫描只用于校验 index 中的 folder 和读取三件套。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -51,8 +52,8 @@ Feature 名称: IDE Workbench Webviews
 - [x] Webview 可以复用 shared contract/type 定义和 query/command API，但不得把 Product Console ViewModel 作为插件 UI 的事实源。
 - [x] `Feature Spec` 顶部提供 New Feature 按钮，点击后弹出输入框；输入自然语言内容并提交后，Webview 只提交受控需求输入，后续由模型判定进入 `requirement-intake-skill` 或 `spec-evolution-skill` 流程。
 - [x] New Feature 提交必须展示 command receipt、路由结论、影响文档和阻塞原因；前端不得用关键字、是否填写 requirement id 等规则硬编码新增/变更判定。
-- [x] `Feature Spec` 刷新时同时读取 `docs/features/README.md` 和 `docs/features/*` 目录中的 `requirements.md` / `design.md` / `tasks.md`，并识别 index 漏项、孤儿目录、缺失三件套和状态冲突。
-- [x] 因需求新增流程未经过 Feature 拆分而导致 `docs/features/README.md` 未更新时，刷新流程必须保留 Feature index 与目录扫描合并能力；Feature Spec Webview 不显示独立 `Feature Index Sync` 信息区块。
+- [x] `Feature Spec` 刷新时必须以 `docs/features/README.md` 作为 Feature 身份来源；数据库 Feature 记录和未写入 index 的目录不得生成 Feature 列表项。刷新仍读取 index 中 folder 对应的 `requirements.md` / `design.md` / `tasks.md`，并识别缺失 folder、缺失三件套和状态冲突。
+- [x] 因需求新增流程未经过 Feature 拆分而导致 `docs/features/README.md` 未更新时，Feature Spec Webview 不显示该目录为 Feature 列表项，也不显示独立 `Feature Index Sync` 信息区块；应由需求新增 Skill 或后续规格同步补齐 Feature index。
 - [x] 需求新增 Skill 创建或更新 Feature Spec 时必须同步 `docs/features/README.md`，写入 Feature ID、Feature、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
 - [x] 点击 Feature 后，详情面板必须解析该 Feature 的 `tasks.md`，展示任务 ID、任务标题、状态、描述和验证命令；Markdown 缺失或格式无法解析时展示 blocked reason。
 - [x] 状态为 `need review` / `review_needed` 的 Feature Spec 必须在 Feature Spec Webview 工具栏和详情面板提供 Review 入口；点击后弹出澄清输入框，提交内容以 `clarification` 意图进入 Spec change request，不由前端硬编码需求变更或新增路由。

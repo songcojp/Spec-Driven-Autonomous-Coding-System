@@ -51,7 +51,7 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.factSources.includes("execution_records"), true);
 });
 
-test("SpecDrive IDE view merges Feature index and folders and projects tasks.md status", () => {
+test("SpecDrive IDE view uses Feature index as identity source and projects tasks.md status", () => {
   const workspaceRoot = makeWorkspace();
   mkdirSync(join(workspaceRoot, "docs/features/feat-099-orphan-feature"), { recursive: true });
   writeFileSync(join(workspaceRoot, "docs/features/feat-099-orphan-feature/requirements.md"), "# FEAT-099\n\nREQ-099\n\n## Acceptance Criteria\n");
@@ -70,14 +70,14 @@ test("SpecDrive IDE view merges Feature index and folders and projects tasks.md 
   seedProject(dbPath, workspaceRoot);
 
   const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
-  const orphan = view.features.find((entry) => entry.id === "FEAT-099");
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
 
-  assert.equal(orphan?.indexStatus, "missing_from_index");
-  assert.equal(orphan?.blockedReasons.some((reason) => reason.includes("Feature index is missing")), true);
-  assert.equal(orphan?.tasks[0].id, "TASK-099-01");
-  assert.equal(orphan?.tasks[0].status, "in-progress");
-  assert.equal(orphan?.tasks[0].description, "Parse from folder even when index is stale.");
-  assert.equal(orphan?.tasks[0].verification, "npm test -- tests/specdrive-ide.test.ts");
+  assert.equal(view.features.some((entry) => entry.id === "FEAT-099"), false);
+  assert.equal(feature?.indexStatus, "indexed");
+  assert.equal(feature?.tasks[0].id, "TASK-016-01");
+  assert.equal(feature?.tasks[0].status, "done");
+  assert.equal(feature?.tasks[1].id, "TASK-016-02");
+  assert.equal(feature?.tasks[1].status, "todo");
 });
 
 test("parseFeatureTasksMarkdown supports checkbox and status block task formats", () => {

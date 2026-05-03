@@ -53,8 +53,8 @@ Feature ID: FEAT-021
 
 ### T-021-10 Feature index 与目录同步刷新
 状态: done
-描述: 刷新 Feature Spec Webview 时同时读取 `docs/features/README.md` 和 `docs/features/*` 三件套目录，识别 index 漏项、孤儿目录、缺失文件和状态冲突；可安全补齐时同步 Feature index，存在冲突时展示 blocked reason。
-验证: `node --test tests/specdrive-ide.test.ts` 覆盖 index + folder 合并、漏项提示和冲突阻塞。
+描述: 刷新 Feature Spec Webview 时以 `docs/features/README.md` 作为 Feature 身份来源；只读取 index 中 folder 对应的三件套目录，识别缺失 folder、缺失文件和状态冲突。未写入 index 的目录、数据库 Feature 记录和历史同步残留不得生成 Feature 列表项。
+验证: `node --test tests/specdrive-ide.test.ts` 覆盖 index 身份来源、非 index 目录不进入 Feature 列表、缺失 folder 和冲突阻塞。
 
 ### T-021-11 需求新增 Skill 同步 Feature index
 状态: done
