@@ -147,7 +147,7 @@ function JobDetailDrawer({
 }: {
   job?: RunnerSchedulerJob;
   text: UiStrings;
-  invocation?: { skillSlug?: string; skillPhase?: string; workspaceRoot?: string; evidenceSummary?: string };
+  invocation?: { skillSlug?: string; skillPhase?: string; workspaceRoot?: string; resultSummary?: string };
   recentLog?: { runId: string; stdout: string; stderr: string; createdAt: string };
   error?: string;
   open: boolean;
@@ -204,7 +204,7 @@ function JobDetailDrawer({
             <section className="rounded-md border border-line bg-white p-3">
               <div className="text-[12px] font-semibold text-ink">{text.latestExecutionInfo}</div>
               <div className="mt-2 space-y-2 leading-5 text-muted">
-                <p>{invocation?.evidenceSummary ?? text.noEvidence}</p>
+                <p>{invocation?.resultSummary ?? text.noEvidence}</p>
                 <p className="font-mono text-[11px]">{runId ? `${runId}: ${recentLogText}` : recentLogText}</p>
               </div>
             </section>

@@ -36,7 +36,7 @@ test("schema includes persistence, audit, metrics, idempotency, and recovery tab
     "tasks",
     "runs",
     "project_memories",
-    "evidence_packs",
+    "status_check_results",
     "audit_timeline_events",
     "metric_samples",
     "token_consumption_records",
@@ -60,10 +60,10 @@ test("core entity required fields persist and recover as one state snapshot", ()
   assert.equal(snapshot.task.recoveryState, "incomplete");
   assert.equal(snapshot.run.metadata.runner, "codex");
   assert.equal(snapshot.projectMemory.summary.includes("secret=topsecret"), false);
-  assert.equal(snapshot.evidencePack.summary.includes("token=abc123"), false);
+  assert.equal(snapshot.executionResult.summary.includes("token=abc123"), false);
 
   const recovered = getCoreEntitySnapshot(dbPath, "project-1", "FEAT-014", "TASK-001", "RUN-001");
-  assert.equal(recovered.evidencePack.path, ".autobuild/evidence/RUN-001.json");
+  assert.equal(recovered.executionResult.path, ".autobuild/reports/RUN-001.json");
 });
 
 test("core entity persistence enforces review approval before terminal task state", () => {
@@ -119,11 +119,11 @@ test("core entity persistence accepts approved post-completion reviews", () => {
   assert.doesNotThrow(() => persistCoreEntitySnapshot(dbPath, doneInput));
 });
 
-test("idempotency manager replays run, state, memory, evidence, and recovery keys once", () => {
+test("idempotency manager replays run, state, memory, execution result, and recovery keys once", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
 
-  for (const scope of ["run", "state", "memory", "evidence", "recovery"]) {
+  for (const scope of ["run", "state", "memory", "reports", "recovery"]) {
     const key = `FEAT-014:${scope}:RUN-001`;
     const first = applyIdempotentOperation(dbPath, {
       key,
@@ -186,7 +186,7 @@ test("audit timeline records source, reason, and sanitized payload for required 
   assert.equal(JSON.stringify(events).includes("hunter2"), false);
 });
 
-test("metrics collector records success, failure, performance, evidence, and heartbeat samples", () => {
+test("metrics collector records success, failure, performance, execution result, and heartbeat samples", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
 
@@ -195,7 +195,7 @@ test("metrics collector records success, failure, performance, evidence, and hea
     { name: "failure_rate", value: 0.1, unit: "ratio" },
     { name: "dashboard_load_ms", value: 120, unit: "ms" },
     { name: "status_refresh_ms", value: 50, unit: "ms" },
-    { name: "evidence_write_ms", value: 25, unit: "ms" },
+    { name: "status_check_completed", value: 25, unit: "ms" },
     { name: "runner_heartbeat", value: 1, unit: "count" },
   ]) {
     recordMetricSample(dbPath, { ...metric, labels: { featureId: "FEAT-014" } });
@@ -207,7 +207,7 @@ test("metrics collector records success, failure, performance, evidence, and hea
     "failure_rate",
     "dashboard_load_ms",
     "status_refresh_ms",
-    "evidence_write_ms",
+    "status_check_completed",
     "runner_heartbeat",
   ]);
 });
@@ -238,19 +238,19 @@ test("token consumption records store run-level token and cost facts outside met
   assert.deepEqual(result.queries.metrics, []);
 });
 
-test("artifact layout covers memory, specs, evidence, reports, and runs with sanitized writes", () => {
+test("artifact layout covers memory, specs, reports, and runs with sanitized writes", () => {
   const root = mkdtempSync(join(tmpdir(), "feat-014-artifacts-"));
   const artifactRoot = join(root, ".autobuild");
 
   ensureArtifactDirectories(artifactRoot);
   const layout = ensureAutobuildArtifactLayout(artifactRoot);
-  for (const dir of ["memory", "specs", "evidence", "reports", "runs"] as const) {
+  for (const dir of ["memory", "specs", "reports", "runs"] as const) {
     assert.equal(existsSync(layout[dir]), true);
   }
 
   const relativePath = writeSanitizedArtifact(
     artifactRoot,
-    "evidence",
+    "reports",
     "RUN-001.json",
     "token=abc123 password=hunter2 postgres://user:pass@localhost/db",
   );
@@ -339,12 +339,12 @@ function sampleCoreEntityInput(): CoreEntityInput {
       summary: "Recovered state without secret=topsecret",
       currentVersion: 3,
     },
-    evidencePack: {
+    executionResult: {
       id: "evidence-1",
       runId: "RUN-001",
       taskId: "TASK-001",
       featureId: "FEAT-014",
-      path: ".autobuild/evidence/RUN-001.json",
+      path: ".autobuild/reports/RUN-001.json",
       kind: "test",
       summary: "Evidence collected with token=abc123",
     },

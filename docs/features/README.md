@@ -13,7 +13,7 @@
 | FEAT-006 | Project Memory and Recovery Projection | `feat-006-project-memory-recovery-projection` | done | REQ-019 至 REQ-023、REQ-036 | M3 | FEAT-004 |
 | FEAT-007 | Workspace Isolation | `feat-007-workspace-isolation` | done | REQ-017、REQ-032、REQ-035 | M3/M4 | FEAT-004 |
 | FEAT-008 | Codex Runner | `feat-008-codex-runner` | done | REQ-037 至 REQ-039、REQ-056、REQ-065、REQ-066、REQ-068 | M4 | FEAT-007 |
-| FEAT-009 | Status Checker and Evidence | `feat-009-status-checker-evidence` | done | REQ-040 至 REQ-042、REQ-051 | M5 | FEAT-004、FEAT-008 |
+| FEAT-009 | Status Checker | `feat-009-status-checker-execution results` | done | REQ-040 至 REQ-042、REQ-051 | M5 | FEAT-004、FEAT-008 |
 | FEAT-010 | Failure Recovery | `feat-010-failure-recovery` | done | REQ-043 至 REQ-045 | M5 | FEAT-008、FEAT-009 |
 | FEAT-011 | Review Center | `feat-011-review-center` | done | REQ-046、REQ-047、REQ-057 | M6 | FEAT-004、FEAT-009 |
 | FEAT-012 | Delivery and Spec Evolution | `feat-012-delivery-spec-evolution` | done | REQ-048 至 REQ-050 | M6 | FEAT-009、FEAT-011 |
@@ -27,9 +27,9 @@
 | FEAT-020 | IDE Diagnostics and UX Refinement | `feat-020-ide-diagnostics-ux` | done | REQ-083 | M8 | FEAT-016、FEAT-017、FEAT-019 |
 | FEAT-021 | IDE Workbench Webviews | `feat-021-ide-execution-webview` | done | REQ-084 | M8 | FEAT-016、FEAT-019、FEAT-020 |
 
-FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、Evidence 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃；Feature 级编码执行由 `codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md`，不再依赖平台 `task_graph_tasks` / `tasks` 表。
+FEAT-013 当前补充 Runner / Scheduler UI refinement：任务调度中心已改为执行队列视图，主列表展示 `scheduler_job_records` 中的 `cli.run` / 后续 `native.run` Job，并下钻到 Execution Record、payload context、执行结果 和日志。旧 `feature.select -> feature.plan -> cli.run` 流水线卡片已废弃；Feature 级编码执行由 `codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md`，不再依赖平台 `task_graph_tasks` / `tasks` 表。
 
-2026-05-02 update：Spec / Feature 流程状态已文件化。`docs/features/feature-pool-queue.json` 是 Scheduler 读取的全局队列，`docs/features/<feature-folder>/spec-state.json` 是单 Feature 的机器可读状态。Product Console 的 Runner / Scheduler 页面以 Job、Execution Record、Skill 输出、next action 和 Evidence 解释队列；Audit 仅保留轻量活动记录，不再作为主排障入口。
+2026-05-02 update：Spec / Feature 流程状态已文件化。`docs/features/feature-pool-queue.json` 是 Scheduler 读取的全局队列，`docs/features/<feature-folder>/spec-state.json` 是单 Feature 的机器可读状态。Product Console 的 Runner / Scheduler 页面以 Job、Execution Record、Skill 输出、next action 和 execution result 解释队列；Audit 仅保留轻量活动记录，不再作为主排障入口。
 
 ## Dependency Tree
 
@@ -48,7 +48,7 @@ FEAT-000 System Bootstrap
     │   ├── FEAT-005 CLI Subagent Audit Integration
     │   │   (also requires FEAT-004)
     │   └── FEAT-008 Codex Runner
-    │       ├── FEAT-009 Status Checker and Evidence
+    │       ├── FEAT-009 Status Checker
     │       │   (also requires FEAT-004)
     │       │   ├── FEAT-010 Failure Recovery
     │       │   │   (also requires FEAT-008)
@@ -121,7 +121,7 @@ FEAT-000 System Bootstrap
 | CHG-003 | FEAT-004 | `quickstart-validation` 与 `spec-consistency-analysis` 作为后续 Orchestration patch 处理。 | 后续执行计划流水线强制阶段任务。 |
 | CHG-002 / CHG-004 | FEAT-007 | 并行写入策略和测试资源隔离属于 Workspace Isolation 安全边界 patch。 | 执行 `feat-007-workspace-isolation/tasks.md` 中的 `TASK-009` 至 `TASK-010`。 |
 | ADD-003 / CHG-005 | FEAT-013 | Dashboard Board 操作和入口作为 Product Console patch 处理，所有写操作走受控命令。 | 已执行 `feat-013-product-console/tasks.md` 中的 `TASK-010` 至 `TASK-011`。 |
-| ADD-004 | FEAT-013 | Product Console 增加界面多语言切换，首次打开默认中文；Evidence、diff、日志、路径、命令输出和用户输入保持原文。 | 已执行 `feat-013-product-console/tasks.md` 中的 `TASK-017` 至 `TASK-019`。 |
+| ADD-004 | FEAT-013 | Product Console 增加界面多语言切换，首次打开默认中文；执行结果、diff、日志、路径、命令输出和用户输入保持原文。 | 已执行 `feat-013-product-console/tasks.md` 中的 `TASK-017` 至 `TASK-019`。 |
 | ADD-005 | FEAT-001 / FEAT-013 | 支持导入现有项目、在统一 `workspace/` 目录下创建新项目，并在 Product Console 中切换当前项目上下文；所有查询、命令、Memory 投影和调度入口按 `project_id` 隔离。 | Product Console UI 已执行 `TASK-020` 至 `TASK-022`；FEAT-001 仍需执行 `TASK-013` 至 `TASK-016` 补项目目录/上下文持久化与初始化目录规则。 |
 | CHG-011 | FEAT-001 / FEAT-013 | 阶段 1 项目初始化应在用户选择创建或导入项目后自动完成，不再要求用户逐步手动执行项目、仓库、Spec Protocol、项目宪章和 Project Memory 子步骤。 | FEAT-001 执行 `TASK-017` 至 `TASK-018`；FEAT-013 执行 `TASK-026` 展示自动初始化状态和阻塞反馈。 |
 | CHG-012 | FEAT-013 / FEAT-002 | 阶段 2 需求录入需要自动扫描 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources；扫描已有 HLD / Feature Spec 不等于生成 HLD 或拆分 Feature Spec。 | FEAT-013 执行 `TASK-027` 至 `TASK-028`；后续 FEAT-002 patch 提供 Spec Sources 扫描模型和生成 EARS 文档的事实输入。 |

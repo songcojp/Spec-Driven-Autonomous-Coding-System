@@ -463,7 +463,7 @@ function readDeliveryContext(dbPath: string, featureId: string): DeliveryContext
     { name: "tasks", sql: "SELECT id, title, status FROM tasks WHERE feature_id = ? ORDER BY id", params: [featureId] },
     {
       name: "evidence",
-      sql: "SELECT id, kind, path, summary FROM evidence_packs WHERE feature_id = ? ORDER BY created_at, rowid",
+      sql: "SELECT id, 'status_check' AS kind, '' AS path, summary FROM status_check_results WHERE feature_id = ? ORDER BY created_at, rowid",
       params: [featureId],
     },
     {
@@ -486,7 +486,7 @@ function readDeliveryContext(dbPath: string, featureId: string): DeliveryContext
     },
     {
       name: "tests",
-      sql: `SELECT id, status, summary, evidence_path
+      sql: `SELECT id, status, summary, path AS result_path
         FROM status_check_results
         WHERE feature_id = ?
           AND NOT EXISTS (
@@ -559,7 +559,7 @@ function readDeliveryContext(dbPath: string, featureId: string): DeliveryContext
       id: String(row.id),
       status: String(row.status) === "done" ? "passed" : String(row.status),
       summary: String(row.summary),
-      evidenceRef: optionalString(row.evidence_path),
+      evidenceRef: optionalString(row.result_path),
     })),
     mergeReady: Boolean(Number(result.queries.merge_readiness[0]?.ready ?? 0)),
     rollbackPlan: rollback
@@ -579,7 +579,7 @@ function persistDeliveryPackage(dbPath: string, delivery: DeliveryPackage): void
   for (const suggestion of delivery.specEvolutionSuggestions) {
     statements.push({
       sql: `INSERT INTO spec_evolution_suggestions (
-        id, feature_id, source_evidence_refs_json, impact_scope_json, reason, suggestion, status, created_at
+        id, feature_id, source_refs_json, impact_scope_json, reason, suggestion, status, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         suggestion.id,
@@ -597,7 +597,7 @@ function persistDeliveryPackage(dbPath: string, delivery: DeliveryPackage): void
     statements.push({
       sql: `INSERT INTO pull_request_records (
         id, feature_id, title, body, base_branch, head_branch, url, status, requirements_json,
-        tasks_json, evidence_refs_json, approval_refs_json, rollback_plan_json, risk_items_json,
+        tasks_json, execution_refs_json, approval_refs_json, rollback_plan_json, risk_items_json,
         created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [

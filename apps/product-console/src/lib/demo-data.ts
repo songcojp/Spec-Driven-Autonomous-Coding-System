@@ -117,7 +117,7 @@ const returnsAudit = {
     acceptedCommands: 892,
     blockedCommands: 128,
     stateTransitions: 186,
-    evidenceCount: 204,
+    activityCount: 204,
     pendingApprovals: 42,
   },
   timeline: [
@@ -147,9 +147,9 @@ const returnsAudit = {
     currentStatus: "TASK-RUNNING",
     environment: "prod",
   },
-  linkedEvidence: [
-    { id: "run-709-exec-log.txt", kind: "日志", summary: "CLI execution log", path: ".autobuild/evidence/run-709-exec-log.txt", runId: "RUN-709", createdAt: "2026-04-29T14:31:46.000Z" },
-    { id: "run-709-stderr.txt", kind: "日志", summary: "stderr output", path: ".autobuild/evidence/run-709-stderr.txt", runId: "RUN-709", createdAt: "2026-04-29T14:31:46.000Z" },
+  executionResults: [
+    { id: "run-709-exec-log.txt", kind: "日志", summary: "CLI execution log", path: ".autobuild/reports/run-709-exec-log.txt", runId: "RUN-709", createdAt: "2026-04-29T14:31:46.000Z" },
+    { id: "run-709-stderr.txt", kind: "日志", summary: "stderr output", path: ".autobuild/reports/run-709-stderr.txt", runId: "RUN-709", createdAt: "2026-04-29T14:31:46.000Z" },
   ],
   approvals: [
     { id: "APP-709-AUTO", reviewItemId: "REV-318", actor: "operator", decision: "accepted", reason: "策略: auto-approve", decidedAt: "2026-04-29T14:32:18.000Z" },
@@ -160,7 +160,7 @@ const returnsAudit = {
     entityTypes: ["evidence", "feature", "review_item", "task"],
     statuses: ["approval", "blocked", "evidence", "transition"],
   },
-  factSources: ["audit_timeline_events", "state_transitions", "evidence_packs", "approval_records", "scheduler_job_records", "runs"],
+  factSources: ["audit_timeline_events", "state_transitions", "status_check_results", "approval_records", "scheduler_job_records", "runs"],
 } satisfies ConsoleData["audit"];
 
 const returnsPortalData: ConsoleProjectData = {
@@ -278,7 +278,7 @@ const returnsPortalData: ConsoleProjectData = {
       { action: "schedule_board_tasks", entityType: "feature" },
       { action: "run_board_tasks", entityType: "feature" },
     ],
-    factSources: ["task_graph_tasks", "review_items", "approval_records", "evidence_packs", "state_transitions"],
+    factSources: ["task_graph_tasks", "review_items", "approval_records", "status_check_results", "state_transitions"],
   },
   spec: {
     prdWorkflow: {
@@ -322,7 +322,7 @@ const returnsPortalData: ConsoleProjectData = {
           stages: [
             { key: "spec_source_intake", status: "completed", updatedAt: "05-19 09:14" },
             { key: "recognize_requirement_format", status: "completed", updatedAt: "05-19 09:15" },
-            { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", evidencePath: "ears/FEAT-013.md" },
+            { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", resultPath: "ears/FEAT-013.md" },
             { key: "complete_clarifications", status: "completed", updatedAt: "05-19 09:17" },
             { key: "run_requirement_quality_check", status: "completed", updatedAt: "05-19 09:18" },
           ],
@@ -348,9 +348,9 @@ const returnsPortalData: ConsoleProjectData = {
         },
       ],
       stages: [
-        { key: "scan_prd", action: "scan_prd_source", status: "completed", updatedAt: "05-19 09:12", auditEventId: "AUD-PRD-001", evidencePath: "reports/FEAT-013-scan.md" },
-        { key: "upload_prd", action: "upload_prd_source", status: "completed", updatedAt: "05-19 09:14", auditEventId: "AUD-PRD-002", evidencePath: "reports/FEAT-013-upload.md" },
-        { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", evidencePath: "ears/FEAT-013.md" },
+        { key: "scan_prd", action: "scan_prd_source", status: "completed", updatedAt: "05-19 09:12", auditEventId: "AUD-PRD-001", resultPath: "reports/FEAT-013-scan.md" },
+        { key: "upload_prd", action: "upload_prd_source", status: "completed", updatedAt: "05-19 09:14", auditEventId: "AUD-PRD-002", resultPath: "reports/FEAT-013-upload.md" },
+        { key: "generate_ears", action: "generate_ears", status: "completed", updatedAt: "05-19 09:16", auditEventId: "AUD-PRD-003", resultPath: "ears/FEAT-013.md" },
       ],
       specSources: [
         { type: "prd", label: "PRD", path: "workspace/acme-returns-portal/docs/zh-CN/PRD.md", status: "found" },
@@ -437,7 +437,7 @@ const returnsPortalData: ConsoleProjectData = {
           context: { featureId: "FEAT-204", featureSpecPath: "docs/features/feat-204-mobile-returns", workspaceRoot: "workspace/acme-returns-portal" },
         },
         producedArtifacts: [{ path: "docs/features/feat-204-mobile-returns/tasks.md", kind: "markdown", status: "updated" }],
-        evidence: [{ kind: "browser", summary: "Mobile return quote flow rendered.", path: ".autobuild/evidence/RUN-709.json" }],
+        evidence: [{ kind: "browser", summary: "Mobile return quote flow rendered.", path: ".autobuild/reports/RUN-709.json" }],
         traceability: { featureId: "FEAT-204", requirementIds: ["REQ-204-003"], changeIds: ["CHG-204-003"] },
         result: { completedTasks: ["T-229"] },
         raw: {
@@ -465,7 +465,7 @@ const returnsPortalData: ConsoleProjectData = {
           context: { featureId: "FEAT-204", featureSpecPath: "docs/features/feat-204-mobile-returns", workspaceRoot: "workspace/acme-returns-portal" },
         },
         producedArtifacts: [{ path: "docs/features/feat-204-mobile-returns/tasks.md", kind: "markdown", status: "updated" }],
-        evidence: [{ kind: "browser", summary: "Mobile return quote flow rendered.", path: ".autobuild/evidence/RUN-709.json" }],
+        evidence: [{ kind: "browser", summary: "Mobile return quote flow rendered.", path: ".autobuild/reports/RUN-709.json" }],
         traceability: { featureId: "FEAT-204", requirementIds: ["REQ-204-003"], changeIds: ["CHG-204-003"] },
         result: { completedTasks: ["T-229"] },
         raw: { contractVersion: "skill-contract/v1", executionId: "RUN-709", status: "completed", summary: "Carrier label quote fixture wired and acceptance evidence recorded." },
@@ -496,7 +496,7 @@ const returnsPortalData: ConsoleProjectData = {
         { id: "T-231", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Run mobile browser acceptance", status: "ready", risk: "low", dependencies: [{ id: "T-228", status: "running", satisfied: false }, { id: "T-230", status: "review_needed", satisfied: false }], approvalStatus: "not_required", action: "schedule", blockedReasons: [], recentLog: "npm run console:test -- returns-mobile" },
       ],
       scheduled: [
-        { id: "T-229", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Connect carrier label quote mock", description: "Queue the carrier label quote implementation against the local fixture contract and browser acceptance evidence.", status: "scheduled", risk: "medium", sourceRequirementIds: ["REQ-204"], acceptanceCriteriaIds: ["AC-204-CARRIER-LABEL"], allowedFiles: ["src/carrier-labels.ts", "tests/carrier-labels.test.ts"], dependencies: [{ id: "T-228", status: "running", satisfied: false }], approvalStatus: "pending", runnerId: "runner-web-01", runId: "RUN-709", action: "run", blockedReasons: ["Waiting for T-228 upload contract to be finalized."], evidenceSummary: "Carrier label fixture decision recorded in contracts.", recentLog: "node --test tests/carrier-labels.test.ts" },
+        { id: "T-229", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Connect carrier label quote mock", description: "Queue the carrier label quote implementation against the local fixture contract and browser acceptance evidence.", status: "scheduled", risk: "medium", sourceRequirementIds: ["REQ-204"], acceptanceCriteriaIds: ["AC-204-CARRIER-LABEL"], allowedFiles: ["src/carrier-labels.ts", "tests/carrier-labels.test.ts"], dependencies: [{ id: "T-228", status: "running", satisfied: false }], approvalStatus: "pending", runnerId: "runner-web-01", runId: "RUN-709", action: "run", blockedReasons: ["Waiting for T-228 upload contract to be finalized."], resultSummary: "Carrier label fixture decision recorded in contracts.", recentLog: "node --test tests/carrier-labels.test.ts" },
       ],
       running: [
         { id: "T-228", featureId: "FEAT-204", featureTitle: "Mobile Returns Portal", title: "Add photo evidence upload with preview", status: "running", risk: "medium", dependencies: [{ id: "T-227", status: "done", satisfied: true }], approvalStatus: "not_required", runnerId: "runner-web-01", runId: "RUN-708", action: "observe", blockedReasons: [], recentLog: "Mobile upload preview rendered and evidence fixture stored." },
@@ -519,7 +519,7 @@ const returnsPortalData: ConsoleProjectData = {
         skillSlug: "codex-coding-skill",
         skillPhase: "task_execution",
         status: "queued",
-        evidenceSummary: "Codex skill invocation contract queued for workspace execution.",
+        resultSummary: "Codex skill invocation contract queued for workspace execution.",
         output: {
           parseStatus: "found",
           stdoutLogPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.log",
@@ -533,7 +533,7 @@ const returnsPortalData: ConsoleProjectData = {
             context: { featureId: "FEAT-204", featureSpecPath: "docs/features/feat-204-mobile-returns", workspaceRoot: "workspace/acme-returns-portal" },
           },
           producedArtifacts: [{ path: "docs/features/feat-204-mobile-returns/tasks.md", kind: "markdown", status: "updated" }],
-          evidence: [{ kind: "browser", summary: "Mobile return quote flow rendered.", path: ".autobuild/evidence/RUN-709.json" }],
+          evidence: [{ kind: "browser", summary: "Mobile return quote flow rendered.", path: ".autobuild/reports/RUN-709.json" }],
           traceability: { featureId: "FEAT-204", requirementIds: ["REQ-204-003"], changeIds: ["CHG-204-003"] },
           result: { completedTasks: ["T-229"] },
           raw: { contractVersion: "skill-contract/v1", executionId: "RUN-709", status: "completed", summary: "Carrier label quote fixture wired and acceptance evidence recorded." },
@@ -571,8 +571,8 @@ const returnsPortalData: ConsoleProjectData = {
   reviews: {
     riskFilters: ["high", "medium"],
     items: [
-      { id: "REV-318", featureId: "FEAT-204", taskId: "T-230", status: "review_needed", severity: "medium", body: "Refund decision copy needs product approval before customer demo.", evidence: [{ id: "EV-318", summary: "Copy diff and screenshot are attached.", path: ".autobuild/evidence/REV-318.json" }], approvals: [], createdAt: "2026-04-29T03:15:00.000Z" },
-      { id: "REV-319", featureId: "FEAT-204", taskId: "T-229", status: "review_needed", severity: "medium", body: "Carrier label fixture replaces external sandbox for demo stability.", evidence: [{ id: "EV-319", summary: "Fixture decision recorded in contracts.", path: ".autobuild/evidence/REV-319.json" }], approvals: [], createdAt: "2026-04-29T03:28:00.000Z" },
+      { id: "REV-318", featureId: "FEAT-204", taskId: "T-230", status: "review_needed", severity: "medium", body: "Refund decision copy needs product approval before customer demo.", evidence: [{ id: "EV-318", summary: "Copy diff and screenshot are attached.", path: ".autobuild/reports/REV-318.json" }], approvals: [], createdAt: "2026-04-29T03:15:00.000Z" },
+      { id: "REV-319", featureId: "FEAT-204", taskId: "T-229", status: "review_needed", severity: "medium", body: "Carrier label fixture replaces external sandbox for demo stability.", evidence: [{ id: "EV-319", summary: "Fixture decision recorded in contracts.", path: ".autobuild/reports/REV-319.json" }], approvals: [], createdAt: "2026-04-29T03:28:00.000Z" },
     ],
   },
   audit: returnsAudit,
@@ -631,7 +631,7 @@ const supplyPlannerData: ConsoleProjectData = {
   reviews: {
     riskFilters: ["medium"],
     items: [
-      { id: "REV-402", featureId: "FEAT-311", taskId: "T-403", status: "review_needed", severity: "medium", body: "Forecast override policy needs operations approval.", evidence: [{ id: "EV-402", summary: "Override policy diff attached.", path: ".autobuild/evidence/REV-402.json" }], approvals: [], createdAt: "2026-04-29T02:18:00.000Z" },
+      { id: "REV-402", featureId: "FEAT-311", taskId: "T-403", status: "review_needed", severity: "medium", body: "Forecast override policy needs operations approval.", evidence: [{ id: "EV-402", summary: "Override policy diff attached.", path: ".autobuild/reports/REV-402.json" }], approvals: [], createdAt: "2026-04-29T02:18:00.000Z" },
     ],
   },
   audit: {
@@ -649,7 +649,7 @@ const emptyProjectData: ConsoleProjectData = {
   runner: { summary: { onlineRunners: 0, runningTasks: 0, readyTasks: 0, blockedTasks: 0, successRate: 0, failureRate: 0 }, schedulerJobs: [], lanes: { ready: [], scheduled: [], running: [], blocked: [] }, recentTriggers: [], factSources: [], adapterSummary: returnsPortalData.runner.adapterSummary, runners: [] },
   settings,
   reviews: { items: [], riskFilters: [] },
-  audit: { summary: { totalEvents: 0, acceptedCommands: 0, blockedCommands: 0, stateTransitions: 0, evidenceCount: 0, pendingApprovals: 0 }, timeline: [], linkedEvidence: [], approvals: [], filters: { eventTypes: [], entityTypes: [], statuses: [] }, factSources: [] },
+  audit: { summary: { totalEvents: 0, acceptedCommands: 0, blockedCommands: 0, stateTransitions: 0, activityCount: 0, pendingApprovals: 0 }, timeline: [], executionResults: [], approvals: [], filters: { eventTypes: [], entityTypes: [], statuses: [] }, factSources: [] },
 };
 
 const projectData: Record<string, ConsoleProjectData> = {

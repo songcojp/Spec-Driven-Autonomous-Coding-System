@@ -52,7 +52,7 @@ export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   metadata: Record<string, unknown>;
   rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
   producedArtifacts: unknown[];
-  evidence: Array<{ id: string; kind: string; path?: string; summary?: string; metadata: Record<string, unknown>; createdAt?: string }>;
+  executionResults: Array<{ id: string; kind: string; path?: string; summary?: string; metadata: Record<string, unknown>; createdAt?: string }>;
   diffSummary?: unknown;
   contractValidation?: unknown;
   outputSchema?: unknown;
@@ -345,8 +345,8 @@ export function buildSpecDriveIdeExecutionDetail(
       params: [executionId, ...logFilter.params, logLimit],
     },
     {
-      name: "evidence",
-      sql: "SELECT id, kind, path, summary, metadata_json, created_at FROM evidence_packs WHERE run_id = ? ORDER BY created_at DESC LIMIT 20",
+      name: "executionResults",
+      sql: "SELECT id, 'status_check' AS kind, '' AS path, summary, execution_result_json AS metadata_json, created_at FROM status_check_results WHERE run_id = ? ORDER BY created_at DESC LIMIT 20",
       params: [executionId],
     },
   ]);
@@ -360,7 +360,7 @@ export function buildSpecDriveIdeExecutionDetail(
     events: parseJsonArray(log.events_json),
     createdAt: optionalString(log.created_at),
   }));
-  const evidence = result.queries.evidence.map((entry) => ({
+  const executionResults = result.queries.executionResults.map((entry) => ({
     id: String(entry.id),
     kind: String(entry.kind),
     path: optionalString(entry.path),
@@ -369,9 +369,9 @@ export function buildSpecDriveIdeExecutionDetail(
     createdAt: optionalString(entry.created_at),
   }));
   const metadataArtifacts = arrayValue(metadata.producedArtifacts);
-  const evidenceArtifacts = evidence.flatMap((entry) => arrayValue(entry.metadata.producedArtifacts));
+  const resultArtifacts = executionResults.flatMap((entry) => arrayValue(entry.metadata.producedArtifacts));
   const eventRefs = arrayValue(metadata.eventRefs);
-  const evidenceDiff = evidence.map((entry) => entry.metadata.diff ?? entry.metadata.diffSummary).find((entry) => entry !== undefined);
+  const resultDiff = executionResults.map((entry) => entry.metadata.diff ?? entry.metadata.diffSummary).find((entry) => entry !== undefined);
   const approvalRequests = rawLogs
     .flatMap((log) => log.events)
     .filter((event) => isApprovalRequestEvent(event));
@@ -391,9 +391,9 @@ export function buildSpecDriveIdeExecutionDetail(
     context,
     metadata,
     rawLogs,
-    producedArtifacts: metadataArtifacts.length > 0 ? metadataArtifacts : evidenceArtifacts,
-    evidence,
-    diffSummary: metadata.diffSummary ?? metadata.diff ?? evidenceDiff,
+    producedArtifacts: metadataArtifacts.length > 0 ? metadataArtifacts : resultArtifacts,
+    executionResults,
+    diffSummary: metadata.diffSummary ?? metadata.diff ?? resultDiff,
     contractValidation: metadata.contractValidation,
     outputSchema: metadata.outputSchema,
     approvalRequests: approvalRequests.length > 0 ? approvalRequests : eventRefs.filter(isApprovalRequestEvent),

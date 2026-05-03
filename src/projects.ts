@@ -381,7 +381,6 @@ function projectDeletionStatements(projectId: string) {
   return [
     { sql: `DELETE FROM approval_records WHERE review_item_id IN (${reviewScope})`, params: p(6) },
     { sql: `DELETE FROM review_items WHERE id IN (${reviewScope})`, params: p(6) },
-    { sql: `DELETE FROM evidence_attachment_refs WHERE run_id IN (${runScope})`, params: p(2) },
     { sql: `DELETE FROM status_check_results WHERE project_id = ? OR feature_id IN (${featureScope}) OR run_id IN (${runScope})`, params: p(4) },
     { sql: `DELETE FROM spec_alignment_results WHERE feature_id IN (${featureScope}) OR run_id IN (${runScope})`, params: p(3) },
     { sql: `DELETE FROM runner_policies WHERE run_id IN (${runScope})`, params: p(2) },
@@ -391,7 +390,6 @@ function projectDeletionStatements(projectId: string) {
     { sql: `DELETE FROM recovery_attempts WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
     { sql: `DELETE FROM forbidden_retry_records WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
     { sql: `DELETE FROM task_schedules WHERE task_id IN (${taskScope}) OR task_id IN (${graphTaskScope})`, params: p(2) },
-    { sql: `DELETE FROM evidence_packs WHERE feature_id IN (${featureScope}) OR task_id IN (${taskScope}) OR run_id IN (${runScope})`, params: p(4) },
     { sql: `DELETE FROM delivery_reports WHERE feature_id IN (${featureScope})`, params: p(1) },
     { sql: `DELETE FROM pull_request_records WHERE feature_id IN (${featureScope})`, params: p(1) },
     { sql: `DELETE FROM spec_evolution_suggestions WHERE feature_id IN (${featureScope})`, params: p(1) },

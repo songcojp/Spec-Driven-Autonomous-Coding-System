@@ -15,7 +15,7 @@ test("repository adapter reads live git and gh facts through the command runner"
     "git symbolic-ref --short refs/remotes/origin/HEAD": ok("origin/main\n"),
     "git branch --show-current": ok("feature/live-git\n"),
     "git rev-parse HEAD": ok("abc123\n"),
-    "git status --short": ok(" M src/repository.ts\n?? .autobuild/evidence/latest.json\n"),
+    "git status --short": ok(" M src/repository.ts\n?? .autobuild/reports/latest.json\n"),
     "git branch --format=%(refname:short)": ok("main\nfeature/live-git\nfix/runtime-git\n"),
     "git worktree list --porcelain": ok(`worktree ${root}\nHEAD abc123\nbranch refs/heads/feature/live-git\n`),
     "gh pr list --limit 20 --json number,title,state": ok('[{"number":12,"title":"Live PR","state":"OPEN"}]\n'),

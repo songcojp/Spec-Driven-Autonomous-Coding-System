@@ -84,7 +84,7 @@ test("cli.run executes mocked Codex runner and persists runner artifacts", async
     { name: "task", sql: "SELECT status FROM task_graph_tasks WHERE id = 'TASK-CLI'" },
     { name: "sessions", sql: "SELECT session_id, exit_code FROM codex_session_records WHERE run_id = 'RUN-CLI'" },
     { name: "logs", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-CLI'" },
-    { name: "evidence", sql: "SELECT kind, summary, metadata_json FROM evidence_packs WHERE run_id = 'RUN-CLI-SPY'" },
+    { name: "evidence", sql: "SELECT kind, summary, metadata_json FROM status_check_results WHERE run_id = 'RUN-CLI-SPY'" },
     { name: "policy", sql: "SELECT sandbox_mode FROM runner_policies WHERE run_id = 'RUN-CLI-SPY'" },
   ]).queries;
 
@@ -302,7 +302,7 @@ test("codex.app_server.run executes mocked app-server transport and persists run
     { name: "run", sql: "SELECT status, metadata_json FROM execution_records WHERE id = 'RUN-APP-SERVER'" },
     { name: "session", sql: "SELECT session_id, command, args_json, exit_code FROM codex_session_records WHERE run_id = 'RUN-APP-SERVER'" },
     { name: "log", sql: "SELECT stdout FROM raw_execution_logs WHERE run_id = 'RUN-APP-SERVER'" },
-    { name: "evidence", sql: "SELECT kind, summary FROM evidence_packs WHERE run_id = 'RUN-APP-SERVER'" },
+    { name: "evidence", sql: "SELECT kind, summary FROM status_check_results WHERE run_id = 'RUN-APP-SERVER'" },
   ]).queries;
 
   assert.equal(result.status, "completed");

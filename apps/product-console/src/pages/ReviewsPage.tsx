@@ -52,7 +52,7 @@ function AuditMetric({
   );
 }
 
-function AuditEvidenceTable({ rows, text }: { rows: ConsoleData["audit"]["linkedEvidence"]; text: UiStrings }) {
+function ExecutionResultsTable({ rows, text }: { rows: ConsoleData["audit"]["executionResults"]; text: UiStrings }) {
   if (rows.length === 0) return <EmptyState title={text.noEvidence} />;
   return (
     <div className="overflow-auto">
@@ -188,7 +188,7 @@ export function ReviewsPage({
           />
           <AuditMetric
             label={text.evidence}
-            value={audit.summary.evidenceCount}
+            value={audit.summary.activityCount}
             tone="blue"
             icon={<FileText size={18} />}
           />
@@ -300,8 +300,8 @@ export function ReviewsPage({
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
         <Panel>
-          <SectionTitle title={`${text.linkedEvidence} (${audit.linkedEvidence.length})`} />
-          <AuditEvidenceTable rows={audit.linkedEvidence} text={text} />
+          <SectionTitle title={`${text.executionResults} (${audit.executionResults.length})`} />
+          <ExecutionResultsTable rows={audit.executionResults} text={text} />
         </Panel>
         <Panel>
           <SectionTitle title={`${text.approvalRecords} (${audit.approvals.length})`} />

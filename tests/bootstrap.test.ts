@@ -80,7 +80,7 @@ test("bootstrap creates artifact tree, schema, and health state", async () => {
     "requirements",
     "tasks",
     "runs",
-    "evidence_packs",
+    "status_check_results",
     "project_memories",
     "recovery_dispatches",
     "worktree_records",

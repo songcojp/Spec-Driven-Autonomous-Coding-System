@@ -54,7 +54,9 @@ export type ReviewItem = {
     pausedFeatureStatus?: FeatureLifecycleStatus;
     pausedChildTaskStatuses?: Array<{ id: string; status: BoardColumn }>;
     pausedChildGraphTaskStatuses?: Array<{ id: string; status: BoardColumn }>;
+    executionResultId?: string;
   };
+  referenceRefs: string[];
   evidenceRefs: string[];
   recommendedActions: ReviewDecision[];
   createdAt: string;
@@ -74,6 +76,7 @@ export type ApprovalRecord = {
 };
 
 export type ReviewCenterItem = ReviewItem & {
+  executionResults: Array<{ id: string; summary: string; path?: string; kind?: string }>;
   evidence: Array<{ id: string; summary: string; path?: string; kind?: string }>;
   task?: { id: string; title: string; status: string };
   feature?: { id: string; title: string; status: string };
@@ -136,7 +139,8 @@ export function createReviewItem(dbPath: string, input: CreateReviewItemInput): 
       pausedChildTaskStatuses: existing?.body.pausedChildTaskStatuses ?? context.pausedChildTaskStatuses,
       pausedChildGraphTaskStatuses: existing?.body.pausedChildGraphTaskStatuses ?? context.pausedChildGraphTaskStatuses,
     },
-    evidenceRefs: input.evidenceRefs ?? [],
+    referenceRefs: input.referenceRefs ?? input.evidenceRefs ?? [],
+    evidenceRefs: input.referenceRefs ?? input.evidenceRefs ?? [],
     recommendedActions,
     createdAt: now,
     updatedAt: now,
@@ -146,7 +150,7 @@ export function createReviewItem(dbPath: string, input: CreateReviewItemInput): 
     {
       sql: `INSERT INTO review_items (
         id, project_id, feature_id, task_id, run_id, status, severity, review_needed_reason,
-        trigger_reasons_json, recommended_actions_json, evidence_refs_json, body, created_at, updated_at
+        trigger_reasons_json, recommended_actions_json, reference_refs_json, body, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         project_id = excluded.project_id,
@@ -158,7 +162,7 @@ export function createReviewItem(dbPath: string, input: CreateReviewItemInput): 
         review_needed_reason = excluded.review_needed_reason,
         trigger_reasons_json = excluded.trigger_reasons_json,
         recommended_actions_json = excluded.recommended_actions_json,
-        evidence_refs_json = excluded.evidence_refs_json,
+        reference_refs_json = excluded.reference_refs_json,
         body = excluded.body,
         updated_at = excluded.updated_at`,
       params: [
@@ -172,7 +176,7 @@ export function createReviewItem(dbPath: string, input: CreateReviewItemInput): 
         item.reviewNeededReason,
         JSON.stringify(item.triggerReasons),
         JSON.stringify(item.recommendedActions),
-        JSON.stringify(item.evidenceRefs),
+        JSON.stringify(item.referenceRefs),
         JSON.stringify(item.body),
         item.createdAt,
         item.updatedAt,
@@ -230,16 +234,23 @@ export function listReviewCenterItems(dbPath: string, input: { projectId?: strin
         ORDER BY ri.created_at DESC, ri.id ASC`,
       params,
     },
-    { name: "evidence", sql: "SELECT id, run_id, task_id, feature_id, path, kind, summary FROM evidence_packs ORDER BY created_at DESC" },
     { name: "approvals", sql: "SELECT * FROM approval_records ORDER BY COALESCE(decided_at, created_at) DESC, rowid DESC" },
+    {
+      name: "executionResults",
+      sql: `SELECT id, run_id, task_id, feature_id, kind, path, summary, created_at
+        FROM status_check_results
+        ORDER BY created_at DESC, rowid DESC`,
+    },
   ]);
 
   return result.queries.items.map((row) => {
     const item = rowToReviewItem(row);
-    const evidenceRefs = new Set(item.evidenceRefs);
-    const evidence = result.queries.evidence
-      .filter((entry) => evidenceRefs.size > 0 ? evidenceRefs.has(String(entry.id)) : linkedEvidenceMatchesReview(entry, item))
-      .slice(0, 5)
+    const refs = item.referenceRefs.length > 0 ? new Set(item.referenceRefs) : undefined;
+    const executionResults = result.queries.executionResults
+      .filter((entry) => {
+        if (refs) return refs.has(String(entry.id));
+        return Boolean(!item.taskId && item.featureId && !entry.task_id && entry.feature_id === item.featureId);
+      })
       .map((entry) => ({
         id: String(entry.id),
         summary: String(entry.summary ?? ""),
@@ -248,7 +259,8 @@ export function listReviewCenterItems(dbPath: string, input: { projectId?: strin
       }));
     return {
       ...item,
-      evidence,
+      executionResults,
+      evidence: executionResults,
       task: item.taskId ? { id: item.taskId, title: String(row.task_title ?? ""), status: String(row.task_status ?? "") } : undefined,
       feature: item.featureId ? { id: item.featureId, title: String(row.feature_title ?? ""), status: String(row.feature_status ?? "") } : undefined,
       approvals: result.queries.approvals
@@ -256,22 +268,6 @@ export function listReviewCenterItems(dbPath: string, input: { projectId?: strin
         .map(rowToApprovalRecord),
     };
   });
-}
-
-function linkedEvidenceMatchesReview(entry: Record<string, unknown>, item: ReviewItem): boolean {
-  if (item.triggerReasons.length > 0) {
-    return false;
-  }
-  if (item.runId) {
-    return entry.run_id === item.runId;
-  }
-  if (item.taskId) {
-    return entry.task_id === item.taskId;
-  }
-  if (item.featureId) {
-    return entry.feature_id === item.featureId && !entry.task_id;
-  }
-  return false;
 }
 
 export function recordApprovalDecision(dbPath: string, input: RecordApprovalInput): ApprovalRecord {
@@ -985,8 +981,10 @@ function rowToReviewItem(row: Record<string, unknown>): ReviewItem {
       pausedFeatureStatus: optionalString(body.pausedFeatureStatus) as FeatureLifecycleStatus | undefined,
       pausedChildTaskStatuses: parseStatusSnapshots(body.pausedChildTaskStatuses),
       pausedChildGraphTaskStatuses: parseStatusSnapshots(body.pausedChildGraphTaskStatuses),
+      executionResultId: optionalString(body.executionResultId),
     },
-    evidenceRefs: parseJsonStringArray(row.evidence_refs_json),
+    referenceRefs: parseJsonStringArray(row.reference_refs_json),
+    evidenceRefs: parseJsonStringArray(row.reference_refs_json),
     recommendedActions: parseJsonStringArray(row.recommended_actions_json) as ReviewDecision[],
     createdAt: now,
     updatedAt: String(row.updated_at ?? now),

@@ -71,7 +71,7 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByText("RUN-709").first()).toBeVisible();
       await expect(page.getByText("JOB-709").first()).toBeVisible();
       await expect(page.getByText("依赖服务不可用: board-service timeout").first()).toBeVisible();
-      await expect(page.getByText("关联 Evidence")).toBeVisible();
+      await expect(page.getByRole("heading", { name: /执行结果/ })).toBeVisible();
       await expect(page.getByText("Approval 记录")).toBeVisible();
     }
   }

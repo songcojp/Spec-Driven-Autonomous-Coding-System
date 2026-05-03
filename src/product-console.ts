@@ -275,7 +275,7 @@ export type SpecWorkspaceViewModel = {
         status: "pending" | "accepted" | "blocked" | "completed";
         updatedAt?: string;
         auditEventId?: string;
-        evidencePath?: string;
+        resultPath?: string;
         blockedReason?: string;
       }>;
     }>;
@@ -285,7 +285,7 @@ export type SpecWorkspaceViewModel = {
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       auditEventId?: string;
-      evidencePath?: string;
+      resultPath?: string;
     }>;
   };
   selectedFeature?: {
@@ -763,7 +763,7 @@ export type RunnerConsoleViewModel = {
     skillPhase?: string;
     blockedReason?: string;
     status: string;
-    evidenceSummary?: string;
+    resultSummary?: string;
     output?: SkillOutputViewModel;
     updatedAt?: string;
   }>;
@@ -831,7 +831,7 @@ export type RunnerScheduleTaskViewModel = {
   action: "schedule" | "run" | "review" | "observe";
   blockedReasons: string[];
   recentLog?: string;
-  evidenceSummary?: string;
+  resultSummary?: string;
   lastUpdatedAt?: string;
 };
 
@@ -866,13 +866,13 @@ export type AuditCenterViewModel = {
     acceptedCommands: number;
     blockedCommands: number;
     stateTransitions: number;
-    evidenceCount: number;
+    activityCount: number;
     pendingApprovals: number;
   };
   timeline: Array<{
     id: string;
     occurredAt: string;
-    status: "accepted" | "blocked" | "transition" | "evidence" | "approval" | "recorded";
+    status: "accepted" | "blocked" | "transition" | "approval" | "recorded";
     eventType: string;
     action: string;
     entityType: string;
@@ -883,7 +883,7 @@ export type AuditCenterViewModel = {
     jobId?: string;
     featureId?: string;
     taskId?: string;
-    evidenceId?: string;
+    executionResultId?: string;
     reviewId?: string;
     blockedReasons: string[];
     payload?: Record<string, unknown>;
@@ -893,7 +893,7 @@ export type AuditCenterViewModel = {
     currentStatus?: string;
     environment?: string;
   };
-  linkedEvidence: Array<{ id: string; kind: string; summary: string; path?: string; runId?: string; createdAt: string }>;
+  executionResults: Array<{ id: string; kind: string; summary: string; path?: string; runId?: string; createdAt: string }>;
   approvals: Array<{ id: string; reviewItemId: string; actor: string; decision: string; reason: string; decidedAt: string }>;
   filters: {
     eventTypes: string[];
@@ -1082,6 +1082,18 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
   const projectIdFilter = options.projectId ? "WHERE id = ?" : "";
   const featureProjectFilter = options.projectId ? "WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?)" : "";
   const runProjectFilter = options.projectId ? "WHERE run_id IN (SELECT id FROM execution_records WHERE project_id = ?)" : "";
+  const statusCheckProjectFilter = options.projectId
+    ? `WHERE (
+        project_id = ?
+        OR feature_id IN (SELECT id FROM features WHERE project_id = ?)
+        OR task_id IN (SELECT id FROM tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
+        OR task_id IN (SELECT id FROM task_graph_tasks WHERE feature_id IN (SELECT id FROM features WHERE project_id = ?))
+        OR run_id IN (SELECT id FROM execution_records WHERE project_id = ?)
+      )`
+    : "";
+  const statusCheckProjectParams = options.projectId
+    ? [options.projectId, options.projectId, options.projectId, options.projectId, options.projectId]
+    : [];
   const reviewProjectFilter = options.projectId
     ? `WHERE (
         project_id = ?
@@ -1142,13 +1154,14 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
     },
     {
       name: "evidence",
-      sql: `SELECT id, summary, metadata_json, created_at FROM evidence_packs ${featureProjectFilter} ORDER BY created_at DESC LIMIT 10`,
-      params: projectParams,
+      sql: `SELECT id, summary, COALESCE(NULLIF(metadata_json, '{}'), execution_result_json, '{}') AS metadata_json, created_at
+        FROM status_check_results ${statusCheckProjectFilter}
+        ORDER BY created_at DESC LIMIT 10`,
+      params: statusCheckProjectParams,
     },
     {
       name: "pullRequests",
-      sql: `SELECT id, summary, metadata_json, created_at FROM evidence_packs ${featureProjectFilter ? `${featureProjectFilter} AND` : "WHERE"} metadata_json LIKE '%"pullRequest"%' ORDER BY created_at DESC LIMIT 5`,
-      params: projectParams,
+      sql: `SELECT id, title, url, created_at FROM pull_request_records ORDER BY created_at DESC LIMIT 5`,
     },
   ]);
 
@@ -1196,7 +1209,7 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       successRate: latestMetric(metrics, "success_rate"),
       failureRate: latestMetric(metrics, "failure_rate"),
     },
-    recentPullRequests: extractRecentPullRequests(result.queries.pullRequests),
+    recentPullRequests: extractRecentPullRequests([...result.queries.pullRequests, ...result.queries.evidence]),
     risks: extractRisks(reviews, runs),
     performance: options.refresh ? { loadMs: latestMetric(metrics, "dashboard_load_ms"), refreshMs: loadMs } : { loadMs },
     factSources: [
@@ -1208,7 +1221,7 @@ export function buildDashboardQuery(dbPath: string, options: DashboardQueryOptio
       "metric_samples",
       "token_consumption_records",
       "review_items",
-      "evidence_packs",
+      "status_check_results",
     ],
   };
 }
@@ -1230,10 +1243,12 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
     },
     {
       name: "evidence",
-      sql: `SELECT id, task_id, feature_id, kind, summary, path,
-          CASE WHEN LENGTH(metadata_json) <= 4000 THEN metadata_json ELSE '{}' END AS metadata_json,
-          created_at
-        FROM evidence_packs
+      sql: `SELECT id, task_id, feature_id, COALESCE(kind, 'status_check') AS kind, summary, path,
+          CASE WHEN length(COALESCE(NULLIF(metadata_json, '{}'), execution_result_json, '{}')) > 1048576
+            THEN '{}'
+            ELSE COALESCE(NULLIF(metadata_json, '{}'), execution_result_json, '{}')
+          END AS metadata_json, created_at
+        FROM status_check_results
         ORDER BY created_at DESC`,
     },
     {
@@ -1250,11 +1265,11 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
     },
     {
       name: "recoveryAttempts",
-      sql: `SELECT task_id, action, strategy, command, status, summary, evidence_pack_json, attempted_at FROM recovery_attempts ORDER BY attempted_at DESC`,
+      sql: `SELECT task_id, action, strategy, command, status, summary, execution_result_json, attempted_at FROM recovery_attempts ORDER BY attempted_at DESC`,
     },
     {
       name: "forbiddenRetries",
-      sql: `SELECT task_id, failed_strategy, failed_command, reason, evidence_pack_id, created_at FROM forbidden_retry_records ORDER BY created_at DESC`,
+      sql: `SELECT task_id, failed_strategy, failed_command, reason, execution_result_id, created_at FROM forbidden_retry_records ORDER BY created_at DESC`,
     },
   ]);
   const rows = result.queries.graphTasks.length > 0 ? result.queries.graphTasks : result.queries.tasks;
@@ -1302,7 +1317,7 @@ export function buildDashboardBoardView(dbPath: string, projectId?: string): Das
       "tasks",
       "review_items",
       "approval_records",
-      "evidence_packs",
+      "status_check_results",
       "state_transitions",
     ],
   };
@@ -1358,7 +1373,7 @@ export function buildSpecWorkspaceView(dbPath: string, featureId?: string, proje
     },
     {
       name: "featureEvidence",
-      sql: `SELECT id, kind, summary, path, metadata_json FROM evidence_packs WHERE feature_id = ${selectedFeatureExpr} ORDER BY created_at DESC`,
+      sql: `SELECT id, COALESCE(kind, 'status_check') AS kind, summary, path, COALESCE(NULLIF(metadata_json, '{}'), execution_result_json, '{}') AS metadata_json FROM status_check_results WHERE feature_id = ${selectedFeatureExpr} ORDER BY created_at DESC`,
       params: selectedFeatureParams,
     },
     {
@@ -1536,7 +1551,7 @@ function buildPrdWorkflow(input: {
       status: blockedReasons.length > 0 ? "blocked" as const : "accepted" as const,
       updatedAt: optionalString(row.created_at),
       auditEventId: optionalString(row.id),
-      evidencePath: optionalString(commandPayload.evidencePath),
+      resultPath: optionalString(commandPayload.resultPath),
     };
   });
 
@@ -1913,7 +1928,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
     },
     {
       name: "evidence",
-      sql: `SELECT id, run_id, summary, metadata_json, created_at FROM evidence_packs ${runProjectFilter} ORDER BY created_at DESC LIMIT 25`,
+      sql: `SELECT id, run_id, summary, COALESCE(NULLIF(metadata_json, '{}'), execution_result_json, '{}') AS metadata_json, created_at FROM status_check_results ${runProjectFilter} ORDER BY created_at DESC LIMIT 25`,
       params: runProjectParams,
     },
     { name: "reviews", sql: `SELECT id, task_id, feature_id, status, severity FROM review_items ${reviewProjectFilter} ORDER BY created_at DESC`, params: reviewParams },
@@ -2030,7 +2045,7 @@ export function buildRunnerConsoleView(dbPath: string, now: Date = new Date(), p
       "scheduler_job_records",
       "runner_heartbeats",
       "raw_execution_logs",
-      "evidence_packs",
+      "status_check_results",
       "token_consumption_records",
     ],
     runners,
@@ -2150,8 +2165,12 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     },
     {
       name: "evidence",
-      sql: `SELECT id, run_id, task_id, feature_id, kind, summary, path, '{}' AS metadata_json, created_at
-        FROM evidence_packs
+      sql: `SELECT id, run_id, task_id, feature_id, COALESCE(kind, 'status_check') AS kind, summary, path,
+          CASE WHEN length(COALESCE(NULLIF(metadata_json, '{}'), execution_result_json, '{}')) > 1048576
+            THEN '{}'
+            ELSE COALESCE(NULLIF(metadata_json, '{}'), execution_result_json, '{}')
+          END AS metadata_json, created_at
+        FROM status_check_results
         ORDER BY created_at DESC, rowid DESC
         LIMIT 80`,
     },
@@ -2212,7 +2231,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     entityId: String(row.entity_id),
     payload: {},
   }));
-  const evidenceRows = result.queries.evidence.filter((row) =>
+  const executionResultRows = result.queries.evidence.filter((row) =>
     (!projectId && true)
     || scopedFeatureIds.has(String(row.feature_id))
     || scopedTaskIds.has(String(row.task_id))
@@ -2246,18 +2265,18 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     jobId: undefined,
     featureId: String(row.entity_type) === "feature" ? String(row.entity_id) : taskFeatureById.get(String(row.entity_id)),
     taskId: String(row.entity_type) === "task" ? String(row.entity_id) : undefined,
-    evidenceId: optionalString(row.evidence),
+    executionResultId: optionalString(row.evidence),
     reviewId: undefined,
     blockedReasons: [],
     payload: { fromStatus: row.from_status, toStatus: row.to_status, evidence: row.evidence },
   }));
-  const evidenceEvents = evidenceRows.map((row) => ({
+  const executionResultEvents = executionResultRows.map((row) => ({
     id: String(row.id),
     occurredAt: String(row.created_at),
-    status: "evidence" as const,
-    eventType: "evidence_recorded",
+    status: "recorded" as const,
+    eventType: "execution_result_recorded",
     action: String(row.kind),
-    entityType: "evidence",
+    entityType: "execution_result",
     entityId: String(row.id),
     reason: String(row.summary ?? ""),
     requestedBy: undefined,
@@ -2265,7 +2284,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     jobId: undefined,
     featureId: optionalString(row.feature_id),
     taskId: optionalString(row.task_id),
-    evidenceId: String(row.id),
+    executionResultId: String(row.id),
     reviewId: undefined,
     blockedReasons: [],
     payload: parseJsonObject(row.metadata_json),
@@ -2284,7 +2303,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     jobId: undefined,
     featureId: optionalString(row.feature_id),
     taskId: optionalString(row.task_id),
-    evidenceId: undefined,
+    executionResultId: undefined,
     reviewId: String(row.review_item_id),
     blockedReasons: [],
     payload: { decision: row.decision },
@@ -2303,13 +2322,13 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     jobId: String(row.id),
     featureId: optionalString(parseJsonObject(parseJsonObject(row.payload_json).context).featureId),
     taskId: optionalString(parseJsonObject(parseJsonObject(row.payload_json).context).taskId),
-    evidenceId: undefined,
+    executionResultId: undefined,
     reviewId: undefined,
     blockedReasons: optionalString(row.error) ? [String(row.error)] : [],
     payload: parseJsonObject(row.payload_json),
   }));
 
-  const timeline = [...commandEvents, ...transitionEvents, ...evidenceEvents, ...approvalEvents, ...schedulerEvents]
+  const timeline = [...commandEvents, ...transitionEvents, ...executionResultEvents, ...approvalEvents, ...schedulerEvents]
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id))
     .slice(0, 80);
   const selectedEvent = timeline.find((event) => event.status === "blocked") ?? timeline[0];
@@ -2320,7 +2339,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
       acceptedCommands: commandEvents.filter((event) => event.status === "accepted").length,
       blockedCommands: commandEvents.filter((event) => event.status === "blocked").length,
       stateTransitions: transitionEvents.length,
-      evidenceCount: evidenceRows.length,
+      activityCount: executionResultRows.length,
       pendingApprovals: result.queries.reviews.filter((row) =>
         String(row.status) === "review_needed"
         && auditRowBelongsToProject({
@@ -2338,7 +2357,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
       currentStatus: optionalString(selectedEvent.payload?.toStatus),
       environment: optionalString(selectedEvent.payload?.environment) ?? "local",
     } : undefined,
-    linkedEvidence: evidenceRows.slice(0, 12).map((row) => ({
+    executionResults: executionResultRows.slice(0, 12).map((row) => ({
       id: String(row.id),
       kind: String(row.kind),
       summary: String(row.summary ?? ""),
@@ -2362,7 +2381,7 @@ export function buildAuditCenterView(dbPath: string, projectId?: string): AuditC
     factSources: [
       "audit_timeline_events",
       "state_transitions",
-      "evidence_packs",
+      "status_check_results",
       "approval_records",
       "scheduler_job_records",
       "execution_records",
@@ -2519,16 +2538,16 @@ function executeSpecIntakeCommand(
     if (input.action === "scan_prd_source") {
       const scan = scanSpecSources(project.targetRepoPath, new Date(acceptedAt));
       const source = selectSpecSource(project.targetRepoPath, payload, scan);
-      const evidencePath = writeSpecIntakeArtifact(project.targetRepoPath, "reports", `spec-source-scan-${Date.parse(acceptedAt)}.json`, scan);
+      const resultPath = writeSpecIntakeArtifact(project.targetRepoPath, "reports", `spec-source-scan-${Date.parse(acceptedAt)}.json`, scan);
       const evidenceId = recordSpecIntakeEvidence(dbPath, {
-        path: evidencePath,
+        path: resultPath,
         kind: "spec_source_scan",
         summary: `Scanned ${scan.sources.length} Spec Sources; ${scan.missingItems.length} missing items; ${scan.conflicts.length} conflicts.`,
         metadata: scan,
       });
       return {
         evidenceId,
-        evidencePath,
+        resultPath,
         sourceCount: scan.sources.length,
         missingCount: scan.missingItems.length,
         conflictCount: scan.conflicts.length,
@@ -2557,7 +2576,7 @@ function executeSpecIntakeCommand(
       });
       return {
         evidenceId,
-        evidencePath: uploadPath,
+        resultPath: uploadPath,
         fileName,
         sourcePath: uploadPath,
         resolvedSourcePath: join(project.targetRepoPath, uploadPath),
@@ -2750,7 +2769,7 @@ function scheduleRunSourcePaths(payload: Record<string, unknown>, featureSpecPat
 
 function scheduleRunExpectedArtifacts(payload: Record<string, unknown>): string[] {
   const requested = optionalStringArray(payload.expectedArtifacts);
-  return requested.length > 0 ? requested : [".autobuild/evidence/feature-execution.json"];
+  return requested.length > 0 ? requested : [".autobuild/reports/feature-execution.json"];
 }
 
 function executeFeatureSpecPoolCommand(
@@ -2896,7 +2915,7 @@ function executeFeatureSpecPoolCommand(
       `${featureSpecPath}/design.md`,
       `${featureSpecPath}/tasks.md`,
     ],
-    expectedArtifacts: [".autobuild/evidence/feature-execution.json"],
+    expectedArtifacts: [".autobuild/reports/feature-execution.json"],
     workspaceRoot: project.targetRepoPath,
     skillSlug: "codex-coding-skill",
     skillPhase: "feature_execution",
@@ -3155,15 +3174,23 @@ function recordSpecIntakeEvidence(
   const id = randomUUID();
   runSqlite(dbPath, [
     {
-      sql: `INSERT INTO evidence_packs (id, feature_id, path, kind, summary, metadata_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      sql: `INSERT INTO status_check_results (
+        id, run_id, task_id, feature_id, status, summary, reasons_json, recommended_actions_json,
+        kind, path, metadata_json, execution_result_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
+        `SPEC-INTAKE-${id}`,
+        null,
         input.featureId ?? null,
-        input.path,
-        input.kind,
+        "done",
         input.summary,
+        "[]",
+        "[]",
+        input.kind,
+        input.path,
         JSON.stringify(input.metadata),
+        "{}",
       ],
     },
   ]);
@@ -3623,26 +3650,23 @@ function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, 
   }
   runSqlite(dbPath, [
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      sql: `INSERT INTO status_check_results (
+        id, run_id, task_id, feature_id, status, summary, reasons_json, recommended_actions_json,
+        kind, path, metadata_json, execution_result_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         id,
-        optionalString(payload.runId) ?? null,
-        optionalString(payload.taskId) ?? null,
+        `CONSOLE-WRITE-${id}`,
+        null,
         featureId ?? null,
-        path,
-        kind,
+        "done",
         summary,
-        JSON.stringify({
-          commandAction: input.action,
-          entityType: input.entityType,
-          entityId: input.entityId,
-          projectId,
-          requestedBy: input.requestedBy,
-          reason: input.reason,
-          payload,
-        }),
-        acceptedAt,
+        "[]",
+        "[]",
+        kind,
+        path,
+        JSON.stringify({ commandAction: input.action, entityType: input.entityType, entityId: input.entityId, payload }),
+        "{}",
       ],
     },
   ]);
@@ -3893,12 +3917,11 @@ function recoveryHistoryForTask(
   const attempts = attemptRows
     .filter((entry) => entry.task_id === taskId)
     .map((entry) => {
-      const evidencePack = parseJsonObject(entry.evidence_pack_json);
       return {
         from: optionalString(entry.action),
         to: optionalString(entry.status),
         reason: `${String(entry.strategy)}: ${String(entry.summary)}`,
-        evidence: optionalString(evidencePack.id) ?? optionalString(entry.command),
+        evidence: optionalString(entry.command) ?? optionalString(entry.id),
         occurredAt: String(entry.attempted_at),
       };
     });
@@ -3908,7 +3931,7 @@ function recoveryHistoryForTask(
       from: optionalString(entry.failed_strategy),
       to: "forbidden_retry",
       reason: String(entry.reason),
-      evidence: optionalString(entry.evidence_pack_id) ?? optionalString(entry.failed_command),
+      evidence: optionalString(entry.execution_result_id) ?? optionalString(entry.failed_command),
       occurredAt: String(entry.created_at),
     }));
   return [...attempts, ...forbidden, ...transitions].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
@@ -4089,7 +4112,7 @@ function buildRunnerScheduleLanes(input: {
       action: runnerTaskAction(status, blockedReasons),
       blockedReasons,
       recentLog: optionalString(log?.stderr) ?? optionalString(log?.stdout),
-      evidenceSummary: optionalString(evidence?.summary),
+      resultSummary: optionalString(evidence?.summary),
       lastUpdatedAt: optionalString(row.updated_at) ?? optionalString(run?.started_at),
     } satisfies RunnerScheduleTaskViewModel;
 
@@ -4178,7 +4201,7 @@ function buildSkillInvocationFeedback(
         skillPhase,
         blockedReason: optionalString(metadata.blockedReason) ?? (String(execution.status) === "blocked" ? optionalString(execution.summary) : undefined),
         status: String(execution.status),
-        evidenceSummary: optionalString(evidence?.summary),
+        resultSummary: optionalString(evidence?.summary),
         output,
         updatedAt: optionalString(execution.completed_at) ?? optionalString(execution.started_at) ?? optionalString(execution.updated_at),
       };
@@ -4367,7 +4390,7 @@ function auditEventToTimeline(row: Record<string, unknown>): AuditCenterViewMode
     jobId: optionalString(payload.schedulerJobId) ?? arrayValue(payload.schedulerJobIds)[0]?.toString() ?? arrayValue(boardResult.schedulerJobIds)[0]?.toString(),
     featureId: optionalString(payload.featureId) ?? optionalString(commandPayload.featureId),
     taskId: arrayValue(commandPayload.taskIds)[0]?.toString() ?? optionalString(commandPayload.taskId),
-    evidenceId: optionalString(payload.evidenceId) ?? optionalString(commandPayload.evidenceId),
+    executionResultId: optionalString(payload.executionResultId) ?? optionalString(commandPayload.executionResultId),
     reviewId: optionalString(payload.approvalRecordId) ?? optionalString(commandPayload.reviewItemId),
     blockedReasons: [
       ...arrayValue(boardValidation.blockedReasons).map(String),
@@ -4486,9 +4509,11 @@ function latestRunQueueStatuses(rows: Record<string, unknown>[]): Record<string,
   return latest.slice(0, 10);
 }
 
-function extractRecentPullRequests(evidenceRows: Record<string, unknown>[]): DashboardQueryModel["recentPullRequests"] {
-  return evidenceRows
-    .map((row) => parseJsonObject(row.metadata_json).pullRequest as Record<string, unknown> | undefined)
+function extractRecentPullRequests(rows: Record<string, unknown>[]): DashboardQueryModel["recentPullRequests"] {
+  return rows
+    .map((row) => optionalString(row.url)
+      ? row
+      : parseJsonObject(row.metadata_json).pullRequest as Record<string, unknown> | undefined)
     .filter((pullRequest): pullRequest is Record<string, unknown> => Boolean(pullRequest))
     .map((pullRequest) => ({
       id: String(pullRequest.id ?? pullRequest.number ?? ""),

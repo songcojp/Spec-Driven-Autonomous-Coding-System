@@ -12,7 +12,6 @@ import {
   type RiskLevel,
 } from "./orchestration.ts";
 import {
-  buildEvidencePackInput,
   buildSkillInvocationPrompt,
   DEFAULT_CLI_ADAPTER_CONFIG,
   evaluateRunnerSafety,
@@ -358,23 +357,6 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
         message: result.evidence,
       }),
     });
-    const evidence = buildEvidencePackInput(result.adapterResult.evidence);
-    runSqlite(dbPath, [
-      {
-        sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-        params: [
-          randomUUID(),
-          evidence.runId,
-          evidence.taskId ?? null,
-          evidence.featureId ?? null,
-          `.autobuild/evidence/${evidence.runId}.json`,
-          evidence.kind,
-          evidence.summary,
-          JSON.stringify(evidence.metadata),
-        ],
-      },
-    ]);
   }
 
   const taskStatus = taskStatusFromRunnerStatus(result.status);
@@ -655,23 +637,6 @@ export async function runCodexAppServerRunJob(
       message: adapterResult.evidence.skillOutput?.summary ?? adapterResult.rawLog.stderr,
     }),
   });
-  const evidence = buildEvidencePackInput(adapterResult.evidence);
-  runSqlite(dbPath, [
-    {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-      params: [
-        randomUUID(),
-        evidence.runId,
-        evidence.taskId ?? null,
-        evidence.featureId ?? null,
-        `.autobuild/evidence/${evidence.runId}.json`,
-        evidence.kind,
-        evidence.summary,
-        JSON.stringify(evidence.metadata),
-      ],
-    },
-  ]);
   const finalStatus = appServerResultStatus(adapterResult);
   const finalSummary = finalStatus === "failed" && adapterResult.evidence.contractValidation && !adapterResult.evidence.contractValidation.valid
     ? `Skill output contract validation failed: ${adapterResult.evidence.contractValidation.reasons.join("; ")}`
@@ -1153,10 +1118,10 @@ function buildCliSkillInvocation(input: {
   const expectedArtifacts = contextExpectedArtifacts.length
     ? contextExpectedArtifacts
     : input.taskId
-      ? normalizeArtifactContracts([".autobuild/evidence/codex-runner.json"])
+      ? normalizeArtifactContracts([".autobuild/runs/codex-runner.json"])
       : input.featureId
         ? normalizeArtifactContracts([`docs/features/${input.featureId}/design.md`, `docs/features/${input.featureId}/tasks.md`])
-        : normalizeArtifactContracts([".autobuild/evidence/spec-intake.json"]);
+        : normalizeArtifactContracts([".autobuild/reports/spec-intake.json"]);
   return {
     contractVersion: "skill-contract/v1",
     executionId: input.payload.executionId,

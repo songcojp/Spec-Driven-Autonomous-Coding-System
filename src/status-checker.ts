@@ -1,6 +1,4 @@
-import { createHash, randomUUID, type BinaryLike } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { randomUUID } from "node:crypto";
 import { recordAuditEvent, recordMetricSample, sanitizeForOrdinaryLog } from "./persistence.ts";
 import { createReviewItem, type ReviewTrigger } from "./review-center.ts";
 import { runSqlite, type SqlStatement } from "./sqlite.ts";
@@ -39,7 +37,7 @@ export type RunnerStatusInput = {
   summary?: string;
   stdout?: string;
   stderr?: string;
-  evidence?: unknown;
+  result?: unknown;
 };
 
 export type SpecAlignmentInput = {
@@ -68,15 +66,13 @@ export type SpecAlignmentResult = {
   coverageGaps: string[];
 };
 
-export type EvidenceAttachmentRef = {
-  id?: string;
+export type ExecutionArtifactRef = {
   kind: string;
   path: string;
   description?: string;
-  checksum?: string;
 };
 
-export type EvidencePack = {
+export type ExecutionResult = {
   id: string;
   runId: string;
   agentType: string;
@@ -91,9 +87,7 @@ export type EvidencePack = {
   diff: DiffInspectionResult;
   commands: CommandCheckResult[];
   specAlignment: SpecAlignmentResult;
-  attachments: EvidenceAttachmentRef[];
-  evidenceWriteMs: number;
-  evidenceWriteError?: string;
+  artifacts: ExecutionArtifactRef[];
   createdAt: string;
 };
 
@@ -107,10 +101,7 @@ export type StatusCheckResult = {
   summary: string;
   reasons: string[];
   recommendedActions: string[];
-  evidencePack: EvidencePack;
-  evidencePath?: string;
-  evidenceWriteMs: number;
-  evidenceWriteError?: string;
+  executionResult: ExecutionResult;
   specAlignment: SpecAlignmentResult;
 };
 
@@ -133,9 +124,8 @@ export type StatusCheckerInput = {
   forbiddenFiles?: string[];
   failureHistory?: Array<StatusDecision | RunnerTerminalStatus | CommandCheckStatus>;
   failureThreshold?: number;
-  attachments?: EvidenceAttachmentRef[];
+  artifacts?: ExecutionArtifactRef[];
   now?: Date;
-  writeEvidence?: (path: string, content: string) => void;
 };
 
 export type DiffInspectionResult = {
@@ -171,9 +161,9 @@ const SECRET_PATTERNS = [
 export function runStatusCheck(input: StatusCheckerInput): StatusCheckResult {
   const now = input.now ?? new Date();
   const resultId = randomUUID();
-  const evidencePackId = randomUUID();
+  const executionResultId = randomUUID();
   const effectiveTaskId = input.taskId ?? input.specAlignment?.taskId;
-  const normalizedInput = { ...input, taskId: effectiveTaskId, attachments: resolveAttachmentRefs(input) };
+  const normalizedInput = { ...input, taskId: effectiveTaskId };
   const diff = inspectDiff({
     diff: input.diff,
     allowedFiles: mergeFileRules(input.allowedFiles, input.specAlignment?.allowedFiles),
@@ -198,8 +188,8 @@ export function runStatusCheck(input: StatusCheckerInput): StatusCheckResult {
     failureHistory: input.failureHistory ?? [],
     failureThreshold: input.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD,
   });
-  const baseEvidencePack = buildEvidencePack({
-    id: evidencePackId,
+  const executionResult = buildExecutionResult({
+    id: executionResultId,
     input: normalizedInput,
     status: decision.status,
     summary: decision.summary,
@@ -210,57 +200,25 @@ export function runStatusCheck(input: StatusCheckerInput): StatusCheckResult {
     createdAt: now.toISOString(),
   });
 
-  const writeResult = writeEvidencePack(input, baseEvidencePack);
-  const evidenceWriteMs = input.writeEvidence && !writeResult.error ? 0 : writeResult.durationMs;
-  const finalStatus = writeResult.error ? evidenceWriteFailureStatus(decision.status) : decision.status;
-  const finalSummary = writeResult.error
-    ? "Status check blocked because evidence could not be written."
-    : decision.summary;
-  const finalReasons = writeResult.error
-    ? [...decision.reasons, `Evidence write failed: ${writeResult.error}`]
-    : decision.reasons;
-  const finalActions = writeResult.error
-    ? ["Inspect evidence storage configuration and retry the status check.", ...decision.recommendedActions]
-    : decision.recommendedActions;
-  const evidencePack: EvidencePack = {
-    ...baseEvidencePack,
-    status: finalStatus,
-    summary: finalSummary,
-    reasons: finalReasons,
-    recommendedActions: finalActions,
-    evidenceWriteMs,
-    evidenceWriteError: writeResult.error,
-  };
-
-  if (!writeResult.error && !input.writeEvidence) {
-    rewriteEvidencePack(input, evidencePack, writeResult.path);
-  }
-
   let result: StatusCheckResult = {
     id: resultId,
     runId: input.runId,
     taskId: effectiveTaskId,
     featureId: input.featureId,
     projectId: input.projectId,
-    status: finalStatus,
-    summary: finalSummary,
-    reasons: finalReasons,
-    recommendedActions: finalActions,
-    evidencePack,
-    evidencePath: writeResult.path,
-    evidenceWriteMs,
-    evidenceWriteError: writeResult.error,
+    status: decision.status,
+    summary: decision.summary,
+    reasons: decision.reasons,
+    recommendedActions: decision.recommendedActions,
+    executionResult,
     specAlignment,
   };
 
   if (input.dbPath) {
     try {
-      persistStatusCheck(input.dbPath, result, writeResult.path, normalizedInput);
+      persistStatusCheck(input.dbPath, result, normalizedInput);
     } catch (error) {
       result = persistenceFailureResult(result, error);
-      if (!input.writeEvidence) {
-        rewriteEvidencePack(input, result.evidencePack, writeResult.path);
-      }
     }
   }
 
@@ -319,36 +277,6 @@ export function evaluateSpecAlignment(input: {
   };
 }
 
-export function listEvidencePacks(dbPath: string, input: { runId?: string; taskId?: string; featureId?: string } = {}): EvidencePack[] {
-  const filters: string[] = [];
-  const params: unknown[] = [];
-  if (input.runId) {
-    filters.push("run_id = ?");
-    params.push(input.runId);
-  }
-  if (input.taskId) {
-    filters.push("task_id = ?");
-    params.push(input.taskId);
-  }
-  if (input.featureId) {
-    filters.push("feature_id = ?");
-    params.push(input.featureId);
-  }
-  const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-  const rows = runSqlite(dbPath, [], [
-    {
-      name: "evidence",
-      sql: `SELECT * FROM evidence_packs ${where} ORDER BY created_at DESC, rowid DESC`,
-      params,
-    },
-  ]).queries.evidence;
-
-  return rows.map((row) => {
-    const metadata = parseJsonObject(row.metadata_json);
-    return metadata.statusCheckerEvidencePack as EvidencePack;
-  }).filter(Boolean);
-}
-
 export function listStatusCheckResults(dbPath: string, runId: string): StatusCheckResult[] {
   const rows = runSqlite(dbPath, [], [
     {
@@ -368,10 +296,7 @@ export function listStatusCheckResults(dbPath: string, runId: string): StatusChe
     summary: String(row.summary),
     reasons: parseJsonStringArray(row.reasons_json),
     recommendedActions: parseJsonStringArray(row.recommended_actions_json),
-    evidencePack: getEvidencePackById(dbPath, nullableString(row.evidence_pack_id)),
-    evidencePath: nullableString(row.evidence_path),
-    evidenceWriteMs: Number(row.evidence_write_ms),
-    evidenceWriteError: nullableString(row.evidence_write_error),
+    executionResult: parseJsonObject(row.execution_result_json) as ExecutionResult,
     specAlignment: getSpecAlignmentResultById(dbPath, nullableString(row.spec_alignment_result_id)),
   }));
 }
@@ -445,7 +370,7 @@ function decideStatus(input: {
   const incompleteCommands = input.commands.filter((command) => command.status === "not_run" || command.status === "skipped");
   const missingCommands = input.requiredCommands.filter((kind) => !input.commands.some((command) => command.kind === kind));
   const repeatedFailureCount = trailingFailureCount(input.failureHistory);
-  const missingCommandEvidence = input.commands.length === 0;
+  const missingCommandResults = input.commands.length === 0;
   const currentCountsTowardFailure = !input.runner || input.runner.status === "failed" || input.runner.status === "blocked" || failedCommands.length > 0;
 
   if (repeatedFailureCount + (currentCountsTowardFailure ? 1 : 0) >= input.failureThreshold) {
@@ -525,11 +450,11 @@ function decideStatus(input: {
     recommendedActions.push("Resolve spec alignment gaps before Done can be selected.");
     return { status: "review_needed", summary: "Spec alignment failed; Done is blocked.", reasons, recommendedActions };
   }
-  if (incompleteCommands.length > 0 || missingCommands.length > 0 || missingCommandEvidence || input.runner?.status === "review_needed") {
+  if (incompleteCommands.length > 0 || missingCommands.length > 0 || missingCommandResults || input.runner?.status === "review_needed") {
     reasons.push(
       ...incompleteCommands.map((command) => `${command.kind} was ${command.status === "skipped" ? "skipped" : "not run"}.`),
       ...missingCommands.map((kind) => `${kind} result is missing.`),
-      ...(missingCommandEvidence ? ["Command check evidence is missing."] : []),
+      ...(missingCommandResults ? ["Command check results are missing."] : []),
     );
     if (input.runner?.status === "review_needed") reasons.push("Runner requested review.");
     recommendedActions.push("Review risk files or complete missing checks before delivery.");
@@ -538,13 +463,13 @@ function decideStatus(input: {
 
   return {
     status: "done",
-    summary: "Status check passed with aligned spec evidence.",
+    summary: "Status check passed with aligned execution results.",
     reasons: ["Runner, command checks, file checks, and spec alignment passed."],
-    recommendedActions: ["Use evidence pack for review, recovery, and delivery reporting."],
+    recommendedActions: ["Use status checks, logs, and artifacts for review, recovery, and delivery reporting."],
   };
 }
 
-function buildEvidencePack(input: {
+function buildExecutionResult(input: {
   id: string;
   input: StatusCheckerInput;
   status: StatusDecision;
@@ -554,8 +479,8 @@ function buildEvidencePack(input: {
   diff: DiffInspectionResult;
   specAlignment: SpecAlignmentResult;
   createdAt: string;
-}): EvidencePack {
-  const evidencePack: EvidencePack = {
+}): ExecutionResult {
+  const executionResult: ExecutionResult = {
     id: input.id,
     runId: input.input.runId,
     agentType: input.input.agentType,
@@ -570,84 +495,19 @@ function buildEvidencePack(input: {
     diff: input.diff,
     commands: input.input.commandChecks ?? [],
     specAlignment: input.specAlignment,
-    attachments: input.input.attachments ?? [],
-    evidenceWriteMs: 0,
+    artifacts: input.input.artifacts ?? [],
     createdAt: input.createdAt,
   };
-  return sanitizeJsonValue(evidencePack) as EvidencePack;
+  return sanitizeJsonValue(executionResult) as ExecutionResult;
 }
 
-function writeEvidencePack(input: StatusCheckerInput, evidencePack: EvidencePack): { path?: string; durationMs: number; error?: string } {
-  const started = performance.now();
-  try {
-    const artifactRoot = resolveArtifactRoot(input);
-    const evidencePath = join(artifactRoot, "evidence", evidenceFileName(input.runId, evidencePack.id));
-    const content = sanitizedEvidenceContent(evidencePack);
-    mkdirSync(dirname(evidencePath), { recursive: true, mode: 0o700 });
-    if (input.writeEvidence) {
-      input.writeEvidence(evidencePath, sanitizeForOrdinaryLog(content));
-    } else {
-      writeFileSync(evidencePath, sanitizeForOrdinaryLog(content), "utf8");
-    }
-    return { path: displayEvidencePath(input, evidencePath), durationMs: elapsedMs(started) };
-  } catch (error) {
-    return {
-      durationMs: elapsedMs(started),
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-function rewriteEvidencePack(input: StatusCheckerInput, evidencePack: EvidencePack, evidencePath?: string): void {
-  if (!evidencePath) return;
-  const artifactRoot = resolveArtifactRoot(input);
-  const absolutePath = join(artifactRoot, "evidence", evidenceFileName(input.runId, evidencePack.id));
-  try {
-    const content = sanitizedEvidenceContent(evidencePack);
-    if (input.writeEvidence) {
-      input.writeEvidence(absolutePath, sanitizeForOrdinaryLog(content));
-    } else {
-      writeFileSync(absolutePath, sanitizeForOrdinaryLog(content), "utf8");
-    }
-  } catch {
-    // The first write already proved storage availability and measured the path.
-  }
-}
-
-function persistStatusCheck(dbPath: string, result: StatusCheckResult, evidencePath: string | undefined, input: StatusCheckerInput): void {
-  const evidenceChecksum = checksum(sanitizedEvidenceContent(result.evidencePack));
+function persistStatusCheck(dbPath: string, result: StatusCheckResult, input: StatusCheckerInput): void {
   const statements: SqlStatement[] = [
-    {
-      sql: `INSERT INTO evidence_packs (
-        id, run_id, task_id, feature_id, path, kind, checksum, summary, metadata_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        run_id = excluded.run_id,
-        task_id = excluded.task_id,
-        feature_id = excluded.feature_id,
-        path = excluded.path,
-        kind = excluded.kind,
-        checksum = excluded.checksum,
-        summary = excluded.summary,
-        metadata_json = excluded.metadata_json`,
-      params: [
-        result.evidencePack.id,
-        result.runId,
-        result.taskId ?? null,
-        result.featureId ?? null,
-        evidencePath ?? "",
-        "status_checker",
-        evidenceChecksum,
-        sanitizeForOrdinaryLog(result.summary),
-        sanitizedJson({ statusCheckerEvidencePack: result.evidencePack }),
-      ],
-    },
     {
       sql: `INSERT INTO status_check_results (
         id, run_id, task_id, feature_id, project_id, status, summary, reasons_json,
-        recommended_actions_json, evidence_pack_id, spec_alignment_result_id, evidence_path,
-        evidence_write_ms, evidence_write_error
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        recommended_actions_json, execution_result_json, spec_alignment_result_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         result.id,
         result.runId,
@@ -658,11 +518,8 @@ function persistStatusCheck(dbPath: string, result: StatusCheckResult, evidenceP
         sanitizeForOrdinaryLog(result.summary),
         JSON.stringify(result.reasons.map(sanitizeForOrdinaryLog)),
         JSON.stringify(result.recommendedActions.map(sanitizeForOrdinaryLog)),
-        result.evidencePack.id,
+        sanitizedJson(result.executionResult),
         result.specAlignment.id,
-        evidencePath ?? null,
-        result.evidenceWriteMs,
-        result.evidenceWriteError ?? null,
       ],
     },
     {
@@ -683,20 +540,6 @@ function persistStatusCheck(dbPath: string, result: StatusCheckResult, evidenceP
         JSON.stringify(result.specAlignment.coverageGaps),
       ],
     },
-    ...result.evidencePack.attachments.map((attachment) => ({
-      sql: `INSERT INTO evidence_attachment_refs (
-        id, evidence_pack_id, run_id, kind, path, description, checksum
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      params: [
-        attachment.id ?? randomUUID(),
-        result.evidencePack.id,
-        result.runId,
-        attachment.kind,
-        attachment.path,
-        sanitizeForOrdinaryLog(attachment.description ?? ""),
-        attachment.checksum ?? readChecksum(resolveAttachmentPath(input, attachment.path)),
-      ],
-    })),
   ];
 
   runSqlite(dbPath, statements);
@@ -718,17 +561,18 @@ function persistStatusCheck(dbPath: string, result: StatusCheckResult, evidenceP
       message: result.summary,
       reviewNeededReason: reviewReasonForStatusCheck(result),
       triggerReasons: reviewTriggersForStatusCheck(result),
-      evidenceRefs: [result.evidencePack.id],
+      evidenceRefs: [],
       body: {
         testResults: {
-          commands: result.evidencePack.commands,
+          commands: result.executionResult.commands,
           specAlignment: result.specAlignment,
         },
-        diff: result.evidencePack.diff,
+        diff: result.executionResult.diff,
         riskExplanation: result.reasons.join(" "),
+        executionResultId: result.executionResult.id,
       },
       pauseEntity: !isRepeatedFailureEscalation(result),
-      now: new Date(result.evidencePack.createdAt),
+      now: new Date(result.executionResult.createdAt),
     });
   }
   recordAuditEvent(dbPath, {
@@ -739,15 +583,14 @@ function persistStatusCheck(dbPath: string, result: StatusCheckResult, evidenceP
     reason: result.summary,
     payload: {
       status: result.status,
-      evidencePackId: result.evidencePack.id,
-      evidencePath,
-      evidenceWriteError: result.evidenceWriteError,
+      statusCheckId: result.id,
+      executionResultId: result.executionResult.id,
     },
   });
   recordMetricSample(dbPath, {
-    name: "evidence_write_ms",
-    value: result.evidenceWriteMs,
-    unit: "ms",
+    name: "status_check_completed",
+    value: 1,
+    unit: "count",
     labels: {
       runId: result.runId,
       taskId: result.taskId,
@@ -770,13 +613,13 @@ function closeRemediatedStatusReviewStatements(result: StatusCheckResult): SqlSt
           AND review_needed_reason <> 'approval_needed'
           AND COALESCE(task_id, '') = COALESCE(?, '')
           AND COALESCE(feature_id, '') = COALESCE(?, '')`,
-      params: [result.evidencePack.createdAt, result.taskId ?? null, result.featureId ?? null],
+      params: [result.executionResult.createdAt, result.taskId ?? null, result.featureId ?? null],
     },
   ];
 }
 
 function repeatedFailureStateStatements(result: StatusCheckResult, input: StatusCheckerInput): SqlStatement[] {
-  const now = input.now?.toISOString() ?? result.evidencePack.createdAt;
+  const now = input.now?.toISOString() ?? result.executionResult.createdAt;
   const statements: SqlStatement[] = [];
   if (result.taskId) {
     statements.push(
@@ -831,16 +674,16 @@ function reviewReasonForStatusCheck(result: StatusCheckResult): "approval_needed
     return "risk_review_needed";
   }
   if (
-    result.evidencePack.diff.forbiddenFiles.length > 0 ||
-    result.evidencePack.diff.unauthorizedFiles.length > 0 ||
-    result.evidencePack.diff.secretFindings.length > 0
+    result.executionResult.diff.forbiddenFiles.length > 0 ||
+    result.executionResult.diff.unauthorizedFiles.length > 0 ||
+    result.executionResult.diff.secretFindings.length > 0
   ) {
     return "risk_review_needed";
   }
   if (!result.specAlignment.aligned) {
     return "clarification_needed";
   }
-  if (result.evidencePack.runner.status === "review_needed") {
+  if (result.executionResult.runner.status === "review_needed") {
     return "approval_needed";
   }
   return "risk_review_needed";
@@ -850,17 +693,17 @@ function reviewTriggersForStatusCheck(result: StatusCheckResult): ReviewTrigger[
   const triggers = new Set<ReviewTrigger>();
   if (isRepeatedFailureEscalation(result)) triggers.add("repeated_failure");
   if (!result.specAlignment.aligned) triggers.add("high_impact_ambiguity");
-  if (result.evidencePack.runner.status === "review_needed") triggers.add("permission_escalation");
-  if (result.evidencePack.diff.riskFiles.length > 0) triggers.add("high_risk_file");
-  if (result.evidencePack.diff.diffThresholdExceeded) triggers.add("diff_threshold_exceeded");
+  if (result.executionResult.runner.status === "review_needed") triggers.add("permission_escalation");
+  if (result.executionResult.diff.riskFiles.length > 0) triggers.add("high_risk_file");
+  if (result.executionResult.diff.diffThresholdExceeded) triggers.add("diff_threshold_exceeded");
   if (
-    result.evidencePack.diff.forbiddenFiles.length > 0 ||
-    result.evidencePack.diff.unauthorizedFiles.length > 0 ||
-    result.evidencePack.diff.secretFindings.length > 0
+    result.executionResult.diff.forbiddenFiles.length > 0 ||
+    result.executionResult.diff.unauthorizedFiles.length > 0 ||
+    result.executionResult.diff.secretFindings.length > 0
   ) {
     triggers.add("forbidden_file");
   }
-  if (result.evidencePack.commands.some((command) => command.status === "failed")) triggers.add("failed_tests_continue");
+  if (result.executionResult.commands.some((command) => command.status === "failed")) triggers.add("failed_tests_continue");
   return triggers.size > 0 ? [...triggers] : ["high_risk_file"];
 }
 
@@ -870,23 +713,19 @@ function isRepeatedFailureEscalation(result: StatusCheckResult): boolean {
 
 function persistenceFailureResult(result: StatusCheckResult, error: unknown): StatusCheckResult {
   const message = error instanceof Error ? error.message : String(error);
-  const status = evidenceWriteFailureStatus(result.status);
-  const summary = "Status check blocked because evidence persistence failed.";
-  const reasons = [...result.reasons, `Evidence persistence failed: ${message}`];
+  const status: StatusDecision = result.status === "failed" ? "failed" : "blocked";
+  const summary = "Status check blocked because persistence failed.";
+  const reasons = [...result.reasons, `Status check persistence failed: ${message}`];
   const recommendedActions = [
-    "Inspect evidence database configuration and retry the status check.",
+    "Inspect database configuration and retry the status check.",
     ...result.recommendedActions,
   ];
-  const evidenceWriteError = result.evidenceWriteError
-    ? `${result.evidenceWriteError}; persistence failed: ${message}`
-    : `Persistence failed: ${message}`;
-  const evidencePack = {
-    ...result.evidencePack,
+  const executionResult = {
+    ...result.executionResult,
     status,
     summary,
     reasons,
     recommendedActions,
-    evidenceWriteError,
   };
   return {
     ...result,
@@ -894,46 +733,8 @@ function persistenceFailureResult(result: StatusCheckResult, error: unknown): St
     summary,
     reasons,
     recommendedActions,
-    evidencePack,
-    evidenceWriteError,
+    executionResult,
   };
-}
-
-function evidenceWriteFailureStatus(status: StatusDecision): StatusDecision {
-  return status === "failed" ? "failed" : "blocked";
-}
-
-function resolveArtifactRoot(input: StatusCheckerInput): string {
-  if (input.artifactRoot) return input.artifactRoot;
-  if (input.workspaceRoot) return join(input.workspaceRoot, ".autobuild");
-  throw new Error("Status checker requires current project directory (workspaceRoot) or explicit artifactRoot.");
-}
-
-function resolveAttachmentPath(input: StatusCheckerInput, path: string): string {
-  if (isAbsolute(path)) return path;
-  if (input.artifactRoot) {
-    const artifactPath = join(input.artifactRoot, withoutArtifactRootPrefix(input.artifactRoot, path));
-    if (!input.workspaceRoot || existsSync(artifactPath) || hasArtifactRootPrefix(input.artifactRoot, path)) {
-      return artifactPath;
-    }
-  }
-  if (input.workspaceRoot) return join(input.workspaceRoot, path);
-  throw new Error("Attachment paths require current project directory (workspaceRoot) or explicit artifactRoot.");
-}
-
-function resolveAttachmentRefs(input: StatusCheckerInput): EvidenceAttachmentRef[] {
-  return (input.attachments ?? []).map((attachment) => ({
-    ...attachment,
-    checksum: attachment.checksum ?? readChecksum(resolveAttachmentPath(input, attachment.path)),
-  }));
-}
-
-function displayEvidencePath(input: StatusCheckerInput, evidencePath: string): string {
-  if (input.workspaceRoot) {
-    return normalizePath(relative(input.workspaceRoot, evidencePath));
-  }
-  const artifactRoot = resolveArtifactRoot(input);
-  return normalizePath(join(basename(artifactRoot), relative(artifactRoot, evidencePath)));
 }
 
 function scanSecrets(value: string): string[] {
@@ -958,19 +759,6 @@ function mergeFileRules(primary?: string[], secondary?: string[]): string[] | un
   return merged.length > 0 ? merged : undefined;
 }
 
-function withoutArtifactRootPrefix(artifactRoot: string, path: string): string {
-  const normalizedPath = normalizePath(path);
-  const artifactRootName = basename(artifactRoot);
-  return normalizedPath.startsWith(`${artifactRootName}/`)
-    ? normalizedPath.slice(artifactRootName.length + 1)
-    : normalizedPath;
-}
-
-function hasArtifactRootPrefix(artifactRoot: string, path: string): boolean {
-  const normalizedPath = normalizePath(path);
-  return normalizedPath === basename(artifactRoot) || normalizedPath.startsWith(`${basename(artifactRoot)}/`);
-}
-
 function trailingFailureCount(history: Array<StatusDecision | RunnerTerminalStatus | CommandCheckStatus>): number {
   let count = 0;
   for (let index = history.length - 1; index >= 0; index -= 1) {
@@ -990,42 +778,12 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${escaped}$`);
 }
 
-function safeArtifactName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-
-function evidenceFileName(runId: string, evidencePackId: string): string {
-  return `${safeArtifactName(runId)}-${safeArtifactName(evidencePackId)}.json`;
-}
-
-function sanitizedEvidenceContent(evidencePack: EvidencePack): string {
-  return sanitizeForOrdinaryLog(JSON.stringify(evidencePack, null, 2));
-}
-
-function elapsedMs(started: number): number {
-  return Number((performance.now() - started).toFixed(3));
-}
-
 function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean).map(String))];
 }
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, "/").replace(/^\.\//, "");
-}
-
-function checksum(value: BinaryLike): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function getEvidencePackById(dbPath: string, id?: string): EvidencePack {
-  if (!id) throw new Error("Status check result is missing evidence_pack_id");
-  const row = runSqlite(dbPath, [], [
-    { name: "evidence", sql: "SELECT * FROM evidence_packs WHERE id = ?", params: [id] },
-  ]).queries.evidence[0];
-  if (!row) throw new Error(`Missing evidence pack ${id}`);
-  const metadata = parseJsonObject(row.metadata_json);
-  return metadata.statusCheckerEvidencePack as EvidencePack;
 }
 
 function getSpecAlignmentResultById(dbPath: string, id?: string): SpecAlignmentResult {
@@ -1046,10 +804,6 @@ function getSpecAlignmentResultById(dbPath: string, id?: string): SpecAlignmentR
     unauthorizedFiles: parseJsonStringArray(row.unauthorized_files_json),
     coverageGaps: parseJsonStringArray(row.coverage_gaps_json),
   };
-}
-
-function readChecksum(path: string): string | undefined {
-  return existsSync(path) ? checksum(readFileSync(path)) : undefined;
 }
 
 function sanitizedJson(value: unknown): string {

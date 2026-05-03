@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { BoardColumn, ReviewNeededReason } from "./orchestration.ts";
 import { sanitizeForOrdinaryLog } from "./persistence.ts";
 import { runSqlite } from "./sqlite.ts";
-import type { EvidencePack, StatusCheckResult } from "./status-checker.ts";
+import type { ExecutionResult, StatusCheckResult } from "./status-checker.ts";
 import type { WorktreeRecord } from "./workspace.ts";
 
 export type FailureStage =
@@ -61,7 +61,7 @@ export type RecoveryAttempt = {
   fileScope: string[];
   status: RecoveryResultStatus;
   summary: string;
-  evidencePack?: RecoveryEvidencePack;
+  executionResult?: RecoveryExecutionResult;
   attemptedAt: string;
 };
 
@@ -73,7 +73,7 @@ export type ForbiddenRetryRecord = {
   failedCommand?: string;
   failedFileScope: string[];
   reason: string;
-  evidencePackId?: string;
+  executionResultId?: string;
   createdAt: string;
 };
 
@@ -112,7 +112,7 @@ export type RecoveryTask = {
   proposedFileScope?: string[];
   retrySchedule?: RetrySchedule;
   worktree?: Pick<WorktreeRecord, "id" | "path" | "branch" | "baseCommit" | "targetBranch" | "featureId" | "taskId">;
-  sourceEvidencePack?: EvidencePack;
+  sourceExecutionResult?: ExecutionResult;
   createdAt: string;
 };
 
@@ -200,7 +200,7 @@ export type RecoveryDispatchInput = {
     status: RecoveryResultStatus;
     summary: string;
   }>;
-  evidence_pack?: EvidencePack;
+  execution_result?: ExecutionResult;
   recommendations: string[];
 };
 
@@ -212,13 +212,13 @@ export type RecoveryActionResultInput = {
   summary: string;
   command?: string;
   fileScope?: string[];
-  evidence?: unknown;
+  result?: unknown;
   recommendations?: string[];
   risks?: string[];
   now?: Date;
 };
 
-export type RecoveryEvidencePack = {
+export type RecoveryExecutionResult = {
   id: string;
   recoveryTaskId: string;
   fingerprintId: string;
@@ -229,13 +229,13 @@ export type RecoveryEvidencePack = {
   summary: string;
   reasons: string[];
   recommendations: string[];
-  evidence?: unknown;
+  result?: unknown;
   createdAt: string;
 };
 
 export type RecoveryResultHandling = {
   attempt: RecoveryAttempt;
-  evidencePack: RecoveryEvidencePack;
+  executionResult: RecoveryExecutionResult;
   nextStepRecommendations: string[];
   boardStatus: BoardColumn;
   reviewNeededReason?: ReviewNeededReason;
@@ -274,7 +274,7 @@ export function buildFailureFingerprint(input: {
   const normalizedErrorSummary = normalizeErrorSummary(rawSummary);
   const relatedFiles = normalizeFileSet([
     ...(input.relatedFiles ?? []),
-    ...(input.statusCheckResult?.evidencePack?.diff?.files ?? []),
+    ...(input.statusCheckResult?.executionResult?.diff?.files ?? []),
   ]);
   const id = createHash("sha256")
     .update(JSON.stringify({ taskId, stage, failedCommandOrCheck, normalizedErrorSummary, relatedFiles }))
@@ -543,7 +543,7 @@ export function buildRecoveryTask(input: RecoveryFailureInput): RecoveryTask {
     proposedFileScope,
     retrySchedule,
     worktree: input.worktree ? pickWorktree(input.worktree) : undefined,
-    sourceEvidencePack: input.statusCheckResult?.evidencePack,
+    sourceExecutionResult: input.statusCheckResult?.executionResult,
     createdAt: now.toISOString(),
   };
 }
@@ -591,7 +591,7 @@ export function buildRecoveryDispatchInput(recoveryTask: RecoveryTask): Recovery
       status: attempt.status,
       summary: sanitizeForOrdinaryLog(attempt.summary),
     })),
-    evidence_pack: recoveryTask.sourceEvidencePack ? sanitizeRecoveryEvidence(recoveryTask.sourceEvidencePack) as EvidencePack : undefined,
+    execution_result: recoveryTask.sourceExecutionResult ? sanitizeRecoveryResult(recoveryTask.sourceExecutionResult) as ExecutionResult : undefined,
     recommendations: recoveryRecommendations(recoveryTask).map(sanitizeForOrdinaryLog),
   };
 }
@@ -605,7 +605,7 @@ export function handleRecoveryResult(input: RecoveryActionResultInput): Recovery
   const nextStepRecommendations = input.recommendations?.length
     ? input.recommendations
     : defaultResultRecommendations(input.action, input.status);
-  const evidencePack: RecoveryEvidencePack = {
+  const executionResult: RecoveryExecutionResult = {
     id: randomUUID(),
     recoveryTaskId: input.recoveryTask.id,
     fingerprintId: input.recoveryTask.fingerprint.id,
@@ -616,7 +616,7 @@ export function handleRecoveryResult(input: RecoveryActionResultInput): Recovery
     summary: sanitizeForOrdinaryLog(input.summary),
     reasons: reasons.map(sanitizeForOrdinaryLog),
     recommendations: nextStepRecommendations.map(sanitizeForOrdinaryLog),
-    evidence: sanitizeRecoveryEvidence(input.evidence),
+    result: sanitizeRecoveryResult(input.result),
     createdAt: now.toISOString(),
   };
   const plannedCommand = input.command ?? input.recoveryTask.proposedCommand;
@@ -630,7 +630,7 @@ export function handleRecoveryResult(input: RecoveryActionResultInput): Recovery
     fileScope: normalizeFileSet(input.fileScope ?? input.recoveryTask.proposedFileScope ?? input.recoveryTask.relatedFiles),
     status: input.status,
     summary: sanitizeForOrdinaryLog(input.summary),
-    evidencePack,
+    executionResult,
     attemptedAt: now.toISOString(),
   };
   const boardStatus = resultBoardStatus(input.action, input.status);
@@ -644,14 +644,14 @@ export function handleRecoveryResult(input: RecoveryActionResultInput): Recovery
         failedCommand: plannedCommand ? sanitizeForOrdinaryLog(plannedCommand) : undefined,
         failedFileScope: attempt.fileScope,
         reason: `Failed recovery attempt ${attempt.id} must not be automatically repeated for the same fingerprint.`,
-        evidencePackId: evidencePack.id,
+        executionResultId: executionResult.id,
         createdAt: now.toISOString(),
       }
     : undefined;
 
   return {
     attempt,
-    evidencePack,
+    executionResult,
     nextStepRecommendations,
     boardStatus,
     reviewNeededReason,
@@ -702,7 +702,7 @@ export function listRecoveryHistory(dbPath: string, input: { taskId?: string; fi
       fileScope: parseStringArray(row.file_scope_json),
       status: String(row.status) as RecoveryResultStatus,
       summary: String(row.summary),
-      evidencePack: row.evidence_pack_json ? JSON.parse(String(row.evidence_pack_json)) as RecoveryEvidencePack : undefined,
+      executionResult: row.execution_result_json ? JSON.parse(String(row.execution_result_json)) as RecoveryExecutionResult : undefined,
       attemptedAt: String(row.attempted_at),
     })),
     forbiddenRetryItems: result.queries.forbidden.map((row) => ({
@@ -713,7 +713,7 @@ export function listRecoveryHistory(dbPath: string, input: { taskId?: string; fi
       failedCommand: nullableString(row.failed_command),
       failedFileScope: parseStringArray(row.failed_file_scope_json),
       reason: String(row.reason),
-      evidencePackId: nullableString(row.evidence_pack_id),
+      executionResultId: nullableString(row.execution_result_id),
       createdAt: String(row.created_at),
     })),
   };
@@ -726,15 +726,15 @@ export function persistRecoveryAttempt(dbPath: string, attempt: RecoveryAttempt)
     command: attempt.command ? sanitizeForOrdinaryLog(attempt.command) : undefined,
     fileScope: normalizeFileSet(attempt.fileScope),
     summary: sanitizeForOrdinaryLog(attempt.summary),
-    evidencePack: attempt.evidencePack
-      ? sanitizeRecoveryEvidence(attempt.evidencePack) as RecoveryEvidencePack
+    executionResult: attempt.executionResult
+      ? sanitizeRecoveryResult(attempt.executionResult) as RecoveryExecutionResult
       : undefined,
   };
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO recovery_attempts (
         id, fingerprint_id, task_id, action, strategy, command, file_scope_json,
-        status, summary, evidence_pack_json, attempted_at
+        status, summary, execution_result_json, attempted_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         fingerprint_id = excluded.fingerprint_id,
@@ -745,7 +745,7 @@ export function persistRecoveryAttempt(dbPath: string, attempt: RecoveryAttempt)
         file_scope_json = excluded.file_scope_json,
         status = excluded.status,
         summary = excluded.summary,
-        evidence_pack_json = excluded.evidence_pack_json,
+        execution_result_json = excluded.execution_result_json,
         attempted_at = excluded.attempted_at`,
       params: [
         safeAttempt.id,
@@ -757,7 +757,7 @@ export function persistRecoveryAttempt(dbPath: string, attempt: RecoveryAttempt)
         JSON.stringify(safeAttempt.fileScope),
         safeAttempt.status,
         safeAttempt.summary,
-        safeAttempt.evidencePack ? JSON.stringify(safeAttempt.evidencePack) : null,
+        safeAttempt.executionResult ? JSON.stringify(safeAttempt.executionResult) : null,
         safeAttempt.attemptedAt,
       ],
     },
@@ -769,7 +769,7 @@ export function persistForbiddenRetryRecord(dbPath: string, record: ForbiddenRet
     {
       sql: `INSERT OR IGNORE INTO forbidden_retry_records (
         id, fingerprint_id, task_id, failed_strategy, failed_command,
-        failed_file_scope_json, reason, evidence_pack_id, created_at
+        failed_file_scope_json, reason, execution_result_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         record.id,
@@ -779,7 +779,7 @@ export function persistForbiddenRetryRecord(dbPath: string, record: ForbiddenRet
         record.failedCommand ?? null,
         JSON.stringify(normalizeFileSet(record.failedFileScope)),
         record.reason,
-        record.evidencePackId ?? null,
+        record.executionResultId ?? null,
         record.createdAt,
       ],
     },
@@ -806,7 +806,7 @@ function chooseRecoveryAction(input: RecoveryFailureInput): RecoveryAction {
 function inferFailureType(statusCheckResult?: StatusCheckResult): FailureType {
   if (!statusCheckResult) return "unknown";
   if (statusCheckResult.specAlignment?.aligned === false) return "spec_alignment_failed";
-  if (statusCheckResult.evidencePack?.commands?.some((command) => command.status === "failed")) return "command_failed";
+  if (statusCheckResult.executionResult?.commands?.some((command) => command.status === "failed")) return "command_failed";
   if (statusCheckResult.status === "failed" || statusCheckResult.status === "blocked") return "status_check_failed";
   return "unknown";
 }
@@ -817,12 +817,12 @@ function recoverableStatus(statusCheckResult?: StatusCheckResult): boolean {
 }
 
 function firstFailedCommand(statusCheckResult?: StatusCheckResult): string | undefined {
-  return statusCheckResult?.evidencePack?.commands?.find((command) => command.status === "failed")?.command;
+  return statusCheckResult?.executionResult?.commands?.find((command) => command.status === "failed")?.command;
 }
 
 function statusFailureSummary(statusCheckResult?: StatusCheckResult): string | undefined {
   if (!statusCheckResult) return undefined;
-  const failedCommands = statusCheckResult.evidencePack.commands
+  const failedCommands = statusCheckResult.executionResult.commands
     .filter((command) => command.status === "failed")
     .map((command) => [
       command.kind,
@@ -830,7 +830,7 @@ function statusFailureSummary(statusCheckResult?: StatusCheckResult): string | u
       command.exitCode === undefined || command.exitCode === null ? undefined : `exit=${command.exitCode}`,
       command.summary,
     ].filter(Boolean).join(" "));
-  const specAlignment = statusCheckResult.evidencePack.specAlignment;
+  const specAlignment = statusCheckResult.executionResult.specAlignment;
   const specAlignmentDetails = specAlignment?.aligned === false
     ? [
         ...specAlignment.reasons,
@@ -840,7 +840,7 @@ function statusFailureSummary(statusCheckResult?: StatusCheckResult): string | u
         ...specAlignment.unauthorizedFiles.map((item) => `unauthorized-file=${item}`),
       ].join(" ")
     : undefined;
-  const runner = statusCheckResult.evidencePack.runner;
+  const runner = statusCheckResult.executionResult.runner;
   const runnerDetails = runner.status === "failed" || (runner.exitCode ?? 0) !== 0
     ? [
         "runner",
@@ -854,7 +854,7 @@ function statusFailureSummary(statusCheckResult?: StatusCheckResult): string | u
 function failureCommandFromStatus(statusCheckResult?: StatusCheckResult): string | undefined {
   const failedCommand = firstFailedCommand(statusCheckResult);
   if (failedCommand) return failedCommand;
-  const runner = statusCheckResult?.evidencePack.runner;
+  const runner = statusCheckResult?.executionResult.runner;
   if (!runner || (runner.status !== "failed" && (runner.exitCode ?? 0) === 0)) return undefined;
   return `codex runner exit=${runner.exitCode ?? "unknown"}`;
 }
@@ -880,33 +880,33 @@ function recoveryRecommendations(recoveryTask: RecoveryTask): string[] {
     return [
       `Dispatch recovery action ${recoveryTask.requestedAction}.`,
       `Use retry backoff of ${recoveryTask.retrySchedule.backoffMinutes} minute(s).`,
-      "Write a Recovery Evidence Pack before advancing task state.",
+      "Record the recovery execution result before advancing task state.",
     ];
   }
   if (recoveryTask.route === "manual") {
     return [
       "Stop automatic recovery and request manual approval.",
-      "Attach prior Evidence Packs and forbidden retry records to the review request.",
+      "Attach prior execution results and forbidden retry records to the review request.",
     ];
   }
   if (recoveryTask.route === "review_needed") {
     return [
       "Route recovery through Review Center before executing write actions.",
-      "Include rollback, shared-state, Spec, and dependency implications in the Evidence Pack.",
+      "Include rollback, shared-state, Spec, and dependency implications in the recovery result.",
     ];
   }
-  return ["Record unrecoverable failure evidence and keep task in failed state."];
+  return ["Record unrecoverable failure details and keep task in failed state."];
 }
 
 function defaultResultRecommendations(action: RecoveryAction, status: RecoveryResultStatus): string[] {
   if (status === "completed" && action === "auto_fix") return ["Run status checks again for the failed task."];
-  if (status === "completed" && action === "rollback") return ["Verify rollback boundary evidence before rescheduling the task."];
+  if (status === "completed" && action === "rollback") return ["Verify rollback boundary details before rescheduling the task."];
   if (status === "completed" && action === "split_task") return ["Create child tasks and update task dependencies before retrying implementation."];
   if (status === "completed" && action === "read_only_analysis") return ["Review analysis findings and choose a write-safe recovery action."];
   if (status === "completed" && action === "dependency_update") return ["Recompute task readiness after dependency updates."];
   if (status === "completed" && action === "spec_update") return ["Route Spec changes through review before resuming implementation."];
   if (action === "manual_approval") return ["Wait for manual approval before further automatic recovery."];
-  return ["Record failed recovery evidence and update the forbidden duplicate policy."];
+  return ["Record failed recovery details and update the forbidden duplicate policy."];
 }
 
 function resultBoardStatus(action: RecoveryAction, status: RecoveryResultStatus): BoardColumn {
@@ -947,12 +947,12 @@ function normalizeCommand(value: string): string {
   return normalizeText(value).replace(/\s+/g, " ");
 }
 
-function sanitizeRecoveryEvidence(value: unknown): unknown {
+function sanitizeRecoveryResult(value: unknown): unknown {
   if (typeof value === "string") return sanitizeForOrdinaryLog(value);
-  if (Array.isArray(value)) return value.map(sanitizeRecoveryEvidence);
+  if (Array.isArray(value)) return value.map(sanitizeRecoveryResult);
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, sanitizeRecoveryEvidence(entry)]),
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, sanitizeRecoveryResult(entry)]),
     );
   }
   return value;

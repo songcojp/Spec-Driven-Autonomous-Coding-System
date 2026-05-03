@@ -53,13 +53,13 @@ export type CoreEntitySnapshot = {
     summary: string;
     currentVersion: number;
   };
-  evidencePack: {
+  executionResult?: {
     id: string;
     runId: string;
-    taskId: string;
-    featureId: string;
-    path: string;
-    kind: string;
+    taskId?: string;
+    featureId?: string;
+    path?: string;
+    kind?: string;
     summary: string;
   };
 };
@@ -71,7 +71,7 @@ export type CoreEntityInput = {
   task: Omit<CoreEntitySnapshot["task"], "recoveryState"> & { recoveryState?: string };
   run: CoreEntitySnapshot["run"] & { idempotencyKey?: string };
   projectMemory: CoreEntitySnapshot["projectMemory"];
-  evidencePack: CoreEntitySnapshot["evidencePack"];
+  executionResult?: NonNullable<CoreEntitySnapshot["executionResult"]>;
 };
 
 export type IdempotencyInput = {
@@ -111,7 +111,7 @@ export type RecoveryEntryInput = {
   featureId?: string;
   taskId?: string;
   runId?: string;
-  evidencePackId?: string;
+  executionResultId?: string;
   projectMemoryId?: string;
   recoveryState: string;
   reason: string;
@@ -258,27 +258,36 @@ export function persistCoreEntitySnapshot(dbPath: string, input: CoreEntityInput
         now,
       ],
     },
-    {
-      sql: `INSERT INTO evidence_packs (
-        id, run_id, task_id, feature_id, path, kind, summary
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        run_id = excluded.run_id,
-        task_id = excluded.task_id,
-        feature_id = excluded.feature_id,
-        path = excluded.path,
-        kind = excluded.kind,
-        summary = excluded.summary`,
-      params: [
-        input.evidencePack.id,
-        input.evidencePack.runId,
-        input.evidencePack.taskId,
-        input.evidencePack.featureId,
-        input.evidencePack.path,
-        input.evidencePack.kind,
-        sanitizeForOrdinaryLog(input.evidencePack.summary),
-      ],
-    },
+    ...(input.executionResult
+      ? [{
+          sql: `INSERT INTO status_check_results (
+            id, run_id, task_id, feature_id, status, summary, reasons_json, recommended_actions_json,
+            kind, path, metadata_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            run_id = excluded.run_id,
+            task_id = excluded.task_id,
+            feature_id = excluded.feature_id,
+            status = excluded.status,
+            summary = excluded.summary,
+            kind = excluded.kind,
+            path = excluded.path,
+            metadata_json = excluded.metadata_json`,
+          params: [
+            input.executionResult.id,
+            input.executionResult.runId,
+            input.executionResult.taskId ?? null,
+            input.executionResult.featureId ?? null,
+            "done",
+            sanitizeForOrdinaryLog(input.executionResult.summary),
+            "[]",
+            "[]",
+            input.executionResult.kind ?? "execution_result",
+            input.executionResult.path ?? null,
+            JSON.stringify({ path: input.executionResult.path }),
+          ],
+        }]
+      : []),
   ]);
 
   recordAuditEvent(dbPath, {
@@ -296,7 +305,7 @@ export function persistCoreEntitySnapshot(dbPath: string, input: CoreEntityInput
       featureId: input.feature.id,
       taskId: input.task.id,
       runId: input.run.id,
-      evidencePackId: input.evidencePack.id,
+      executionResultId: input.run.id,
       projectMemoryId: input.projectMemory.id,
       recoveryState: input.run.status === "failed" ? "failed" : "incomplete",
       reason: "snapshot contains unfinished task or run",
@@ -320,7 +329,7 @@ export function getCoreEntitySnapshot(
     { name: "task", sql: "SELECT * FROM tasks WHERE id = ?", params: [taskId] },
     { name: "run", sql: "SELECT * FROM runs WHERE id = ?", params: [runId] },
     { name: "projectMemory", sql: "SELECT * FROM project_memories WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1", params: [projectId] },
-    { name: "evidencePack", sql: "SELECT * FROM evidence_packs WHERE run_id = ? ORDER BY created_at DESC LIMIT 1", params: [runId] },
+    { name: "executionResult", sql: "SELECT * FROM status_check_results WHERE run_id = ? ORDER BY created_at DESC LIMIT 1", params: [runId] },
   ]);
 
   const project = requiredRow(result.queries.project, "project");
@@ -329,7 +338,7 @@ export function getCoreEntitySnapshot(
   const task = requiredRow(result.queries.task, "task");
   const run = requiredRow(result.queries.run, "run");
   const projectMemory = requiredRow(result.queries.projectMemory, "projectMemory");
-  const evidencePack = requiredRow(result.queries.evidencePack, "evidencePack");
+  const executionResult = result.queries.executionResult[0];
 
   return {
     project: {
@@ -379,15 +388,17 @@ export function getCoreEntitySnapshot(
       summary: String(projectMemory.summary),
       currentVersion: Number(projectMemory.current_version),
     },
-    evidencePack: {
-      id: String(evidencePack.id),
-      runId: String(evidencePack.run_id),
-      taskId: String(evidencePack.task_id),
-      featureId: String(evidencePack.feature_id),
-      path: String(evidencePack.path),
-      kind: String(evidencePack.kind),
-      summary: String(evidencePack.summary),
-    },
+    executionResult: executionResult
+      ? {
+          id: String(executionResult.id),
+          runId: String(executionResult.run_id),
+          taskId: nullableString(executionResult.task_id),
+          featureId: nullableString(executionResult.feature_id),
+          path: nullableString(executionResult.path),
+          kind: nullableString(executionResult.kind),
+          summary: String(executionResult.summary),
+        }
+      : undefined,
   };
 }
 
@@ -538,7 +549,7 @@ export function recordRecoveryEntry(dbPath: string, input: RecoveryEntryInput): 
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO recovery_index_entries (
-        id, project_id, feature_id, task_id, run_id, evidence_pack_id,
+        id, project_id, feature_id, task_id, run_id, execution_result_id,
         project_memory_id, recovery_state, reason
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
@@ -547,7 +558,7 @@ export function recordRecoveryEntry(dbPath: string, input: RecoveryEntryInput): 
         input.featureId ?? null,
         input.taskId ?? null,
         input.runId ?? null,
-        input.evidencePackId ?? null,
+        input.executionResultId ?? null,
         input.projectMemoryId ?? null,
         input.recoveryState,
         input.reason,
@@ -572,7 +583,7 @@ export function listRecoverableWork(dbPath: string): RecoveryEntryInput[] {
     featureId: nullableString(row.feature_id),
     taskId: nullableString(row.task_id),
     runId: nullableString(row.run_id),
-    evidencePackId: nullableString(row.evidence_pack_id),
+    executionResultId: nullableString(row.execution_result_id),
     projectMemoryId: nullableString(row.project_memory_id),
     recoveryState: String(row.recovery_state),
     reason: String(row.reason),

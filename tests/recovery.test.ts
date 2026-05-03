@@ -68,7 +68,7 @@ test("failure fingerprints include concrete status check failure details", () =>
   const baseStatusCheck = {
     taskId: "TASK-010",
     summary: "Status check blocked by failed command checks.",
-    evidencePack: {
+    executionResult: {
       diff: { files: ["src/recovery.ts"] },
       commands: [{ kind: "unit_test", command: "npm test", status: "failed", exitCode: 1, summary: "login spec failed" }],
       runner: { status: "completed", exitCode: 0 },
@@ -80,8 +80,8 @@ test("failure fingerprints include concrete status check failure details", () =>
   const second = buildFailureFingerprint({
     statusCheckResult: {
       ...baseStatusCheck,
-      evidencePack: {
-        ...baseStatusCheck.evidencePack,
+      executionResult: {
+        ...baseStatusCheck.executionResult,
         commands: [{ kind: "unit_test", command: "npm test", status: "failed", exitCode: 1, summary: "checkout spec failed" }],
       },
     } as never,
@@ -95,7 +95,7 @@ test("failure fingerprints include spec alignment reasons and coverage gaps", ()
   const baseStatusCheck = {
     taskId: "TASK-010",
     summary: "Spec alignment failed; Done is blocked.",
-    evidencePack: {
+    executionResult: {
       diff: { files: ["src/recovery.ts"] },
       commands: [],
       runner: { status: "completed", exitCode: 0 },
@@ -115,10 +115,10 @@ test("failure fingerprints include spec alignment reasons and coverage gaps", ()
   const second = buildFailureFingerprint({
     statusCheckResult: {
       ...baseStatusCheck,
-      evidencePack: {
-        ...baseStatusCheck.evidencePack,
+      executionResult: {
+        ...baseStatusCheck.executionResult,
         specAlignment: {
-          ...baseStatusCheck.evidencePack.specAlignment,
+          ...baseStatusCheck.executionResult.specAlignment,
           coverageGaps: ["REQ-044"],
         },
       },
@@ -133,7 +133,7 @@ test("failure fingerprints ignore volatile runner logs when no command check exi
   const baseStatusCheck = {
     taskId: "TASK-010",
     summary: "Status check blocked by runner failure.",
-    evidencePack: {
+    executionResult: {
       diff: { files: ["src/recovery.ts"] },
       commands: [],
       runner: { status: "failed", exitCode: 1, summary: "Codex runner failed.", stderr: "tmp=/tmp/run-123 at 12:00", stdout: "request id abc" },
@@ -145,8 +145,8 @@ test("failure fingerprints ignore volatile runner logs when no command check exi
   const second = buildFailureFingerprint({
     statusCheckResult: {
       ...baseStatusCheck,
-      evidencePack: {
-        ...baseStatusCheck.evidencePack,
+      executionResult: {
+        ...baseStatusCheck.executionResult,
         runner: { status: "failed", exitCode: 1, summary: "Codex runner failed.", stderr: "tmp=/tmp/run-456 at 12:01", stdout: "request id xyz" },
       },
     } as never,
@@ -523,7 +523,7 @@ test("recovery dispatch input redacts history and source evidence", () => {
       createdAt: stableDate.toISOString(),
     }],
     statusCheckResult: {
-      evidencePack: {
+      executionResult: {
         commands: [{ kind: "unit_test", command: "npm test token=abc123", status: "failed", summary: "password=hunter2" }],
         runner: { status: "failed", exitCode: 1, stdout: "secret=topsecret", stderr: "token=abc123" },
       },
@@ -668,10 +668,10 @@ test("recovery result handler writes evidence and forbidden record for failed at
     now: stableDate,
   });
 
-  assert.equal(result.evidencePack.recoveryTaskId, task.id);
-  assert.equal(result.evidencePack.fingerprintId, task.fingerprint.id);
-  assert.equal(JSON.stringify(result.evidencePack).includes("abc123"), false);
-  assert.equal(JSON.stringify(result.evidencePack).includes("hunter2"), false);
+  assert.equal(result.executionResult.recoveryTaskId, task.id);
+  assert.equal(result.executionResult.fingerprintId, task.fingerprint.id);
+  assert.equal(JSON.stringify(result.executionResult).includes("abc123"), false);
+  assert.equal(JSON.stringify(result.executionResult).includes("hunter2"), false);
   assert.equal(JSON.stringify(result.attempt).includes("topsecret"), false);
   assert.equal(result.nextStepRecommendations.some((item) => item.includes("forbidden duplicate")), true);
   assert.equal(result.boardStatus, "failed");
@@ -734,7 +734,7 @@ test("recovery attempt persistence redacts commands, summaries, and evidence", (
     fileScope: ["src/recovery.ts"],
     status: "scheduled",
     summary: "scheduled with token=abc123",
-    evidencePack: {
+    executionResult: {
       id: "RECOVERY-EVIDENCE-SECRET",
       recoveryTaskId: "TASK-RECOVERY-010",
       fingerprintId: fingerprint.id,

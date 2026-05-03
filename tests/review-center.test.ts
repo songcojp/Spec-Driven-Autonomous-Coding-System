@@ -20,7 +20,7 @@ test("current schema includes review center approval context", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 23);
+  assert.equal(SCHEMA_VERSION, 24);
   assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   assert.equal(tables.includes("review_items"), true);
@@ -40,12 +40,12 @@ test("schema migration leaves legacy review evidence references explicit", () =>
         VALUES ('REV-LEGACY', 'FEAT-LEGACY', 'review_needed', 'high', '{"message":"Legacy review"}', '2026-04-28T11:00:00.000Z')`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
-        VALUES ('EVID-LEGACY', 'RUN-LEGACY', NULL, 'FEAT-LEGACY', '.autobuild/evidence/legacy.json', 'status_checker', 'Legacy evidence.', '{}', '2026-04-28T11:01:00.000Z')`,
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
+        VALUES ('EVID-LEGACY', 'RUN-LEGACY', NULL, 'FEAT-LEGACY', '.autobuild/reports/legacy.json', 'status_checker', 'Legacy evidence.', '{}', '2026-04-28T11:01:00.000Z')`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
-        VALUES ('EVID-OTHER-TASK', 'RUN-OTHER', 'TASK-OTHER', 'FEAT-LEGACY', '.autobuild/evidence/other.json', 'status_checker', 'Other task evidence.', '{}', '2026-04-28T11:02:00.000Z')`,
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json, created_at)
+        VALUES ('EVID-OTHER-TASK', 'RUN-OTHER', 'TASK-OTHER', 'FEAT-LEGACY', '.autobuild/reports/other.json', 'status_checker', 'Other task evidence.', '{}', '2026-04-28T11:02:00.000Z')`,
     },
   ]);
 
@@ -115,8 +115,8 @@ test("review router records clarification, approval, and risk review reasons wit
   const dbPath = seedReviewData();
   runSqlite(dbPath, [
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
-        VALUES ('EVID-OTHER', 'RUN-011', 'TASK-011', 'FEAT-011', '.autobuild/evidence/unrelated.json', 'status_checker', 'Unrelated evidence.', '{}')`,
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+        VALUES ('EVID-OTHER', 'RUN-011', 'TASK-011', 'FEAT-011', '.autobuild/reports/unrelated.json', 'status_checker', 'Unrelated evidence.', '{}')`,
     },
   ]);
 
@@ -1874,8 +1874,8 @@ function seedReviewData(): string {
         VALUES ('RUN-011', 'TASK-011', 'FEAT-011', 'project-1', 'review_needed', '{"automatic":true}')`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
-        VALUES ('EVID-011', 'RUN-011', 'TASK-011', 'FEAT-011', '.autobuild/evidence/RUN-011.json', 'status_checker', 'Status checker requested review.', '{}')`,
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+        VALUES ('EVID-011', 'RUN-011', 'TASK-011', 'FEAT-011', '.autobuild/reports/RUN-011.json', 'status_checker', 'Status checker requested review.', '{}')`,
     },
   ]);
   return dbPath;

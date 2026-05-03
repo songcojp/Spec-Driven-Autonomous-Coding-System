@@ -151,7 +151,7 @@ export type TestEnvironmentIsolationRecord = {
   resources: TestResourceIsolation[];
   workspacePath?: string;
   runnerInput: TestRunnerIsolationInput;
-  evidencePackMetadata: Record<string, unknown>;
+  executionResultMetadata: Record<string, unknown>;
   createdAt: string;
 };
 
@@ -368,7 +368,7 @@ export function buildTestEnvironmentIsolationRecord(input: {
     workspacePath: input.worktree?.path,
     cleanupStrategy: input.cleanupStrategy,
   };
-  const evidencePackMetadata = {
+  const executionResultMetadata = {
     testEnvironmentIsolation: {
       environmentId: input.environmentId,
       environmentType: input.environmentType,
@@ -396,7 +396,7 @@ export function buildTestEnvironmentIsolationRecord(input: {
     resources: input.resources,
     workspacePath: input.worktree?.path,
     runnerInput,
-    evidencePackMetadata,
+    executionResultMetadata,
     createdAt: (input.now ?? new Date()).toISOString(),
   };
 }
@@ -493,7 +493,7 @@ export function persistWorktreeRecord(dbPath: string, record: WorktreeRecord): W
   return record;
 }
 
-export function persistWorkspaceEvidence(
+export function persistWorkspaceExecutionResults(
   dbPath: string,
   input: {
     conflict?: ConflictCheckResult;
@@ -561,7 +561,7 @@ export function persistWorkspaceEvidence(
       sql: `INSERT INTO test_environment_isolation_records (
         id, run_id, feature_id, task_id, worktree_id, environment_id,
         environment_type, resources_json, workspace_path, runner_input_json,
-        evidence_pack_metadata_json, created_at
+        execution_result_metadata_json, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       params: [
         record.id,
@@ -574,7 +574,7 @@ export function persistWorkspaceEvidence(
         JSON.stringify(record.resources),
         record.workspacePath ?? null,
         JSON.stringify(record.runnerInput),
-        JSON.stringify(record.evidencePackMetadata),
+        JSON.stringify(record.executionResultMetadata),
         record.createdAt,
       ],
     });

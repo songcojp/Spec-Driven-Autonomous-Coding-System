@@ -214,7 +214,7 @@ export type SpecWorkspaceModel = {
         status: "pending" | "accepted" | "blocked" | "completed";
         updatedAt?: string;
         auditEventId?: string;
-        evidencePath?: string;
+        resultPath?: string;
         blockedReason?: string;
       }>;
     }>;
@@ -224,7 +224,7 @@ export type SpecWorkspaceModel = {
       status: "pending" | "accepted" | "blocked" | "completed";
       updatedAt?: string;
       auditEventId?: string;
-      evidencePath?: string;
+      resultPath?: string;
     }>;
   };
   selectedFeature?: {
@@ -290,7 +290,7 @@ export type RunnerModel = {
     skillPhase?: string;
     blockedReason?: string;
     status: string;
-    evidenceSummary?: string;
+    resultSummary?: string;
     output?: SkillOutputModel;
     updatedAt?: string;
   }>;
@@ -390,7 +390,7 @@ export type RunnerScheduleTask = {
   action: "schedule" | "run" | "review" | "observe";
   blockedReasons: string[];
   recentLog?: string;
-  evidenceSummary?: string;
+  resultSummary?: string;
   lastUpdatedAt?: string;
 };
 
@@ -417,13 +417,13 @@ export type AuditModel = {
     acceptedCommands: number;
     blockedCommands: number;
     stateTransitions: number;
-    evidenceCount: number;
+    activityCount: number;
     pendingApprovals: number;
   };
   timeline: Array<{
     id: string;
     occurredAt: string;
-    status: "accepted" | "blocked" | "transition" | "evidence" | "approval" | "recorded";
+    status: "accepted" | "blocked" | "transition" | "approval" | "recorded";
     eventType: string;
     action: string;
     entityType: string;
@@ -434,7 +434,7 @@ export type AuditModel = {
     jobId?: string;
     featureId?: string;
     taskId?: string;
-    evidenceId?: string;
+    executionResultId?: string;
     reviewId?: string;
     blockedReasons: string[];
     payload?: Record<string, unknown>;
@@ -444,7 +444,7 @@ export type AuditModel = {
     currentStatus?: string;
     environment?: string;
   };
-  linkedEvidence: Array<{ id: string; kind: string; summary: string; path?: string; runId?: string; createdAt: string }>;
+  executionResults: Array<{ id: string; kind: string; summary: string; path?: string; runId?: string; createdAt: string }>;
   approvals: Array<{ id: string; reviewItemId: string; actor: string; decision: string; reason: string; decidedAt: string }>;
   filters: {
     eventTypes: string[];

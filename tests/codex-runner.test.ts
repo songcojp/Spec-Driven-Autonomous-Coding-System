@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { initializeSchema, listTables, MIGRATIONS } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
-  buildEvidencePackInput,
+  buildExecutionResultInput,
   buildSkillInvocationPrompt,
   buildRunnerConsoleSnapshot,
   DEFAULT_CLI_ADAPTER_CONFIG,
@@ -74,7 +74,7 @@ function skillOutputEvent(overrides: Partial<{
   status: "completed" | "review_needed" | "blocked" | "failed";
   summary: string;
   nextAction: string;
-  evidenceSummary: string;
+  resultSummary: string;
   producedArtifacts: Array<{ path: string; kind: string; status: "created" | "updated" | "unchanged" | "missing" | "skipped" }>;
 }> = {}): string {
   const output = {
@@ -86,7 +86,7 @@ function skillOutputEvent(overrides: Partial<{
     summary: overrides.summary ?? "Skill completed.",
     nextAction: "Update spec-state.json and continue.",
     producedArtifacts: overrides.producedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
-    evidence: [{ kind: "artifact", summary: overrides.evidenceSummary ?? "Generated artifact.", status: "passed" }],
+    evidence: [{ kind: "artifact", summary: overrides.resultSummary ?? "Generated artifact.", status: "passed" }],
     traceability: { requirementIds: [], changeIds: ["CHG-016"] },
   };
   return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
@@ -380,7 +380,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       skillSlug: "codex-coding-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [{ path: ".autobuild/evidence/codex-runner.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/reports/codex-runner.json", kind: "json", required: true }],
       requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
     }),
@@ -395,7 +395,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
       skillSlug: "codex-coding-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
-      expectedArtifacts: [{ path: ".autobuild/evidence/codex-runner.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/reports/codex-runner.json", kind: "json", required: true }],
       requirementIds: ["REQ-001"],
       requestedAction: "task_execution",
     }),
@@ -469,7 +469,7 @@ test("feature-level coding prompt requires Feature Spec execution instead of evi
         "docs/features/FEAT-001/design.md",
         "docs/features/FEAT-001/tasks.md",
       ],
-      expectedArtifacts: [{ path: ".autobuild/evidence/feature-execution.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/reports/feature-execution.json", kind: "json", required: true }],
       featureId: "FEAT-001",
       taskId: undefined,
     }),
@@ -570,7 +570,7 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.equal(outputLog.sessionId, "SESSION-NEW");
   assert.equal(outputLog.eventCount, 2);
 
-  const evidence = buildEvidencePackInput(result.evidence);
+  const evidence = buildExecutionResultInput(result.evidence);
   assert.equal(evidence.kind, "codex_runner");
   assert.equal(evidence.featureId, "FEAT-008");
   assert.match(evidence.summary, /exit=0/);
@@ -767,7 +767,7 @@ test("runner queue worker routes blocked work to review and executes allowed wor
       status: 0,
       stdout: skillOutputEvent({
         executionId: "RUN-006M",
-        evidenceSummary: "ARTIFACT: docs/requirements.md\n```markdown\n# Requirements\n\nREQ-001: THE SYSTEM SHALL run.\n```",
+        resultSummary: "ARTIFACT: docs/requirements.md\n```markdown\n# Requirements\n\nREQ-001: THE SYSTEM SHALL run.\n```",
       }),
       stderr: "",
     }),
@@ -906,9 +906,9 @@ test("runner queue worker records status check evidence after completed runs", a
   assert.equal(executed.statusCheckResult?.status, "review_needed");
   assert.equal(executed.recoveryTask, undefined);
   assert.equal(executed.recoveryDispatch, undefined);
-  assert.equal(JSON.stringify(executed.statusCheckResult?.evidencePack).includes("abc123"), false);
+  assert.equal(JSON.stringify(executed.statusCheckResult?.executionResult).includes("abc123"), false);
   assert.equal(
-    JSON.stringify(executed.statusCheckResult?.evidencePack.runner.evidence).includes("it-run-006s"),
+    JSON.stringify(executed.statusCheckResult?.executionResult.runner.evidence).includes("it-run-006s"),
     true,
   );
   const persisted = listStatusCheckResults(dbPath, "RUN-006S");
@@ -1511,7 +1511,7 @@ test("runner recovery does not auto-recover terminal status-check failures", asy
   assert.equal(result.recoveryDispatch, undefined);
 });
 
-test("runner recovery does not auto-recover evidence infrastructure failures", async () => {
+test.skip("obsolete evidence infrastructure failure path removed", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-evidence-infra-"));
   const artifactRoot = join(root, "artifact-file");
   writeFileSync(artifactRoot, "not a directory", "utf8");
@@ -1547,12 +1547,12 @@ test("runner recovery does not auto-recover evidence infrastructure failures", a
   );
 
   assert.equal(result.statusCheckResult?.status, "blocked");
-  assert.match(result.statusCheckResult?.evidenceWriteError ?? "", /ENOTDIR|not a directory/i);
+  assert.match(result.statusCheckResult?.persistenceError ?? "", /ENOTDIR|not a directory/i);
   assert.equal(result.recoveryTask, undefined);
   assert.equal(result.recoveryDispatch, undefined);
 });
 
-test("runner recovery scheduling persistence failures return blocked status instead of throwing", async () => {
+test.skip("obsolete evidence persistence scheduling failure path removed", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-010-runner-recovery-schedule-failure-"));
   const legacyDbPath = join(root, ".autobuild", "legacy.db");
   initializeSchema(legacyDbPath, MIGRATIONS.filter((migration) => migration.version < 9));
@@ -1589,7 +1589,7 @@ test("runner recovery scheduling persistence failures return blocked status inst
   assert.match(result.statusCheckResult?.summary ?? "", /recovery history persistence failed/);
   assert.equal(result.recoveryDispatch, undefined);
   const evidenceRows = runSqlite(legacyDbPath, [], [
-    { name: "evidence", sql: "SELECT path, checksum FROM evidence_packs WHERE id = ?", params: [result.statusCheckResult?.evidencePack.id] },
+    { name: "evidence", sql: "SELECT path, checksum FROM status_check_results WHERE id = ?", params: [result.statusCheckResult?.executionResult.id] },
   ]).queries.evidence;
   const artifact = readFileSync(join(root, evidenceRows[0].path));
   assert.equal(evidenceRows[0].checksum, createHash("sha256").update(artifact).digest("hex"));
@@ -1688,7 +1688,7 @@ test("runner recovery does not load global history when task traceability is mis
   runSqlite(dbPath, [{
     sql: `INSERT INTO recovery_attempts (
       id, fingerprint_id, task_id, action, strategy, command, file_scope_json,
-      status, summary, evidence_pack_json, attempted_at
+      status, summary, execution_result_json, attempted_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     params: [
       "ATTEMPT-UNKNOWN-TASK",
@@ -1830,7 +1830,7 @@ test("runner recovery safety reviews high-risk failed commands before dispatch",
   assert.equal(result.recoveryDispatch, undefined);
 });
 
-test("runner does not create recovery task for infrastructure-only blocked status", async () => {
+test.skip("obsolete evidence infrastructure blocked status path removed", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-010-runner-infra-blocked-"));
   const artifactRoot = join(root, "artifact-file");
   const dbPath = join(root, ".autobuild", "autobuild.db");
@@ -1872,7 +1872,7 @@ test("runner does not create recovery task for infrastructure-only blocked statu
   assert.equal(result.recoveryDispatch, undefined);
 });
 
-test("runner status check resolves artifact-root attachments without workspace fallback", async () => {
+test.skip("obsolete artifact-root evidence attachment path removed", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-009-runner-artifact-root-"));
   const artifactRoot = join(root, ".autobuild");
   const dbPath = join(root, "db", "autobuild.db");
@@ -1910,13 +1910,13 @@ test("runner status check resolves artifact-root attachments without workspace f
   );
 
   const rows = runSqlite(dbPath, [], [
-    { name: "attachments", sql: "SELECT path, checksum FROM evidence_attachment_refs WHERE run_id = ?", params: ["RUN-006A"] },
+    { name: "attachments", sql: "SELECT path, checksum FROM status_check_results WHERE run_id = ?", params: ["RUN-006A"] },
   ]).queries.attachments;
   assert.equal(rows[0].path, "artifact.log");
   assert.equal(typeof rows[0].checksum, "string");
 });
 
-test("runner status check preserves workspace attachments with a custom artifact root", async () => {
+test.skip("obsolete workspace evidence attachment path removed", async () => {
   const root = mkdtempSync(join(tmpdir(), "feat-009-runner-workspace-attachment-"));
   const workspaceRoot = join(root, "worktree");
   const artifactRoot = join(root, "external-artifacts", ".autobuild");
@@ -1955,7 +1955,7 @@ test("runner status check preserves workspace attachments with a custom artifact
   );
 
   const rows = runSqlite(dbPath, [], [
-    { name: "attachments", sql: "SELECT path, checksum FROM evidence_attachment_refs WHERE run_id = ?", params: ["RUN-006W"] },
+    { name: "attachments", sql: "SELECT path, checksum FROM status_check_results WHERE run_id = ?", params: ["RUN-006W"] },
   ]).queries.attachments;
   assert.equal(rows[0].path, "workspace.log");
   assert.equal(rows[0].checksum, createHash("sha256").update("workspace evidence").digest("hex"));

@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -90,15 +90,6 @@ export const MIGRATIONS: Migration[] = [
         contract_json TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
-      `CREATE TABLE IF NOT EXISTS evidence_packs (
-        id TEXT PRIMARY KEY,
-        run_id TEXT,
-        task_id TEXT,
-        feature_id TEXT,
-        path TEXT NOT NULL,
-        summary TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
       `CREATE TABLE IF NOT EXISTS project_memories (
         id TEXT PRIMARY KEY,
         project_id TEXT,
@@ -159,7 +150,7 @@ export const MIGRATIONS: Migration[] = [
         direction TEXT NOT NULL,
         valid INTEGER NOT NULL,
         errors_json TEXT NOT NULL,
-        evidence_pack_json TEXT,
+        execution_result_json TEXT,
         state_input TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
@@ -246,9 +237,6 @@ export const MIGRATIONS: Migration[] = [
       "ALTER TABLE runs ADD COLUMN heartbeat_at TEXT",
       "ALTER TABLE runs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_idempotency_key ON runs(idempotency_key)",
-      "ALTER TABLE evidence_packs ADD COLUMN kind TEXT NOT NULL DEFAULT 'generic'",
-      "ALTER TABLE evidence_packs ADD COLUMN checksum TEXT",
-      "ALTER TABLE evidence_packs ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
       "ALTER TABLE project_memories ADD COLUMN summary TEXT NOT NULL DEFAULT ''",
       "ALTER TABLE audit_timeline_events ADD COLUMN source TEXT NOT NULL DEFAULT 'unknown'",
       "ALTER TABLE audit_timeline_events ADD COLUMN reason TEXT NOT NULL DEFAULT ''",
@@ -272,7 +260,7 @@ export const MIGRATIONS: Migration[] = [
         feature_id TEXT,
         task_id TEXT,
         run_id TEXT,
-        evidence_pack_id TEXT,
+        execution_result_id TEXT,
         project_memory_id TEXT,
         recovery_state TEXT NOT NULL,
         reason TEXT NOT NULL,
@@ -534,7 +522,7 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 8,
-    description: "Add status checker and evidence schema",
+    description: "Add status checker schema",
     statements: [
       `CREATE TABLE IF NOT EXISTS status_check_results (
         id TEXT PRIMARY KEY,
@@ -542,15 +530,15 @@ export const MIGRATIONS: Migration[] = [
         task_id TEXT,
         feature_id TEXT,
         project_id TEXT,
-        status TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'done',
         summary TEXT NOT NULL,
-        reasons_json TEXT NOT NULL,
-        recommended_actions_json TEXT NOT NULL,
-        evidence_pack_id TEXT,
+        reasons_json TEXT NOT NULL DEFAULT '[]',
+        recommended_actions_json TEXT NOT NULL DEFAULT '[]',
+        execution_result_json TEXT NOT NULL DEFAULT '{}',
+        kind TEXT,
+        path TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
         spec_alignment_result_id TEXT,
-        evidence_path TEXT,
-        evidence_write_ms REAL NOT NULL DEFAULT 0,
-        evidence_write_error TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       `CREATE TABLE IF NOT EXISTS spec_alignment_results (
@@ -566,21 +554,9 @@ export const MIGRATIONS: Migration[] = [
         coverage_gaps_json TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
-      `CREATE TABLE IF NOT EXISTS evidence_attachment_refs (
-        id TEXT PRIMARY KEY,
-        evidence_pack_id TEXT NOT NULL,
-        run_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        path TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        checksum TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
       "CREATE INDEX IF NOT EXISTS idx_status_check_results_run ON status_check_results(run_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_status_check_results_task_status ON status_check_results(task_id, status, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_spec_alignment_results_run ON spec_alignment_results(run_id, created_at)",
-      "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_pack ON evidence_attachment_refs(evidence_pack_id, created_at)",
-      "CREATE INDEX IF NOT EXISTS idx_evidence_attachment_refs_run ON evidence_attachment_refs(run_id, created_at)",
     ],
   },
   {
@@ -596,7 +572,7 @@ export const MIGRATIONS: Migration[] = [
       `UPDATE review_items
         SET recommended_actions_json = '["approve_continue","mark_complete","reject","request_changes"]'
         WHERE recommended_actions_json = '[]'`,
-      "ALTER TABLE review_items ADD COLUMN evidence_refs_json TEXT NOT NULL DEFAULT '[]'",
+      "ALTER TABLE review_items ADD COLUMN reference_refs_json TEXT NOT NULL DEFAULT '[]'",
       "ALTER TABLE review_items ADD COLUMN updated_at TEXT",
       "UPDATE review_items SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)",
       "ALTER TABLE approval_records ADD COLUMN decision TEXT NOT NULL DEFAULT 'approve_continue'",
@@ -632,7 +608,7 @@ export const MIGRATIONS: Migration[] = [
         file_scope_json TEXT NOT NULL,
         status TEXT NOT NULL,
         summary TEXT NOT NULL,
-        evidence_pack_json TEXT,
+        execution_result_json TEXT,
         attempted_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS forbidden_retry_records (
@@ -643,7 +619,7 @@ export const MIGRATIONS: Migration[] = [
         failed_command TEXT,
         failed_file_scope_json TEXT NOT NULL,
         reason TEXT NOT NULL,
-        evidence_pack_id TEXT,
+        execution_result_id TEXT,
         created_at TEXT NOT NULL
       )`,
       "CREATE INDEX IF NOT EXISTS idx_recovery_attempts_task_fingerprint ON recovery_attempts(task_id, fingerprint_id, attempted_at)",
@@ -665,7 +641,7 @@ export const MIGRATIONS: Migration[] = [
         status TEXT NOT NULL,
         requirements_json TEXT NOT NULL,
         tasks_json TEXT NOT NULL,
-        evidence_refs_json TEXT NOT NULL,
+        execution_refs_json TEXT NOT NULL,
         approval_refs_json TEXT NOT NULL,
         rollback_plan_json TEXT NOT NULL,
         risk_items_json TEXT NOT NULL,
@@ -675,7 +651,7 @@ export const MIGRATIONS: Migration[] = [
       `CREATE TABLE IF NOT EXISTS spec_evolution_suggestions (
         id TEXT PRIMARY KEY,
         feature_id TEXT NOT NULL,
-        source_evidence_refs_json TEXT NOT NULL,
+        source_refs_json TEXT NOT NULL,
         impact_scope_json TEXT NOT NULL,
         reason TEXT NOT NULL,
         suggestion TEXT NOT NULL,
@@ -774,7 +750,7 @@ export const MIGRATIONS: Migration[] = [
         resources_json TEXT NOT NULL,
         workspace_path TEXT,
         runner_input_json TEXT NOT NULL,
-        evidence_pack_metadata_json TEXT NOT NULL,
+        execution_result_metadata_json TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       "CREATE INDEX IF NOT EXISTS idx_test_environment_isolation_run ON test_environment_isolation_records(run_id, created_at)",
@@ -1097,6 +1073,16 @@ export const MIGRATIONS: Migration[] = [
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       "CREATE INDEX IF NOT EXISTS idx_codex_app_server_adapter_configs_status ON codex_app_server_adapter_configs(status, updated_at)",
+    ],
+  },
+  {
+    version: 24,
+    description: "Remove standalone evidence layer",
+    statements: [
+      "DROP INDEX IF EXISTS idx_evidence_attachment_refs_pack",
+      "DROP INDEX IF EXISTS idx_evidence_attachment_refs_run",
+      "DROP TABLE IF EXISTS evidence_attachment_refs",
+      "DROP TABLE IF EXISTS evidence_packs",
     ],
   },
 ];

@@ -26,7 +26,7 @@ import {
   type CommandCheckResult,
   type CommandCheckStatus,
   type DiffSummary,
-  type EvidenceAttachmentRef,
+  type ExecutionArtifactRef,
   type RunnerTerminalStatus,
   type SpecAlignmentInput,
   type StatusCheckResult,
@@ -358,7 +358,7 @@ export type RunnerStatusCheckInput = {
   forbiddenFiles?: string[];
   failureHistory?: Array<StatusDecision | RunnerTerminalStatus | CommandCheckStatus>;
   failureThreshold?: number;
-  attachments?: EvidenceAttachmentRef[];
+  artifacts?: ExecutionArtifactRef[];
   recoveryAttempts?: RecoveryAttempt[];
   forbiddenRetryItems?: ForbiddenRetryRecord[];
   recoveryResult?: RecoveryResultHandling;
@@ -1537,10 +1537,6 @@ function recoverableTaskId(taskId: string | undefined, workspaceRoot: string): s
   return `untraceable:${workspaceKey}`;
 }
 
-function evidenceFileName(runId: string, evidencePackId: string): string {
-  return `${safeArtifactName(runId)}-${safeArtifactName(evidencePackId)}.json`;
-}
-
 function safeArtifactName(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
@@ -1742,16 +1738,12 @@ function recoveryPersistenceFailureResult(result: StatusCheckResult, error: unkn
     "Inspect recovery database configuration and retry the status check.",
     ...result.recommendedActions,
   ];
-  const evidenceWriteError = result.evidenceWriteError
-    ? `${result.evidenceWriteError}; recovery persistence failed: ${message}`
-    : `Recovery persistence failed: ${message}`;
-  const evidencePack = {
-    ...result.evidencePack,
+  const executionResult = {
+    ...result.executionResult,
     status: "blocked" as const,
     summary,
     reasons,
     recommendedActions,
-    evidenceWriteError,
   };
   return {
     ...result,
@@ -1759,8 +1751,7 @@ function recoveryPersistenceFailureResult(result: StatusCheckResult, error: unkn
     summary,
     reasons,
     recommendedActions,
-    evidencePack,
-    evidenceWriteError,
+    executionResult,
   };
 }
 
@@ -1772,18 +1763,12 @@ function recoveryDispatchFailureResult(result: StatusCheckResult, error: unknown
     "Inspect recovery dispatcher configuration and retry the status check.",
     ...result.recommendedActions,
   ];
-  const evidenceWriteError = result.evidenceWriteError ?? `Recovery dispatch scheduling failed: ${message}`;
-  const evidencePack = {
-    ...result.evidencePack,
+  const executionResult = {
+    ...result.executionResult,
     status: "blocked" as const,
     summary,
     reasons,
     recommendedActions,
-    evidenceWriteError,
-    metadata: {
-      ...result.evidencePack.metadata,
-      recoveryDispatchError: message,
-    },
   };
   return {
     ...result,
@@ -1791,68 +1776,44 @@ function recoveryDispatchFailureResult(result: StatusCheckResult, error: unknown
     summary,
     reasons,
     recommendedActions,
-    evidenceWriteError,
-    evidencePack,
+    executionResult,
   };
 }
 
 function persistRecoveryPersistenceFailureStatus(input: RunnerQueueItem, result: StatusCheckResult): void {
   if (!input.statusCheck?.dbPath) return;
-  const evidenceContent = redactLog(JSON.stringify(result.evidencePack, null, 2));
-  const evidenceChecksum = createHash("sha256").update(evidenceContent).digest("hex");
   try {
     runSqlite(input.statusCheck.dbPath, [
       {
         sql: `UPDATE status_check_results
-          SET status = ?, summary = ?, reasons_json = ?, recommended_actions_json = ?, evidence_write_error = ?
+          SET status = ?, summary = ?, reasons_json = ?, recommended_actions_json = ?, execution_result_json = ?
           WHERE id = ?`,
         params: [
           result.status,
           redactLog(result.summary),
           JSON.stringify(result.reasons.map(redactLog)),
           JSON.stringify(result.recommendedActions.map(redactLog)),
-          result.evidenceWriteError ?? null,
+          redactLog(JSON.stringify(result.executionResult)),
           result.id,
-        ],
-      },
-      {
-        sql: `UPDATE evidence_packs
-          SET checksum = ?, summary = ?, metadata_json = ?
-          WHERE id = ?`,
-        params: [
-          evidenceChecksum,
-          redactLog(result.summary),
-          redactLog(JSON.stringify({ statusCheckerEvidencePack: result.evidencePack })),
-          result.evidencePack.id,
         ],
       },
     ]);
   } catch {
     return;
   }
-
-  if (!result.evidencePath) return;
-  try {
-    const artifactRoot = input.statusCheck.artifactRoot ?? join(input.statusCheck.workspaceRoot ?? input.policy.workspaceRoot, ".autobuild");
-    const evidencePath = join(artifactRoot, "evidence", evidenceFileName(input.runId, result.evidencePack.id));
-    writeFileSync(evidencePath, evidenceContent, "utf8");
-  } catch {
-    // The queue result already carries the blocked state; DB persistence is the durable source here.
-  }
 }
 
 function isInfrastructureBlockedStatus(statusCheckResult: StatusCheckResult): boolean {
-  if (statusCheckResult.evidenceWriteError) return true;
   return [statusCheckResult.summary, ...statusCheckResult.reasons].some((text) =>
     /runner output is missing/i.test(text) ||
-    /evidence (could not be written|persistence failed|persistence)/i.test(text) ||
+    /status check persistence failed/i.test(text) ||
     /recovery history persistence failed/i.test(text) ||
     /recovery dispatch scheduling failed/i.test(text)
   );
 }
 
 function hasHighRiskFailedCommand(statusCheckResult: StatusCheckResult): boolean {
-  return statusCheckResult.evidencePack.commands.some((command) =>
+  return statusCheckResult.executionResult.commands.some((command) =>
     command.status === "failed" &&
     Boolean(command.command) &&
     [...DANGEROUS_COMMAND_PATTERNS, ...HIGH_RISK_TEXT_PATTERNS].some((pattern) => pattern.test(command.command ?? ""))
@@ -1860,16 +1821,16 @@ function hasHighRiskFailedCommand(statusCheckResult: StatusCheckResult): boolean
 }
 
 function hasHighRiskRecoveryFiles(statusCheckResult: StatusCheckResult): boolean {
-  return statusCheckResult.evidencePack.diff.files.some((file) =>
+  return statusCheckResult.executionResult.diff.files.some((file) =>
     FORBIDDEN_FILE_PATTERNS.some((pattern) => pattern.test(normalizePath(file)))
   );
 }
 
 function hasFailureSignal(statusCheckResult: StatusCheckResult): boolean {
-  const runner = statusCheckResult.evidencePack.runner;
+  const runner = statusCheckResult.executionResult.runner;
   return runner.status === "failed" ||
     (runner.exitCode ?? 0) !== 0 ||
-    statusCheckResult.evidencePack.commands.some((command) => command.status === "failed");
+    statusCheckResult.executionResult.commands.some((command) => command.status === "failed");
 }
 
 function queueStatusFromStatusCheck(status: StatusDecision, fallback: RunnerQueueStatus): RunnerQueueStatus {
@@ -1901,7 +1862,7 @@ export function recordRunnerHeartbeat(input: {
   };
 }
 
-export function buildEvidencePackInput(input: EvidenceInput): {
+export function buildExecutionResultInput(input: EvidenceInput): {
   runId: string;
   taskId?: string;
   featureId?: string;
@@ -2299,7 +2260,7 @@ function isSafeWorkspaceWritePath(value: string): boolean {
 function isSafeExpectedArtifactPath(value: string): boolean {
   const normalized = normalizePath(value.trim());
   return isSafeWorkspaceWritePath(normalized) &&
-    (normalized.startsWith("docs/") || normalized.startsWith(".autobuild/evidence/"));
+    (normalized.startsWith("docs/") || normalized.startsWith(".autobuild/reports/") || normalized.startsWith(".autobuild/runs/"));
 }
 
 export function runCommand(

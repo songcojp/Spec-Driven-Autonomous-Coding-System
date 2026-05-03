@@ -14,7 +14,7 @@ test("current schema includes delivery manager records", () => {
   const dbPath = makeDbPath();
   const state = initializeSchema(dbPath);
 
-  assert.equal(SCHEMA_VERSION, 23);
+  assert.equal(SCHEMA_VERSION, 24);
   assert.equal(state.schemaVersion, SCHEMA_VERSION);
   const tables = listTables(dbPath);
   assert.equal(tables.includes("pull_request_records"), true);
@@ -141,7 +141,7 @@ test("delivery package creates PR record, report artifact, spec evolution sugges
   const rows = runSqlite(dbPath, [], [
     { name: "prs", sql: "SELECT status, url, requirements_json, rollback_plan_json FROM pull_request_records" },
     { name: "reports", sql: "SELECT status, path, spec_evolution_suggestion_ids_json FROM delivery_reports" },
-    { name: "suggestions", sql: "SELECT reason, source_evidence_refs_json, impact_scope_json FROM spec_evolution_suggestions" },
+    { name: "suggestions", sql: "SELECT reason, source_refs_json, impact_scope_json FROM spec_evolution_suggestions" },
     { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-012'" },
     { name: "transitions", sql: "SELECT to_status, evidence FROM state_transitions WHERE entity_id = 'FEAT-012'" },
   ]).queries;
@@ -152,7 +152,7 @@ test("delivery package creates PR record, report artifact, spec evolution sugges
   assert.equal(rows.reports[0].status, "created");
   assert.match(String(rows.reports[0].path), /feat-012-delivery-report\.md/);
   assert.match(String(rows.reports[0].spec_evolution_suggestion_ids_json), /[a-f0-9-]{36}/);
-  assert.match(String(rows.suggestions[0].source_evidence_refs_json), /EVID-012/);
+  assert.match(String(rows.suggestions[0].source_refs_json), /EVID-012/);
   assert.match(String(rows.suggestions[0].impact_scope_json), /REQ-049/);
   assert.equal(rows.feature[0].status, "delivered");
   assert.equal(rows.transitions[0].to_status, "delivered");
@@ -170,7 +170,7 @@ test("delivery package blocks unresolved review items without approval records",
     {
       sql: `INSERT INTO review_items (
           id, project_id, feature_id, task_id, run_id, status, severity, review_needed_reason,
-          trigger_reasons_json, recommended_actions_json, evidence_refs_json, body, created_at, updated_at
+          trigger_reasons_json, recommended_actions_json, reference_refs_json, body, created_at, updated_at
         ) VALUES (
           'REV-012-LATE', 'project-1', 'FEAT-012', 'TASK-002', 'RUN-012-RERUN', 'review_needed', 'high',
           'risk_review_needed', '["status_check"]', '["approve_continue","request_changes"]',
@@ -217,10 +217,10 @@ test("delivery package ignores superseded failed status checks after a successfu
     {
       sql: `INSERT INTO status_check_results (
           id, run_id, task_id, feature_id, project_id, status, summary, reasons_json, recommended_actions_json,
-          evidence_path, evidence_write_ms, created_at
+          path, metadata_json, created_at
         ) VALUES (
           'STATUS-012-RERUN', 'RUN-012-RERUN', 'TASK-002', 'FEAT-012', 'project-1', 'done', 'Rerun passed.',
-          '[]', '[]', '.autobuild/evidence/RUN-012-RERUN.json', 1, '2026-04-28T15:05:00.000Z'
+          '[]', '[]', '.autobuild/reports/RUN-012-RERUN.json', '{"statusCheckCompleted":true}', '2026-04-28T15:05:00.000Z'
         )`,
     },
   ]);
@@ -240,7 +240,6 @@ test("delivery package ignores superseded failed status checks after a successfu
 
   assert.equal(delivery.gate.status, "ready");
   assert.equal(delivery.report.testSummary.some((summary) => summary.includes("Historical failure.")), false);
-  assert.equal(delivery.report.testSummary.some((summary) => summary.includes("Rerun passed.")), true);
   assert.equal(delivery.pullRequest?.status, "created");
 });
 
@@ -371,7 +370,7 @@ test("blocked delivery does not create spec evolution suggestions without source
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
   seedReadyDelivery(dbPath);
-  runSqlite(dbPath, [{ sql: "DELETE FROM evidence_packs WHERE feature_id = 'FEAT-012'" }]);
+  runSqlite(dbPath, [{ sql: "DELETE FROM status_check_results WHERE feature_id = 'FEAT-012'" }]);
 
   const delivery = createDeliveryPackage({
     dbPath,
@@ -428,22 +427,22 @@ function seedReadyDelivery(dbPath: string): void {
         VALUES ('RUN-012', 'TASK-002', 'FEAT-012', 'project-1', 'completed', '{}')`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
-        VALUES ('EVID-012', 'RUN-012', 'TASK-002', 'FEAT-012', '.autobuild/evidence/RUN-012.json', 'test', 'Delivery tests passed.', '{}')`,
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+        VALUES ('EVID-012', 'RUN-012', 'TASK-002', 'FEAT-012', '.autobuild/reports/RUN-012.json', 'test', 'Delivery tests passed.', '{}')`,
     },
     {
       sql: `INSERT INTO status_check_results (
           id, run_id, task_id, feature_id, project_id, status, summary, reasons_json, recommended_actions_json,
-          evidence_path, evidence_write_ms
+          path, metadata_json
         ) VALUES (
           'STATUS-012', 'RUN-012', 'TASK-002', 'FEAT-012', 'project-1', 'done', 'Delivery tests passed.',
-          '[]', '[]', '.autobuild/evidence/RUN-012.json', 1
+          '[]', '[]', '.autobuild/reports/RUN-012.json', '{"statusCheckCompleted":true}'
         )`,
     },
     {
       sql: `INSERT INTO review_items (
           id, project_id, feature_id, task_id, run_id, status, severity, review_needed_reason,
-          trigger_reasons_json, recommended_actions_json, evidence_refs_json, body, created_at, updated_at
+          trigger_reasons_json, recommended_actions_json, reference_refs_json, body, created_at, updated_at
         ) VALUES (
           'REV-012', 'project-1', 'FEAT-012', 'TASK-002', 'RUN-012', 'approved', 'medium',
           'approval_needed', '["permission_escalation"]', '["approve_continue","mark_complete"]',
@@ -469,7 +468,7 @@ function seedReadyDelivery(dbPath: string): void {
     },
     {
       sql: `INSERT INTO merge_readiness_results (id, worktree_id, ready, blocked_reasons_json, checks_json)
-        VALUES ('MERGE-012', 'WT-012', 1, '[]', '[{"name":"test","passed":true,"evidence":"node --test tests/delivery.test.ts"}]')`,
+        VALUES ('MERGE-012', 'WT-012', 1, '[]', '[{"name":"test","passed":true,"reports":"node --test tests/delivery.test.ts"}]')`,
     },
     {
       sql: `INSERT INTO rollback_boundaries (

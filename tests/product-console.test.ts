@@ -184,7 +184,7 @@ test("dashboard board does not load oversized evidence metadata blobs", () => {
   seedBoardPatchData(dbPath);
   runSqlite(dbPath, [
     {
-      sql: "UPDATE evidence_packs SET metadata_json = ? WHERE id = 'EVID-TASK-READY'",
+      sql: "UPDATE status_check_results SET metadata_json = ? WHERE id = 'EVID-TASK-READY'",
       params: [JSON.stringify({ large: "x".repeat(11 * 1024 * 1024) })],
     },
   ]);
@@ -486,7 +486,7 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   assert.equal(reviews.items[0].id, "REV-1");
   assert.equal(reviews.items[0].taskId, "TASK-RUNNING");
   assert.equal(reviews.items[0].body, "Needs approval");
-  assert.equal(reviews.items[0].evidence.some((entry) => entry.path === ".autobuild/evidence/RUN-013.json"), true);
+  assert.equal(reviews.items[0].evidence.some((entry) => entry.path === ".autobuild/reports/RUN-013.json"), true);
   assert.equal(scopedReviews.items.some((item) => item.id === "REV-OTHER"), false);
   assert.equal(reviews.items.find((item) => item.id === "REV-GLOBAL")?.evidence.length, 0);
   assert.equal(reviews.items[0].goal, "Approve console review controls.");
@@ -499,8 +499,8 @@ test("console view models expose specs, scheduler state, runner, and reviews", (
   const audit = buildAuditCenterView(dbPath, "project-1");
   assert.equal(audit.factSources.includes("audit_timeline_events"), true);
   assert.equal(audit.timeline.some((event) => event.eventType === "console_command_import_or_create_constitution"), true);
-  assert.equal(audit.timeline.some((event) => event.eventType === "evidence_recorded" && event.evidenceId === "EVID-1"), true);
-  assert.equal(audit.linkedEvidence.some((entry) => entry.id === "EVID-1"), true);
+  assert.equal(audit.timeline.some((event) => event.eventType === "execution_result_recorded" && event.executionResultId === "EVID-1"), true);
+  assert.equal(audit.executionResults.some((entry) => entry.id === "EVID-1"), true);
   assert.equal(audit.summary.pendingApprovals, 1);
 });
 
@@ -649,15 +649,15 @@ test("audit center does not load large run and evidence metadata blobs", () => {
       params: [JSON.stringify({ large: "x".repeat(6 * 1024 * 1024) })],
     },
     {
-      sql: "UPDATE evidence_packs SET metadata_json = ? WHERE id = 'EVID-1'",
+      sql: "UPDATE status_check_results SET metadata_json = ? WHERE id = 'EVID-1'",
       params: [JSON.stringify({ large: "x".repeat(6 * 1024 * 1024) })],
     },
   ]);
 
   const audit = buildAuditCenterView(dbPath, "project-1");
 
-  assert.equal(audit.timeline.some((event) => event.eventType === "evidence_recorded" && event.evidenceId === "EVID-1"), true);
-  assert.equal(audit.linkedEvidence.some((entry) => entry.id === "EVID-1"), true);
+  assert.equal(audit.timeline.some((event) => event.eventType === "execution_result_recorded" && event.executionResultId === "EVID-1"), true);
+  assert.equal(audit.executionResults.some((entry) => entry.id === "EVID-1"), true);
 });
 
 test("runner and spec workspace record token consumption only from stdout.log", () => {
@@ -980,7 +980,7 @@ test("spec intake commands scan, upload, and enqueue EARS skill invocation", () 
   const result = runSqlite(dbPath, [], [
     { name: "features", sql: "SELECT id, project_id, title, status FROM features WHERE id LIKE 'FEAT-INTAKE-%'" },
     { name: "requirements", sql: "SELECT id, feature_id, body FROM requirements WHERE feature_id LIKE 'FEAT-INTAKE-%' ORDER BY id" },
-    { name: "evidence", sql: "SELECT kind, feature_id, path, summary FROM evidence_packs WHERE kind IN ('spec_source_scan','spec_source_upload','ears_generation') ORDER BY created_at, rowid" },
+    { name: "reports", sql: "SELECT kind, feature_id, path, summary FROM status_check_results WHERE kind IN ('spec_source_scan','spec_source_upload','ears_generation') ORDER BY created_at, rowid" },
     { name: "executions", sql: "SELECT id, project_id, status, metadata_json, context_json FROM execution_records WHERE project_id = 'project-1' ORDER BY rowid DESC LIMIT 1" },
     { name: "jobs", sql: "SELECT job_type, payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
   ]);
@@ -990,7 +990,7 @@ test("spec intake commands scan, upload, and enqueue EARS skill invocation", () 
   assert.equal(generateReceipt.status, "accepted");
   assert.equal(result.queries.features.length, 0);
   assert.equal(result.queries.requirements.length, 0);
-  assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["spec_source_scan", "spec_source_upload"]);
+  assert.deepEqual(result.queries.reports.map((row) => row.kind), ["spec_source_scan", "spec_source_upload"]);
   assert.equal(generateReceipt.executionId, result.queries.executions[0].id);
   const jobPayload = JSON.parse(String(result.queries.jobs[0].payload_json));
   assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "pr-ears-requirement-decomposition-skill");
@@ -1621,17 +1621,17 @@ test("console write commands persist rule and spec evolution evidence", () => {
 
   const result = runSqlite(dbPath, [], [
     {
-      name: "evidence",
-      sql: `SELECT kind, feature_id, path, summary, metadata_json FROM evidence_packs
+      name: "reports",
+      sql: `SELECT kind, feature_id, path, summary, metadata_json FROM status_check_results
         WHERE kind IN ('project_rule', 'spec_evolution') AND metadata_json LIKE '%"commandAction"%'
         ORDER BY kind`,
     },
   ]);
 
-  assert.deepEqual(result.queries.evidence.map((row) => row.kind), ["project_rule", "spec_evolution"]);
-  assert.equal(result.queries.evidence[0].summary, "Do not bypass review approvals.");
-  assert.equal(result.queries.evidence[1].feature_id, "FEAT-013");
-  assert.match(String(result.queries.evidence[1].metadata_json), /write_spec_evolution/);
+  assert.deepEqual(result.queries.reports.map((row) => row.kind), ["project_rule", "spec_evolution"]);
+  assert.equal(result.queries.reports[0].summary, "Do not bypass review approvals.");
+  assert.equal(result.queries.reports[1].feature_id, "FEAT-013");
+  assert.match(String(result.queries.reports[1].metadata_json), /write_spec_evolution/);
 });
 
 test("update_spec writes only workspace spec documents through controlled command", () => {
@@ -1763,7 +1763,7 @@ test("console schedule command records scheduler triggers without bypassing boun
   assert.equal(cliRunPayload.context.skillSlug, "codex-coding-skill");
   assert.equal(cliRunPayload.context.skillPhase, "feature_execution");
   assert.equal(cliRunPayload.context.workspaceRoot, projectPath);
-  assert.deepEqual(cliRunPayload.context.expectedArtifacts, [".autobuild/evidence/feature-execution.json"]);
+  assert.deepEqual(cliRunPayload.context.expectedArtifacts, [".autobuild/reports/feature-execution.json"]);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/requirements.md"), true);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/design.md"), true);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/tasks.md"), true);
@@ -1829,15 +1829,15 @@ function seedBoardPatchData(dbPath: string): void {
         ) VALUES ('STATE-TASK-READY', 'task', 'TASK-READY', 'backlog', 'ready', 'Prepared for board scheduling.', 'TASK-READY evidence', 'test', '2026-04-28T11:00:00.000Z')`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
         VALUES (
-          'EVID-TASK-READY', 'RUN-013', 'TASK-READY', 'FEAT-013', '.autobuild/evidence/TASK-READY.json', 'test',
+          'EVID-TASK-READY', 'RUN-013', 'TASK-READY', 'FEAT-013', '.autobuild/reports/TASK-READY.json', 'test',
           'Ready task test evidence.', '{"diff":{"files":["src/product-console.ts"]},"testResults":{"command":"node --test tests/product-console.test.ts","passed":true}}'
         )`,
     },
     {
       sql: `INSERT INTO recovery_attempts (
-          id, fingerprint_id, task_id, action, strategy, command, file_scope_json, status, summary, evidence_pack_json, attempted_at
+          id, fingerprint_id, task_id, action, strategy, command, file_scope_json, status, summary, execution_result_json, attempted_at
         ) VALUES (
           'REC-TASK-READY', 'FP-READY', 'TASK-READY', 'retry', 'rerun-targeted-test', 'node --test tests/product-console.test.ts',
           '["src/product-console.ts"]', 'failed', 'Targeted recovery attempt failed.', '{"id":"EVID-TASK-READY"}', '2026-04-28T11:30:00.000Z'
@@ -1845,7 +1845,7 @@ function seedBoardPatchData(dbPath: string): void {
     },
     {
       sql: `INSERT INTO forbidden_retry_records (
-          id, fingerprint_id, task_id, failed_strategy, failed_command, failed_file_scope_json, reason, evidence_pack_id, created_at
+          id, fingerprint_id, task_id, failed_strategy, failed_command, failed_file_scope_json, reason, execution_result_id, created_at
         ) VALUES (
           'FORBID-TASK-READY', 'FP-READY', 'TASK-READY', 'rerun-targeted-test', 'node --test tests/product-console.test.ts',
           '["src/product-console.ts"]', 'Do not repeat the failed recovery attempt automatically.', 'EVID-TASK-READY', '2026-04-28T11:31:00.000Z'
@@ -1972,26 +1972,26 @@ function seedConsoleData(dbPath: string): void {
         )`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
         VALUES (
-          'EVID-1', 'RUN-013', 'TASK-RUNNING', 'FEAT-013', '.autobuild/evidence/RUN-013.json', 'test',
+          'EVID-1', 'RUN-013', 'TASK-RUNNING', 'FEAT-013', '.autobuild/reports/RUN-013.json', 'test',
           'Console evidence with PR metadata.', '{"pullRequest":{"id":"PR-13","title":"Product Console","url":"https://example.test/pr/13","createdAt":"2026-04-28T12:00:00.000Z"}}'
         )`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
-        VALUES ('EVID-CLARIFY', 'RUN-013', 'TASK-RUNNING', 'FEAT-013', '.autobuild/evidence/clarification.json', 'clarification', 'Clarified console command boundary.', '{}')`,
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+        VALUES ('EVID-CLARIFY', 'RUN-013', 'TASK-RUNNING', 'FEAT-013', '.autobuild/reports/clarification.json', 'clarification', 'Clarified console command boundary.', '{}')`,
     },
     {
-      sql: `INSERT INTO evidence_packs (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
-        VALUES ('EVID-EVOLUTION', 'RUN-013', 'TASK-RUNNING', 'FEAT-013', '.autobuild/evidence/spec-evolution.json', 'spec_evolution', 'Spec diff for Product Console.', '{}')`,
+      sql: `INSERT INTO status_check_results (id, run_id, task_id, feature_id, path, kind, summary, metadata_json)
+        VALUES ('EVID-EVOLUTION', 'RUN-013', 'TASK-RUNNING', 'FEAT-013', '.autobuild/reports/spec-evolution.json', 'spec_evolution', 'Spec diff for Product Console.', '{}')`,
     },
     {
       sql: `INSERT INTO delivery_reports (id, feature_id, path, summary)
         VALUES ('DELIVERY-13', 'FEAT-013', '.autobuild/reports/feat-013.md', 'Delivery report with spec version diff.')`,
     },
     {
-      sql: `INSERT INTO review_items (id, feature_id, task_id, status, severity, body, evidence_refs_json, created_at)
+      sql: `INSERT INTO review_items (id, feature_id, task_id, status, severity, body, reference_refs_json, created_at)
         VALUES (
           'REV-1', 'FEAT-013', 'TASK-RUNNING', 'review_needed', 'high',
           '{"message":"Needs approval","goal":"Approve console review controls.","specRef":"docs/features/feat-013-product-console/design.md","runContract":{"command":"npm test"},"diff":{"files":["src/product-console.ts"]}}',

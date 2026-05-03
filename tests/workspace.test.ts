@@ -320,7 +320,7 @@ test("test environment isolation is recorded for runner inputs and evidence meta
 
   assert.equal(isolation.runnerInput.environmentId, "it-feat-007-run-010");
   assert.equal(isolation.runnerInput.resourceRefs.length, 2);
-  assert.equal(String(JSON.stringify(isolation.evidencePackMetadata)).includes("TEST_DATABASE_URL"), true);
+  assert.equal(String(JSON.stringify(isolation.executionResultMetadata)).includes("TEST_DATABASE_URL"), true);
 
   const rows = runSqlite(dbPath, [], [
     {
