@@ -1155,6 +1155,9 @@ VSCode 插件能力包括：
 * 识别 `docs/<language>/PRD.md`、`requirements.md`、`hld.md`、`docs/features/README.md`、`feature-pool-queue.json` 和各 Feature `spec-state.json`。
 * 在 Activity Bar / Explorer 中展示 Spec Explorer，包括 PRD、EARS Requirements、HLD、Feature Specs、Task Queue、Execution Record 和最近 Codex 会话。
 * 在插件 Webview 中展示独立 Execution Workbench，默认聚焦 Job 队列、当前运行、下一步动作、阻塞原因、自动执行控制、审批待办和执行结果观察。
+* 在 Feature Spec Webview 顶部提供 New Feature 弹出输入框；用户提交自然语言内容后，插件只提交受控需求输入，由模型判定进入需求新增流程或需求变更流程。
+* 刷新 Feature Spec Webview 时同时读取 `docs/features/README.md` 和 `docs/features/*` 目录，发现需求新增流程未同步 index 时补齐 Feature index 或展示同步阻塞原因。
+* 点击 Feature 后在详情面板解析对应 `tasks.md`，展示任务列表、任务状态、描述和验证命令。
 * 在 PRD、requirements、HLD 和 Feature Spec 中提供 Hover、CodeLens、Comments 和 Diagnostics。
 * 将用户在行级或段落级提交的澄清、需求新增、需求变更、EARS 生成、设计更新和 Feature 拆分意图转换为 `SpecChangeRequestV1`。
 * 通过 Control Plane command API 提交 `submit_spec_change_request`、`enqueue_feature`、`run_feature_now`、`run_task_now`、`pause_job`、`resume_job`、`retry_execution`、`cancel_execution`、`skip_feature`、`reprioritize_job` 和 `approve_app_server_request`。

@@ -2995,6 +2995,11 @@ function executeSpecSkillCommand(
     workspaceRoot: project.targetRepoPath,
     skillSlug,
     skillPhase: input.action,
+    requirementText: optionalString(payload.requirementText),
+    comment: optionalString(payload.comment),
+    targetRequirementId: optionalString(payload.targetRequirementId),
+    traceability: optionalStringArray(payload.traceability),
+    specChangeIntent: isRecord(payload.specChangeRequest) ? optionalString(payload.specChangeRequest.intent) : undefined,
   };
   const job = scheduler.enqueueCliRun({
     executionId,

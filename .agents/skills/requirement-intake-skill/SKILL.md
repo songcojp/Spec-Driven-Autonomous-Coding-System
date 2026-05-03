@@ -42,7 +42,8 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
 9. Update Feature Specs:
    - If it belongs to an existing feature, update that feature's `requirements.md`, `design.md`, and `tasks.md`.
    - If it is independently deliverable, create a new feature folder and update `docs/features/README.md`.
-   - Keep dependencies, milestone, status, and source `REQ-*`/`NFR-*`/`EDGE-*` mapping aligned.
+   - Always update `docs/features/README.md` when creating or changing Feature information, even when the intake did not run the Feature splitting flow. Add or update the Feature ID, Feature name, folder, status, primary requirements, suggested milestone, and dependencies so IDE refresh and downstream execution do not see orphan Feature folders.
+   - Keep dependencies, milestone, status, and source `REQ-*`/`NFR-*`/`EDGE-*` mapping aligned between the Feature folder and the index.
 10. Re-check downstream references: traceability matrix, phase mapping, feature index, HLD split/dependency mapping, and open questions.
 
 ## Versioning

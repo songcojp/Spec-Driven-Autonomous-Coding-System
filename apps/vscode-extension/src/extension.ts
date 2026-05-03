@@ -20,6 +20,18 @@ type SpecDriveIdeFeatureNode = {
   documents: SpecDriveIdeDocument[];
   latestExecutionId?: string;
   latestExecutionStatus?: string;
+  indexStatus?: "indexed" | "missing_from_index" | "missing_folder";
+  tasks?: SpecDriveIdeTaskProjection[];
+  taskParseBlockedReasons?: string[];
+};
+
+type SpecDriveIdeTaskProjection = {
+  id: string;
+  title: string;
+  status: string;
+  description?: string;
+  verification?: string;
+  line?: number;
 };
 
 type SpecDriveIdeQueueItem = {
@@ -118,6 +130,7 @@ type IdeQueueCommandV1 = {
 type SpecChangeRequestIntent =
   | "clarification"
   | "requirement_intake"
+  | "requirement_change_or_intake"
   | "spec_evolution"
   | "generate_ears"
   | "update_design"
@@ -856,6 +869,11 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
       await render();
       return;
     }
+    if (isWorkbenchMessage(message) && message.command === "newFeature" && typeof message.content === "string") {
+      await submitNewFeatureRequest(message.content, provider);
+      await render();
+      return;
+    }
     await handleWorkbenchMessage(message, provider, render);
   });
   await render();
@@ -903,6 +921,53 @@ async function handleWorkbenchMessage(
   } catch (error) {
     await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
+}
+
+async function submitNewFeatureRequest(content: string, provider: SpecExplorerProvider): Promise<void> {
+  const view = provider.currentView();
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (!view?.project?.id || !workspaceRoot) {
+    await vscode.window.showErrorMessage("SpecDrive New Feature requires a recognized project.");
+    return;
+  }
+  const trimmed = content.trim();
+  if (!trimmed) {
+    await vscode.window.showErrorMessage("SpecDrive New Feature input is empty.");
+    return;
+  }
+  const sourcePath = "docs/features/README.md";
+  const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(vscode.Uri.file(workspaceRoot), ...sourcePath.split("/")));
+  const firstLine = document.lineCount > 0 ? document.lineAt(0).text : "";
+  const request: SpecChangeRequestV1 = {
+    schemaVersion: 1,
+    projectId: view.project.id,
+    workspaceRoot,
+    source: {
+      file: sourcePath,
+      range: {
+        startLine: 0,
+        endLine: 0,
+        startCharacter: 0,
+        endCharacter: firstLine.length,
+      },
+      textHash: hashText(firstLine),
+    },
+    intent: "requirement_change_or_intake",
+    comment: trimmed,
+    traceability: [
+      "VSCode Feature Spec Webview",
+      "New Feature",
+      ...view.features.map((feature) => feature.id).slice(0, 20),
+    ],
+  };
+  const response = await postIdeCommand(request);
+  const status = typeof response.status === "string" ? response.status : "unknown";
+  const routed = typeof response.routedIntent === "string" ? ` routed=${response.routedIntent}` : "";
+  const blocked = Array.isArray(response.blockedReasons) && response.blockedReasons.length > 0
+    ? ` blocked=${response.blockedReasons.join("; ")}`
+    : "";
+  await vscode.window.showInformationMessage(`SpecDrive New Feature ${status}.${routed}${blocked}`);
+  await provider.refresh();
 }
 
 async function priorityPayload(): Promise<Record<string, unknown> | undefined> {
@@ -974,6 +1039,7 @@ function isSpecChangeCommandInput(input: unknown): input is SpecChangeCommandInp
 function isSpecChangeRequestIntent(value: unknown): value is SpecChangeRequestIntent {
   return value === "clarification"
     || value === "requirement_intake"
+    || value === "requirement_change_or_intake"
     || value === "spec_evolution"
     || value === "generate_ears"
     || value === "update_design"
@@ -1221,12 +1287,14 @@ function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, selectedFe
   const features = view?.features ?? [];
   const selected = features.find((feature) => feature.id === selectedFeatureId) ?? preferredFeature(view);
   const groups = groupFeatures(features);
+  const syncIssues = features.filter((feature) => feature.indexStatus && feature.indexStatus !== "indexed");
   return renderWorkbenchPage("Feature Spec", nonce, `
     <section class="toolbar">
-      ${commandButton("New Feature", "controlled", { action: "create_feature", entityType: "project", entityId: view?.project?.id ?? "workspace", reason: "Create Feature from Feature Spec Webview." })}
+      ${commandButton("New Feature", "newFeaturePrompt", {})}
       ${commandButton("Refresh", "refresh", {})}
       ${selected ? commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: selected.id, reason: `Schedule ${selected.id} from Feature Spec Webview.` }) : ""}
     </section>
+    ${syncIssues.length > 0 ? `<section class="panel sync-panel"><div class="panel-title"><h2>Feature Index Sync</h2><span>${syncIssues.length} issues</span></div>${syncIssues.map((feature) => `<div class="issue warn"><strong>${escapeHtml(feature.id)}</strong><br><span>${escapeHtml(feature.blockedReasons.join("; "))}</span></div>`).join("")}</section>` : ""}
     <main class="feature-layout">
       <section class="feature-board">
         ${Object.entries(groups).map(([status, items]) => `
@@ -1278,12 +1346,12 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
     h1{font-size:22px;margin:4px 0 12px;font-weight:650}h2{font-size:14px;margin:0;font-weight:650}h3{font-size:12px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase}
     button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer}button:hover{background:var(--vscode-button-hoverBackground)}
     .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}
-    .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title span,.muted{color:var(--muted)}
+    .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.sync-panel{margin-bottom:10px}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title span,.muted{color:var(--muted)}
     .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px}.row{grid-template-columns:1fr auto}
     .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
     pre{max-height:180px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;font-family:var(--vscode-editor-font-family);font-size:11px}.issue{border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0}.issue span{color:var(--muted)}
     .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}
-    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:10px}.feature-board section{border:1px solid var(--border);border-radius:6px;padding:8px;min-width:0}.feature-board h2{display:flex;justify-content:space-between;margin-bottom:8px}.feature-card{width:100%;text-align:left;background:var(--panel);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;padding:9px}.feature-card.selected{border-color:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}
+    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));gap:10px}.feature-board section{border:1px solid var(--border);border-radius:6px;padding:8px;min-width:0}.feature-board h2{display:flex;justify-content:space-between;margin-bottom:8px}.feature-card{width:100%;text-align:left;background:var(--panel);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;padding:9px}.feature-card.selected{border-color:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
     @media (max-width:980px){.grid,.feature-layout,.feature-board{display:block}.panel,.feature-board section{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
   </style></head><body><h1>${escapeHtml(title)}</h1>${body}<script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -1292,6 +1360,12 @@ function renderWorkbenchPage(title: string, nonce: string, body: string): string
       if (!target) return;
       const payload = {...target.dataset};
       if (payload.command === "selectFeature") payload.featureId = target.dataset.featureId;
+      if (payload.command === "newFeaturePrompt") {
+        const content = window.prompt("New Feature");
+        if (!content || !content.trim()) return;
+        vscode.postMessage({command:"newFeature", content});
+        return;
+      }
       vscode.postMessage(payload);
     });
   </script></body></html>`;
@@ -1387,12 +1461,17 @@ function guardrailRow(label: string, status: string): string {
 }
 
 function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean): string {
-  const progress = feature.latestExecutionStatus === "completed" ? 100 : feature.latestExecutionStatus === "running" ? 70 : feature.status === "ready" ? 60 : 30;
+  const taskCount = feature.tasks?.length ?? 0;
+  const doneTasks = (feature.tasks ?? []).filter((task) => ["done", "completed", "x"].includes(task.status.toLowerCase())).length;
+  const progress = taskCount > 0
+    ? Math.round((doneTasks / taskCount) * 100)
+    : feature.latestExecutionStatus === "completed" ? 100 : feature.latestExecutionStatus === "running" ? 70 : feature.status === "ready" ? 60 : 30;
   return `<button class="feature-card ${selected ? "selected" : ""}" data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}">
     <header><strong>${escapeHtml(feature.id)}</strong><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></header>
     <div>${escapeHtml(feature.title)}</div>
-    <div class="metric"><span>Requirement Coverage</span><strong>${progress}%</strong><div class="bar"><span style="width:${progress}%"></span></div></div>
+    <div class="metric"><span>Task Progress</span><strong>${progress}%</strong><div class="bar"><span style="width:${progress}%"></span></div></div>
     <div class="metric"><span>Execution State</span><strong>${escapeHtml(feature.latestExecutionStatus ?? "Not Started")}</strong></div>
+    <div class="metric"><span>Tasks</span><strong>${doneTasks}/${taskCount}</strong></div>
     <div class="metric"><span>Next Action</span><strong>${escapeHtml(feature.nextAction ?? "None")}</strong></div>
   </button>`;
 }
@@ -1405,6 +1484,8 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode): string {
     <div class="row"><span>Execution</span><strong>${escapeHtml(feature.latestExecutionStatus ?? "Not Started")}</strong></div>
     <h3>Artifacts</h3>
     ${documentList(feature.documents)}
+    <h3>Tasks</h3>
+    ${renderFeatureTasks(feature)}
     <h3>Acceptance</h3>
     ${["Requirements traced", "Task queue visible", "Execution state persisted", "Evidence generated", "Adapter failures handled"].map((item, index) => `<div class="row"><span>${escapeHtml(item)}</span><strong class="${index < 3 ? "ok" : "draft"}">${index < 3 ? "Passed" : "Draft"}</strong></div>`).join("")}
     <h3>Blockers</h3>
@@ -1412,6 +1493,22 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode): string {
     <h3>Traceability</h3>
     <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>
     <div class="toolbar">${commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: feature.id, reason: `Schedule ${feature.id} from Feature Detail.` })}</div>`;
+}
+
+function renderFeatureTasks(feature: SpecDriveIdeFeatureNode): string {
+  const tasks = feature.tasks ?? [];
+  const blockers = feature.taskParseBlockedReasons ?? [];
+  if (tasks.length === 0) {
+    return blockers.length > 0
+      ? blockers.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")
+      : emptyState("No tasks parsed.");
+  }
+  return `${tasks.map((task) => `<div class="task-row">
+    <div><strong>${escapeHtml(task.id)}</strong> ${escapeHtml(task.title)}</div>
+    <span class="${statusClass(task.status)}">${escapeHtml(task.status)}</span>
+    ${task.description ? `<p>${escapeHtml(task.description)}</p>` : ""}
+    ${task.verification ? `<code>${escapeHtml(task.verification)}</code>` : ""}
+  </div>`).join("")}${blockers.map((reason) => `<div class="issue warn">${escapeHtml(reason)}</div>`).join("")}`;
 }
 
 function allQueueItems(view: SpecDriveIdeView): SpecDriveIdeQueueItem[] {

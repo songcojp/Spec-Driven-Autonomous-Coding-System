@@ -45,3 +45,23 @@ Feature ID: FEAT-021
 状态: done
 描述: 将 Execution Workbench、Spec Workspace、Feature Spec 三张 VSCode IDE 概念图保存到 `docs/ui`，并在 Feature 21 文档中引用。
 验证: `git diff --check`，检查 `docs/ui/feat-021-*-concept.png` 存在。
+
+### T-021-09 New Feature 需求输入弹窗
+状态: done
+描述: 在 Feature Spec Webview 顶部增加 New Feature 按钮和弹出输入框，提交自然语言内容后只发送受控需求输入，由模型判定需求新增或需求变更流程，并展示 command receipt、路由结论和阻塞原因。
+验证: `npm run ide:build`，`node --test tests/specdrive-ide.test.ts`。
+
+### T-021-10 Feature index 与目录同步刷新
+状态: done
+描述: 刷新 Feature Spec Webview 时同时读取 `docs/features/README.md` 和 `docs/features/*` 三件套目录，识别 index 漏项、孤儿目录、缺失文件和状态冲突；可安全补齐时同步 Feature index，存在冲突时展示 blocked reason。
+验证: `node --test tests/specdrive-ide.test.ts` 覆盖 index + folder 合并、漏项提示和冲突阻塞。
+
+### T-021-11 需求新增 Skill 同步 Feature index
+状态: done
+描述: 修改 `requirement-intake-skill` 流程，要求新增或更新 Feature Spec 后必须同步 `docs/features/README.md`，写入 Feature ID、Feature、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
+验证: `git diff --check`，检查 `.agents/skills/requirement-intake-skill/SKILL.md` 明确 Feature index 同步责任。
+
+### T-021-12 Feature 详情 tasks.md 任务解析
+状态: done
+描述: 点击 Feature 后在详情面板解析对应 `tasks.md`，展示任务 ID、标题、状态、描述和验证命令；缺失或无法解析时显示 blocked reason，并保留打开原始 `tasks.md` 的操作。
+验证: `node --test tests/specdrive-ide.test.ts` 覆盖 checkbox 和“状态/描述/验证”段落格式；`npm run ide:build` 验证 Webview 编译。

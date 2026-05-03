@@ -16,6 +16,10 @@ Feature 名称: IDE Workbench Webviews
 |---|---|---|
 | REQ-084 | 提供独立 VSCode IDE Webview 工作台 | VSCode 插件 PRD REQ-VSC-017 |
 
+## 变更记录
+
+- CHG-024（2026-05-03）：用户要求 VSCode Feature Spec Webview 顶部 New Feature 输入提交后进入需求新增或需求变更流程，由模型自行判定；刷新时同时同步 Feature index 与 Feature 文件夹；需求新增 Skill 必须写入 Feature index；点击 Feature 后详情解析 `tasks.md` 并展示任务状态。影响 REQ-084 和 FEAT-021，已作为 follow-up 完成。
+
 ## UI 概念图
 
 | Webview | 概念图 |
@@ -36,3 +40,9 @@ Feature 名称: IDE Workbench Webviews
 - [x] `Feature Spec` 右侧详情面板支持查看选中 Feature 的 artifacts、acceptance、latest run、blockers、traceability，并提供打开需求/设计/任务和调度执行等 VSCode 内操作。
 - [x] Webview 所有有副作用动作都通过 extension host 调用 Control Plane command API；不得直接访问 SQLite、Scheduler 内部队列或运行状态文件。
 - [x] Webview 可以复用 shared contract/type 定义和 query/command API，但不得把 Product Console ViewModel 作为插件 UI 的事实源。
+- [x] `Feature Spec` 顶部提供 New Feature 按钮，点击后弹出输入框；输入自然语言内容并提交后，Webview 只提交受控需求输入，后续由模型判定进入 `requirement-intake-skill` 或 `spec-evolution-skill` 流程。
+- [x] New Feature 提交必须展示 command receipt、路由结论、影响文档和阻塞原因；前端不得用关键字、是否填写 requirement id 等规则硬编码新增/变更判定。
+- [x] `Feature Spec` 刷新时同时读取 `docs/features/README.md` 和 `docs/features/*` 目录中的 `requirements.md` / `design.md` / `tasks.md`，并识别 index 漏项、孤儿目录、缺失三件套和状态冲突。
+- [x] 因需求新增流程未经过 Feature 拆分而导致 `docs/features/README.md` 未更新时，刷新流程必须补齐 Feature index，或在存在冲突时展示 `clarification_needed` / `risk_review_needed` 阻塞。
+- [x] 需求新增 Skill 创建或更新 Feature Spec 时必须同步 `docs/features/README.md`，写入 Feature ID、Feature、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
+- [x] 点击 Feature 后，详情面板必须解析该 Feature 的 `tasks.md`，展示任务 ID、任务标题、状态、描述和验证命令；Markdown 缺失或格式无法解析时展示 blocked reason。

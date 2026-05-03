@@ -30,6 +30,18 @@ export type SpecDriveIdeFeatureNode = {
   documents: SpecDriveIdeDocument[];
   latestExecutionId?: string;
   latestExecutionStatus?: string;
+  indexStatus: "indexed" | "missing_from_index" | "missing_folder";
+  tasks: SpecDriveIdeTaskProjection[];
+  taskParseBlockedReasons: string[];
+};
+
+export type SpecDriveIdeTaskProjection = {
+  id: string;
+  title: string;
+  status: string;
+  description?: string;
+  verification?: string;
+  line?: number;
 };
 
 export type SpecDriveIdeQueueItem = {
@@ -108,6 +120,7 @@ export type SpecDriveIdeView = {
 export type SpecChangeRequestIntent =
   | "clarification"
   | "requirement_intake"
+  | "requirement_change_or_intake"
   | "spec_evolution"
   | "generate_ears"
   | "update_design"
@@ -226,6 +239,16 @@ type FeatureQueueEntry = {
 
 type FeatureQueuePlan = {
   features?: FeatureQueueEntry[];
+};
+
+type FeatureIndexEntry = {
+  id: string;
+  title?: string;
+  folder?: string;
+  status?: string;
+  primaryRequirements?: string[];
+  milestone?: string;
+  dependencies?: string[];
 };
 
 export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIdeViewOptions = {}): SpecDriveIdeView {
@@ -725,6 +748,9 @@ function commandForSpecChangeRequest(
 }
 
 function routeSpecChangeIntent(request: SpecChangeRequestV1): SpecChangeRequestIntent {
+  if (request.intent === "requirement_change_or_intake") {
+    return request.targetRequirementId ? "spec_evolution" : "requirement_intake";
+  }
   if (request.targetRequirementId && (request.intent === "requirement_intake" || request.intent === "clarification")) {
     return "spec_evolution";
   }
@@ -805,6 +831,7 @@ function readSourceSelection(
 function isSpecChangeRequestIntent(value: unknown): value is SpecChangeRequestIntent {
   return value === "clarification"
     || value === "requirement_intake"
+    || value === "requirement_change_or_intake"
     || value === "spec_evolution"
     || value === "generate_ears"
     || value === "update_design"
@@ -865,30 +892,57 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
   if (!existsSync(featureRoot)) return [];
   const queuePlan = readFeatureQueuePlan(workspaceRoot);
   const queueById = new Map((queuePlan.features ?? []).map((entry) => [entry.id, entry]));
+  const indexEntries = readFeatureIndex(workspaceRoot);
+  const indexById = new Map(indexEntries.map((entry) => [entry.id, entry]));
+  const folders = new Set(readdirSync(featureRoot)
+    .filter((entry) => statSync(join(featureRoot, entry)).isDirectory())
+    .sort());
   const latestExecutions = readLatestExecutionsByFeature(dbPath, projectId);
 
-  return readdirSync(featureRoot)
-    .filter((entry) => {
-      const fullPath = join(featureRoot, entry);
-      return statSync(fullPath).isDirectory();
-    })
-    .sort()
+  const indexOnlyFolders = indexEntries
+    .map((entry) => entry.folder)
+    .filter((folder): folder is string => Boolean(folder) && !folders.has(folder));
+  const allFolders = [...new Set([...folders, ...indexOnlyFolders])].sort();
+
+  return allFolders
     .map((folder) => {
       const state = readJson(join(featureRoot, folder, "spec-state.json"));
-      const featureId = optionalString(state.featureId) ?? folderToFeatureId(folder);
+      const fallbackFeatureId = folderToFeatureId(folder);
+      const indexEntry = indexEntries.find((entry) => entry.folder === folder || entry.id === fallbackFeatureId);
+      const featureId = optionalString(state.featureId) ?? indexEntry?.id ?? fallbackFeatureId;
       const queueEntry = queueById.get(featureId);
       const latestExecution = latestExecutions.get(featureId);
+      const indexed = indexById.has(featureId);
+      const folderExists = folders.has(folder);
+      const baseBlockedReasons = stringArray(state.blockedReasons);
+      const taskProjection = folderExists ? readFeatureTasks(workspaceRoot, folder) : {
+        tasks: [],
+        blockedReasons: [`Feature index references missing folder: docs/features/${folder}`],
+      };
+      const syncBlockedReasons = [
+        ...baseBlockedReasons,
+        ...(indexed ? [] : [`Feature index is missing an entry for ${featureId} (${folder}).`]),
+        ...(folderExists ? [] : [`Feature folder is missing for indexed Feature ${featureId}: docs/features/${folder}.`]),
+        ...taskProjection.blockedReasons,
+      ];
       return {
         id: featureId,
         folder,
-        title: titleFromFolder(folder),
-        status: optionalString(state.status) ?? "unknown",
+        title: optionalString(state.title) ?? indexEntry?.title ?? titleFromFolder(folder),
+        status: optionalString(state.status) ?? indexEntry?.status ?? "unknown",
         priority: optionalString(queueEntry?.priority),
-        dependencies: stringArray(state.dependencies).length > 0 ? stringArray(state.dependencies) : stringArray(queueEntry?.dependencies),
-        blockedReasons: stringArray(state.blockedReasons),
+        dependencies: stringArray(state.dependencies).length > 0
+          ? stringArray(state.dependencies)
+          : indexEntry?.dependencies?.length
+            ? indexEntry.dependencies
+            : stringArray(queueEntry?.dependencies),
+        blockedReasons: syncBlockedReasons,
         nextAction: optionalString(state.nextAction),
         latestExecutionId: latestExecution?.executionId,
         latestExecutionStatus: latestExecution?.status,
+        indexStatus: indexed ? folderExists ? "indexed" : "missing_folder" : "missing_from_index",
+        tasks: taskProjection.tasks,
+        taskParseBlockedReasons: taskProjection.blockedReasons,
         documents: [
           document("feature-requirements", "requirements.md", `docs/features/${folder}/requirements.md`, workspaceRoot),
           document("feature-design", "design.md", `docs/features/${folder}/design.md`, workspaceRoot),
@@ -901,6 +955,84 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
 
 function readFeatureQueuePlan(workspaceRoot: string): FeatureQueuePlan {
   return readJson(join(workspaceRoot, "docs/features/feature-pool-queue.json")) as FeatureQueuePlan;
+}
+
+function readFeatureIndex(workspaceRoot: string): FeatureIndexEntry[] {
+  const indexPath = join(workspaceRoot, "docs/features/README.md");
+  if (!existsSync(indexPath)) return [];
+  const content = readFileSync(indexPath, "utf8");
+  const entries: FeatureIndexEntry[] = [];
+  for (const line of content.split(/\r?\n/)) {
+    if (!line.trim().startsWith("|") || line.includes("---") || /Feature ID/i.test(line)) continue;
+    const columns = line.split("|").slice(1, -1).map((column) => column.trim());
+    if (columns.length < 3) continue;
+    const id = columns[0]?.match(/\bFEAT-\d+\b/i)?.[0]?.toUpperCase();
+    if (!id) continue;
+    const folder = columns[2]?.match(/`([^`]+)`/)?.[1] ?? columns[2];
+    entries.push({
+      id,
+      title: columns[1],
+      folder: folder && folder !== "-" ? folder : undefined,
+      status: columns[3] && columns[3] !== "-" ? columns[3] : undefined,
+      primaryRequirements: splitChineseList(columns[4]),
+      milestone: columns[5] && columns[5] !== "-" ? columns[5] : undefined,
+      dependencies: splitChineseList(columns[6]),
+    });
+  }
+  return entries;
+}
+
+function readFeatureTasks(workspaceRoot: string, folder: string): { tasks: SpecDriveIdeTaskProjection[]; blockedReasons: string[] } {
+  const tasksPath = join(workspaceRoot, "docs/features", folder, "tasks.md");
+  if (!existsSync(tasksPath)) return {
+    tasks: [],
+    blockedReasons: [`Feature tasks file is missing: docs/features/${folder}/tasks.md`],
+  };
+  const content = readFileSync(tasksPath, "utf8");
+  const tasks = parseFeatureTasksMarkdown(content);
+  return {
+    tasks,
+    blockedReasons: tasks.length > 0 ? [] : [`Feature tasks file has no parseable tasks: docs/features/${folder}/tasks.md`],
+  };
+}
+
+export function parseFeatureTasksMarkdown(content: string): SpecDriveIdeTaskProjection[] {
+  const lines = content.split(/\r?\n/);
+  const tasks: SpecDriveIdeTaskProjection[] = [];
+  let current: SpecDriveIdeTaskProjection | undefined;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const headingMatch = line.match(/^#{2,4}\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+)\s*:?\s*(?<title>.*)$/);
+    const listMatch = line.match(/^\s*[-*]\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+)\s*:?\s*(?<title>.*)$/);
+    const plainMatch = line.match(/^(?<id>TASK-[A-Z0-9-]+|TASK-\d+)\s*:?\s*(?<title>.*)$/);
+    const match = headingMatch ?? listMatch ?? plainMatch;
+    if (match?.groups?.id) {
+      current = {
+        id: normalizeTaskId(match.groups.id),
+        title: cleanTaskTitle(match.groups.title),
+        status: statusFromTaskLine(line, match.groups.checkbox),
+        line: index,
+      };
+      tasks.push(current);
+      continue;
+    }
+    if (!current) continue;
+    const status = line.match(/^\s*状态\s*[:：]\s*(.+)$/)?.[1] ?? line.match(/^\s*Status\s*[:：]\s*(.+)$/i)?.[1];
+    if (status) {
+      current.status = status.trim();
+      continue;
+    }
+    const description = line.match(/^\s*描述\s*[:：]\s*(.+)$/)?.[1] ?? line.match(/^\s*Description\s*[:：]\s*(.+)$/i)?.[1];
+    if (description) {
+      current.description = description.trim();
+      continue;
+    }
+    const verification = line.match(/^\s*验证\s*[:：]\s*(.+)$/)?.[1] ?? line.match(/^\s*Verification\s*[:：]\s*(.+)$/i)?.[1];
+    if (verification) {
+      current.verification = verification.trim();
+    }
+  }
+  return tasks;
 }
 
 function readLatestExecutionsByFeature(dbPath: string, projectId?: string): Map<string, { executionId: string; status: string }> {
@@ -1373,6 +1505,31 @@ function optionalString(value: unknown): string | undefined {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function splitChineseList(value: string | undefined): string[] {
+  if (!value || value === "-") return [];
+  return value
+    .replaceAll("`", "")
+    .split(/[、,，]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function normalizeTaskId(value: string): string {
+  return value.toUpperCase();
+}
+
+function cleanTaskTitle(value: string | undefined): string {
+  return (value ?? "").replace(/^[-:：\s]+/, "").trim() || "Untitled task";
+}
+
+function statusFromTaskLine(line: string, checkbox?: string): string {
+  const explicit = line.match(/\b状态\s*[:：]\s*([^\s,，;；]+)/)?.[1]
+    ?? line.match(/\bStatus\s*[:：]\s*([^\s,，;；]+)/i)?.[1];
+  if (explicit) return explicit.trim();
+  if (checkbox) return checkbox.toLowerCase() === "x" ? "done" : "todo";
+  return "unknown";
 }
 
 function folderToFeatureId(folder: string): string {

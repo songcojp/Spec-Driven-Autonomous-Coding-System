@@ -9,6 +9,7 @@ import {
   buildSpecDriveIdeExecutionDetail,
   buildSpecDriveIdeView,
   hashSpecSourceText,
+  parseFeatureTasksMarkdown,
   submitIdeQueueCommand,
   submitIdeSpecChangeRequest,
 } from "../src/specdrive-ide.ts";
@@ -41,11 +42,62 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(feature?.latestExecutionId, "RUN-IDE");
   assert.equal(feature?.latestExecutionStatus, "running");
   assert.equal(feature?.documents.every((document) => document.exists), true);
+  assert.equal(feature?.indexStatus, "indexed");
+  assert.deepEqual(feature?.tasks.map((task) => [task.id, task.status]), [["TASK-016-01", "done"], ["TASK-016-02", "todo"]]);
 
   assert.equal(view.queue.groups.running[0].executionId, "RUN-IDE");
   assert.equal(view.queue.groups.running[0].featureId, "FEAT-016");
   assert.deepEqual(view.diagnostics, []);
   assert.equal(view.factSources.includes("execution_records"), true);
+});
+
+test("SpecDrive IDE view merges Feature index and folders and projects tasks.md status", () => {
+  const workspaceRoot = makeWorkspace();
+  mkdirSync(join(workspaceRoot, "docs/features/feat-099-orphan-feature"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs/features/feat-099-orphan-feature/requirements.md"), "# FEAT-099\n\nREQ-099\n\n## Acceptance Criteria\n");
+  writeFileSync(join(workspaceRoot, "docs/features/feat-099-orphan-feature/design.md"), "# Design\n");
+  writeFileSync(join(workspaceRoot, "docs/features/feat-099-orphan-feature/tasks.md"), [
+    "# Tasks",
+    "",
+    "### TASK-099-01 Implement orphan sync",
+    "状态: in-progress",
+    "描述: Parse from folder even when index is stale.",
+    "验证: npm test -- tests/specdrive-ide.test.ts",
+    "",
+  ].join("\n"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const orphan = view.features.find((entry) => entry.id === "FEAT-099");
+
+  assert.equal(orphan?.indexStatus, "missing_from_index");
+  assert.equal(orphan?.blockedReasons.some((reason) => reason.includes("Feature index is missing")), true);
+  assert.equal(orphan?.tasks[0].id, "TASK-099-01");
+  assert.equal(orphan?.tasks[0].status, "in-progress");
+  assert.equal(orphan?.tasks[0].description, "Parse from folder even when index is stale.");
+  assert.equal(orphan?.tasks[0].verification, "npm test -- tests/specdrive-ide.test.ts");
+});
+
+test("parseFeatureTasksMarkdown supports checkbox and status block task formats", () => {
+  const tasks = parseFeatureTasksMarkdown([
+    "- [x] TASK-001: Completed checkbox task",
+    "- [ ] TASK-002: Pending checkbox task",
+    "",
+    "### T-021-12 Feature 详情 tasks.md 任务解析",
+    "状态: todo",
+    "描述: 展示任务状态。",
+    "验证: npm run ide:build",
+  ].join("\n"));
+
+  assert.deepEqual(tasks.map((task) => [task.id, task.status]), [
+    ["TASK-001", "done"],
+    ["TASK-002", "todo"],
+    ["T-021-12", "todo"],
+  ]);
+  assert.equal(tasks[2].description, "展示任务状态。");
+  assert.equal(tasks[2].verification, "npm run ide:build");
 });
 
 test("SpecDrive IDE view scopes queue and latest executions to the current workspace project", () => {
@@ -265,6 +317,39 @@ test("SpecDrive IDE SpecChangeRequest routes existing requirement changes to spe
   assert.equal(receipt.schedulerJobId, undefined);
 });
 
+test("SpecDrive IDE New Feature intent lets model-facing intake handle unknown add-or-change routing", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+  const sourceText = "# Feature Spec Index";
+
+  const receipt = submitIdeSpecChangeRequest(dbPath, {
+    schemaVersion: 1,
+    projectId: "project-ide",
+    workspaceRoot,
+    source: {
+      file: "docs/features/README.md",
+      range: { startLine: 0, endLine: 0 },
+      textHash: hashSpecSourceText(sourceText),
+    },
+    intent: "requirement_change_or_intake",
+    comment: "Top New Feature request that may add or change existing scope.",
+    traceability: ["VSCode Feature Spec Webview", "New Feature"],
+  }, { scheduler, now: new Date("2026-05-02T12:13:00.000Z") });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.routedIntent, "requirement_intake");
+  assert.equal(receipt.action, "intake_requirement");
+  assert.equal(scheduler.jobs[0].jobType, "cli.run");
+  const payload = JSON.parse(String(runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE id = ?", params: [scheduler.jobs[0].schedulerJobId] },
+  ]).queries.jobs[0].payload_json));
+  assert.equal(payload.operation, "intake_requirement");
+  assert.equal(payload.context.requirementText, "Top New Feature request that may add or change existing scope.");
+});
+
 test("SpecDrive IDE queue actions retry failed executions and preserve previous execution linkage", async () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();
@@ -415,16 +500,28 @@ function makeWorkspace(): string {
   writeFileSync(join(root, "docs/zh-CN/PRD.md"), "# PRD\n");
   writeFileSync(join(root, "docs/zh-CN/requirements.md"), "# Requirements\n");
   writeFileSync(join(root, "docs/zh-CN/hld.md"), "# HLD\n");
-  writeFileSync(join(root, "docs/features/README.md"), "# Feature Spec Index\n");
+  writeFileSync(join(root, "docs/features/README.md"), [
+    "# Feature Spec Index",
+    "",
+    "| Feature ID | Feature | Folder | Status | Primary Requirements | Suggested Milestone | Dependencies |",
+    "|---|---|---|---|---|---|---|",
+    "| FEAT-016 | SpecDrive IDE Foundation | `feat-016-specdrive-ide-foundation` | ready | REQ-074、REQ-075 | M8 | FEAT-013 |",
+    "",
+  ].join("\n"));
   writeFileSync(join(root, "docs/features/feature-pool-queue.json"), JSON.stringify({
     schemaVersion: 1,
     features: [
       { id: "FEAT-016", priority: "P1", dependencies: ["FEAT-013"] },
     ],
   }));
-  for (const file of ["requirements.md", "design.md", "tasks.md"]) {
-    writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation", file), `# ${file}\n`);
-  }
+  writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation/design.md"), "# design.md\n");
+  writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation/tasks.md"), [
+    "# FEAT-016 tasks",
+    "",
+    "- [x] TASK-016-01: Build IDE foundation",
+    "- [ ] TASK-016-02: Verify IDE foundation",
+    "",
+  ].join("\n"));
   writeFileSync(join(root, "docs/features/feat-016-specdrive-ide-foundation/requirements.md"), [
     "# FEAT-016 requirements",
     "",
