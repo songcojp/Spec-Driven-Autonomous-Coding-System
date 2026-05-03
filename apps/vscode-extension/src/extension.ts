@@ -1123,19 +1123,28 @@ function diagnosticSeverity(severity: SpecDriveIdeDiagnostic["severity"]): vscod
 }
 
 function formatExecutionDetails(item: SpecDriveIdeQueueItem): string {
-  const fields = [
-    ["Status", item.status],
-    ["Operation", item.operation],
-    ["Job type", item.jobType],
-    ["Scheduler job", item.schedulerJobId],
-    ["Execution", item.executionId],
-    ["Feature", item.featureId],
-    ["Task", item.taskId],
-    ["Adapter", item.adapter],
-    ["Thread", item.threadId],
-    ["Turn", item.turnId],
-    ["Updated", item.updatedAt],
-  ];
+  const fields = item.executionId
+    ? [
+      ["Status", item.status],
+      ["Operation", item.operation],
+      ["Execution", item.executionId],
+      ["Feature", item.featureId],
+      ["Task", item.taskId],
+      ["Adapter", item.adapter],
+      ["Thread", item.threadId],
+      ["Turn", item.turnId],
+      ["Updated", item.updatedAt],
+    ]
+    : [
+      ["Status", item.status],
+      ["Schedule job type", item.jobType],
+      ["Schedule action", item.operation],
+      ["Scheduler job", item.schedulerJobId],
+      ["Feature", item.featureId],
+      ["Task", item.taskId],
+      ["Adapter", item.adapter],
+      ["Updated", item.updatedAt],
+    ];
   return [
     "# SpecDrive Execution",
     "",

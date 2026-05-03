@@ -38,7 +38,7 @@ export function renderExecutionWorkbenchWebview(
     </section>
     <main class="grid execution-grid">
       <section class="panel span-5">
-        <div class="panel-title"><h2>Job Queue</h2><span>${queue.length} jobs</span></div>
+        <div class="panel-title"><h2>Execution Queue</h2><span>${queue.length} items</span></div>
         ${["ready", "queued", "running", "approval_needed", "blocked", "failed", "completed"].map((status) => renderQueueGroup(status, grouped[status] ?? [])).join("")}
       </section>
       <section class="panel span-3">

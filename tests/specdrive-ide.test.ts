@@ -144,6 +144,47 @@ test("SpecDrive IDE view scopes queue and latest executions to the current works
   assert.equal(JSON.stringify(view.queue.groups).includes("JOB-OTHER-ONLY"), false);
 });
 
+test("SpecDrive IDE view hides completed schedule-only rows from execution queue", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "JOB-SCHEDULE-COMPLETED",
+        "bull-schedule-completed",
+        "specdrive:cli-runner",
+        "cli.run",
+        "completed",
+        JSON.stringify({ projectId: "project-ide", requestedAction: "split_feature_specs" }),
+        "2026-05-02T12:05:00.000Z",
+      ],
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "JOB-SCHEDULE-QUEUED",
+        "bull-schedule-queued",
+        "specdrive:cli-runner",
+        "cli.run",
+        "queued",
+        JSON.stringify({ projectId: "project-ide", requestedAction: "generate_ears" }),
+        "2026-05-02T12:06:00.000Z",
+      ],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(JSON.stringify(view.queue.groups).includes("JOB-SCHEDULE-COMPLETED"), false);
+  assert.equal(view.queue.groups.queued[0].schedulerJobId, "JOB-SCHEDULE-QUEUED");
+  assert.equal(view.queue.groups.queued[0].operation, "generate_ears");
+});
+
 test("SpecDrive IDE view exposes diagnostics for blocked spec state and failed executions", () => {
   const workspaceRoot = makeWorkspace();
   writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({

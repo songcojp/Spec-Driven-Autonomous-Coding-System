@@ -229,17 +229,26 @@ function kebab(value: string): string {
 }
 
 export function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
-  const fields = [
-    ["Status", item.status],
-    ["Operation", item.operation],
-    ["Job type", item.jobType],
-    ["Scheduler job", item.schedulerJobId],
-    ["Execution", item.executionId],
-    ["Feature", item.featureId],
-    ["Task", item.taskId],
-    ["Adapter", item.adapter],
-    ["Updated", item.updatedAt],
-  ];
+  const fields = item.executionId
+    ? [
+      ["Status", item.status],
+      ["Operation", item.operation],
+      ["Execution", item.executionId],
+      ["Feature", item.featureId],
+      ["Task", item.taskId],
+      ["Adapter", item.adapter],
+      ["Updated", item.updatedAt],
+    ]
+    : [
+      ["Status", item.status],
+      ["Schedule job type", item.jobType],
+      ["Schedule action", item.operation],
+      ["Scheduler job", item.schedulerJobId],
+      ["Feature", item.featureId],
+      ["Task", item.taskId],
+      ["Adapter", item.adapter],
+      ["Updated", item.updatedAt],
+    ];
   return `<ul>${fields
     .filter(([, value]) => typeof value === "string" && value.length > 0)
     .map(([label, value]) => `<li>${escapeHtml(String(label))}: <code>${escapeHtml(String(value))}</code></li>`)

@@ -1307,11 +1307,13 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
     const payloadContext = isRecord(payload.context) ? payload.context : parseJsonObject(optionalString(payload.context));
     const metadata = parseJsonObject(optionalString(row.metadata_json));
     const status = optionalString(row.execution_status) ?? optionalString(row.job_status) ?? "unknown";
+    const executionId = optionalString(row.execution_id);
+    if (!executionId && isCompletedScheduleOnlyStatus(status)) continue;
     const item: SpecDriveIdeQueueItem = {
       schedulerJobId: optionalString(row.scheduler_job_id),
-      executionId: optionalString(row.execution_id),
+      executionId,
       status,
-      operation: optionalString(row.operation) ?? optionalString(payload.operation),
+      operation: optionalString(row.operation) ?? optionalString(payload.operation) ?? optionalString(payload.requestedAction),
       jobType: optionalString(row.job_type),
       featureId: optionalString(context.featureId) ?? optionalString(payloadContext.featureId),
       taskId: optionalString(context.taskId) ?? optionalString(payloadContext.taskId),
@@ -1324,6 +1326,10 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
     groups[status] = [...(groups[status] ?? []), item];
   }
   return { groups };
+}
+
+function isCompletedScheduleOnlyStatus(status: string): boolean {
+  return ["completed", "cancelled", "skipped"].includes(status);
 }
 
 function buildDiagnostics(
