@@ -20,7 +20,7 @@ Read the available project-level sources:
 ## Workflow
 
 1. Identify the product scope, phase boundaries, and current requirement set.
-2. Confirm the technology stack from repository evidence. If a decision cannot be made from sources, mark it as `TBD` with the exact missing decision.
+2. Confirm the technology stack from repository evidence. Repository facts and explicit PRD constraints take precedence. If the project has UI and no existing stack is determined from sources, default to the React-family stack that fits the primary application type; do not mark the frontend stack as `TBD` or defer it to implementation when this default can satisfy the product shape. If a non-UI or backend/runtime decision cannot be made from sources, mark it as `TBD` with the exact missing decision.
 3. Preserve project-level architecture boundaries: subsystems, data domains, integration strategy, workflows, security, observability, deployment, testing strategy, and feature decomposition guidance.
 4. Keep feature-specific implementation details out of the project HLD. Route feature API fields, component internals, and task-level details to feature specs instead.
 5. Reconcile stale `design.md` content only when it is consistent with PRD, requirements, and the current HLD direction.
@@ -44,7 +44,14 @@ Read the available project-level sources:
    - Users, external systems, runtime boundaries, trust boundaries, and major dependencies.
 6. Technology Stack
    - First, determine the primary application type (e.g., Mobile, Web, CLI, Backend).
-   - Let your judgment determine the most appropriate architecture pattern and technology stack tailored to that specific type.
+   - Let your judgment determine the most appropriate architecture pattern and technology stack tailored to that specific type, while using React-family frontend stacks as the default when no stronger repository or product evidence overrides them.
+   - Use this default React-family mapping:
+     - Web application, admin console, or Product Console: `React + Next.js` or `Vite React`; prefer `Vite React` for state-dense local workbenches and prefer `Next.js` when SSR, file-based routing, content publishing, or SEO is a core requirement.
+     - Mobile application: `React Native + Expo`.
+     - Desktop application: `Tauri + React` or `Electron + React`; prefer Electron only when strong local system integration, Node runtime access, or existing Electron assets justify the heavier runtime.
+     - Documentation or content site: `Next.js` or `Astro + React`.
+     - Component library, embedded frontend, prototype, or lightweight tool surface: `Vite React`.
+   - If the repository already has a different host framework, record that existing stack, explain why it overrides the React-family default, and describe the acceptance impact.
    - Define concrete stack decisions based on your architectural judgment.
    - Include the Project Initialization strategy (项目初始化设计), specifying scaffolding tools, base frameworks, directory structure, and environment setup commands.
    - Do not write "implementation layer decides" when repository or PRD evidence is enough to choose. If evidence is missing, write `TBD` with the missing decision.
