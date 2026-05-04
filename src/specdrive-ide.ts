@@ -12,7 +12,17 @@ import type { SchedulerClient } from "./scheduler.ts";
 import { runSqlite } from "./sqlite.ts";
 
 export type SpecDriveIdeDocument = {
-  kind: "prd" | "requirements" | "hld" | "feature-index" | "feature-requirements" | "feature-design" | "feature-tasks" | "spec-state" | "queue";
+  kind:
+    | "prd"
+    | "requirements"
+    | "hld"
+    | "ui-spec"
+    | "feature-index"
+    | "feature-requirements"
+    | "feature-design"
+    | "feature-tasks"
+    | "spec-state"
+    | "queue";
   label: string;
   path: string;
   exists: boolean;
@@ -91,6 +101,7 @@ export type SpecDriveIdeInitializationStep = {
     | "workspace_root_resolved"
     | "connect_git_repository"
     | "initialize_spec_protocol"
+    | "copy_skill_runtime"
     | "import_or_create_constitution"
     | "initialize_project_memory"
     | "check_project_health"
@@ -915,6 +926,7 @@ function buildTopLevelDocuments(workspaceRoot: string, specRoot?: string): SpecD
     document("prd", "PRD", `${root}/PRD.md`, workspaceRoot),
     document("requirements", "EARS Requirements", `${root}/requirements.md`, workspaceRoot),
     document("hld", "HLD", `${root}/hld.md`, workspaceRoot),
+    document("ui-spec", "UI Spec", "docs/ui/ui-spec.md", workspaceRoot),
     document("feature-index", "Feature Spec Index", "docs/features/README.md", workspaceRoot),
     document("queue", "Feature Pool Queue", "docs/features/feature-pool-queue.json", workspaceRoot),
   ] satisfies SpecDriveIdeDocument[];
@@ -958,6 +970,7 @@ function buildProjectInitialization(
   const repositoryPath = optionalString(repositoryConnection?.local_path) ?? optionalString(input.project?.target_repo_path) ?? workspaceRoot;
   const hasGitRepository = Boolean(repositoryConnection || (repositoryPath && existsSync(join(repositoryPath, ".git"))));
   const hasSpecProtocol = Boolean(repositoryPath && existsSync(join(repositoryPath, ".autobuild")));
+  const hasSkillRuntime = Boolean(repositoryPath && existsSync(join(repositoryPath, ".agents/skills")));
   const hasConstitution = Boolean(constitution);
   const hasProjectMemory = Boolean(memoryVersion || (repositoryPath && existsSync(join(repositoryPath, ".autobuild/memory/project.md"))));
   const healthStatus = optionalString(healthCheck?.status);
@@ -993,6 +1006,12 @@ function buildProjectInitialization(
       blockedReason: hasSpecProtocol ? undefined : "Initialize .autobuild / Spec Protocol for this workspace.",
     },
     {
+      key: "copy_skill_runtime",
+      label: "Skill runtime copied",
+      status: hasSkillRuntime ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      blockedReason: hasSkillRuntime ? undefined : "Copy project-local .agents skills for governed SpecDrive workflows.",
+    },
+    {
       key: "import_or_create_constitution",
       label: "Project constitution",
       status: hasConstitution ? "Ready" : input.project?.id ? "Draft" : "Blocked",
@@ -1025,6 +1044,7 @@ function buildProjectInitialization(
     "workspace_root_resolved",
     "connect_git_repository",
     "initialize_spec_protocol",
+    "copy_skill_runtime",
     "current_project_context",
   ]);
   const blocked = steps.some((step) => step.status === "Blocked");

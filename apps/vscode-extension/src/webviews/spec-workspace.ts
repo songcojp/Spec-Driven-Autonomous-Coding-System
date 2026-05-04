@@ -71,6 +71,7 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
     { label: "Workspace root resolved", status: view?.workspaceRoot ? "Ready" : "Blocked" },
     { label: "Git repository connected", status: view?.project?.targetRepoPath ? "Ready" : "Blocked" },
     { label: ".autobuild / Spec Protocol", status: view?.recognized ? "Ready" : "Blocked" },
+    { label: "Skill runtime copied", status: view?.workspaceRoot ? "Draft" : "Blocked" },
     { label: "Project constitution", status: "Draft" },
     { label: "Project Memory", status: "Draft" },
     { label: "Workspace health check", status: (view?.diagnostics.length ?? 0) === 0 ? "Draft" : "Active" },
@@ -113,6 +114,7 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
         { label: "Spec source scan", status: (view?.documents.length ?? 0) > 0 ? "Ready" : "Not Started" },
         { label: "PRD / requirements", status: hasRequirementDocs ? "Ready" : "Draft" },
         { label: "HLD / design", status: docs.has("hld") || docs.has("design") ? "Ready" : "Draft" },
+        { label: "UI Spec document and concept images", status: docs.has("ui-spec") ? "Ready" : "Draft" },
         { label: "Clarification and quality check", status: (view?.diagnostics.length ?? 0) === 0 ? "Ready" : "Active" },
       ],
       actions: [
@@ -157,14 +159,16 @@ function renderSpecLifecycleDetail(
     ${stage.steps.map((step) => `<div class="row"><span>${escapeHtml(step.label)}</span><strong class="${statusClass(step.status)}">${escapeHtml(step.status)}</strong></div>`).join("")}
     <h3>Spec Documents</h3>
     ${documentList(documents)}
-    ${stage.id === "requirement-intake" ? renderUiConceptImages(uiConceptImages) : ""}
+    ${stage.id === "requirement-intake" ? renderUiSpecAssets(uiConceptImages) : ""}
     <h3>Stage Actions</h3>
     <div class="toolbar">${stage.actions.map((action) => commandButton(action.label, "controlled", { action: action.action, entityType: "project", entityId: projectId, reason: action.reason })).join("")}</div>
   </div>`;
 }
 
-function renderUiConceptImages(images: UiConceptImage[]): string {
-  return `<h3>UI Spec Concept Images</h3>
+function renderUiSpecAssets(images: UiConceptImage[]): string {
+  return `<h3>UI Spec Assets</h3>
+    <p class="muted">UI Spec includes the Markdown document above plus the concept images below.</p>
+    <h3>UI Spec Concept Images</h3>
     ${images.length === 0 ? emptyState("No UI concept images discovered.") : `<div class="concept-grid">${images.map(renderUiConceptImage).join("")}</div>`}`;
 }
 

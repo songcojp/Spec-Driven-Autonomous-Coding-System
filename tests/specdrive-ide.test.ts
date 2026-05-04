@@ -35,6 +35,9 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.projectInitialization.ready, true);
   assert.equal(view.documents.find((document) => document.kind === "prd")?.exists, true);
   assert.equal(view.documents.find((document) => document.kind === "hld")?.path, "docs/zh-CN/hld.md");
+  assert.equal(view.documents.find((document) => document.kind === "ui-spec")?.path, "docs/ui/ui-spec.md");
+  assert.equal(view.documents.find((document) => document.kind === "ui-spec")?.exists, true);
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "copy_skill_runtime")?.status, "Ready");
 
   const feature = view.features.find((entry) => entry.id === "FEAT-016");
   assert.equal(feature?.status, "ready");
@@ -67,6 +70,7 @@ test("SpecDrive IDE keeps project initialization blocked for an unregistered PRD
   assert.equal(view.projectInitialization.steps.find((step) => step.key === "create_or_import_project")?.status, "Blocked");
   assert.equal(view.projectInitialization.steps.find((step) => step.key === "connect_git_repository")?.status, "Blocked");
   assert.equal(view.projectInitialization.steps.find((step) => step.key === "initialize_spec_protocol")?.status, "Blocked");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "copy_skill_runtime")?.status, "Blocked");
 });
 
 test("SpecDrive IDE register project command imports an unregistered workspace before continuing initialization", async () => {
@@ -703,11 +707,15 @@ function makeConfig(workspaceRoot: string, dbPath: string): AppConfig {
 function makeWorkspace(): string {
   const root = mkdtempSync(join(tmpdir(), "specdrive-ide-workspace-"));
   mkdirSync(join(root, ".autobuild"), { recursive: true });
+  mkdirSync(join(root, ".agents/skills/requirement-intake-skill"), { recursive: true });
   mkdirSync(join(root, "docs/zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs/ui"), { recursive: true });
   mkdirSync(join(root, "docs/features/feat-016-specdrive-ide-foundation"), { recursive: true });
   writeFileSync(join(root, "docs/zh-CN/PRD.md"), "# PRD\n");
   writeFileSync(join(root, "docs/zh-CN/requirements.md"), "# Requirements\n");
   writeFileSync(join(root, "docs/zh-CN/hld.md"), "# HLD\n");
+  writeFileSync(join(root, "docs/ui/ui-spec.md"), "# UI Spec\n");
+  writeFileSync(join(root, ".agents/skills/requirement-intake-skill/SKILL.md"), "# Requirement intake\n");
   writeFileSync(join(root, "docs/features/README.md"), [
     "# Feature Spec Index",
     "",

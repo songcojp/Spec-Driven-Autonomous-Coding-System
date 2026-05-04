@@ -182,6 +182,7 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /label: "Project Memory"/);
   assert.match(extensionSource, /label: "Workspace health check"/);
   assert.match(extensionSource, /label: "Current project context"/);
+  assert.match(extensionSource, /label: "Skill runtime copied"/);
   assert.match(extensionSource, /action: "connect_git_repository"/);
   assert.match(extensionSource, /entityType: "project"/);
   assert.match(extensionSource, /action: "initialize_spec_protocol"/);
@@ -194,12 +195,15 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /action: "upload_prd_source"/);
   assert.match(extensionSource, /action: "generate_ears"/);
   assert.match(extensionSource, /label: "HLD \/ design"/);
+  assert.match(extensionSource, /label: "UI Spec document and concept images"/);
   assert.match(extensionSource, /reason: "Generate HLD from Requirement Intake lifecycle\."/);
   assert.match(extensionSource, /reason: "Generate UI Spec from Requirement Intake lifecycle\."/);
   assert.doesNotMatch(extensionSource, /reason: "Generate HLD from Feature Split lifecycle\."/);
   assert.doesNotMatch(extensionSource, /reason: "Generate UI Spec from Feature Split lifecycle\."/);
   assert.match(extensionSource, /action: "split_feature_specs"/);
   assert.match(extensionSource, /<h3>UI Spec Concept Images<\/h3>/);
+  assert.match(extensionSource, /<h3>UI Spec Assets<\/h3>/);
+  assert.match(extensionSource, /UI Spec includes the Markdown document above plus the concept images below\./);
   assert.match(extensionSource, /class="concept-card" data-command="openConceptImage"/);
   assert.match(extensionSource, /id="concept-modal" class="concept-modal" hidden/);
   assert.match(extensionSource, /payload\.command === "openConceptImage"/);
