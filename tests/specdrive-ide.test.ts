@@ -13,6 +13,7 @@ import {
   submitIdeQueueCommand,
   submitIdeSpecChangeRequest,
 } from "../src/specdrive-ide.ts";
+import { submitConsoleCommand } from "../src/product-console.ts";
 import { createControlPlaneServer, listen } from "../src/server.ts";
 import { createMemoryScheduler } from "../src/scheduler.ts";
 import type { AppConfig } from "../src/config.ts";
@@ -32,6 +33,8 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.language, "zh-CN");
   assert.equal(view.project?.id, "project-ide");
   assert.equal(view.activeAdapter?.id, "codex-rpc");
+  assert.equal(view.automation.status, "idle");
+  assert.equal(view.automation.source, "project");
   assert.equal(view.projectInitialization.ready, true);
   assert.equal(view.documents.find((document) => document.kind === "prd")?.exists, true);
   assert.equal(view.documents.find((document) => document.kind === "hld")?.path, "docs/zh-CN/hld.md");
@@ -54,6 +57,182 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.queue.groups.running[0].featureId, "FEAT-016");
   assert.deepEqual(view.diagnostics, []);
   assert.equal(view.factSources.includes("execution_records"), true);
+});
+
+test("SpecDrive IDE automation state follows latest auto-run audit event", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO audit_timeline_events (id, entity_type, entity_id, event_type, source, reason, payload_json, created_at)
+        VALUES ('AUDIT-PAUSE-AUTO', 'runner', 'runner-main', 'console_command_pause_runner', 'product_console', 'Pause auto run.', '{}', '2026-05-04T10:00:00.000Z')`,
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.automation.status, "paused");
+  assert.equal(view.automation.updatedAt, "2026-05-04T10:00:00.000Z");
+  assert.equal(view.automation.source, "audit");
+});
+
+test("SpecDrive IDE automation state changes after start and pause commands", () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/feature-pool-queue.json"), JSON.stringify({
+    schemaVersion: 1,
+    features: [
+      { id: "FEAT-016", priority: "P1", dependencies: [] },
+    ],
+  }));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+
+  submitConsoleCommand(dbPath, {
+    action: "start_auto_run",
+    entityType: "project",
+    entityId: "project-ide",
+    requestedBy: "vscode-extension",
+    reason: "Start auto run from test.",
+    now: new Date("2026-05-04T10:01:00.000Z"),
+  }, { scheduler });
+  const started = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  submitConsoleCommand(dbPath, {
+    action: "pause_runner",
+    entityType: "runner",
+    entityId: "runner-main",
+    requestedBy: "vscode-extension",
+    reason: "Pause auto run from test.",
+    payload: { projectId: "project-ide" },
+    now: new Date("2026-05-04T10:02:00.000Z"),
+  }, { scheduler });
+  const paused = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(started.automation.status, "running");
+  assert.equal(paused.automation.status, "paused");
+});
+
+test("SpecDrive IDE automation state changes through HTTP workbench commands", async () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/feature-pool-queue.json"), JSON.stringify({
+    schemaVersion: 1,
+    features: [
+      { id: "FEAT-016", priority: "P1", dependencies: [] },
+    ],
+  }));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+  const config = makeConfig(workspaceRoot, dbPath);
+  const controlPlane = createControlPlaneServer(config, {
+    status: "ready",
+    version: "test",
+    schemaVersion: 23,
+    artifactRoot: join(workspaceRoot, ".autobuild"),
+  }, { scheduler });
+
+  await listen(controlPlane.server, config);
+  const address = controlPlane.server.address();
+  const port = address && typeof address === "object" ? address.port : 0;
+
+  try {
+    const initial = await getJson(`http://127.0.0.1:${port}/ide/spec-tree?workspaceRoot=${encodeURIComponent(workspaceRoot)}`);
+    assert.equal(initial.automation.status, "idle");
+
+    const startReceipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "start_auto_run",
+      entityType: "project",
+      entityId: "project-ide",
+      requestedBy: "vscode-extension",
+      reason: "Start auto run from Execution Workbench.",
+    });
+    assert.equal(startReceipt.status, "accepted");
+
+    const started = await getJson(`http://127.0.0.1:${port}/ide/spec-tree?workspaceRoot=${encodeURIComponent(workspaceRoot)}`);
+    assert.equal(started.automation.status, "running");
+
+    const pauseReceipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "pause_runner",
+      entityType: "runner",
+      entityId: "runner-main",
+      requestedBy: "vscode-extension",
+      reason: "Pause auto run from Execution Workbench.",
+      payload: { projectId: "project-ide" },
+    });
+    assert.equal(pauseReceipt.status, "accepted");
+
+    const paused = await getJson(`http://127.0.0.1:${port}/ide/spec-tree?workspaceRoot=${encodeURIComponent(workspaceRoot)}`);
+    assert.equal(paused.automation.status, "paused");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      controlPlane.server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+test("SpecDrive IDE automation state switches on even when no feature can be selected", async () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+  const config = makeConfig(workspaceRoot, dbPath);
+  const controlPlane = createControlPlaneServer(config, {
+    status: "ready",
+    version: "test",
+    schemaVersion: 23,
+    artifactRoot: join(workspaceRoot, ".autobuild"),
+  }, { scheduler });
+
+  await listen(controlPlane.server, config);
+  const address = controlPlane.server.address();
+  const port = address && typeof address === "object" ? address.port : 0;
+
+  try {
+    const startReceipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "start_auto_run",
+      entityType: "project",
+      entityId: "project-ide",
+      requestedBy: "vscode-extension",
+      reason: "Start auto run from Execution Workbench.",
+    });
+    assert.equal(startReceipt.status, "accepted");
+
+    const afterStart = await getJson(`http://127.0.0.1:${port}/ide/spec-tree?workspaceRoot=${encodeURIComponent(workspaceRoot)}`);
+    assert.equal(afterStart.automation.status, "running");
+    assert.equal(afterStart.queue.groups.queued?.length ?? 0, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      controlPlane.server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+test("SpecDrive IDE automation state uses latest audit write when timestamps tie", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET automation_enabled = 1 WHERE id = 'project-ide'" },
+    {
+      sql: `INSERT INTO audit_timeline_events (id, entity_type, entity_id, event_type, source, reason, payload_json, created_at)
+        VALUES ('AUDIT-PAUSE-TIE', 'runner', 'runner-main', 'console_command_pause_runner', 'product_console', 'Pause auto run.', '{}', '2026-05-04 10:00:00')`,
+    },
+    {
+      sql: `INSERT INTO audit_timeline_events (id, entity_type, entity_id, event_type, source, reason, payload_json, created_at)
+        VALUES ('AUDIT-START-TIE', 'project', 'project-ide', 'console_command_start_auto_run', 'product_console', 'Start auto run.', '{}', '2026-05-04 10:00:00')`,
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.automation.status, "running");
 });
 
 test("SpecDrive IDE keeps project initialization blocked for an unregistered PRD-only workspace", () => {
@@ -287,6 +466,69 @@ test("SpecDrive IDE view hides completed schedule-only rows from execution queue
   assert.equal(JSON.stringify(view.queue.groups).includes("JOB-SCHEDULE-COMPLETED"), false);
   assert.equal(view.queue.groups.queued[0].schedulerJobId, "JOB-SCHEDULE-QUEUED");
   assert.equal(view.queue.groups.queued[0].operation, "generate_ears");
+});
+
+test("SpecDrive IDE queue actions operate on schedule-only jobs", async () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "JOB-SCHEDULE-ONLY",
+        "bull-schedule-only",
+        "specdrive:execution-adapter",
+        "cli.run",
+        "queued",
+        JSON.stringify({
+          projectId: "project-ide",
+          operation: "feature_execution",
+          requestedAction: "feature_execution",
+          context: { projectId: "project-ide", featureId: "FEAT-016", taskId: "TASK-SCHEDULE-ONLY", skillSlug: "codex-coding-skill" },
+        }),
+        "2026-05-02T12:07:00.000Z",
+      ],
+    },
+  ]);
+  const scheduler = createMemoryScheduler(dbPath);
+
+  const runNow = await submitIdeQueueCommand(dbPath, {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: "project-ide",
+    workspaceRoot,
+    queueAction: "run_now",
+    entityType: "job",
+    entityId: "JOB-SCHEDULE-ONLY",
+    requestedBy: "vscode-extension",
+    reason: "Run selected schedule-only job now.",
+  }, { scheduler, now: new Date("2026-05-02T12:08:00.000Z") });
+  const cancel = await submitIdeQueueCommand(dbPath, {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: "project-ide",
+    workspaceRoot,
+    queueAction: "cancel",
+    entityType: "job",
+    entityId: "JOB-SCHEDULE-ONLY",
+    requestedBy: "vscode-extension",
+    reason: "Cancel selected schedule-only job.",
+  }, { now: new Date("2026-05-02T12:09:00.000Z") });
+
+  assert.equal(runNow.status, "accepted");
+  assert.equal(runNow.schedulerJobId, scheduler.jobs[0].schedulerJobId);
+  const queuedPayload = JSON.parse(String(runSqlite(dbPath, [], [
+    { name: "job", sql: "SELECT payload_json FROM scheduler_job_records WHERE id = ?", params: [runNow.schedulerJobId] },
+  ]).queries.job[0].payload_json));
+  assert.equal(queuedPayload.context.featureId, "FEAT-016");
+  assert.equal(queuedPayload.context.taskId, "TASK-SCHEDULE-ONLY");
+  assert.equal(cancel.status, "accepted");
+  assert.equal(runSqlite(dbPath, [], [
+    { name: "job", sql: "SELECT status FROM scheduler_job_records WHERE id = 'JOB-SCHEDULE-ONLY'" },
+  ]).queries.job[0].status, "cancelled");
 });
 
 test("SpecDrive IDE view exposes diagnostics for blocked spec state and failed executions", () => {
@@ -822,7 +1064,7 @@ function seedProject(dbPath: string, workspaceRoot: string): void {
         "main",
         "standard",
         "local",
-        1,
+        0,
         "created",
       ],
     },

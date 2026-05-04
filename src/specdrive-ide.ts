@@ -112,6 +112,12 @@ export type SpecDriveIdeInitializationStep = {
   blockedReason?: string;
 };
 
+export type SpecDriveIdeAutomationState = {
+  status: "idle" | "running" | "paused";
+  updatedAt?: string;
+  source: "project" | "audit";
+};
+
 export type SpecDriveIdeView = {
   recognized: boolean;
   workspaceRoot?: string;
@@ -127,6 +133,7 @@ export type SpecDriveIdeView = {
     displayName: string;
     status: string;
   };
+  automation: SpecDriveIdeAutomationState;
   projectInitialization: {
     ready: boolean;
     blocked: boolean;
@@ -261,6 +268,7 @@ type ProjectRow = {
   id?: unknown;
   name?: unknown;
   target_repo_path?: unknown;
+  automation_enabled?: unknown;
   created_at?: unknown;
   updated_at?: unknown;
 };
@@ -295,6 +303,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
   const features = workspaceRoot ? buildFeatureNodes(dbPath, workspaceRoot, projectId) : [];
   const queue = buildQueueGroups(dbPath, projectId);
   const activeAdapter = readActiveAdapter(dbPath);
+  const automation = buildAutomationState(dbPath, project, projectId);
   const projectInitialization = buildProjectInitialization(dbPath, { project, projectId, workspaceRoot });
   const missing = [
     ...documents.filter((document) => !document.exists).map((document) => document.path),
@@ -313,6 +322,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
       targetRepoPath: optionalString(project.target_repo_path),
     } : undefined,
     activeAdapter,
+    automation,
     projectInitialization,
     documents,
     features,
@@ -483,7 +493,12 @@ export async function submitIdeQueueCommand(
   }
 
   if (command.queueAction === "enqueue" || command.queueAction === "run_now") {
-    const receipt = submitConsoleCommand(dbPath, queueScheduleCommand(command, acceptedAt), { scheduler: options.scheduler });
+    const target = findExecutionForQueueCommand(dbPath, command);
+    if (!target) {
+      blockedReasons.push(`Execution or job not found for ${command.queueAction}: ${command.entityId}`);
+      return base();
+    }
+    const receipt = submitConsoleCommand(dbPath, queueScheduleCommand(command, acceptedAt, target), { scheduler: options.scheduler });
     return {
       ...base(),
       status: receipt.status,
@@ -497,6 +512,10 @@ export async function submitIdeQueueCommand(
     const previous = findExecutionForQueueCommand(dbPath, command);
     if (!previous) {
       blockedReasons.push(`Execution not found for retry: ${command.entityId}`);
+      return base();
+    }
+    if (!previous.executionId) {
+      blockedReasons.push(`Execution record is required for retry: ${command.entityId}`);
       return base();
     }
     const payload = retryPayload(previous, command, acceptedAt);
@@ -544,6 +563,10 @@ export async function submitIdeQueueCommand(
     }
     let interruptResult: Record<string, unknown> | undefined;
     if (target.status === "running") {
+      if (!target.executionId) {
+        blockedReasons.push("Running cancel requires an Execution Record.");
+        return base();
+      }
       const threadId = optionalString(target.metadata.threadId);
       const turnId = optionalString(target.metadata.turnId);
       if (!threadId || !turnId) {
@@ -674,17 +697,17 @@ export function hashSpecSourceText(text: string): string {
 function resolveProject(dbPath: string, options: BuildSpecDriveIdeViewOptions): ProjectRow | undefined {
   if (options.projectId) {
     const result = runSqlite(dbPath, [], [
-      { name: "project", sql: "SELECT id, name, target_repo_path FROM projects WHERE id = ? LIMIT 1", params: [options.projectId] },
+      { name: "project", sql: "SELECT id, name, target_repo_path, automation_enabled FROM projects WHERE id = ? LIMIT 1", params: [options.projectId] },
     ]);
     return result.queries.project[0] as ProjectRow | undefined;
   }
   if (options.workspaceRoot) {
     const workspaceRoot = resolve(options.workspaceRoot);
     const result = runSqlite(dbPath, [], [
-      { name: "project", sql: "SELECT id, name, target_repo_path FROM projects WHERE target_repo_path = ? LIMIT 1", params: [workspaceRoot] },
+      { name: "project", sql: "SELECT id, name, target_repo_path, automation_enabled FROM projects WHERE target_repo_path = ? LIMIT 1", params: [workspaceRoot] },
       {
         name: "repositoryProject",
-        sql: `SELECT p.id, p.name, COALESCE(p.target_repo_path, r.local_path) AS target_repo_path
+        sql: `SELECT p.id, p.name, COALESCE(p.target_repo_path, r.local_path) AS target_repo_path, p.automation_enabled
           FROM repository_connections r
           JOIN projects p ON p.id = r.project_id
           WHERE r.local_path = ?
@@ -698,14 +721,58 @@ function resolveProject(dbPath: string, options: BuildSpecDriveIdeViewOptions): 
   const result = runSqlite(dbPath, [], [
     {
       name: "selected",
-      sql: `SELECT p.id, p.name, p.target_repo_path
+      sql: `SELECT p.id, p.name, p.target_repo_path, p.automation_enabled
         FROM project_selection_context s
         JOIN projects p ON p.id = s.project_id
         LIMIT 1`,
     },
-    { name: "first", sql: "SELECT id, name, target_repo_path FROM projects ORDER BY rowid LIMIT 1" },
+    { name: "first", sql: "SELECT id, name, target_repo_path, automation_enabled FROM projects ORDER BY rowid LIMIT 1" },
   ]);
   return (result.queries.selected[0] ?? result.queries.first[0]) as ProjectRow | undefined;
+}
+
+function buildAutomationState(dbPath: string, project: ProjectRow | undefined, projectId?: string): SpecDriveIdeAutomationState {
+  const enabled = Number(project?.automation_enabled ?? 0) === 1;
+  const auditRows = runSqlite(dbPath, [], [
+    {
+      name: "latest",
+      sql: `SELECT event_type, payload_json, created_at
+        FROM audit_timeline_events
+        WHERE event_type IN ('console_command_start_auto_run', 'console_command_pause_runner', 'console_command_resume_runner')
+          AND (
+            entity_type = 'runner'
+            OR (? IS NOT NULL AND entity_id = ?)
+          )
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT 20`,
+      params: [projectId ?? null, projectId ?? null],
+    },
+  ]).queries.latest;
+  const audit = auditRows.find(isAcceptedAutomationAudit);
+  const eventType = optionalString(audit?.event_type);
+  if (enabled) {
+    return {
+      status: "running",
+      updatedAt: optionalString(audit?.created_at),
+      source: eventType ? "audit" : "project",
+    };
+  }
+  if (eventType === "console_command_pause_runner") {
+    return { status: "paused", updatedAt: optionalString(audit?.created_at), source: "audit" };
+  }
+  return {
+    status: "idle",
+    source: "project",
+  };
+}
+
+function isAcceptedAutomationAudit(row: Record<string, unknown>): boolean {
+  const eventType = optionalString(row.event_type);
+  if (eventType !== "console_command_start_auto_run") return true;
+  const payload = parseJsonObject(optionalString(row.payload_json));
+  const autoRun = isRecord(payload.autoRun) ? payload.autoRun : {};
+  const blockedReasons = Array.isArray(autoRun.blockedReasons) ? autoRun.blockedReasons : [];
+  return blockedReasons.length === 0;
 }
 
 function commandForSpecChangeRequest(
@@ -1238,7 +1305,7 @@ function readLatestExecutionsByFeature(dbPath: string, projectId?: string): Map<
 }
 
 type QueueExecutionRow = {
-  executionId: string;
+  executionId?: string;
   schedulerJobId?: string;
   jobType?: string;
   executorType: string;
@@ -1251,57 +1318,89 @@ type QueueExecutionRow = {
 };
 
 function findExecutionForQueueCommand(dbPath: string, command: IdeQueueCommandV1): QueueExecutionRow | undefined {
-  const lookup = command.entityType === "job"
-    ? { sql: "WHERE sj.id = ? OR sj.bullmq_job_id = ?", params: [command.entityId, command.entityId] }
-    : { sql: "WHERE er.id = ?", params: [command.entityId] };
-  const result = runSqlite(dbPath, [], [
-    {
-      name: "target",
-      sql: `SELECT
-          er.id AS execution_id,
-          er.scheduler_job_id,
-          er.executor_type,
-          er.operation,
-          er.project_id,
-          er.context_json,
-          er.metadata_json,
-          er.status AS execution_status,
-          sj.job_type,
-          sj.payload_json,
-          sj.status AS job_status
-        FROM execution_records er
-        LEFT JOIN scheduler_job_records sj ON sj.id = er.scheduler_job_id
-        ${lookup.sql}
-        ORDER BY er.updated_at DESC
-        LIMIT 1`,
-      params: lookup.params,
-    },
-  ]);
+  const result = command.entityType === "job"
+    ? runSqlite(dbPath, [], [
+      {
+        name: "target",
+        sql: `SELECT
+            er.id AS execution_id,
+            sj.id AS scheduler_job_id,
+            er.executor_type,
+            er.operation,
+            er.project_id,
+            er.context_json,
+            er.metadata_json,
+            er.status AS execution_status,
+            sj.job_type,
+            sj.payload_json,
+            sj.status AS job_status
+          FROM scheduler_job_records sj
+          LEFT JOIN execution_records er ON er.scheduler_job_id = sj.id
+          WHERE sj.id = ? OR sj.bullmq_job_id = ?
+          ORDER BY COALESCE(er.updated_at, sj.updated_at) DESC
+          LIMIT 1`,
+        params: [command.entityId, command.entityId],
+      },
+    ])
+    : runSqlite(dbPath, [], [
+      {
+        name: "target",
+        sql: `SELECT
+            er.id AS execution_id,
+            er.scheduler_job_id,
+            er.executor_type,
+            er.operation,
+            er.project_id,
+            er.context_json,
+            er.metadata_json,
+            er.status AS execution_status,
+            sj.job_type,
+            sj.payload_json,
+            sj.status AS job_status
+          FROM execution_records er
+          LEFT JOIN scheduler_job_records sj ON sj.id = er.scheduler_job_id
+          WHERE er.id = ?
+          ORDER BY er.updated_at DESC
+          LIMIT 1`,
+        params: [command.entityId],
+      },
+    ]);
   const row = result.queries.target[0];
   if (!row) return undefined;
+  const payload = parseJsonObject(optionalString(row.payload_json));
+  const payloadContext = isRecord(payload.context) ? payload.context : parseJsonObject(optionalString(payload.context));
   return {
-    executionId: String(row.execution_id),
+    executionId: optionalString(row.execution_id),
     schedulerJobId: optionalString(row.scheduler_job_id),
     jobType: optionalString(row.job_type),
     executorType: optionalString(row.executor_type) ?? "cli",
-    operation: optionalString(row.operation) ?? "feature_execution",
-    projectId: optionalString(row.project_id),
-    context: parseJsonObject(optionalString(row.context_json)),
+    operation: optionalString(row.operation) ?? optionalString(payload.operation) ?? optionalString(payload.requestedAction) ?? "feature_execution",
+    projectId: optionalString(row.project_id) ?? optionalString(payload.projectId) ?? optionalString(payloadContext.projectId),
+    context: {
+      ...payloadContext,
+      ...parseJsonObject(optionalString(row.context_json)),
+    },
     metadata: parseJsonObject(optionalString(row.metadata_json)),
-    payload: parseJsonObject(optionalString(row.payload_json)),
+    payload,
     status: optionalString(row.execution_status) ?? optionalString(row.job_status) ?? "unknown",
   };
 }
 
-function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string): ConsoleCommandInput {
-  const payload = parseJsonObject(command.payload);
-  const projectId = command.projectId ?? optionalString(payload.projectId) ?? (command.entityType === "project" ? command.entityId : undefined);
-  const featureId = optionalString(payload.featureId) ?? (command.entityType === "feature" ? command.entityId : undefined);
-  const taskId = optionalString(payload.taskId) ?? (command.entityType === "task" ? command.entityId : undefined);
+function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string, target: QueueExecutionRow): ConsoleCommandInput {
+  const payload = {
+    ...target.payload,
+    ...parseJsonObject(command.payload),
+  };
+  const payloadContext = isRecord(payload.context) ? payload.context : parseJsonObject(optionalString(payload.context));
+  const projectId = command.projectId ?? target.projectId ?? optionalString(payload.projectId) ?? optionalString(payloadContext.projectId);
+  const featureId = optionalString(target.context.featureId) ?? optionalString(payload.featureId) ?? optionalString(payloadContext.featureId);
+  const taskId = optionalString(target.context.taskId) ?? optionalString(payload.taskId) ?? optionalString(payloadContext.taskId);
+  const entityType = taskId ? "task" : featureId ? "feature" : "project";
+  const entityId = taskId ?? featureId ?? projectId ?? command.entityId;
   return {
     action: "schedule_run",
-    entityType: command.entityType === "task" ? "task" : command.entityType === "feature" ? "feature" : "project",
-    entityId: command.entityId,
+    entityType,
+    entityId,
     requestedBy: command.requestedBy ?? "vscode-extension",
     reason: command.reason,
     payload: {
@@ -1311,8 +1410,8 @@ function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string): C
       taskId,
       mode: command.queueAction === "run_now" ? "manual" : optionalString(payload.mode) ?? "manual",
       requestedFor: command.queueAction === "run_now" ? acceptedAt : optionalString(payload.requestedFor),
-      operation: optionalString(payload.operation) ?? "feature_execution",
-      requestedAction: optionalString(payload.requestedAction) ?? "feature_execution",
+      operation: optionalString(payload.operation) ?? target.operation,
+      requestedAction: optionalString(payload.requestedAction) ?? target.operation,
       workspaceRoot: command.workspaceRoot ?? optionalString(payload.workspaceRoot),
       ideQueueAction: command.queueAction,
     },
@@ -1321,6 +1420,9 @@ function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string): C
 }
 
 function retryPayload(previous: QueueExecutionRow, command: IdeQueueCommandV1, acceptedAt: string) {
+  if (!previous.executionId) {
+    throw new Error("Retry requires an execution record.");
+  }
   const context = {
     ...previous.context,
     previousExecutionId: previous.executionId,
@@ -1387,10 +1489,10 @@ function updateQueueTarget(
       sql: "UPDATE scheduler_job_records SET status = ?, updated_at = ? WHERE id = ?",
       params: [status, acceptedAt, target.schedulerJobId],
     }] : []),
-    {
+    ...(target.executionId ? [{
       sql: "UPDATE execution_records SET status = ?, completed_at = CASE WHEN ? IN ('cancelled', 'skipped') THEN ? ELSE completed_at END, metadata_json = ?, updated_at = ? WHERE id = ?",
       params: [status, status, acceptedAt, JSON.stringify(metadata), acceptedAt, target.executionId],
-    },
+    }] : []),
   ]);
 }
 
@@ -1402,10 +1504,10 @@ function updateQueuePriority(dbPath: string, target: QueueExecutionRow, payload:
       sql: "UPDATE scheduler_job_records SET payload_json = ?, updated_at = ? WHERE id = ?",
       params: [JSON.stringify(updatedPayload), acceptedAt, target.schedulerJobId],
     }] : []),
-    {
+    ...(target.executionId ? [{
       sql: "UPDATE execution_records SET metadata_json = ?, updated_at = ? WHERE id = ?",
       params: [JSON.stringify({ ...target.metadata, priority, reprioritizedAt: acceptedAt }), acceptedAt, target.executionId],
-    },
+    }] : []),
   ]);
 }
 

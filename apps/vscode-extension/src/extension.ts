@@ -598,11 +598,15 @@ async function runControlledCommand(input: unknown, provider: SpecExplorerProvid
   }
   try {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const projectId = provider.currentView()?.project?.id;
     const payload = {
       ...(input.payload ?? {}),
       ...(input.action === "register_project" && workspaceRoot ? {
         workspaceRoot,
         projectName: provider.currentView()?.project?.name ?? workspaceName(workspaceRoot),
+      } : {}),
+      ...((input.action === "pause_runner" || input.action === "resume_runner") && projectId ? {
+        projectId,
       } : {}),
     };
     const response = await postIdeCommand({

@@ -74,6 +74,12 @@ export type SpecDriveIdeInitializationStep = {
   blockedReason?: string;
 };
 
+export type SpecDriveIdeAutomationState = {
+  status: "idle" | "running" | "paused";
+  updatedAt?: string;
+  source: "project" | "audit";
+};
+
 export type SpecDriveIdeView = {
   recognized: boolean;
   workspaceRoot?: string;
@@ -89,6 +95,7 @@ export type SpecDriveIdeView = {
     displayName: string;
     status: string;
   };
+  automation?: SpecDriveIdeAutomationState;
   projectInitialization?: {
     ready: boolean;
     blocked: boolean;

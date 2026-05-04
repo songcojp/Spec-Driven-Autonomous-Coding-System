@@ -29,17 +29,17 @@ export function renderExecutionWorkbenchWebview(
   const selectedItem = selectedKey ? detail : undefined;
   return renderWorkbenchPage("Execution Workbench", nonce, `
     <section class="toolbar">
-      ${autoRunButton(view, queue)}
+      ${autoRunButton(view)}
       ${queueActionButton("Run Now", selectedItem, "run_now", ["ready", "queued"])}
       ${pauseResumeButton(selectedItem)}
       ${queueActionButton("Retry", selectedItem, "retry", ["failed", "cancelled", "skipped"])}
       ${queueActionButton("Cancel", selectedItem, "cancel", ["ready", "queued", "running", "approval_needed", "blocked", "paused"])}
       ${queueActionButton("Skip", selectedItem, "skip", ["queued", "approval_needed", "blocked", "failed", "paused"])}
       ${queueActionButton("Reprioritize", selectedItem, "reprioritize", ["ready", "queued", "blocked", "paused"])}
-      ${queueActionButton("Enqueue", selectedItem, "enqueue", ["ready", "blocked", "paused"])}
+      ${queueActionButton("Enqueue", selectedItem, "enqueue", ["ready", "blocked"])}
       ${commandButton("Refresh", "refresh", {})}
     </section>
-    <div id="workbench-status" class="status-text" role="status" aria-live="polite">${escapeHtml(selectedItem ? `Selected task: ${selectedItem.executionId ?? selectedItem.schedulerJobId ?? "unknown"} · ${selectedItem.status}` : "Select a task to enable task actions.")}</div>
+    <div id="workbench-status" class="status-text" role="status" aria-live="polite">${escapeHtml(selectedItem ? `Selected job: ${selectedItem.executionId ?? selectedItem.schedulerJobId ?? "unknown"} · ${selectedItem.status}` : "Select a job to enable job actions.")}</div>
     <main class="grid execution-grid">
       <section class="panel span-5">
         <div class="panel-title"><h2>Execution Queue</h2><span>${queue.length} items</span></div>
@@ -68,9 +68,8 @@ export function renderExecutionWorkbenchWebview(
   `);
 }
 
-function autoRunButton(view: SpecDriveIdeView | undefined, queue: SpecDriveIdeQueueItem[]): string {
-  const active = queue.some((item) => ["queued", "running", "approval_needed"].includes(item.status.toLowerCase()));
-  return active
+function autoRunButton(view: SpecDriveIdeView | undefined): string {
+  return view?.automation?.status === "running"
     ? commandButton("Pause Auto Run", "controlled", {
       action: "pause_runner",
       entityType: "runner",
@@ -92,11 +91,11 @@ function queueActionButton(
   enabledStatuses: string[],
 ): string {
   const entityId = item?.executionId ?? item?.schedulerJobId;
-  if (!entityId) return disabledButton(label, "Select a task first.");
+  if (!entityId) return disabledButton(label, "Select a job first.");
   const selectedItem = item as SpecDriveIdeQueueItem;
   const status = selectedItem.status.toLowerCase();
   if (!enabledStatuses.includes(status)) {
-    return disabledButton(label, `${label} is not available while the selected task is ${selectedItem.status}.`);
+    return disabledButton(label, `${label} is not available while the selected job is ${selectedItem.status}.`);
   }
   return queueButton(label, selectedItem, action);
 }
@@ -104,7 +103,7 @@ function queueActionButton(
 function pauseResumeButton(item: SpecDriveIdeQueueItem | undefined): string {
   const status = item?.status.toLowerCase();
   if (status === "paused") return queueActionButton("Resume", item, "resume", ["paused"]);
-  return queueActionButton("Pause", item, "pause", ["ready", "queued", "running", "blocked"]);
+  return queueActionButton("Pause", item, "pause", ["queued", "running"]);
 }
 
 function disabledButton(label: string, title: string): string {

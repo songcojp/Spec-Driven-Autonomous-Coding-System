@@ -69,19 +69,32 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /message\.command === "selectQueueItem"/);
   assert.match(extensionSource, /executionItemByKey\(view, selectedQueueKey\)/);
   assert.match(extensionSource, /renderExecutionWorkbenchWebview\(view, detail, selectedQueueKey\)/);
-  assert.match(extensionSource, /autoRunButton\(view, queue\)/);
+  assert.match(extensionSource, /automation\?: SpecDriveIdeAutomationState/);
+  assert.match(extensionSource, /autoRunButton\(view\)/);
+  assert.match(extensionSource, /view\?\.automation\?\.status === "running"/);
   assert.match(extensionSource, /commandButton\("Pause Auto Run", "controlled"/);
   assert.match(extensionSource, /action: "pause_runner"/);
   assert.match(extensionSource, /commandButton\("Start Auto Run", "controlled"/);
   assert.match(extensionSource, /commandButton\(selected \? "Selected" : "Select", "selectQueueItem"/);
   assert.match(extensionSource, /class="queue-item\$\{selected \? " selected" : ""\}"/);
-  assert.match(extensionSource, /Select a task to enable task actions\./);
+  assert.match(extensionSource, /Select a job to enable job actions\./);
   assert.match(extensionSource, /queueActionButton\("Run Now", selectedItem, "run_now", \["ready", "queued"\]\)/);
   assert.match(extensionSource, /pauseResumeButton\(selectedItem\)/);
-  assert.match(extensionSource, /if \(status === "paused"\) return queueActionButton\("Resume"/);
+  assert.match(extensionSource, /if \(status === "paused"\) return queueActionButton\("Resume", item, "resume", \["paused"\]\)/);
+  assert.match(extensionSource, /return queueActionButton\("Pause", item, "pause", \["queued", "running"\]\)/);
   assert.match(extensionSource, /queueActionButton\("Retry", selectedItem, "retry", \["failed", "cancelled", "skipped"\]\)/);
   assert.match(extensionSource, /queueActionButton\("Cancel", selectedItem, "cancel", \["ready", "queued", "running", "approval_needed", "blocked", "paused"\]\)/);
+  assert.match(extensionSource, /queueActionButton\("Enqueue", selectedItem, "enqueue", \["ready", "blocked"\]\)/);
+  assert.match(extensionSource, /Select a job first\./);
+  assert.match(extensionSource, /selected job is \$\{selectedItem\.status\}/);
   assert.doesNotMatch(extensionSource, /queueButton\("Run Now", queue\.find/);
+});
+
+test("VSCode Webview disabled buttons are visually distinct", () => {
+  assert.match(extensionSource, /button:disabled,button:disabled:hover/);
+  assert.match(extensionSource, /cursor:not-allowed/);
+  assert.match(extensionSource, /opacity:\.55/);
+  assert.match(extensionSource, /vscode-disabledForeground/);
 });
 
 test("VSCode Spec Explorer title actions are ordered by workflow", () => {

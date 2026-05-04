@@ -32,6 +32,10 @@ Feature 名称: IDE Workbench Webviews
 - CHG-035（2026-05-04）：用户反馈点击 Clarification 后任务队列中没有出现技能调用任务；澄清提交必须进入 `ambiguity-clarification-skill` 调度队列，而不是只记录 `update_spec` 回执。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-036（2026-05-04）：用户要求 VSCode Execution Workbench 顶部任务操作必须基于选中任务启用；部分按钮必须按选中任务状态切换，例如 Pause / Resume；队列任务必须支持选中操作，避免顶部按钮默认作用于未确认任务。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-037（2026-05-04）：用户要求顶部 `Start Auto Run` 使用两种状态；其它顶部任务按钮默认禁用，只有选中任务后才能启用。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-038（2026-05-04）：用户反馈按钮状态不正确；自动执行按钮状态必须来自项目自动执行状态和最新 start / pause / resume 审计事件，不能由队列中是否存在 running / queued 任务推断。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-039（2026-05-04）：用户要求区分顶部按钮作用域：部分按钮针对整个任务调度，部分按钮针对 Job；Job 按钮只有选中 Job 后才启用，且点击后必须能处理 schedule-only Job 和已有 Execution Record 的 Run。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-040（2026-05-04）：用户反馈顶部按钮启用/禁用样式没有区别；禁用按钮必须使用明显不同的视觉样式，并且无 Job 选中时 Job 按钮必须显示为禁用状态。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-041（2026-05-04）：用户澄清 Auto Run 是启用/禁用自动执行的状态标记，不是当前队列运行状态；队列为空时也可以启用 Auto Run，启用后若队列无任务才从 Feature 中选择可执行项，选不到 Feature 不得导致开关切换失败。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -65,3 +69,6 @@ Feature 名称: IDE Workbench Webviews
 - [x] Feature Spec Webview 顶部第一个控件必须是单个视图切换按钮；Feature List 视图下按钮文字显示 `Dependency Graph`，点击后切换到 Dependency Graph 视图并将按钮文字改为 `Feature List`；`Dependency Graph` 视图以树状层级展示 Feature 之间的依赖关系，标出缺失依赖，树节点支持折叠和展开，并默认展开到二级节点。
 - [x] `Execution Workbench` 队列任务必须支持选中；Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 等顶部任务按钮必须只在有选中任务且选中任务状态允许该动作时启用；Pause / Resume 作为双态按钮随选中任务状态切换。
 - [x] `Execution Workbench` 顶部自动执行入口必须在 `Start Auto Run` / `Pause Auto Run` 两种状态间切换；其它顶部任务按钮默认禁用，只有选中任务后才按选中任务状态启用。
+- [x] `Execution Workbench` 自动执行入口状态必须使用 Control Plane 返回的自动执行启用状态；Auto Run 是启用/禁用自动续跑的状态标记，不是当前队列运行状态。点击 `Start Auto Run` 必须将项目自动执行标记置为启用，即使队列为空或暂时选不到可执行 Feature 也要切换为启用；点击 `Pause Auto Run` 必须禁用自动执行。普通队列是否存在 running / queued 任务不得决定该按钮状态。
+- [x] `Execution Workbench` 顶部按钮必须区分全局任务调度动作和 Job 动作；全局动作不依赖 Job 选择，Job 动作必须在选中 Job 后才启用，并且对 schedule-only Job 与已有 Execution Record 的 Run 都能正确执行。
+- [x] `Execution Workbench` 禁用按钮必须具备不同于可用按钮的视觉样式，包括禁用文字色、次级背景、降低透明度和不可点击光标；禁用按钮 hover 不得呈现为可用按钮。

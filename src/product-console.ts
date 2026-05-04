@@ -3056,6 +3056,8 @@ type EnqueueNextFeatureExecutionResult = {
   schedulerJobId?: string;
   executionId?: string;
   blockedReasons: string[];
+  selectionBlockedReasons?: string[];
+  automationEnabled?: boolean;
 };
 
 function executeAutoRunCommand(
@@ -3064,19 +3066,52 @@ function executeAutoRunCommand(
   acceptedAt: string,
   scheduler: SchedulerClient,
 ): EnqueueNextFeatureExecutionResult | undefined {
-  if (input.action !== "start_auto_run") {
+  if (!["start_auto_run", "pause_runner", "resume_runner"].includes(input.action)) {
     return undefined;
+  }
+  if (input.action === "pause_runner" || input.action === "resume_runner") {
+    const payload = parseJsonObject(input.payload);
+    const projectId = optionalString(payload.projectId);
+    if (projectId) {
+      runSqlite(dbPath, [
+        {
+          sql: "UPDATE projects SET automation_enabled = ?, updated_at = ? WHERE id = ?",
+          params: [input.action === "resume_runner" ? 1 : 0, acceptedAt, projectId],
+        },
+      ]);
+    }
+    return {
+      featureIds: [],
+      blockedReasons: [],
+      automationEnabled: input.action === "resume_runner",
+    };
   }
   if (input.entityType !== "project") {
     return { featureIds: [], blockedReasons: ["Auto Run commands require a project entity."] };
   }
-  return enqueueNextFeatureExecutionFromQueue(dbPath, {
+  const project = getProject(dbPath, input.entityId);
+  if (!project) {
+    return { featureIds: [], blockedReasons: [`Project not found: ${input.entityId}`] };
+  }
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE projects SET automation_enabled = 1, updated_at = ? WHERE id = ?",
+      params: [acceptedAt, input.entityId],
+    },
+  ]);
+  const selection = enqueueNextFeatureExecutionFromQueue(dbPath, {
     projectId: input.entityId,
     payload: parseJsonObject(input.payload),
     acceptedAt,
     scheduler,
     commandSource: "start_auto_run",
   });
+  return {
+    ...selection,
+    blockedReasons: [],
+    selectionBlockedReasons: selection.blockedReasons,
+    automationEnabled: true,
+  };
 }
 
 function enqueueNextFeatureExecutionFromQueue(

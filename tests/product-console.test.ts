@@ -1575,7 +1575,7 @@ test("start Auto Run accepts a feature-selection skill decision before enqueuing
   assert.match(context.selection.reason, /selected by reasoning/);
 });
 
-test("start Auto Run rejects unsafe feature-selection skill decisions", () => {
+test("start Auto Run enables automation while recording unsafe feature-selection decisions", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
@@ -1621,16 +1621,17 @@ test("start Auto Run rejects unsafe feature-selection skill decisions", () => {
   }, { scheduler });
   const result = runSqlite(dbPath, [], [
     { name: "executions", sql: "SELECT id FROM execution_records" },
+    { name: "project", sql: "SELECT automation_enabled FROM projects WHERE id = 'project-1'" },
   ]);
   const state = JSON.parse(readFileSync(join(projectPath, "docs", "features", "feat-002-dependent", "spec-state.json"), "utf8"));
 
-  assert.equal(receipt.status, "blocked");
-  assert.equal(receipt.blockedReasons?.some((reason) => reason.includes("incomplete dependency")), true);
+  assert.equal(receipt.status, "accepted");
+  assert.equal(Number(result.queries.project[0].automation_enabled), 1);
   assert.deepEqual(result.queries.executions, []);
   assert.equal(state.status, "blocked");
 });
 
-test("start Auto Run blocks when the skill queue plan is missing", () => {
+test("start Auto Run enables automation when the skill queue plan is missing", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
@@ -1662,10 +1663,14 @@ test("start Auto Run blocks when the skill queue plan is missing", () => {
   const result = runSqlite(dbPath, [], [
     { name: "features", sql: "SELECT id FROM features WHERE project_id = 'project-1'" },
     { name: "jobs", sql: "SELECT id FROM scheduler_job_records WHERE job_type = 'feature.select'" },
+    { name: "project", sql: "SELECT automation_enabled FROM projects WHERE id = 'project-1'" },
+    { name: "audit", sql: "SELECT payload_json FROM audit_timeline_events WHERE id = ?", params: [receipt.auditEventId] },
   ]);
+  const auditPayload = JSON.parse(String(result.queries.audit[0].payload_json));
 
-  assert.equal(receipt.status, "blocked");
-  assert.equal(receipt.blockedReasons?.some((reason) => reason.includes("feature-pool-queue.json")), true);
+  assert.equal(receipt.status, "accepted");
+  assert.equal(Number(result.queries.project[0].automation_enabled), 1);
+  assert.equal(auditPayload.autoRun.selectionBlockedReasons.some((reason: string) => reason.includes("feature-pool-queue.json")), true);
   assert.deepEqual(result.queries.features, []);
   assert.deepEqual(result.queries.jobs, []);
 });
@@ -1718,7 +1723,7 @@ test("start Auto Run writes file-backed state and can skip to the next Feature",
   assert.equal(context.specStatePath, "docs/features/feat-002-ticket-scan/spec-state.json");
 });
 
-test("start Auto Run marks incomplete Feature Spec state as blocked", () => {
+test("start Auto Run enables automation and marks incomplete Feature Spec state as blocked", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
@@ -1745,8 +1750,12 @@ test("start Auto Run marks incomplete Feature Spec state as blocked", () => {
     now: stableDate,
   }, { scheduler });
   const state = JSON.parse(readFileSync(join(projectPath, "docs", "features", "feat-001-ticket-capture", "spec-state.json"), "utf8"));
+  const result = runSqlite(dbPath, [], [
+    { name: "project", sql: "SELECT automation_enabled FROM projects WHERE id = 'project-1'" },
+  ]);
 
-  assert.equal(receipt.status, "blocked");
+  assert.equal(receipt.status, "accepted");
+  assert.equal(Number(result.queries.project[0].automation_enabled), 1);
   assert.equal(state.status, "blocked");
   assert.equal(state.blockedReasons.some((reason: string) => reason.includes("design.md")), true);
   assert.equal(state.blockedReasons.some((reason: string) => reason.includes("tasks.md")), true);
