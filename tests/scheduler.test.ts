@@ -151,6 +151,52 @@ test("cli.run executes mocked CLI runner and persists runner artifacts", async (
   assert.equal(rows.statusChecks.length, 0);
 });
 
+test("cli.run passes clarification operator input into the skill invocation prompt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-clarification-run-"));
+  prepareSkillWorkspace(root);
+  mkdirSync(join(root, ".agents", "skills", "ambiguity-clarification-skill"), { recursive: true });
+  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  writeFileSync(join(root, ".agents", "skills", "ambiguity-clarification-skill", "SKILL.md"), "# Ambiguity clarification skill\n");
+  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "# Requirements\n\n## Open Questions\n\n1. 彩票类型未明确。\n");
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const calls: Array<{ args: string[] }> = [];
+
+  const result = await runCliRunJob(
+    dbPath,
+    {
+      projectId: "project-1",
+      executionId: "RUN-CLARIFICATION",
+      operation: "resolve_clarification",
+      requestedAction: "resolve_clarification",
+      context: {
+        sourcePaths: ["docs/zh-CN/requirements.md"],
+        expectedArtifacts: ["docs/zh-CN/requirements.md"],
+        workspaceRoot: root,
+        skillSlug: "ambiguity-clarification-skill",
+        skillPhase: "resolve_clarification",
+        clarificationText: "彩票类型支持大乐透和双色球",
+        comment: "彩票类型支持大乐透和双色球",
+        specChangeIntent: "clarification",
+      },
+    },
+    (_command, args) => {
+      calls.push({ args });
+      return {
+        status: 0,
+        stdout: `{"type":"session","session_id":"SESSION-CLARIFICATION"}\n${skillOutputEvent("RUN-CLARIFICATION", { skillSlug: "ambiguity-clarification-skill", requestedAction: "resolve_clarification" })}`,
+        stderr: "",
+      };
+    },
+  );
+
+  const prompt = calls[0].args.join("\n");
+  assert.equal(result.status, "completed");
+  assert.match(prompt, /\"operatorInput\"/);
+  assert.match(prompt, /\"clarificationText\": \"彩票类型支持大乐透和双色球\"/);
+  assert.match(prompt, /operator-provided answer\/decision/);
+});
+
 test("cli.run uses danger-full-access for trusted direct-write runs with bounded scope", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
   prepareSkillWorkspace(root);

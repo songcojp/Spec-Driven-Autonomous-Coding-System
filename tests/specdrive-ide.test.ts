@@ -631,6 +631,11 @@ test("SpecDrive IDE queue actions retry failed executions and preserve previous 
   assert.equal(rows[0].status, "queued");
   assert.equal(JSON.parse(String(rows[0].context_json)).previousExecutionId, "RUN-FAILED");
   assert.equal(JSON.parse(String(rows[0].metadata_json)).previousExecutionId, "RUN-FAILED");
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const queueItems = Object.values(view.queue.groups).flat();
+  assert.equal(queueItems.some((item) => item.executionId === "RUN-FAILED"), false);
+  assert.equal(queueItems.some((item) => item.executionId === receipt.executionId), true);
 });
 
 test("SpecDrive IDE running cancel calls app-server turn interrupt before marking cancelled", async () => {

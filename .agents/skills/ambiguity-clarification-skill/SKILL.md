@@ -32,6 +32,16 @@ Do **not** use this skill merely to document uncertainty that was already knownâ
 6. After receiving answers, update the spec artifact (PRD, requirements.md, feature design, or tasks.md) with the resolved decision, removing the `[ASSUMPTION]` or `[NEEDS CLARIFICATION]` marker.
 7. If an answer reveals a scope change, hand off to `requirement-intake-skill` or `spec-evolution-skill` as appropriate.
 
+## Scheduled `resolve_clarification` Inputs
+
+When invoked through the scheduler with `requestedAction: "resolve_clarification"`:
+
+- Treat `Skill Invocation Contract.operatorInput.clarificationText` or `operatorInput.comment` as the operator's answer/decision.
+- Do not ignore the operator answer and rescan unrelated open questions as the primary outcome.
+- Apply the answer to the most relevant source path or expected artifact when it resolves an existing ambiguity.
+- Return `status: "completed"` after applying the provided answer, even if unrelated open questions remain; summarize unrelated residual questions in `result.residualQuestions`.
+- Return `status: "blocked"` only when the provided answer is empty, conflicts with the source documents, or is insufficient to resolve the targeted clarification.
+
 ## Decision: Blocking vs. Non-Blocking
 
 | Condition | Classification |

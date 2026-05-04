@@ -1486,6 +1486,19 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
     },
   ]);
   const groups: Record<string, SpecDriveIdeQueueItem[]> = {};
+  const supersededExecutionIds = new Set<string>();
+  for (const row of result.queries.queue) {
+    const context = parseJsonObject(optionalString(row.context_json));
+    const metadata = parseJsonObject(optionalString(row.metadata_json));
+    const payload = parseJsonObject(optionalString(row.payload_json));
+    const payloadContext = isRecord(payload.context) ? payload.context : parseJsonObject(optionalString(payload.context));
+    const previousExecutionId = optionalString(context.previousExecutionId)
+      ?? optionalString(metadata.previousExecutionId)
+      ?? optionalString(payloadContext.previousExecutionId);
+    if (previousExecutionId) {
+      supersededExecutionIds.add(previousExecutionId);
+    }
+  }
   for (const row of result.queries.queue) {
     const payload = parseJsonObject(optionalString(row.payload_json));
     const context = parseJsonObject(optionalString(row.context_json));
@@ -1494,6 +1507,7 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
     const status = optionalString(row.execution_status) ?? optionalString(row.job_status) ?? "unknown";
     const executionId = optionalString(row.execution_id);
     if (!executionId && isCompletedScheduleOnlyStatus(status)) continue;
+    if (executionId && supersededExecutionIds.has(executionId)) continue;
     const item: SpecDriveIdeQueueItem = {
       schedulerJobId: optionalString(row.scheduler_job_id),
       executionId,

@@ -1581,6 +1581,7 @@ function buildCliSkillInvocation(input: {
     imagePaths: contextImagePaths,
     expectedArtifacts,
     specState: parseJsonObject(context.specState),
+    operatorInput: buildSkillOperatorInput(context),
     traceability: {
       featureId: input.featureId,
       taskId: input.taskId,
@@ -1594,6 +1595,20 @@ function buildCliSkillInvocation(input: {
       risk: input.risk,
     },
     requestedAction,
+  };
+}
+
+function buildSkillOperatorInput(context: ExecutorJobContext): SkillInvocationContract["operatorInput"] | undefined {
+  const clarificationText = optionalString(context.clarificationText);
+  const comment = optionalString(context.comment);
+  const specChangeIntent = optionalString(context.specChangeIntent);
+  if (!clarificationText && !comment && !specChangeIntent) {
+    return undefined;
+  }
+  return {
+    clarificationText,
+    comment,
+    specChangeIntent,
   };
 }
 

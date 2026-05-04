@@ -270,9 +270,16 @@ export type SkillInvocationContract = {
   imagePaths?: string[];
   expectedArtifacts: SkillArtifactContract[];
   specState?: Record<string, unknown>;
+  operatorInput?: SkillOperatorInputContract;
   traceability: SkillTraceabilityContract;
   constraints: SkillInvocationConstraints;
   requestedAction: string;
+};
+
+export type SkillOperatorInputContract = {
+  clarificationText?: string;
+  comment?: string;
+  specChangeIntent?: string;
 };
 
 export type SkillArtifactContract = {
@@ -815,6 +822,14 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
         "- producedArtifacts must list the actual code, test, config, or documentation files created or updated while executing the Feature Spec.",
       ]
     : [];
+  const clarificationRules = contract.skillSlug === "ambiguity-clarification-skill" || contract.requestedAction === "resolve_clarification"
+    ? [
+        "- For resolve_clarification, treat operatorInput.clarificationText or operatorInput.comment as an operator-provided answer/decision, not as a new question to ask back.",
+        "- Apply the operator-provided answer to the most relevant expected spec artifact or source path when it resolves an existing ambiguity.",
+        "- Return status completed after applying the provided answer, even if unrelated open questions remain; mention those residual questions in result instead of blocking this run.",
+        "- Return status blocked only when the provided answer is empty, conflicts with the source documents, or is insufficient to resolve the targeted clarification.",
+      ]
+    : [];
   return [
     "Execute this SpecDrive CLI skill invocation inside the current workspace.",
     "",
@@ -833,6 +848,7 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- Do not assume a platform Skill Registry or Skill Center exists.",
     ...taskSlicingRules,
     ...featureCodingRules,
+    ...clarificationRules,
     "",
     "Context:",
     context,

@@ -7,6 +7,7 @@ WORKER_MODE="${AUTOBUILD_WORKER_MODE:-embedded}"
 PID_FILE="${ROOT_DIR}/.autobuild/vscode-backend.pid"
 LOG_DIR="${ROOT_DIR}/.autobuild/logs"
 LOG_FILE="${LOG_DIR}/vscode-backend.log"
+EXTENSION_DIR="${ROOT_DIR}/apps/vscode-extension"
 
 cd "${ROOT_DIR}"
 
@@ -69,6 +70,23 @@ wait_for_health() {
   exit 1
 }
 
+build_backend_runtime() {
+  echo "Building SpecDrive IDE extension..."
+  npm run ide:build
+
+  echo "Bundling SpecDrive Control Plane server..."
+  rm -rf "${EXTENSION_DIR}/server"
+  mkdir -p "${EXTENSION_DIR}/server"
+  npx --yes esbuild src/index.ts \
+    --bundle \
+    --platform=node \
+    --format=cjs \
+    --target=node20 \
+    --banner:js='const { pathToFileURL: __specdrivePathToFileURL } = require("url"); const import_meta_url = __specdrivePathToFileURL(__filename).href;' \
+    --define:import.meta.url=import_meta_url \
+    --outfile="${EXTENSION_DIR}/server/index.cjs"
+}
+
 if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
   # shellcheck source=/dev/null
   . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
@@ -85,6 +103,8 @@ if [ ! -d "node_modules" ]; then
   echo "Installing dependencies..."
   npm install
 fi
+
+build_backend_runtime
 
 if command -v docker >/dev/null 2>&1; then
   echo "Starting Redis via Docker Compose..."

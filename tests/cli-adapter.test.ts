@@ -39,6 +39,11 @@ function skillInvocationContract(overrides: Partial<{
   skillSlug: string;
   sourcePaths: string[];
   expectedArtifacts: Array<{ path: string; kind: string; required: boolean }>;
+  operatorInput: {
+    clarificationText?: string;
+    comment?: string;
+    specChangeIntent?: string;
+  };
   featureId: string;
   taskId: string;
   requirementIds: string[];
@@ -54,6 +59,7 @@ function skillInvocationContract(overrides: Partial<{
     skillSlug: overrides.skillSlug ?? "pr-ears-requirement-decomposition-skill",
     sourcePaths: overrides.sourcePaths ?? ["docs/PRD.md"],
     expectedArtifacts: overrides.expectedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", required: true }],
+    operatorInput: overrides.operatorInput,
     traceability: {
       featureId: overrides.featureId,
       taskId: overrides.taskId,
@@ -584,6 +590,29 @@ test("feature-level coding prompt requires Feature Spec execution instead of rep
   assert.match(prompt, /requirements\.md, design\.md, and tasks\.md/);
   assert.match(prompt, /Do not satisfy feature_execution by only creating a report JSON file/);
   assert.match(prompt, /actual code, test, config, or documentation files/);
+});
+
+test("clarification skill prompt treats operator input as an answer to apply", () => {
+  const prompt = buildSkillInvocationPrompt(
+    skillInvocationContract({
+      operation: "resolve_clarification",
+      skillSlug: "ambiguity-clarification-skill",
+      requestedAction: "resolve_clarification",
+      sourcePaths: ["docs/zh-CN/requirements.md"],
+      expectedArtifacts: [{ path: "docs/zh-CN/requirements.md", kind: "markdown", required: true }],
+      operatorInput: {
+        clarificationText: "彩票类型支持大乐透和双色球",
+        comment: "彩票类型支持大乐透和双色球",
+        specChangeIntent: "clarification",
+      },
+    }),
+    "Context",
+  );
+
+  assert.match(prompt, /operatorInput\.clarificationText/);
+  assert.match(prompt, /operator-provided answer\/decision/);
+  assert.match(prompt, /彩票类型支持大乐透和双色球/);
+  assert.match(prompt, /Return status completed after applying the provided answer/);
 });
 
 test("Codex CLI adapter captures JSON events, session id, output, and redacts logs", async () => {
