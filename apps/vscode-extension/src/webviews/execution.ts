@@ -29,7 +29,7 @@ export function renderExecutionWorkbenchWebview(
   const selectedItem = selectedKey ? detail : undefined;
   return renderWorkbenchPage("Execution Workbench", nonce, `
     <section class="toolbar">
-      ${commandButton("Start Auto Run", "controlled", { action: "start_auto_run", entityType: "project", entityId: view?.project?.id ?? "workspace", reason: "Start auto run from Execution Workbench." })}
+      ${autoRunButton(view, queue)}
       ${queueActionButton("Run Now", selectedItem, "run_now", ["ready", "queued"])}
       ${pauseResumeButton(selectedItem)}
       ${queueActionButton("Retry", selectedItem, "retry", ["failed", "cancelled", "skipped"])}
@@ -66,6 +66,23 @@ export function renderExecutionWorkbenchWebview(
       </section>
     </main>
   `);
+}
+
+function autoRunButton(view: SpecDriveIdeView | undefined, queue: SpecDriveIdeQueueItem[]): string {
+  const active = queue.some((item) => ["queued", "running", "approval_needed"].includes(item.status.toLowerCase()));
+  return active
+    ? commandButton("Pause Auto Run", "controlled", {
+      action: "pause_runner",
+      entityType: "runner",
+      entityId: "runner-main",
+      reason: "Pause auto run from Execution Workbench.",
+    })
+    : commandButton("Start Auto Run", "controlled", {
+      action: "start_auto_run",
+      entityType: "project",
+      entityId: view?.project?.id ?? "workspace",
+      reason: "Start auto run from Execution Workbench.",
+    });
 }
 
 function queueActionButton(

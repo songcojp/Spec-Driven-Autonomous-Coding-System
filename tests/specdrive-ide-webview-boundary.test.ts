@@ -69,6 +69,10 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /message\.command === "selectQueueItem"/);
   assert.match(extensionSource, /executionItemByKey\(view, selectedQueueKey\)/);
   assert.match(extensionSource, /renderExecutionWorkbenchWebview\(view, detail, selectedQueueKey\)/);
+  assert.match(extensionSource, /autoRunButton\(view, queue\)/);
+  assert.match(extensionSource, /commandButton\("Pause Auto Run", "controlled"/);
+  assert.match(extensionSource, /action: "pause_runner"/);
+  assert.match(extensionSource, /commandButton\("Start Auto Run", "controlled"/);
   assert.match(extensionSource, /commandButton\(selected \? "Selected" : "Select", "selectQueueItem"/);
   assert.match(extensionSource, /class="queue-item\$\{selected \? " selected" : ""\}"/);
   assert.match(extensionSource, /Select a task to enable task actions\./);

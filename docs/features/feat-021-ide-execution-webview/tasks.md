@@ -98,5 +98,5 @@ Feature ID: FEAT-021
 
 ### T-021-19 Execution Workbench 选中任务操作
 状态: done
-描述: Execution Workbench 队列任务支持显式选中；顶部任务操作只对选中任务可用，并按选中任务状态启用、禁用或切换双态按钮。Pause / Resume 合并为一个双态入口。
+描述: Execution Workbench 队列任务支持显式选中；顶部自动执行入口使用 Start Auto Run / Pause Auto Run 两态；其它顶部任务操作默认禁用，只对选中任务可用，并按选中任务状态启用、禁用或切换双态按钮。Pause / Resume 合并为一个任务级双态入口。
 验证: `npm run ide:build` 验证 VSCode Webview 编译；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖选中任务与按钮状态规则。

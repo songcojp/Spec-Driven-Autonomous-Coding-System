@@ -19,7 +19,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 |---|---|
 | Execution Workbench | Queue Timeline | 按 ready、blocked、queued、running、approval_needed、failed、completed 展示 Job 和 Feature/Task 上下文。 |
 | Execution Workbench | Auto Run Control | 提供 start auto run、pause automation、resume automation、stop、并发策略和下一步动作预览。 |
-| Execution Workbench | Selected Task Actions | 队列行支持显式选中；顶部 Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 只对选中任务可用，并根据选中任务状态启用、禁用或切换按钮文案。 |
+| Execution Workbench | Selected Task Actions | 队列行支持显式选中；顶部自动执行入口在 Start Auto Run / Pause Auto Run 间切换；Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 默认禁用，只对选中任务可用，并根据选中任务状态启用、禁用或切换按钮文案。 |
 | Execution Workbench | Current Execution | 展示当前 Execution Record、thread/turn、步骤进度、raw log refs、diff 摘要和输出校验状态。 |
 | Execution Workbench | Blockers and Approvals | 汇总 blocked reason、approval pending、失败原因和可执行恢复动作。 |
 | Execution Workbench | Result Projection | 展示 `feature-selection-skill` 选择原因、`spec-state.json.lastResult`、nextAction、produced artifacts 和最近状态投影。 |
@@ -41,7 +41,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - 命令输入：`IdeCommandReceiptV1` 支持的 queue action、auto run / pause automation / resume automation 意图、Spec lifecycle controlled command 和 Feature schedule/open artifact intent。
 - 输出：Webview 只消费 Control Plane 返回的轻量 view model；完整 raw logs、diff、执行输出、evidence 和 Feature artifacts 通过引用或分页查询加载。
 - Execution Workbench 不自行选择下一 Feature；它展示 Control Plane 返回的 `feature-selection-skill` 决策、代码安全校验结果、approval pending、blocked/review_needed/failed 投影和可执行恢复动作。
-- Execution Workbench 顶部任务按钮不得默认作用于未确认任务；除全局自动执行和刷新外，任务动作必须绑定当前选中的 queue item。Pause / Resume 使用同一个双态入口：选中任务为 `paused` 时显示 Resume，其它允许暂停状态显示 Pause；状态不允许该动作时按钮必须禁用并保留提示。
+- Execution Workbench 顶部任务按钮不得默认作用于未确认任务；除全局自动执行和刷新外，任务动作必须绑定当前选中的 queue item。全局自动执行入口根据可观察队列状态在 `Start Auto Run` 和 `Pause Auto Run` 之间切换。Pause / Resume 使用同一个任务级双态入口：选中任务为 `paused` 时显示 Resume，其它允许暂停状态显示 Pause；状态不允许该动作时按钮必须禁用并保留提示。
 - Product Console 与三组 VSCode Webview 共用持久事实源，但不共用 UI ViewModel 作为事实源。
 - Spec Workspace 的全流程操作通过 `runControlledCommand` 或 Spec change request 进入 extension host，由 Control Plane 决定是否生成任务、记录审批或拒绝动作。
 - Feature Spec 的调度、打开文档和刷新动作在 VSCode extension host 内执行；调度类动作必须进入 Control Plane command API。
