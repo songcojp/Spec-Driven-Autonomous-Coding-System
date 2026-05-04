@@ -66,6 +66,14 @@ export type SpecDriveIdeDiagnostic = {
   executionId?: string;
 };
 
+export type SpecDriveIdeInitializationStep = {
+  key: string;
+  label: string;
+  status: "Ready" | "Blocked" | "Draft" | "Active";
+  updatedAt?: string;
+  blockedReason?: string;
+};
+
 export type SpecDriveIdeView = {
   recognized: boolean;
   workspaceRoot?: string;
@@ -80,6 +88,11 @@ export type SpecDriveIdeView = {
     id: string;
     displayName: string;
     status: string;
+  };
+  projectInitialization?: {
+    ready: boolean;
+    blocked: boolean;
+    steps: SpecDriveIdeInitializationStep[];
   };
   documents: SpecDriveIdeDocument[];
   features: SpecDriveIdeFeatureNode[];

@@ -31,6 +31,7 @@
   "activationEvents": [
     "onView:specdrive.specExplorer",
     "onCommand:specdrive.refresh",
+    "onCommand:specdrive.registerProject",
     "onCommand:specdrive.openExecutionWorkbench",
     "onCommand:specdrive.openSpecWorkspace",
     "onCommand:specdrive.openFeatureSpec",
@@ -96,6 +97,11 @@
         "command": "specdrive.refresh",
         "title": "SpecDrive: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "specdrive.registerProject",
+        "title": "SpecDrive: Register Project",
+        "icon": "$(repo)"
       },
       {
         "command": "specdrive.filterQueue",
@@ -208,6 +214,11 @@
           "command": "specdrive.refresh",
           "when": "view == specdrive.specExplorer",
           "group": "navigation@5"
+        },
+        {
+          "command": "specdrive.registerProject",
+          "when": "view == specdrive.specExplorer",
+          "group": "navigation@6"
         }
       ],
       "view/item/context": [

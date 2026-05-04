@@ -85,6 +85,22 @@ export type SpecDriveIdeDiagnostic = {
   executionId?: string;
 };
 
+export type SpecDriveIdeInitializationStep = {
+  key:
+    | "create_or_import_project"
+    | "workspace_root_resolved"
+    | "connect_git_repository"
+    | "initialize_spec_protocol"
+    | "import_or_create_constitution"
+    | "initialize_project_memory"
+    | "check_project_health"
+    | "current_project_context";
+  label: string;
+  status: "Ready" | "Blocked" | "Draft" | "Active";
+  updatedAt?: string;
+  blockedReason?: string;
+};
+
 export type SpecDriveIdeView = {
   recognized: boolean;
   workspaceRoot?: string;
@@ -99,6 +115,11 @@ export type SpecDriveIdeView = {
     id: string;
     displayName: string;
     status: string;
+  };
+  projectInitialization: {
+    ready: boolean;
+    blocked: boolean;
+    steps: SpecDriveIdeInitializationStep[];
   };
   documents: SpecDriveIdeDocument[];
   features: SpecDriveIdeFeatureNode[];
@@ -229,6 +250,8 @@ type ProjectRow = {
   id?: unknown;
   name?: unknown;
   target_repo_path?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
 };
 
 type FeatureQueueEntry = {
@@ -261,6 +284,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
   const features = workspaceRoot ? buildFeatureNodes(dbPath, workspaceRoot, projectId) : [];
   const queue = buildQueueGroups(dbPath, projectId);
   const activeAdapter = readActiveAdapter(dbPath);
+  const projectInitialization = buildProjectInitialization(dbPath, { project, projectId, workspaceRoot });
   const missing = [
     ...documents.filter((document) => !document.exists).map((document) => document.path),
     ...(workspaceRoot && !existsSync(join(workspaceRoot, "docs/features")) ? ["docs/features"] : []),
@@ -278,6 +302,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
       targetRepoPath: optionalString(project.target_repo_path),
     } : undefined,
     activeAdapter,
+    projectInitialization,
     documents,
     features,
     queue,
@@ -864,6 +889,10 @@ function numberOrZero(value: unknown): number {
   return typeof value === "number" ? Math.max(0, Math.trunc(value)) : 0;
 }
 
+function escapeLike(value: string): string {
+  return value.replace(/[%_]/g, (match) => `\\${match}`);
+}
+
 function detectSpecLanguage(workspaceRoot: string): string | undefined {
   for (const language of ["zh-CN", "en", "ja"]) {
     const root = join(workspaceRoot, "docs", language);
@@ -890,6 +919,119 @@ function buildTopLevelDocuments(workspaceRoot: string, specRoot?: string): SpecD
     document("queue", "Feature Pool Queue", "docs/features/feature-pool-queue.json", workspaceRoot),
   ] satisfies SpecDriveIdeDocument[];
   return docs;
+}
+
+function buildProjectInitialization(
+  dbPath: string,
+  input: { project?: ProjectRow; projectId?: string; workspaceRoot?: string },
+): SpecDriveIdeView["projectInitialization"] {
+  const workspaceRoot = input.workspaceRoot ? resolve(input.workspaceRoot) : undefined;
+  const projectId = input.projectId;
+  const existingWorkspace = Boolean(workspaceRoot && existsSync(workspaceRoot));
+  const result = projectId ? runSqlite(dbPath, [], [
+    {
+      name: "repositoryConnections",
+      sql: "SELECT * FROM repository_connections WHERE project_id = ? ORDER BY connected_at DESC LIMIT 1",
+      params: [projectId],
+    },
+    {
+      name: "constitutions",
+      sql: "SELECT * FROM project_constitutions WHERE project_id = ? AND status = 'active' ORDER BY version DESC LIMIT 1",
+      params: [projectId],
+    },
+    {
+      name: "memoryVersions",
+      sql: "SELECT * FROM memory_version_records WHERE content LIKE ? ORDER BY created_at DESC LIMIT 1",
+      params: [`%${escapeLike(projectId)}%`],
+    },
+    {
+      name: "healthChecks",
+      sql: "SELECT * FROM project_health_checks WHERE project_id = ? ORDER BY checked_at DESC LIMIT 1",
+      params: [projectId],
+    },
+  ]) : { queries: { repositoryConnections: [], constitutions: [], memoryVersions: [], healthChecks: [] } };
+
+  const repositoryConnection = result.queries.repositoryConnections[0];
+  const constitution = result.queries.constitutions[0];
+  const memoryVersion = result.queries.memoryVersions[0];
+  const healthCheck = result.queries.healthChecks[0];
+  const repositoryPath = optionalString(repositoryConnection?.local_path) ?? optionalString(input.project?.target_repo_path) ?? workspaceRoot;
+  const hasGitRepository = Boolean(repositoryConnection || (repositoryPath && existsSync(join(repositoryPath, ".git"))));
+  const hasSpecProtocol = Boolean(repositoryPath && existsSync(join(repositoryPath, ".autobuild")));
+  const hasConstitution = Boolean(constitution);
+  const hasProjectMemory = Boolean(memoryVersion || (repositoryPath && existsSync(join(repositoryPath, ".autobuild/memory/project.md"))));
+  const healthStatus = optionalString(healthCheck?.status);
+  const healthReady = healthStatus === "ready";
+  const healthBlocked = healthStatus === "blocked" || healthStatus === "failed";
+  const healthReasons = parseJsonArray(healthCheck?.reasons_json).map(String);
+  const healthReason = healthReasons.length > 0 ? healthReasons.join(", ") : undefined;
+  const steps: SpecDriveIdeInitializationStep[] = [
+    {
+      key: "create_or_import_project",
+      label: "Project created or imported",
+      status: input.project?.id ? "Ready" : "Blocked",
+      updatedAt: optionalString(input.project?.updated_at) ?? optionalString(input.project?.created_at),
+      blockedReason: input.project?.id ? undefined : "Create or import this workspace as a SpecDrive project.",
+    },
+    {
+      key: "workspace_root_resolved",
+      label: "Workspace root resolved",
+      status: existingWorkspace ? "Ready" : "Blocked",
+      blockedReason: existingWorkspace ? undefined : "Open a readable workspace folder.",
+    },
+    {
+      key: "connect_git_repository",
+      label: "Git repository connected",
+      status: hasGitRepository ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      updatedAt: optionalString(repositoryConnection?.connected_at),
+      blockedReason: hasGitRepository ? undefined : "Connect or initialize a local Git repository for this project.",
+    },
+    {
+      key: "initialize_spec_protocol",
+      label: ".autobuild / Spec Protocol",
+      status: hasSpecProtocol ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      blockedReason: hasSpecProtocol ? undefined : "Initialize .autobuild / Spec Protocol for this workspace.",
+    },
+    {
+      key: "import_or_create_constitution",
+      label: "Project constitution",
+      status: hasConstitution ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      updatedAt: optionalString(constitution?.created_at),
+      blockedReason: hasConstitution ? undefined : "Import or create the project constitution.",
+    },
+    {
+      key: "initialize_project_memory",
+      label: "Project Memory",
+      status: hasProjectMemory ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      updatedAt: optionalString(memoryVersion?.created_at),
+      blockedReason: hasProjectMemory ? undefined : "Initialize Project Memory for this workspace.",
+    },
+    {
+      key: "check_project_health",
+      label: "Workspace health check",
+      status: healthReady ? "Ready" : healthBlocked ? "Active" : input.project?.id ? "Draft" : "Blocked",
+      updatedAt: optionalString(healthCheck?.checked_at),
+      blockedReason: healthReady ? undefined : healthReason ?? "Run the project health check.",
+    },
+    {
+      key: "current_project_context",
+      label: "Current project context",
+      status: input.project?.id && existingWorkspace ? "Ready" : "Blocked",
+      blockedReason: input.project?.id && existingWorkspace ? undefined : "Register the current workspace before continuing.",
+    },
+  ];
+  const blockingKeys = new Set<SpecDriveIdeInitializationStep["key"]>([
+    "create_or_import_project",
+    "workspace_root_resolved",
+    "connect_git_repository",
+    "initialize_spec_protocol",
+    "current_project_context",
+  ]);
+  const blocked = steps.some((step) => step.status === "Blocked");
+  const ready = steps
+    .filter((step) => blockingKeys.has(step.key))
+    .every((step) => step.status === "Ready");
+  return { ready, blocked, steps };
 }
 
 function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: string): SpecDriveIdeFeatureNode[] {

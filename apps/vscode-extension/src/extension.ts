@@ -37,6 +37,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider = new SpecExplorerProvider(diagnostics, context);
   context.subscriptions.push(vscode.window.createTreeView("specdrive.specExplorer", { treeDataProvider: provider }));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.refresh", () => provider.refresh()));
+  context.subscriptions.push(vscode.commands.registerCommand("specdrive.registerProject", () => registerCurrentProject(provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.filterQueue", () => filterQueue(provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openProductConsole", (item: unknown) => openProductConsole(item, provider)));
   context.subscriptions.push(vscode.commands.registerCommand("specdrive.openExecutionWorkbench", () => openExecutionWorkbench(provider)));
@@ -542,17 +543,43 @@ async function runControlledCommand(input: unknown, provider: SpecExplorerProvid
     return;
   }
   try {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const payload = {
+      ...(input.payload ?? {}),
+      ...(input.action === "register_project" && workspaceRoot ? {
+        workspaceRoot,
+        projectName: provider.currentView()?.project?.name ?? workspaceName(workspaceRoot),
+      } : {}),
+    };
     const response = await postIdeCommand({
       ...input,
+      payload,
       requestedBy: "vscode-extension",
     });
     const status = typeof response.status === "string" ? response.status : "unknown";
     const executionId = typeof response.executionId === "string" ? ` execution=${response.executionId}` : "";
-    await vscode.window.showInformationMessage(`SpecDrive command ${status}.${executionId}`);
+    const blocked = Array.isArray(response.blockedReasons) && response.blockedReasons.length > 0
+      ? ` blocked=${response.blockedReasons.join("; ")}`
+      : "";
+    await vscode.window.showInformationMessage(`SpecDrive command ${status}.${executionId}${blocked}`);
     await provider.refresh();
   } catch (error) {
     await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
   }
+}
+
+async function registerCurrentProject(provider: SpecExplorerProvider): Promise<void> {
+  const view = provider.currentView();
+  await runControlledCommand({
+    action: "register_project",
+    entityType: "project",
+    entityId: view?.project?.id ?? "workspace",
+    reason: "Register current VSCode workspace as a SpecDrive project.",
+  }, provider);
+}
+
+function workspaceName(workspaceRoot: string): string {
+  return workspaceRoot.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).at(-1) ?? "workspace";
 }
 
 async function submitSpecChangeRequest(input: unknown, provider: SpecExplorerProvider): Promise<void> {

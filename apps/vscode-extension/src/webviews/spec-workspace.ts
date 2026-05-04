@@ -61,11 +61,22 @@ type SpecLifecycleStage = {
 
 function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleStage[] {
   const docs = new Set((view?.documents ?? []).filter((document) => document.exists).map((document) => document.kind));
-  const hasProjectDocs = docs.has("prd") || docs.has("requirements") || docs.has("hld") || (view?.recognized ?? false);
   const hasRequirementDocs = docs.has("prd") || docs.has("requirements") || docs.has("ears") || docs.has("feature-requirements");
   const hasFeatureSpecs = (view?.features.length ?? 0) > 0;
-  const hasProjectContext = Boolean(view?.project?.id && view.workspaceRoot);
-  const activeId: SpecLifecycleStage["id"] = !hasProjectDocs
+  const projectInitialization = view?.projectInitialization;
+  const projectInitializationReady = projectInitialization?.ready ?? Boolean(view?.project?.id && view?.workspaceRoot && view?.recognized);
+  const projectInitializationBlocked = projectInitialization?.blocked ?? !projectInitializationReady;
+  const initializationSteps = projectInitialization?.steps ?? [
+    { label: "Project created or imported", status: view?.project?.id ? "Ready" : "Blocked" },
+    { label: "Workspace root resolved", status: view?.workspaceRoot ? "Ready" : "Blocked" },
+    { label: "Git repository connected", status: view?.project?.targetRepoPath ? "Ready" : "Blocked" },
+    { label: ".autobuild / Spec Protocol", status: view?.recognized ? "Ready" : "Blocked" },
+    { label: "Project constitution", status: "Draft" },
+    { label: "Project Memory", status: "Draft" },
+    { label: "Workspace health check", status: (view?.diagnostics.length ?? 0) === 0 ? "Draft" : "Active" },
+    { label: "Current project context", status: view?.project?.id && view?.workspaceRoot ? "Ready" : "Blocked" },
+  ];
+  const activeId: SpecLifecycleStage["id"] = !projectInitializationReady
     ? "project-init"
     : !hasRequirementDocs
       ? "requirement-intake"
@@ -77,20 +88,11 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
       id: "project-init",
       index: "1",
       label: "Project Initialization",
-      status: stageStatus("project-init", hasProjectDocs),
+      status: projectInitializationReady ? "Ready" : projectInitializationBlocked ? "Blocked" : stageStatus("project-init", false),
       active: activeId === "project-init",
       description: "Recognize the project, repository, Spec protocol, constitution, memory, and workspace health before intake begins.",
       documentKinds: ["constitution", "memory", "readme"],
-      steps: [
-        { label: "Project created or imported", status: view?.project?.id ? "Ready" : "Blocked" },
-        { label: "Workspace root resolved", status: view?.workspaceRoot ? "Ready" : "Blocked" },
-        { label: "Git repository connected", status: view?.project?.targetRepoPath || view?.workspaceRoot ? "Ready" : "Draft" },
-        { label: ".autobuild / Spec Protocol", status: view?.recognized ? "Ready" : "Blocked" },
-        { label: "Project constitution", status: docs.has("constitution") ? "Ready" : "Draft" },
-        { label: "Project Memory", status: docs.has("memory") ? "Ready" : "Draft" },
-        { label: "Workspace health check", status: (view?.diagnostics.length ?? 0) === 0 ? "Ready" : "Active" },
-        { label: "Current project context", status: hasProjectContext ? "Ready" : "Blocked" },
-      ],
+      steps: initializationSteps.map((step) => ({ label: step.label, status: step.status })),
       actions: [
         { label: "Connect Git Repository", action: "connect_git_repository", reason: "Connect Git repository from Project Initialization lifecycle." },
         { label: "Initialize Spec Protocol", action: "initialize_spec_protocol", reason: "Initialize .autobuild / Spec Protocol from Project Initialization lifecycle." },
@@ -157,7 +159,7 @@ function renderSpecLifecycleDetail(
     ${documentList(documents)}
     ${stage.id === "requirement-intake" ? renderUiConceptImages(uiConceptImages) : ""}
     <h3>Stage Actions</h3>
-    <div class="toolbar">${stage.actions.map((action) => commandButton(action.label, "controlled", { action: action.action, entityType: "spec", entityId: projectId, reason: action.reason })).join("")}</div>
+    <div class="toolbar">${stage.actions.map((action) => commandButton(action.label, "controlled", { action: action.action, entityType: "project", entityId: projectId, reason: action.reason })).join("")}</div>
   </div>`;
 }
 

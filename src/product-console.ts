@@ -52,6 +52,7 @@ import {
   createDefaultProjectConstitution,
   getCurrentProjectConstitution,
   getProject,
+  initializeProjectPhase1,
   initializeProjectMemoryForProject,
   initializeProjectSpecProtocol,
   saveProjectConstitution,
@@ -59,6 +60,7 @@ import {
 
 export type ConsoleCommandAction =
   | "create_feature"
+  | "register_project"
   | "connect_git_repository"
   | "initialize_spec_protocol"
   | "import_or_create_constitution"
@@ -97,6 +99,7 @@ export type ConsoleCommandAction =
 
 const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "create_feature",
+  "register_project",
   "connect_git_repository",
   "initialize_spec_protocol",
   "import_or_create_constitution",
@@ -2666,21 +2669,49 @@ function executeProjectInitializationCommand(
   dbPath: string,
   input: ConsoleCommandInput,
 ): ({ blockedReasons: string[] } & Record<string, unknown>) | undefined {
-  if (!["connect_git_repository", "initialize_spec_protocol", "import_or_create_constitution", "initialize_project_memory"].includes(input.action)) {
+  if (!["register_project", "connect_git_repository", "initialize_spec_protocol", "import_or_create_constitution", "initialize_project_memory"].includes(input.action)) {
     return undefined;
   }
   if (input.entityType !== "project") {
     return { blockedReasons: ["Project initialization commands require a project entity."] };
   }
 
+  const payload = parseJsonObject(input.payload);
   const project = getProject(dbPath, input.entityId);
   if (!project) {
+    if (input.action === "register_project") {
+      const workspaceRoot = optionalString(payload.workspaceRoot) ?? optionalString(payload.targetRepoPath);
+      if (workspaceRoot && existsSync(workspaceRoot)) {
+        const projectName = optionalString(payload.projectName) ?? basename(workspaceRoot);
+        const result = initializeProjectPhase1(dbPath, {
+          name: projectName,
+          goal: `Imported from VSCode workspace ${workspaceRoot}.`,
+          projectType: "tooling",
+          techPreferences: [],
+          targetRepoPath: workspaceRoot,
+          defaultBranch: "main",
+          trustLevel: "standard",
+          environment: "local",
+          automationEnabled: true,
+          creationMode: "import_existing",
+          repositoryUrl: optionalString(payload.repositoryUrl),
+        });
+        return {
+          projectId: result.project.id,
+          repositoryConnected: result.repositoryConnected,
+          constitutionCreated: result.constitutionCreated,
+          memoryInitialized: result.memoryInitialized,
+          healthStatus: result.healthStatus,
+          initializationBlockingReasons: result.blockingReasons,
+          blockedReasons: result.project.id ? [] : result.blockingReasons,
+        };
+      }
+    }
     return { blockedReasons: [`Project not found: ${input.entityId}`] };
   }
 
   try {
-    if (input.action === "connect_git_repository") {
-      const payload = parseJsonObject(input.payload);
+    if (input.action === "register_project" || input.action === "connect_git_repository") {
       const connection = connectProjectRepository(dbPath, project.id, {
         repositoryUrl: optionalString(payload.repositoryUrl),
       });

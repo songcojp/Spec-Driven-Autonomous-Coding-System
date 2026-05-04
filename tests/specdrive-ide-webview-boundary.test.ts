@@ -62,6 +62,7 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
     "specdrive.openExecutionWorkbench",
     "specdrive.openSystemSettings",
     "specdrive.refresh",
+    "specdrive.registerProject",
   ]);
   assert.deepEqual(titleActions.map((action) => action.group), [
     "navigation@1",
@@ -69,7 +70,10 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
     "navigation@3",
     "navigation@4",
     "navigation@5",
+    "navigation@6",
   ]);
+  assert.match(extensionSource, /registerCommand\("specdrive\.registerProject"/);
+  assert.match(extensionSource, /function registerCurrentProject/);
 });
 
 test("VSCode System Settings Webview manages adapter configs through controlled commands", () => {
@@ -175,6 +179,7 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /label: "Workspace health check"/);
   assert.match(extensionSource, /label: "Current project context"/);
   assert.match(extensionSource, /action: "connect_git_repository"/);
+  assert.match(extensionSource, /entityType: "project"/);
   assert.match(extensionSource, /action: "initialize_spec_protocol"/);
   assert.match(extensionSource, /action: "import_or_create_constitution"/);
   assert.match(extensionSource, /action: "initialize_project_memory"/);

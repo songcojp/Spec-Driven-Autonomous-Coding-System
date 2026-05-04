@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
@@ -32,6 +32,7 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.language, "zh-CN");
   assert.equal(view.project?.id, "project-ide");
   assert.equal(view.activeAdapter?.id, "codex-rpc");
+  assert.equal(view.projectInitialization.ready, true);
   assert.equal(view.documents.find((document) => document.kind === "prd")?.exists, true);
   assert.equal(view.documents.find((document) => document.kind === "hld")?.path, "docs/zh-CN/hld.md");
 
@@ -49,6 +50,104 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.queue.groups.running[0].featureId, "FEAT-016");
   assert.deepEqual(view.diagnostics, []);
   assert.equal(view.factSources.includes("execution_records"), true);
+});
+
+test("SpecDrive IDE keeps project initialization blocked for an unregistered PRD-only workspace", () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-ide-prd-only-"));
+  mkdirSync(join(workspaceRoot, "docs"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs/PRD.md"), "# PRD\n");
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.project?.id, undefined);
+  assert.equal(view.projectInitialization.ready, false);
+  assert.equal(view.projectInitialization.blocked, true);
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "create_or_import_project")?.status, "Blocked");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "connect_git_repository")?.status, "Blocked");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "initialize_spec_protocol")?.status, "Blocked");
+});
+
+test("SpecDrive IDE register project command imports an unregistered workspace before continuing initialization", async () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-ide-import-"));
+  mkdirSync(join(workspaceRoot, "docs"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs/PRD.md"), "# PRD\n");
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const config = makeConfig(workspaceRoot, dbPath);
+  const controlPlane = createControlPlaneServer(config, {
+    status: "ready",
+    version: "test",
+    schemaVersion: 23,
+    artifactRoot: join(workspaceRoot, ".autobuild"),
+  });
+
+  await listen(controlPlane.server, config);
+  const address = controlPlane.server.address();
+  const port = address && typeof address === "object" ? address.port : 0;
+
+  try {
+    const receipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "register_project",
+      entityType: "project",
+      entityId: "workspace",
+      requestedBy: "vscode-extension",
+      reason: "Register current VSCode workspace as a SpecDrive project.",
+      payload: { workspaceRoot, projectName: "lottery2" },
+    });
+
+    assert.equal(receipt.status, "accepted");
+    assert.equal(existsSync(join(workspaceRoot, ".git")), true);
+    const view = await getJson(`http://127.0.0.1:${port}/ide/spec-tree?workspaceRoot=${encodeURIComponent(workspaceRoot)}`);
+    assert.equal(typeof view.project?.id, "string");
+    assert.equal(view.project?.name, "lottery2");
+    assert.equal(view.projectInitialization.steps.find((step: { key: string }) => step.key === "connect_git_repository")?.status, "Ready");
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      controlPlane.server.close((error) => error ? reject(error) : resolve());
+    });
+  }
+});
+
+test("SpecDrive IDE connect Git command does not register an unknown workspace", async () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-ide-connect-no-register-"));
+  mkdirSync(join(workspaceRoot, "docs"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs/PRD.md"), "# PRD\n");
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const config = makeConfig(workspaceRoot, dbPath);
+  const controlPlane = createControlPlaneServer(config, {
+    status: "ready",
+    version: "test",
+    schemaVersion: 23,
+    artifactRoot: join(workspaceRoot, ".autobuild"),
+  });
+
+  await listen(controlPlane.server, config);
+  const address = controlPlane.server.address();
+  const port = address && typeof address === "object" ? address.port : 0;
+
+  try {
+    const receipt = await postJson(`http://127.0.0.1:${port}/ide/commands`, {
+      action: "connect_git_repository",
+      entityType: "project",
+      entityId: "workspace",
+      requestedBy: "vscode-extension",
+      reason: "Connect Git repository from Project Initialization lifecycle.",
+      payload: { workspaceRoot, projectName: "lottery2" },
+    });
+
+    assert.equal(receipt.status, "blocked");
+    assert.deepEqual(receipt.blockedReasons, ["Project not found: workspace"]);
+    assert.equal(existsSync(join(workspaceRoot, ".git")), false);
+    const view = await getJson(`http://127.0.0.1:${port}/ide/spec-tree?workspaceRoot=${encodeURIComponent(workspaceRoot)}`);
+    assert.equal(view.project?.id, undefined);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      controlPlane.server.close((error) => error ? reject(error) : resolve());
+    });
+  }
 });
 
 test("SpecDrive IDE view uses Feature index as identity source and projects tasks.md status", () => {
@@ -603,6 +702,7 @@ function makeConfig(workspaceRoot: string, dbPath: string): AppConfig {
 
 function makeWorkspace(): string {
   const root = mkdtempSync(join(tmpdir(), "specdrive-ide-workspace-"));
+  mkdirSync(join(root, ".autobuild"), { recursive: true });
   mkdirSync(join(root, "docs/zh-CN"), { recursive: true });
   mkdirSync(join(root, "docs/features/feat-016-specdrive-ide-foundation"), { recursive: true });
   writeFileSync(join(root, "docs/zh-CN/PRD.md"), "# PRD\n");
