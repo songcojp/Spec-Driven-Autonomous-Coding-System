@@ -131,6 +131,10 @@ class BundledControlPlaneManager implements vscode.Disposable {
     const env: Record<string, string | undefined> = {
       ...process.env,
       AUTOBUILD_PORT: String(port),
+      AUTOBUILD_AGENT_RUNTIME_PATHS: [
+        join(this.context.extensionPath, ".agents"),
+        join(this.context.extensionPath, "..", "..", ".agents"),
+      ].join("||"),
     };
     if (!configuredNodePath) env.ELECTRON_RUN_AS_NODE = "1";
 

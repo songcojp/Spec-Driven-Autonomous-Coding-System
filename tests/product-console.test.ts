@@ -1021,6 +1021,82 @@ test("project initialization provisions AGENTS and .agents runtime for CLI runs"
   );
 });
 
+test("project initialization copies skills from configured agent runtime path", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-agent-runtime-env-"));
+  const sourceAgents = mkdtempSync(join(tmpdir(), "spec-agent-source-"));
+  mkdirSync(join(projectPath, ".agents"), { recursive: true });
+  mkdirSync(join(sourceAgents, "skills", "env-skill"), { recursive: true });
+  writeFileSync(join(sourceAgents, "skills", "env-skill", "SKILL.md"), "# Env skill\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+  ]);
+
+  const previous = process.env.AUTOBUILD_AGENT_RUNTIME_PATHS;
+  process.env.AUTOBUILD_AGENT_RUNTIME_PATHS = `${join(sourceAgents, "missing")}||${sourceAgents}`;
+  try {
+    const receipt = submitConsoleCommand(dbPath, {
+      action: "initialize_spec_protocol",
+      entityType: "project",
+      entityId: "project-1",
+      requestedBy: "operator",
+      reason: "Prepare project workspace from configured agent runtime.",
+      payload: {},
+      now: stableDate,
+    });
+
+    assert.equal(receipt.status, "accepted");
+    assert.equal(existsSync(join(projectPath, "AGENTS.md")), true);
+    assert.equal(existsSync(join(projectPath, ".agents", "skills", "env-skill", "SKILL.md")), true);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.AUTOBUILD_AGENT_RUNTIME_PATHS;
+    } else {
+      process.env.AUTOBUILD_AGENT_RUNTIME_PATHS = previous;
+    }
+  }
+});
+
+test("register project repairs missing agent runtime for an existing project", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-register-repair-"));
+  const sourceAgents = mkdtempSync(join(tmpdir(), "spec-register-source-"));
+  mkdirSync(join(projectPath, ".agents"), { recursive: true });
+  mkdirSync(join(sourceAgents, "skills", "repair-skill"), { recursive: true });
+  writeFileSync(join(sourceAgents, "skills", "repair-skill", "SKILL.md"), "# Repair skill\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+  ]);
+
+  const previous = process.env.AUTOBUILD_AGENT_RUNTIME_PATHS;
+  process.env.AUTOBUILD_AGENT_RUNTIME_PATHS = sourceAgents;
+  try {
+    const receipt = submitConsoleCommand(dbPath, {
+      action: "register_project",
+      entityType: "project",
+      entityId: "project-1",
+      requestedBy: "vscode-extension",
+      reason: "Repair existing project registration.",
+      payload: {},
+      now: stableDate,
+    });
+
+    assert.equal(receipt.status, "accepted");
+    assert.equal(existsSync(join(projectPath, "AGENTS.md")), true);
+    assert.equal(existsSync(join(projectPath, ".agents", "skills", "repair-skill", "SKILL.md")), true);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.AUTOBUILD_AGENT_RUNTIME_PATHS;
+    } else {
+      process.env.AUTOBUILD_AGENT_RUNTIME_PATHS = previous;
+    }
+  }
+});
+
 test("spec intake commands scan, upload, and enqueue EARS skill invocation", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);

@@ -291,6 +291,7 @@ declare module "vscode" {
   }
 
   export type ExtensionContext = {
+    extensionPath: string;
     subscriptions: Disposable[];
     workspaceState: Memento;
   };

@@ -544,11 +544,22 @@ function ensureProjectAgentRuntime(projectPath: string): void {
     ].join("\n"));
   }
 
-  const sourceAgents = join(dirname(fileURLToPath(import.meta.url)), "..", ".agents");
+  const sourceAgents = resolveAgentRuntimeSource();
   const targetAgents = join(projectPath, ".agents");
   mkdirSync(targetAgents, { recursive: true });
   if (!existsSync(sourceAgents)) return;
   copyMissingAgentRuntime(sourceAgents, targetAgents);
+}
+
+function resolveAgentRuntimeSource(): string {
+  const candidates = [
+    ...String(process.env.AUTOBUILD_AGENT_RUNTIME_PATHS ?? "")
+      .split("||")
+      .map((entry) => entry.trim())
+      .filter(Boolean),
+    join(dirname(fileURLToPath(import.meta.url)), "..", ".agents"),
+  ];
+  return candidates.find((candidate) => existsSync(join(candidate, "skills"))) ?? candidates.at(-1) ?? "";
 }
 
 function copyMissingAgentRuntime(sourceDir: string, targetDir: string): void {

@@ -2711,7 +2711,24 @@ function executeProjectInitializationCommand(
   }
 
   try {
-    if (input.action === "register_project" || input.action === "connect_git_repository") {
+    if (input.action === "register_project") {
+      const connection = connectProjectRepository(dbPath, project.id, {
+        repositoryUrl: optionalString(payload.repositoryUrl),
+      });
+      const specProtocol = initializeProjectSpecProtocol(dbPath, project.id);
+      const memory = initializeProjectMemoryForProject(dbPath, project.id);
+      return {
+        projectId: project.id,
+        repositoryConnectionId: connection.id,
+        repositoryUrl: connection.remoteUrl,
+        artifactRoot: specProtocol.artifactRoot,
+        projectMemoryId: memory.id,
+        path: memory.path,
+        blockedReasons: [],
+      };
+    }
+
+    if (input.action === "connect_git_repository") {
       const connection = connectProjectRepository(dbPath, project.id, {
         repositoryUrl: optionalString(payload.repositoryUrl),
       });
