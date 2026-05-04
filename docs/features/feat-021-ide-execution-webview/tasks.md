@@ -95,3 +95,8 @@ Feature ID: FEAT-021
 状态: done
 描述: VSCode Spec Workspace / Feature Review 的 `clarification` 提交由 Control Plane 路由为 `resolve_clarification`，并在任务队列中创建 `ambiguity-clarification-skill` 技能调用任务。
 验证: `node --test tests/specdrive-ide.test.ts` 覆盖 `clarification` receipt、scheduler job 和技能上下文。
+
+### T-021-19 Execution Workbench 选中任务操作
+状态: done
+描述: Execution Workbench 队列任务支持显式选中；顶部任务操作只对选中任务可用，并按选中任务状态启用、禁用或切换双态按钮。Pause / Resume 合并为一个双态入口。
+验证: `npm run ide:build` 验证 VSCode Webview 编译；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖选中任务与按钮状态规则。

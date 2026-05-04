@@ -64,6 +64,22 @@ test("VSCode IDE Webviews expose independent workbench commands", () => {
   assert.match(extensionSource, /Content-Security-Policy/);
 });
 
+test("VSCode Execution Workbench requires selected queue tasks for stateful actions", () => {
+  assert.match(extensionSource, /let selectedQueueKey: string \| undefined/);
+  assert.match(extensionSource, /message\.command === "selectQueueItem"/);
+  assert.match(extensionSource, /executionItemByKey\(view, selectedQueueKey\)/);
+  assert.match(extensionSource, /renderExecutionWorkbenchWebview\(view, detail, selectedQueueKey\)/);
+  assert.match(extensionSource, /commandButton\(selected \? "Selected" : "Select", "selectQueueItem"/);
+  assert.match(extensionSource, /class="queue-item\$\{selected \? " selected" : ""\}"/);
+  assert.match(extensionSource, /Select a task to enable task actions\./);
+  assert.match(extensionSource, /queueActionButton\("Run Now", selectedItem, "run_now", \["ready", "queued"\]\)/);
+  assert.match(extensionSource, /pauseResumeButton\(selectedItem\)/);
+  assert.match(extensionSource, /if \(status === "paused"\) return queueActionButton\("Resume"/);
+  assert.match(extensionSource, /queueActionButton\("Retry", selectedItem, "retry", \["failed", "cancelled", "skipped"\]\)/);
+  assert.match(extensionSource, /queueActionButton\("Cancel", selectedItem, "cancel", \["ready", "queued", "running", "approval_needed", "blocked", "paused"\]\)/);
+  assert.doesNotMatch(extensionSource, /queueButton\("Run Now", queue\.find/);
+});
+
 test("VSCode Spec Explorer title actions are ordered by workflow", () => {
   const titleActions = extensionPackage.contributes?.menus?.["view/title"] ?? [];
   assert.deepEqual(titleActions.map((action) => action.command), [

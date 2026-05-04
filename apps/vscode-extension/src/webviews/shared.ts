@@ -9,7 +9,7 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
     button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover{background:var(--vscode-button-hoverBackground)}
     [hidden]{display:none!important}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.view-toggle{min-width:132px}.status-text{color:var(--muted);font-size:12px;min-height:18px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}.span-12{grid-column:span 12}
     .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title h2{min-width:0;overflow-wrap:anywhere}.panel-title span,.muted{color:var(--muted)}
-    .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px;min-width:0}.row{grid-template-columns:minmax(0,1fr) minmax(0,max-content)}.row>*{min-width:0;overflow-wrap:anywhere}.row code{white-space:pre-wrap;overflow-wrap:anywhere}
+    .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px;min-width:0}.queue-item.selected{background:var(--vscode-list-activeSelectionBackground);box-shadow:inset 3px 0 0 var(--accent)}.row{grid-template-columns:minmax(0,1fr) minmax(0,max-content)}.row>*{min-width:0;overflow-wrap:anywhere}.row code{white-space:pre-wrap;overflow-wrap:anywhere}
     .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px;max-width:100%;overflow-wrap:anywhere}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
     pre{max-height:180px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:8px;border-radius:4px;font-family:var(--vscode-editor-font-family);font-size:11px}.issue{border:1px solid var(--border);border-radius:4px;padding:8px;margin:6px 0}.issue span{color:var(--muted)}
     .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}.spec-stage-panel{width:100%;min-height:320px}
@@ -55,6 +55,11 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
       if (target.closest(".dependency-branch > summary")) event.preventDefault();
       const payload = {...target.dataset};
       if (payload.command === "selectFeature") payload.featureId = target.dataset.featureId;
+      if (payload.command === "selectQueueItem") {
+        setWorkbenchStatus("Selected task " + (target.dataset.entityId || "unknown") + ".");
+        vscode.postMessage(payload);
+        return;
+      }
       if (payload.command === "openWorkbenchForm") {
         openWorkbenchForm(payload.formMode || "newFeature", target.dataset.featureId, target.dataset.intent);
         return;
@@ -197,10 +202,29 @@ export function queueButton(label: string, item: SpecDriveIdeQueueItem | undefin
   });
 }
 
-export function renderQueueGroup(status: string, items: SpecDriveIdeQueueItem[]): string {
+export function renderQueueGroup(status: string, items: SpecDriveIdeQueueItem[], selectedKey?: string): string {
   return `<div class="queue-group"><div class="queue-head"><strong class="${statusClass(status)}">${escapeHtml(status)}</strong><span>${items.length}</span></div>
-    ${items.map((item) => `<div class="queue-item"><span>${escapeHtml(item.featureId ?? item.taskId ?? item.operation ?? "execution")}</span><span>${escapeHtml(item.operation ?? item.jobType ?? "-")}</span><span>${escapeHtml(item.adapter ?? "-")}</span>${queueButton("Open", item, "run_now")}</div>`).join("") || `<div class="queue-item"><span class="muted">No items</span></div>`}
+    ${items.map((item) => {
+      const key = queueItemKey(item);
+      const selected = Boolean(selectedKey && key === selectedKey);
+      return `<div class="queue-item${selected ? " selected" : ""}"><span>${escapeHtml(item.featureId ?? item.taskId ?? item.operation ?? "execution")}</span><span>${escapeHtml(item.operation ?? item.jobType ?? "-")}</span><span>${escapeHtml(item.adapter ?? "-")}</span>${queueSelectButton(item, selected)}</div>`;
+    }).join("") || `<div class="queue-item"><span class="muted">No items</span></div>`}
   </div>`;
+}
+
+export function queueItemKey(item: SpecDriveIdeQueueItem | undefined): string | undefined {
+  const entityId = item?.executionId ?? item?.schedulerJobId;
+  if (!entityId) return undefined;
+  return `${item?.executionId ? "run" : "job"}:${entityId}`;
+}
+
+function queueSelectButton(item: SpecDriveIdeQueueItem, selected?: boolean): string {
+  const entityId = item.executionId ?? item.schedulerJobId;
+  if (!entityId) return `<button disabled>Select</button>`;
+  return commandButton(selected ? "Selected" : "Select", "selectQueueItem", {
+    entityType: item.executionId ? "run" : "job",
+    entityId,
+  });
 }
 
 export function renderBlockerCard(item: SpecDriveIdeQueueItem): string {

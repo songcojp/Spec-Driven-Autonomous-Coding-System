@@ -21,7 +21,7 @@ import type {
   SystemSettingsViewModel,
   UiConceptImage,
 } from "./types";
-import { currentExecutionItem, renderExecutionWebview, renderExecutionWorkbenchWebview } from "./webviews/execution";
+import { currentExecutionItem, executionItemByKey, renderExecutionWebview, renderExecutionWorkbenchWebview } from "./webviews/execution";
 import { preferredFeature, preferredFeatureReviewSource, renderFeatureSpecWebview } from "./webviews/feature-spec";
 import { preferredWorkspaceRequestSource, renderSpecWorkspaceWebview } from "./webviews/spec-workspace";
 import { renderSystemSettingsWebview } from "./webviews/system-settings";
@@ -981,14 +981,24 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
     enableScripts: true,
     retainContextWhenHidden: true,
   });
+  let selectedQueueKey: string | undefined;
   const render = async (): Promise<void> => {
     await provider.refresh();
     const view = provider.currentView();
-    const current = view ? currentExecutionItem(view) : undefined;
+    const selected = executionItemByKey(view, selectedQueueKey);
+    if (selectedQueueKey && !selected) selectedQueueKey = undefined;
+    const current = selected ?? (view ? currentExecutionItem(view) : undefined);
     const detail = current ? await fetchExecutionDetail(current) : undefined;
-    panel.webview.html = renderExecutionWorkbenchWebview(view, detail);
+    panel.webview.html = renderExecutionWorkbenchWebview(view, detail, selectedQueueKey);
   };
-  panel.webview.onDidReceiveMessage((message: unknown) => handleWorkbenchMessage(message, provider, render));
+  panel.webview.onDidReceiveMessage(async (message: unknown) => {
+    if (isWorkbenchMessage(message) && message.command === "selectQueueItem" && typeof message.entityId === "string") {
+      selectedQueueKey = `${message.entityType === "job" ? "job" : "run"}:${message.entityId}`;
+      await render();
+      return;
+    }
+    await handleWorkbenchMessage(message, provider, render);
+  });
   await render();
 }
 
