@@ -10,6 +10,7 @@ import { runSqlite } from "../src/sqlite.ts";
 import {
   assertProjectExists,
   createProject,
+  DuplicateProjectPathError,
   getCurrentProjectSelection,
   readProjectRepository,
   initializeProjectPhase1,
@@ -232,6 +233,31 @@ test("initializeProjectPhase1 returns success:false on duplicate targetRepoPath"
   const result = initializeProjectPhase1(dbPath, baseInput({ name: "Second", creationMode: "import_existing", targetRepoPath: root }));
   assert.equal(result.project.status, "failed", "Duplicate path project should have failed status");
   assert.equal(result.success, false);
+});
+
+test("createProject rejects a target path already owned through repository_connections", () => {
+  const root = mkdtempSync(join(tmpdir(), "proj-identity-"));
+  const dbPath = freshDb();
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO projects (id, name, goal, project_type, tech_preferences_json, environment, status)
+        VALUES ('existing-project', 'Existing', 'Goal', 'typescript', '[]', 'local', 'created')`,
+    },
+    {
+      sql: `INSERT INTO repository_connections (id, project_id, provider, local_path, default_branch)
+        VALUES ('existing-connection', 'existing-project', 'local', ?, 'main')`,
+      params: [root],
+    },
+  ]);
+
+  assert.throws(
+    () => createProject(dbPath, baseInput({ targetRepoPath: join(root, "."), creationMode: "import_existing" })),
+    (error: unknown) => {
+      assert.ok(error instanceof DuplicateProjectPathError);
+      assert.equal((error as DuplicateProjectPathError).existingProjectId, "existing-project");
+      return true;
+    },
+  );
 });
 
 test("connectProjectRepository initializes local git without requiring remote url", () => {

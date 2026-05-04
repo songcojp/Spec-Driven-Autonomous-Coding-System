@@ -188,6 +188,7 @@ Rejected / deferred alternatives:
 | Feature / Execution 状态 | Persistent Store 中的内部状态机与 Execution Record | Dashboard、Project Memory、Delivery Report。 |
 | Git 事实 | 目标仓库与 worktree 的实时 Git 状态 | Repository Adapter、Workspace Manager、Status Checker。 |
 | 当前项目上下文 | Project Management 持久层和用户选择状态 | Product Console、Scheduler、Project Memory Injector、Control Plane 命令网关。 |
+| 项目身份 | 规范化绝对项目目录，持久层唯一约束覆盖 Project 记录和 Repository Connection | 项目创建、导入、切换、调度和所有项目级查询；空数据库启动时不得注入示例项目，Demo 只能显式导入为普通项目数据且不自动切换。 |
 | Project Memory | `.autobuild/memory/project.md` + 版本元数据 | 编码 CLI 会话恢复上下文。 |
 | Skill 列表 | Skill Registry，内置 Skill 以 PRD 第 6.3 节为事实源 | Orchestrator、Skill Center、Review Center。 |
 | Project Constitution | Project Management 持久层与版本记录 | Project Memory、Scheduler、Review Center、Feature Spec 流程。 |

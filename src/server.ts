@@ -16,6 +16,7 @@ import {
   scanProjectDirectory,
   type ProjectConstitutionInput,
 } from "./projects.ts";
+import { seedDemoProject } from "./demo-seed.ts";
 import {
   buildAuditCenterView,
   buildProjectOverview,
@@ -112,6 +113,12 @@ async function routeRequest(
     if (request.method === "POST" && request.url === "/projects/scan") {
       const scan = scanProjectDirectory(await readJsonBody(request));
       writeJson(response, 200, scan);
+      return;
+    }
+
+    if (request.method === "POST" && request.url === "/projects/seed-demo") {
+      const result = seedDemoProject(config.dbPath, config.projectRoot);
+      writeJson(response, result.imported ? 201 : 200, result);
       return;
     }
 

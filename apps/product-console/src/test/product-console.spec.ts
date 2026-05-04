@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { demoData } from "../lib/demo-data";
+import { demoData, getDemoDataForProject } from "../lib/demo-data";
 
 test.beforeEach(async ({ page }, testInfo) => {
   await page.addInitScript((storageKey) => {
@@ -47,7 +47,7 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByText("Connect carrier label quote mock").first()).toBeVisible();
       await expect(page.getByText("1-1 / 1")).toBeVisible();
       await page.getByPlaceholder("搜索任务...").fill("");
-      await page.getByLabel("类型/队列").selectOption("queue:specdrive:execution-adapter");
+      await page.getByLabel("类型/队列").selectOption("queue:specdrive:cli-runner");
       await expect(page.getByText("1-10 / 13")).toBeVisible();
       await expect(page.getByText("Job 总数").first()).toBeVisible();
       await expect(page.getByText("队列中").first()).toBeVisible();
@@ -75,6 +75,53 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByText("Approval 记录")).toBeVisible();
     }
   }
+});
+
+test("empty database shows explicit demo seed import without auto-switching", async ({ page }) => {
+  let seeded = false;
+  await page.unroute("**/console/project-overview");
+  await page.route("**/console/project-overview", async (route) => {
+    await route.fulfill({
+      json: seeded
+        ? {
+            ...demoData.overview,
+            projects: [
+              {
+                ...demoData.overview.projects[0],
+                id: "demo-acme-returns-portal",
+                name: "Demo Acme Returns Portal",
+                projectDirectory: "workspace/demo-acme-returns-portal",
+              },
+            ],
+            summary: { ...demoData.overview.summary, totalProjects: 1, healthyProjects: 1 },
+          }
+        : {
+            summary: {
+              totalProjects: 0,
+              healthyProjects: 0,
+              blockedProjects: 0,
+              failedTasks: 0,
+              pendingReviews: 0,
+              onlineRunners: 0,
+              totalCostUsd: 0,
+            },
+            projects: [],
+            signals: [],
+            factSources: ["projects"],
+          },
+    });
+  });
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "还没有项目" })).toBeVisible();
+  await expect(page.getByLabel("项目列表")).toBeDisabled();
+  await expect(page.getByLabel("项目列表")).not.toContainText("project-1");
+
+  seeded = true;
+  await page.getByRole("button", { name: "导入 Demo 种子数据" }).click();
+  await expect(page.getByLabel("Notifications (F8)").getByText("Demo 种子数据已导入")).toBeVisible();
+  await expect(page.getByLabel("项目列表")).toContainText("Demo Acme Returns Portal");
+  await expect(page.getByRole("heading", { name: "还没有项目" })).toBeVisible();
 });
 
 test("supports collapsible navigation and keeps the content header fixed", async ({ page }) => {
@@ -368,41 +415,10 @@ test("submits a controlled command and shows blocked feedback", async ({ page })
 });
 
 async function installConsoleRoutes(page: Page) {
-  const projectTwoData = {
-    ...demoData,
-    dashboard: {
-      ...demoData.dashboard,
-      activeFeatures: [{ id: "FEAT-007", title: "Workspace Isolation", status: "in-progress", priority: 7 }],
-      failedTasks: [],
-      pendingApprovals: 1,
-    },
-    board: {
-      ...demoData.board,
-      tasks: [
-        {
-          ...demoData.board.tasks[0],
-          id: "T-222",
-          featureId: "FEAT-007",
-          title: "Verify project-scoped worktree isolation",
-        },
-      ],
-    },
-    spec: {
-      ...demoData.spec,
-      features: [
-        { id: "FEAT-007", title: "Workspace Isolation", folder: "feat-007-workspace-isolation", status: "done", primaryRequirements: ["REQ-017", "REQ-035"] },
-        { id: "FEAT-006", title: "Project Memory Projection", folder: "feat-006-project-memory-projection", status: "ready", primaryRequirements: ["REQ-016", "REQ-034"] },
-        { id: "FEAT-005", title: "Subagent Runtime Context", folder: "feat-005-subagent-runtime-context", status: "done", primaryRequirements: ["REQ-015"] },
-      ],
-      selectedFeature: {
-        ...demoData.spec.selectedFeature!,
-        id: "FEAT-007",
-        title: "Workspace Isolation",
-      },
-    },
-  };
+  const projectTwoData = getDemoDataForProject("project-2");
   await page.route("**/console/dashboard?projectId=project-1", async (route) => route.fulfill({ json: demoData.dashboard }));
   await page.route("**/console/project-overview", async (route) => route.fulfill({ json: demoData.overview }));
+  await page.route("**/console/system-settings", async (route) => route.fulfill({ json: demoData.settings }));
   await page.route("**/console/dashboard-board?projectId=project-1", async (route) => route.fulfill({ json: demoData.board }));
   await page.route("**/console/spec-workspace?projectId=project-1", async (route) => route.fulfill({ json: demoData.spec }));
   await page.route("**/console/runner?projectId=project-1", async (route) => route.fulfill({ json: demoData.runner }));
@@ -411,9 +427,9 @@ async function installConsoleRoutes(page: Page) {
   await page.route("**/console/dashboard?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.dashboard }));
   await page.route("**/console/dashboard-board?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.board }));
   await page.route("**/console/spec-workspace?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.spec }));
-  await page.route("**/console/runner?projectId=project-2", async (route) => route.fulfill({ json: demoData.runner }));
-  await page.route("**/console/reviews?projectId=project-2", async (route) => route.fulfill({ json: demoData.reviews }));
-  await page.route("**/console/audit?projectId=project-2", async (route) => route.fulfill({ json: demoData.audit }));
+  await page.route("**/console/runner?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.runner }));
+  await page.route("**/console/reviews?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.reviews }));
+  await page.route("**/console/audit?projectId=project-2", async (route) => route.fulfill({ json: projectTwoData.audit }));
   await page.route("**/projects/scan", async (route) => {
     const body = route.request().postDataJSON() as { targetRepoPath?: string };
     await route.fulfill({
@@ -441,6 +457,21 @@ async function installConsoleRoutes(page: Page) {
         targetRepoPath: body.targetRepoPath ?? "workspace/new-client-app",
         defaultBranch: "main",
         status: "created",
+      },
+    });
+  });
+  await page.route("**/projects/seed-demo", async (route) => {
+    await route.fulfill({
+      status: 201,
+      json: {
+        imported: true,
+        project: {
+          id: "demo-acme-returns-portal",
+          name: "Demo Acme Returns Portal",
+          targetRepoPath: "workspace/demo-acme-returns-portal",
+          defaultBranch: "main",
+          status: "ready",
+        },
       },
     });
   });

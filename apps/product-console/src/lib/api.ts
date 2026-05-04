@@ -125,6 +125,37 @@ export async function createConsoleProject(input: ProjectCreateForm): Promise<Pr
   };
 }
 
+export async function importDemoSeedProject(): Promise<{ project: ProjectSummary; imported: boolean }> {
+  const response = await fetch("/projects/seed-demo", {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => undefined) as { error?: string; targetRepoPath?: string } | undefined;
+    if (response.status === 409 && detail?.error === "project_path_already_registered") {
+      throw new Error(`project_path_already_registered:${detail.targetRepoPath ?? ""}`);
+    }
+    throw new Error(detail?.error ?? `/projects/seed-demo returned ${response.status}`);
+  }
+  const result = await response.json() as {
+    project: { id: string; name: string; repositoryUrl?: string; targetRepoPath?: string; defaultBranch?: string; status?: string };
+    imported: boolean;
+  };
+  const projectDirectory = result.project.targetRepoPath ?? "";
+  return {
+    imported: result.imported,
+    project: {
+      id: result.project.id,
+      name: result.project.name,
+      repository: result.project.repositoryUrl ?? projectDirectory,
+      projectDirectory,
+      defaultBranch: result.project.defaultBranch ?? "main",
+      health: result.project.status === "failed" ? "failed" : result.project.status === "blocked" ? "blocked" : "ready",
+      lastActivityAt: new Date().toISOString(),
+    },
+  };
+}
+
 export async function deleteConsoleProject(projectId: string): Promise<void> {
   const response = await fetch(`/projects/${encodeURIComponent(projectId)}`, {
     method: "DELETE",

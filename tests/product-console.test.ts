@@ -16,9 +16,62 @@ import {
   buildSystemSettingsView,
   submitConsoleCommand,
 } from "../src/product-console.ts";
+import { seedDemoProject } from "../src/demo-seed.ts";
 import { createMemoryScheduler } from "../src/scheduler.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
+
+test("project overview returns an empty model for a clean database", () => {
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const overview = buildProjectOverview(dbPath);
+
+  assert.equal(overview.summary.totalProjects, 0);
+  assert.deepEqual(overview.projects, []);
+});
+
+test("demo seed import creates visible project data and remains idempotent", () => {
+  const root = mkdtempSync(join(tmpdir(), "demo-seed-root-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+
+  const first = seedDemoProject(dbPath, root);
+  const second = seedDemoProject(dbPath, root);
+  const overview = buildProjectOverview(dbPath);
+  const project = overview.projects.find((entry) => entry.id === first.project.id);
+  const counts = runSqlite(dbPath, [], [
+    { name: "projects", sql: "SELECT COUNT(*) AS count FROM projects WHERE id = ?", params: [first.project.id] },
+    { name: "connections", sql: "SELECT COUNT(*) AS count FROM repository_connections WHERE project_id = ?", params: [first.project.id] },
+  ]).queries;
+
+  assert.equal(first.imported, true);
+  assert.equal(second.imported, false);
+  assert.equal(counts.projects[0].count, 1);
+  assert.equal(counts.connections[0].count, 1);
+  assert.equal(project?.activeFeature?.id, "DEMO-FEAT-204");
+  assert.equal(project?.pendingReviews, 1);
+  assert.equal(project?.activeRuns, 1);
+});
+
+test("demo seed import rejects a path already owned by another project", () => {
+  const root = mkdtempSync(join(tmpdir(), "demo-seed-conflict-"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  const demoPath = join(root, "workspace", "demo-acme-returns-portal");
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO projects (id, name, goal, project_type, tech_preferences_json, target_repo_path, default_branch, environment, status)
+        VALUES ('real-project', 'Real Project', 'Owns path', 'typescript-service', '[]', ?, 'main', 'local', 'ready')`,
+      params: [demoPath],
+    },
+  ]);
+
+  assert.throws(
+    () => seedDemoProject(dbPath, root),
+    (error: unknown) => error instanceof Error && error.name === "DuplicateProjectPathError",
+  );
+});
 
 test("project overview aggregates all projects without current project filtering", () => {
   const dbPath = makeDbPath();

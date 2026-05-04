@@ -137,6 +137,19 @@ test("schema migrates legacy Codex session records into CLI session records", ()
       sql: "INSERT INTO schema_migrations (version, applied_at, description) VALUES (24, CURRENT_TIMESTAMP, 'pre-cli-session')",
     },
     {
+      sql: `CREATE TABLE projects (
+        id TEXT PRIMARY KEY,
+        target_repo_path TEXT
+      )`,
+    },
+    {
+      sql: `CREATE TABLE repository_connections (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        local_path TEXT NOT NULL
+      )`,
+    },
+    {
       sql: `CREATE TABLE codex_session_records (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
@@ -147,6 +160,18 @@ test("schema migrates legacy Codex session records into CLI session records", ()
         exit_code INTEGER,
         started_at TEXT NOT NULL,
         completed_at TEXT NOT NULL
+      )`,
+    },
+    {
+      sql: `CREATE TABLE scheduler_job_records (
+        id TEXT PRIMARY KEY,
+        job_type TEXT NOT NULL
+      )`,
+    },
+    {
+      sql: `CREATE TABLE execution_records (
+        id TEXT PRIMARY KEY,
+        executor_type TEXT NOT NULL
       )`,
     },
     {

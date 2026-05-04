@@ -770,9 +770,22 @@ THE SYSTEM SHALL 默认使用中文界面，并提供可见的语言切换入口
 WHEN 用户在 Product Console 创建、导入、查看或切换 AutoBuild 项目
 THE SYSTEM SHALL 维护项目目录和当前项目上下文，并自动完成项目记录、仓库探测或连接、`.autobuild/` / Spec Protocol、项目宪章、Project Memory、健康检查和当前项目上下文初始化，确保所有项目级查询、受控命令、Project Memory 投影、调度入口、审计事件和反馈提示都绑定到当前项目；Spec 流程产生的扫描、上传、生成、调度、状态检查和 execution result / Memory 写入必须以当前项目目录作为根目录，不得退回到 AutoBuild 自身运行目录。
 
+WHEN 控制面首次启动或连接到新的 `.autobuild/autobuild.db`
+THE SYSTEM SHALL 使用空项目数据库作为真实初始状态，不得把示例项目、历史项目或其他数据库中的项目投影到当前项目列表。
+
+WHEN 用户创建或导入项目目录
+THE SYSTEM SHALL 将项目目录解析为规范化绝对路径，并在 Project 记录和 Repository Connection 持久层强制唯一；若该路径已经绑定到其他项目，系统必须阻止创建并返回已有项目标识。
+
+WHEN 用户需要演示数据
+THE SYSTEM SHALL 仅在用户显式触发“导入 Demo 种子数据”时将 Demo 数据写入当前数据库；导入后不得自动切换当前项目，Demo 项目必须像普通项目一样由用户手动选择。
+
 验收：
 - [ ] 用户可以通过项目创建表单创建新项目，新项目目录必须位于统一 `workspace/` 目录下。
 - [ ] 用户可以导入现有项目目录，系统将该目录作为项目目录并自动执行仓库探测、Spec Protocol 初始化、项目宪章导入或默认创建、Project Memory 初始化和健康检查。
+- [ ] 首次安装或空数据库启动时，项目列表为空；内置示例数据不得与真实项目列表合并。
+- [ ] 同一规范化项目目录不得被多个项目记录或仓库连接重复绑定；重复创建必须返回可观察阻塞原因和已有项目 ID。
+- [ ] Demo 数据只能作为显式导入的种子数据进入持久层；运行时不得使用 bundled Demo 数据作为查询失败、空库或项目切换的自动兜底。
+- [ ] Demo 种子导入成功后刷新项目列表但不自动切换当前项目。
 - [ ] 用户可以创建或导入多个项目，并在项目列表中看到每个项目的名称、项目目录、仓库摘要、健康状态和最近活动时间。
 - [ ] 用户切换项目后，Dashboard、Spec Workspace、Execution Console、Review Center 和 Board 都只展示当前项目的数据。
 - [ ] 项目级受控命令必须携带当前 `project_id`；缺少或不匹配时不得执行，并返回可观察的阻塞原因。

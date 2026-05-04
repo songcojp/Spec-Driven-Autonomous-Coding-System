@@ -22,12 +22,12 @@ import {
   fetchProjectOverview,
   fetchProjectSummaries,
   fetchSpecWorkspace,
+  importDemoSeedProject,
   submitCommand,
 } from "./lib/api";
 import { i18n, localeStorageKey, type UiStrings, type Locale, type ViewKey } from "./lib/i18n";
 import { formatRelativeTime, inferProjectNameFromPath, slugifyProjectName } from "./lib/utils";
-import { demoData, getDemoDataForProject } from "./lib/demo-data";
-import type { CommandReceipt, ConsoleData, ProjectCreateForm, ProjectSummary } from "./types";
+import type { CommandReceipt, ConsoleData, ProjectCreateForm, ProjectOverviewModel, ProjectSummary } from "./types";
 import { Button, Chip } from "./components/ui/primitives";
 import { CreateProjectDialog } from "./components/CreateProjectDialog";
 import { ChatPanel } from "./components/ChatPanel";
@@ -39,7 +39,78 @@ import { ReviewsPage } from "./pages/ReviewsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 const projectStorageKey = "specdrive-current-project";
-const demoProjectIds = new Set(demoData.projects.projects.map((project) => project.id));
+const emptyOverviewData: ProjectOverviewModel = {
+  summary: {
+    totalProjects: 0,
+    healthyProjects: 0,
+    blockedProjects: 0,
+    failedTasks: 0,
+    pendingReviews: 0,
+    onlineRunners: 0,
+    totalCostUsd: 0,
+  },
+  projects: [],
+  signals: [],
+  factSources: ["projects"],
+};
+const emptyProjectData: Omit<ConsoleData, "projects" | "overview"> = {
+  dashboard: {
+    projectHealth: { totalProjects: 0, ready: 0, blocked: 0, failed: 0 },
+    activeFeatures: [],
+    boardCounts: {},
+    activeRuns: 0,
+    todayAutomaticExecutions: 0,
+    failedTasks: [],
+    pendingApprovals: 0,
+    cost: { totalUsd: 0, tokensUsed: 0 },
+    runner: { heartbeats: 0, online: 0, successRate: 0, failureRate: 0 },
+    recentPullRequests: [],
+    risks: [],
+    performance: { loadMs: 0 },
+    factSources: [],
+  },
+  board: { tasks: [], commands: [], factSources: [] },
+  spec: { features: [] },
+  runner: { runners: [], factSources: [] },
+  settings: {
+    cliAdapter: {
+      active: {
+        id: "unconfigured",
+        displayName: "Unconfigured",
+        schemaVersion: 1,
+        executable: "",
+        argumentTemplate: [],
+        configSchema: {},
+        formSchema: {},
+        defaults: {},
+        environmentAllowlist: [],
+        outputMapping: {},
+        status: "disabled",
+        updatedAt: "",
+      },
+      presets: [],
+      validation: { valid: false, errors: [] },
+    },
+    commands: [],
+    factSources: [],
+  },
+  reviews: { items: [], riskFilters: [] },
+  audit: {
+    summary: {
+      totalEvents: 0,
+      acceptedCommands: 0,
+      blockedCommands: 0,
+      stateTransitions: 0,
+      activityCount: 0,
+      pendingApprovals: 0,
+    },
+    timeline: [],
+    executionResults: [],
+    approvals: [],
+    filters: { eventTypes: [], entityTypes: [], statuses: [] },
+    factSources: [],
+  },
+};
 
 const navItems: Array<{ key: ViewKey; icon: typeof LayoutDashboard }> = [
   { key: "overview", icon: LayoutDashboard },
@@ -59,9 +130,9 @@ function readInitialLocale(): Locale {
 
 function readInitialProjectId(): string {
   if (typeof window === "undefined") {
-    return "project-1";
+    return "";
   }
-  return window.localStorage.getItem(projectStorageKey) ?? "project-1";
+  return window.localStorage.getItem(projectStorageKey) ?? "";
 }
 
 function readInitialView(): ViewKey {
@@ -85,13 +156,11 @@ function bindProjects(data: Omit<ConsoleData, "projects"> | ConsoleData, project
 
 function mergeLoadedProjects(loadedProjects: ProjectSummary[], currentProjects: ProjectSummary[]): ProjectSummary[] {
   const merged = new Map(loadedProjects.map((project) => [project.id, project]));
-  currentProjects
-    .filter((project) => !demoProjectIds.has(project.id))
-    .forEach((project) => {
-      if (!merged.has(project.id)) {
-        merged.set(project.id, project);
-      }
-    });
+  currentProjects.forEach((project) => {
+    if (!merged.has(project.id)) {
+      merged.set(project.id, project);
+    }
+  });
   return Array.from(merged.values());
 }
 
@@ -100,19 +169,21 @@ export function App() {
   const [locale, setLocale] = useState<Locale>(readInitialLocale);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showChat, setShowChat] = useState(false);
-  const [projects, setProjects] = useState<ProjectSummary[]>(demoData.projects.projects);
-  const [overviewData, setOverviewData] = useState(demoData.overview);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [overviewData, setOverviewData] = useState(emptyOverviewData);
   const [currentProjectId, setCurrentProjectId] = useState(readInitialProjectId);
   const [projectDataCache, setProjectDataCache] = useState<Record<string, Omit<ConsoleData, "projects">>>({});
   const [selectedTaskId, setSelectedTaskId] = useState("T-230");
   const [receipt, setReceipt] = useState<CommandReceipt | undefined>();
   const [isPending, startTransition] = useTransition();
   const text = i18n[locale];
-  const currentProject = projects.find((project) => project.id === currentProjectId) ?? projects[0] ?? demoData.projects.projects[0];
+  const currentProject = currentProjectId
+    ? projects.find((project) => project.id === currentProjectId)
+    : undefined;
   const currentData = bindProjects(
-    { ...(projectDataCache[currentProject.id] ?? getDemoDataForProject(currentProject.id)), overview: overviewData },
+    { ...(currentProject ? projectDataCache[currentProject.id] ?? emptyProjectData : emptyProjectData), overview: overviewData },
     projects,
-    currentProject.id,
+    currentProject?.id ?? "",
   );
   const selectedTask = useMemo(
     () => currentData.board.tasks.find((task) => task.id === selectedTaskId) ?? currentData.board.tasks[0],
@@ -152,24 +223,33 @@ export function App() {
           health: project.health,
           lastActivityAt: project.lastActivityAt,
         }));
-        if (loadedProjects.length === 0) {
-          return;
-        }
         setProjects((previousProjects) => {
           const nextProjects = mergeLoadedProjects(loadedProjects, previousProjects);
           setCurrentProjectId((previousProjectId) => {
             if (nextProjects.some((project) => project.id === previousProjectId)) {
               return previousProjectId;
             }
-            const nextProjectId = nextProjects[0]?.id ?? previousProjectId;
-            window.localStorage.setItem(projectStorageKey, nextProjectId);
+            const nextProjectId = nextProjects[0]?.id ?? "";
+            if (nextProjectId) {
+              window.localStorage.setItem(projectStorageKey, nextProjectId);
+            } else {
+              window.localStorage.removeItem(projectStorageKey);
+            }
             return nextProjectId;
           });
           return nextProjects;
         });
       })
       .catch(() => {
-        // The console can still run against bundled demo data when the API is unavailable.
+        setReceipt({
+          id: `overview-error-${Date.now()}`,
+          action: "create_project",
+          status: "blocked",
+          entityType: "project",
+          entityId: "project-overview",
+          acceptedAt: new Date().toISOString(),
+          blockedReasons: [text.projectOverviewLoadFailed],
+        });
       });
     return () => {
       cancelled = true;
@@ -177,7 +257,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (demoProjectIds.has(currentProject.id)) {
+    if (!currentProject) {
       return;
     }
     let cancelled = false;
@@ -189,12 +269,21 @@ export function App() {
         setProjectDataCache((previous) => ({ ...previous, [currentProject.id]: data }));
       })
       .catch(() => {
-        // Fall back to bundled demo data when the API is unavailable.
+        setReceipt({
+          id: `project-data-error-${Date.now()}`,
+          action: "create_project",
+          status: "blocked",
+          entityType: "project",
+          entityId: currentProject.id,
+          projectId: currentProject.id,
+          acceptedAt: new Date().toISOString(),
+          blockedReasons: [text.projectDataLoadFailed],
+        });
       });
     return () => {
       cancelled = true;
     };
-  }, [currentProject.id]);
+  }, [currentProject?.id]);
 
   useEffect(() => {
     if (currentData.board.tasks.length === 0 || currentData.board.tasks.some((task) => task.id === selectedTaskId)) {
@@ -203,7 +292,10 @@ export function App() {
     setSelectedTaskId(currentData.board.tasks[0].id);
   }, [currentData.board.tasks, selectedTaskId]);
 
-  async function runCommand(action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>, commandProjectId = currentProject.id) {
+  async function runCommand(action: CommandReceipt["action"], entityType: string, entityId: string, payload?: Record<string, unknown>, commandProjectId = currentProject?.id ?? "") {
+    if (!commandProjectId) {
+      return;
+    }
     startTransition(async () => {
       try {
         const nextReceipt = await submitCommand({
@@ -253,7 +345,7 @@ export function App() {
   }
 
   function selectSpecFeature(featureId: string) {
-    if (demoProjectIds.has(currentProject.id)) {
+    if (!currentProject) {
       return;
     }
     startTransition(async () => {
@@ -286,11 +378,7 @@ export function App() {
   function switchProject(nextProjectId: string) {
     setCurrentProjectId(nextProjectId);
     window.localStorage.setItem(projectStorageKey, nextProjectId);
-    setSelectedTaskId(
-      demoProjectIds.has(nextProjectId)
-        ? (getDemoDataForProject(nextProjectId).board.tasks[0]?.id ?? "")
-        : "",
-    );
+    setSelectedTaskId("");
     setReceipt(undefined);
   }
 
@@ -349,6 +437,54 @@ export function App() {
     });
   }
 
+  function importDemoSeed() {
+    startTransition(async () => {
+      try {
+        const result = await importDemoSeedProject();
+        const nextOverviewData = await fetchProjectOverview();
+        const loadedProjects = nextOverviewData.projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          repository: project.repository,
+          projectDirectory: project.projectDirectory,
+          defaultBranch: project.defaultBranch,
+          health: project.health,
+          lastActivityAt: project.lastActivityAt,
+        }));
+        setOverviewData(nextOverviewData);
+        setProjects(loadedProjects.length > 0 ? loadedProjects : [result.project]);
+        setReceipt({
+          id: `seed-demo-${Date.now()}`,
+          action: "create_project",
+          status: "accepted",
+          entityType: "project",
+          entityId: result.project.id,
+          projectId: result.project.id,
+          acceptedAt: new Date().toISOString(),
+          blockedReasons: [
+            result.imported ? text.demoSeedImported : text.demoSeedAlreadyImported,
+          ],
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isDuplicatePath = message.startsWith("project_path_already_registered:");
+        setReceipt({
+          id: `seed-demo-error-${Date.now()}`,
+          action: "create_project",
+          status: "blocked",
+          entityType: "project",
+          entityId: "demo-seed",
+          acceptedAt: new Date().toISOString(),
+          blockedReasons: [
+            isDuplicatePath
+              ? text.demoSeedPathConflict
+              : `${text.demoSeedImportFailed}: ${message}`,
+          ],
+        });
+      }
+    });
+  }
+
   function removeProject(project: ProjectSummary) {
     if (!window.confirm(text.deleteProjectConfirm(project.name))) {
       return;
@@ -378,10 +514,15 @@ export function App() {
       } catch {
         // Local state still reflects the operator's delete action when refresh is unavailable.
       }
-      const fallbackProject = remainingProjects[0] ?? demoData.projects.projects[0];
-      setProjects(remainingProjects.length ? remainingProjects : [fallbackProject]);
+      const fallbackProject = remainingProjects[0];
+      setProjects(remainingProjects);
       if (currentProjectId === project.id) {
-        switchProject(fallbackProject.id);
+        if (fallbackProject) {
+          switchProject(fallbackProject.id);
+        } else {
+          setCurrentProjectId("");
+          window.localStorage.removeItem(projectStorageKey);
+        }
       }
       setReceipt({
         id: `delete-${project.id}`,
@@ -447,8 +588,9 @@ export function App() {
                   <select
                     className="h-9 max-w-[260px] rounded-md border border-line bg-white px-3 text-[14px] font-semibold text-ink max-md:min-w-0 max-md:flex-1"
                     aria-label={text.projectList}
-                    value={currentProject.id}
+                    value={currentProject?.id ?? ""}
                     onChange={(event) => switchProject(event.target.value)}
+                    disabled={projects.length === 0}
                   >
                     {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
                   </select>
@@ -458,8 +600,8 @@ export function App() {
                     className="size-9 px-0"
                     aria-label={text.deleteProject}
                     title={text.deleteProject}
-                    onClick={() => removeProject(currentProject)}
-                    disabled={isPending || projects.length === 0}
+                    onClick={() => currentProject ? removeProject(currentProject) : undefined}
+                    disabled={isPending || !currentProject}
                   >
                     <Trash2 size={15} />
                   </Button>
@@ -467,10 +609,12 @@ export function App() {
               </div>
               <Button className="h-8">
                 <GitBranch size={14} />
-                {currentProject.defaultBranch}
+                {currentProject?.defaultBranch ?? text.none}
               </Button>
               <div className="min-w-0 truncate text-[12px] text-muted max-md:w-full max-md:whitespace-normal max-md:break-all">
-                <span className="font-medium text-ink">{currentProject.name}</span> · {text.projectDirectory}: {currentProject.projectDirectory}
+                {currentProject ? (
+                  <><span className="font-medium text-ink">{currentProject.name}</span> · {text.projectDirectory}: {currentProject.projectDirectory}</>
+                ) : text.noProjectsDescription}
               </div>
             </div>
             <div className="flex items-center gap-3 max-md:flex-wrap">
@@ -493,6 +637,20 @@ export function App() {
           </header>
 
           <div data-testid="console-content-scroll" className="scrollbar-thin min-h-0 flex-1 overflow-y-auto space-y-5 p-5 pb-14 max-md:overflow-visible">
+            {!currentProject ? (
+              <section className="flex min-h-[calc(100vh-10rem)] items-center justify-center">
+                <div className="max-w-xl text-center">
+                  <h1 className="text-2xl font-semibold text-ink">{text.noProjectsTitle}</h1>
+                  <p className="mt-3 text-[14px] leading-6 text-muted">{text.noProjectsDescription}</p>
+                  <div className="mt-5 flex justify-center">
+                    <CreateProjectDialog text={text} onCreate={createProject} />
+                    <Button className="ml-3" onClick={importDemoSeed} disabled={isPending}>
+                      {text.importDemoSeed}
+                    </Button>
+                  </div>
+                </div>
+              </section>
+            ) : (
             <Tabs.Root value={view} onValueChange={(value) => setView(value as ViewKey)}>
               <Tabs.List className="sr-only" aria-label={text.consoleNavigation}>
                 {navItems.map((item) => <Tabs.Trigger key={item.key} value={item.key}>{text.nav[item.key]}</Tabs.Trigger>)}
@@ -532,10 +690,11 @@ export function App() {
                 <SettingsPage data={currentData} text={text} onCommand={runCommand} busy={isPending} />
               </Tabs.Content>
             </Tabs.Root>
+            )}
           </div>
           <footer className="hidden h-10 items-center justify-between border-t border-line bg-white px-6 text-[12px] text-muted lg:flex">
             <div className="flex items-center gap-8">
-              <span>{text.git}: {currentProject.defaultBranch} <span className="text-emerald-600">✓</span></span>
+              <span>{text.git}: {currentProject?.defaultBranch ?? text.none} <span className="text-emerald-600">✓</span></span>
               <span>
                 <span className={`mr-2 inline-block size-2 rounded-full ${overviewData.summary.onlineRunners > 0 ? "bg-emerald-500" : "bg-slate-400"}`} />
                 {text.runner}: {overviewData.summary.onlineRunners > 0 ? text.online : text.offline}
@@ -561,7 +720,7 @@ export function App() {
         </Toast.Root>
       ) : null}
       <Toast.Viewport />
-      <ChatPanel open={showChat} onToggle={() => setShowChat((prev) => !prev)} projectId={currentProject.id} locale={locale} />
+      {currentProject ? <ChatPanel open={showChat} onToggle={() => setShowChat((prev) => !prev)} projectId={currentProject.id} locale={locale} /> : null}
     </Toast.Provider>
   );
 }

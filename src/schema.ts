@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -1149,6 +1149,15 @@ export const MIGRATIONS: Migration[] = [
           AND NOT EXISTS (SELECT 1 FROM rpc_adapter_configs WHERE id = 'codex-rpc-default')`,
       "UPDATE scheduler_job_records SET job_type = 'codex.rpc.run' WHERE job_type = 'codex.app_server.run'",
       "UPDATE execution_records SET executor_type = 'codex.rpc' WHERE executor_type = 'codex.app_server'",
+    ],
+  },
+  {
+    version: 28,
+    description: "Enforce unique project repository identity",
+    statements: [
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_target_repo_path_unique ON projects(target_repo_path) WHERE target_repo_path IS NOT NULL AND target_repo_path <> ''",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_connections_project_unique ON repository_connections(project_id)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_connections_local_path_unique ON repository_connections(local_path) WHERE local_path IS NOT NULL AND local_path <> ''",
     ],
   },
 ];

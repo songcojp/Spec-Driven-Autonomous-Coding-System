@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureArtifactDirectories } from "./artifacts.ts";
@@ -172,13 +172,13 @@ export type ProjectDirectoryScan = {
 export function createProject(dbPath: string, input: ProjectInput): ProjectRecord {
   const id = randomUUID();
   const defaultBranch = input.defaultBranch ?? "main";
-  const targetRepoPath = input.targetRepoPath ? resolve(input.targetRepoPath) : undefined;
+  const targetRepoPath = input.targetRepoPath ? normalizeProjectPath(input.targetRepoPath) : undefined;
   const repositoryUrl = input.repositoryUrl;
   const techPreferences = input.techPreferences ?? [];
   const trustLevel = input.trustLevel ?? "standard";
 
   if (targetRepoPath) {
-    const existingProject = findProjectByTargetRepoPath(dbPath, targetRepoPath);
+    const existingProject = findProjectByRepositoryPath(dbPath, targetRepoPath);
     if (existingProject) {
       throw new DuplicateProjectPathError(targetRepoPath, existingProject.id);
     }
@@ -251,7 +251,7 @@ export function createProject(dbPath: string, input: ProjectInput): ProjectRecor
 }
 
 export function scanProjectDirectory(input: { targetRepoPath?: string }): ProjectDirectoryScan {
-  const targetRepoPath = input.targetRepoPath ? resolve(input.targetRepoPath) : "";
+  const targetRepoPath = input.targetRepoPath ? normalizeProjectPath(input.targetRepoPath) : "";
   if (!targetRepoPath) {
     return {
       targetRepoPath,
@@ -346,17 +346,21 @@ export function deleteProject(dbPath: string, id: string): ProjectDeleteResult |
 }
 
 export function findProjectByTargetRepoPath(dbPath: string, targetRepoPath: string): ProjectRecord | undefined {
-  const normalizedPath = resolve(targetRepoPath);
+  return findProjectByRepositoryPath(dbPath, targetRepoPath);
+}
+
+export function findProjectByRepositoryPath(dbPath: string, targetRepoPath: string): ProjectRecord | undefined {
+  const normalizedPath = normalizeProjectPath(targetRepoPath);
   const result = runSqlite(dbPath, [], [
     {
       name: "project",
       sql: `SELECT p.*, rc.remote_url
         FROM projects p
         LEFT JOIN repository_connections rc ON rc.project_id = p.id
-        WHERE p.target_repo_path = ?
+        WHERE p.target_repo_path = ? OR rc.local_path = ?
         ORDER BY p.created_at DESC, rc.connected_at DESC
         LIMIT 1`,
-      params: [normalizedPath],
+      params: [normalizedPath, normalizedPath],
     },
   ]);
   const row = result.queries.project[0];
@@ -764,6 +768,29 @@ export function runProjectHealthCheck(
 }
 
 function upsertRepositoryConnection(dbPath: string, connection: RepositoryConnectionRecord): void {
+  const normalizedPath = normalizeProjectPath(connection.localPath);
+  const existingByPath = findProjectByRepositoryPath(dbPath, normalizedPath);
+  if (existingByPath && existingByPath.id !== connection.projectId) {
+    throw new DuplicateProjectPathError(normalizedPath, existingByPath.id);
+  }
+
+  const existingConnection = getRepositoryConnection(dbPath, connection.projectId);
+  if (existingConnection) {
+    runSqlite(dbPath, [
+      {
+        sql: "UPDATE repository_connections SET provider = ?, remote_url = ?, local_path = ?, default_branch = ?, connected_at = CURRENT_TIMESTAMP WHERE id = ?",
+        params: [
+          connection.provider,
+          connection.remoteUrl ?? null,
+          normalizedPath,
+          connection.defaultBranch,
+          existingConnection.id,
+        ],
+      },
+    ]);
+    return;
+  }
+
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO repository_connections (
@@ -774,7 +801,7 @@ function upsertRepositoryConnection(dbPath: string, connection: RepositoryConnec
         connection.projectId,
         connection.provider,
         connection.remoteUrl ?? null,
-        connection.localPath,
+        normalizedPath,
         connection.defaultBranch,
       ],
     },
@@ -901,6 +928,11 @@ function detectProvider(repositoryUrl?: string): string {
 
 function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeProjectPath(path: string): string {
+  const resolvedPath = resolve(path);
+  return existsSync(resolvedPath) ? realpathSync.native(resolvedPath) : resolvedPath;
 }
 
 function runGit(cwd: string, args: string[]): string {

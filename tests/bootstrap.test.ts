@@ -427,6 +427,18 @@ test("project API exposes project creation, repository summary, and health check
     const health = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/health`, {});
     assert.equal(health.status, "ready");
 
+    const seed = await postJsonWithStatus(`http://127.0.0.1:${port}/projects/seed-demo`, {});
+    assert.equal(seed.statusCode, 201);
+    assert.equal(seed.body.imported, true);
+    assert.equal(seed.body.project.id, "demo-acme-returns-portal");
+
+    const repeatedSeed = await postJsonWithStatus(`http://127.0.0.1:${port}/projects/seed-demo`, {});
+    assert.equal(repeatedSeed.statusCode, 200);
+    assert.equal(repeatedSeed.body.imported, false);
+
+    const overview = await getJson(`http://127.0.0.1:${port}/console/project-overview`);
+    assert.equal(overview.projects.some((entry: { id: string }) => entry.id === "demo-acme-returns-portal"), true);
+
     const constitution = await postJson(`http://127.0.0.1:${port}/projects/${project.id}/constitution`, {
       source: "created",
       projectGoal: "Expose governed project initialization",
