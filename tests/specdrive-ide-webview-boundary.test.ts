@@ -19,6 +19,7 @@ function readSourceTree(dir: string): string {
 const extensionSource = readSourceTree("apps/vscode-extension/src");
 const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.json", "utf8")) as {
   activationEvents?: string[];
+  files?: string[];
   contributes?: {
     commands?: Array<{ command: string; title: string }>;
     menus?: {
@@ -26,6 +27,10 @@ const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.
     };
   };
 };
+
+test("VSCode IDE package includes bundled .agents runtime", () => {
+  assert.equal((extensionPackage.files ?? []).includes(".agents/**"), true);
+});
 
 test("VSCode IDE Webviews expose independent workbench commands", () => {
   const activationEvents = new Set(extensionPackage.activationEvents ?? []);

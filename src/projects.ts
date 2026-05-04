@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureArtifactDirectories } from "./artifacts.ts";
@@ -540,16 +540,26 @@ function ensureProjectAgentRuntime(projectPath: string): void {
     ].join("\n"));
   }
 
-  const sourceSkills = join(dirname(fileURLToPath(import.meta.url)), "..", ".agents", "skills");
-  const targetSkills = join(projectPath, ".agents", "skills");
-  mkdirSync(targetSkills, { recursive: true });
-  if (!existsSync(sourceSkills)) return;
+  const sourceAgents = join(dirname(fileURLToPath(import.meta.url)), "..", ".agents");
+  const targetAgents = join(projectPath, ".agents");
+  mkdirSync(targetAgents, { recursive: true });
+  if (!existsSync(sourceAgents)) return;
+  copyMissingAgentRuntime(sourceAgents, targetAgents);
+}
 
-  for (const entry of readdirSync(sourceSkills, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const target = join(targetSkills, entry.name);
-    if (existsSync(target)) continue;
-    cpSync(join(sourceSkills, entry.name), target, { recursive: true });
+function copyMissingAgentRuntime(sourceDir: string, targetDir: string): void {
+  if (resolve(sourceDir) === resolve(targetDir)) return;
+  mkdirSync(targetDir, { recursive: true });
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const source = join(sourceDir, entry.name);
+    const target = join(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      if (existsSync(target) && !statSync(target).isDirectory()) continue;
+      copyMissingAgentRuntime(source, target);
+      continue;
+    }
+    if (!entry.isFile() || existsSync(target)) continue;
+    cpSync(source, target, { recursive: true, force: false });
   }
 }
 

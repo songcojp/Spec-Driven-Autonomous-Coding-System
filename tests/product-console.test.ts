@@ -935,11 +935,13 @@ test("console command gateway audits controlled writes without mutating worktree
   assert.equal(String(after.queries.workflowAudit[0].payload_json).includes("workspace/acme-returns-portal/docs/zh-CN/PRD.md"), true);
 });
 
-test("project initialization provisions AGENTS and workspace skills for CLI runs", () => {
+test("project initialization provisions AGENTS and .agents runtime for CLI runs", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const projectPath = mkdtempSync(join(tmpdir(), "spec-agent-runtime-"));
   mkdirSync(join(projectPath, "docs"), { recursive: true });
+  mkdirSync(join(projectPath, ".agents", "skills", "task-slicing-skill"), { recursive: true });
+  writeFileSync(join(projectPath, ".agents", "skills", "task-slicing-skill", "SKILL.md"), "# Project custom task slicing skill\n", "utf8");
   runSqlite(dbPath, [
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
@@ -957,8 +959,13 @@ test("project initialization provisions AGENTS and workspace skills for CLI runs
 
   assert.equal(receipt.status, "accepted");
   assert.equal(existsSync(join(projectPath, "AGENTS.md")), true);
+  assert.equal(existsSync(join(projectPath, ".agents")), true);
   assert.equal(existsSync(join(projectPath, ".agents", "skills", "task-slicing-skill", "SKILL.md")), true);
   assert.equal(existsSync(join(projectPath, ".agents", "skills", "requirement-intake-skill", "SKILL.md")), true);
+  assert.equal(
+    readFileSync(join(projectPath, ".agents", "skills", "task-slicing-skill", "SKILL.md"), "utf8"),
+    "# Project custom task slicing skill\n",
+  );
 });
 
 test("spec intake commands scan, upload, and enqueue EARS skill invocation", () => {

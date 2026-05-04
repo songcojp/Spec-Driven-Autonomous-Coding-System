@@ -21,6 +21,7 @@
     "Other"
   ],
   "files": [
+    ".agents/**",
     "out/**",
     "server/**",
     "resources/**",
