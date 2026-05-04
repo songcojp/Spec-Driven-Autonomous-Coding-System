@@ -29,6 +29,7 @@ Feature 名称: IDE Workbench Webviews
 - CHG-032（2026-05-03）：用户要求 `Blocked`、`In-Process`、`Todo` 拆分为三个独立 Feature 分类 panel，不再合并展示。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-033（2026-05-03）：用户要求 `Feature List` 和 `Dependency Graph` 合并为一个按钮，点击后修改按钮文字并切换视图。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-034（2026-05-03）：用户确认 VSCode Feature Spec Webview 中 Feature 身份必须从 `docs/features/README.md` 获取，数据库 Feature 记录和非 index 目录不得生成 Feature 列表项；目录扫描只用于校验 index 中的 folder 和读取三件套。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-035（2026-05-04）：用户反馈点击 Clarification 后任务队列中没有出现技能调用任务；澄清提交必须进入 `ambiguity-clarification-skill` 调度队列，而不是只记录 `update_spec` 回执。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -56,7 +57,7 @@ Feature 名称: IDE Workbench Webviews
 - [x] 因需求新增流程未经过 Feature 拆分而导致 `docs/features/README.md` 未更新时，Feature Spec Webview 不显示该目录为 Feature 列表项，也不显示独立 `Feature Index Sync` 信息区块；应由需求新增 Skill 或后续规格同步补齐 Feature index。
 - [x] 需求新增 Skill 创建或更新 Feature Spec 时必须同步 `docs/features/README.md`，写入 Feature ID、Feature、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
 - [x] 点击 Feature 后，详情面板必须解析该 Feature 的 `tasks.md`，展示任务 ID、任务标题、状态、描述和验证命令；Markdown 缺失或格式无法解析时展示 blocked reason。
-- [x] 状态为 `need review` / `review_needed` 的 Feature Spec 必须在 Feature Spec Webview 工具栏和详情面板提供 Review 入口；点击后弹出澄清输入框，提交内容以 `clarification` 意图进入 Spec change request，不由前端硬编码需求变更或新增路由。
+- [x] 状态为 `need review` / `review_needed` 的 Feature Spec 必须在 Feature Spec Webview 工具栏和详情面板提供 Review 入口；点击后弹出澄清输入框，提交内容以 `clarification` 意图进入 Spec change request，并由 Control Plane 排入 `ambiguity-clarification-skill` 技能调用任务，不由前端硬编码需求变更或新增路由。
 - [x] Feature Spec 详情面板不得展示 Evidence 区域或 Evidence 验收项；详情只展示 artifacts、tasks、acceptance、blockers、traceability 和可执行动作。
 - [x] Feature Spec Webview 必须按分类 panel 展示 Feature：依次为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`；每组可点击折叠/展开并显示展开/折叠状态图标，Done 默认折叠，其它默认展开；panel 中 Feature list 必须自适应换行，不依赖 panel 内垂直滚动条或水平滚动条展示卡片。
 - [x] Feature Spec Webview 顶部第一个控件必须是单个视图切换按钮；Feature List 视图下按钮文字显示 `Dependency Graph`，点击后切换到 Dependency Graph 视图并将按钮文字改为 `Feature List`；`Dependency Graph` 视图以树状层级展示 Feature 之间的依赖关系，标出缺失依赖，树节点支持折叠和展开，并默认展开到二级节点。

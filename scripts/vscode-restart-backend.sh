@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PORT="${AUTOBUILD_PORT:-4317}"
-WORKER_MODE="${AUTOBUILD_WORKER_MODE:-off}"
+WORKER_MODE="${AUTOBUILD_WORKER_MODE:-embedded}"
 PID_FILE="${ROOT_DIR}/.autobuild/vscode-backend.pid"
 LOG_DIR="${ROOT_DIR}/.autobuild/logs"
 LOG_FILE="${LOG_DIR}/vscode-backend.log"
@@ -84,6 +84,22 @@ fi
 if [ ! -d "node_modules" ]; then
   echo "Installing dependencies..."
   npm install
+fi
+
+if command -v docker >/dev/null 2>&1; then
+  echo "Starting Redis via Docker Compose..."
+  docker compose up -d redis
+
+  echo "Waiting for Redis to be healthy..."
+  for _ in $(seq 1 20); do
+    if docker compose ps redis --format json | grep -q '"Health":"healthy"'; then
+      echo "Redis is healthy."
+      break
+    fi
+    sleep 0.5
+  done
+else
+  echo "Warning: docker command not found. Redis must be running at AUTOBUILD_REDIS_URL or 127.0.0.1:6379." >&2
 fi
 
 stop_pid_file_process

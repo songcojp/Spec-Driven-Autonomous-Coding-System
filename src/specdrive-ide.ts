@@ -771,9 +771,27 @@ function commandForSpecChangeRequest(
       now: new Date(acceptedAt),
     };
   }
+  if (routedIntent === "clarification") {
+    const featureId = request.traceability?.find((item) => /^FEAT-\d+/i.test(item));
+    return {
+      action: "resolve_clarification",
+      entityType: "project",
+      entityId: request.projectId,
+      requestedBy: "vscode-extension",
+      reason: request.comment,
+      payload: {
+        ...commonPayload,
+        featureId,
+        sourcePaths: [request.source.file],
+        clarificationText: request.comment,
+        skillPhase: "resolve_clarification",
+      },
+      now: new Date(acceptedAt),
+    };
+  }
   const featureId = request.traceability?.find((item) => /^FEAT-\d+/i.test(item));
   return {
-    action: routedIntent === "clarification" ? "update_spec" : "write_spec_evolution",
+    action: "write_spec_evolution",
     entityType: "spec",
     entityId: request.targetRequirementId ?? request.source.file.replace(/[^A-Za-z0-9_.-]+/g, "-"),
     requestedBy: "vscode-extension",
@@ -792,7 +810,7 @@ function routeSpecChangeIntent(request: SpecChangeRequestV1): SpecChangeRequestI
   if (request.intent === "requirement_change_or_intake") {
     return request.targetRequirementId ? "spec_evolution" : "requirement_intake";
   }
-  if (request.targetRequirementId && (request.intent === "requirement_intake" || request.intent === "clarification")) {
+  if (request.targetRequirementId && request.intent === "requirement_intake") {
     return "spec_evolution";
   }
   return request.intent;

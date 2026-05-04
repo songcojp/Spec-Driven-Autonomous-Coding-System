@@ -120,7 +120,7 @@ class BundledControlPlaneManager implements vscode.Disposable {
     const serverPath = join(__dirname, "..", "server", "index.cjs");
     const configuredNodePath = extensionConfig("serverNodePath", "").trim();
     const command = configuredNodePath.length > 0 ? configuredNodePath : process.execPath;
-    const workerMode = extensionConfig<"off" | "embedded" | "worker-only">("serverWorkerMode", "off");
+    const workerMode = extensionConfig<"off" | "embedded" | "worker-only">("serverWorkerMode", "embedded");
     const args = [
       serverPath,
       "--port",

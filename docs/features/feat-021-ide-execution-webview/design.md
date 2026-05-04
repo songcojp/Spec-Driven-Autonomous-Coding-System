@@ -44,7 +44,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - Spec Workspace 的全流程操作通过 `runControlledCommand` 或 Spec change request 进入 extension host，由 Control Plane 决定是否生成任务、记录审批或拒绝动作。
 - Feature Spec 的调度、打开文档和刷新动作在 VSCode extension host 内执行；调度类动作必须进入 Control Plane command API。
 - New Feature 提交使用 Spec change request 或等价受控命令进入需求处理链路，payload 包含 workspaceRoot、source surface、freeform content、current feature selection、visible Feature index snapshot 和 traceability hints；模型负责判定 `requirement-intake-skill` 或 `spec-evolution-skill`，前端不得硬编码路由规则。
-- Review 澄清提交使用 Spec change request，payload 包含 workspaceRoot、Feature ID、Feature status、来源 Feature Spec 文档和澄清文本；前端固定提交 `clarification` 意图，不直接生成需求变更、需求新增或 Review 结论。
+- Review 澄清提交使用 Spec change request，payload 包含 workspaceRoot、Feature ID、Feature status、来源 Feature Spec 文档和澄清文本；前端固定提交 `clarification` 意图，Control Plane 将其路由为 `resolve_clarification` 并排入 `ambiguity-clarification-skill`，不直接生成需求变更、需求新增或 Review 结论。
 - Feature Spec 刷新返回的 view model 必须以 index rows 生成 Feature 节点；folder scan 仅用于校验 index 中的 folder 是否存在、读取 `requirements.md` / `design.md` / `tasks.md` / `spec-state.json` 和生成 missing-folder / missing-file blocked reason。未写入 index 的目录、数据库 Feature 记录和历史同步残留不得生成 Feature 节点；Webview 不渲染独立 `Feature Index Sync` 区块。
 - Dependency Graph 只读取 Feature view model 中的 `dependencies`，按“依赖项 -> 依赖它的 Feature”展示层级；缺失依赖必须作为 missing dependency 节点展示，不得静默丢弃；树节点支持折叠和展开，默认展开根节点及二级节点。
 - `tasks.md` 解析只生成 UI 投影，不写入平台 task 表；任务状态以 Markdown 中的状态字段、checkbox 或既有任务段落约定为事实源，无法解析时保留原文引用和 blocked reason。
@@ -58,6 +58,6 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - Node tests 覆盖 IDE query/command contract、queue action payload 和 controlled command receipt。
 - Webview 级验证覆盖桌面尺寸下的三组入口可打开、第一屏关键区域可见、审批卡片、失败/阻塞状态和 Feature 卡片详情。
 - Webview 级验证覆盖 New Feature 弹窗提交、模型路由 receipt、刷新时 Feature 身份只来自 index、非 index 目录不进入 Feature 列表、界面不显示 `Feature Index Sync` 信息区块，以及 Feature 详情 `tasks.md` 任务状态解析。
-- Webview 级验证覆盖 `need review` / `review_needed` Feature 的 Review 入口、澄清提交 receipt，以及 Feature 详情不再出现 Evidence 验收项。
+- Webview 级验证覆盖 `need review` / `review_needed` Feature 的 Review 入口、澄清提交 receipt、任务队列中的 `ambiguity-clarification-skill` 调用，以及 Feature 详情不再出现 Evidence 验收项。
 - Webview 级验证覆盖 Feature 分类 panel 顺序、折叠/展开行为、展开/折叠状态图标、Done 默认折叠，以及 panel 内 Feature list 自适应换行且不出现水平滚动条。
 - Webview 级验证覆盖单个视图切换按钮显示在第一个控件位置、点击后切换 Feature List / Dependency Graph 并修改按钮文字、树状层级展示、默认展开二级节点、节点折叠/展开、缺失依赖提示，以及点击 Feature 节点后仍能选中详情。

@@ -90,3 +90,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Feature panel 中的 Feature list 改为自适应换行布局，不使用水平滚动条，也不依赖 panel 内垂直滚动条展示卡片。
 验证: `npm run ide:build` 验证 VSCode Webview 编译；`git diff --check` 验证文档和代码格式。
+
+### T-021-18 Clarification 技能队列路由
+状态: done
+描述: VSCode Spec Workspace / Feature Review 的 `clarification` 提交由 Control Plane 路由为 `resolve_clarification`，并在任务队列中创建 `ambiguity-clarification-skill` 技能调用任务。
+验证: `node --test tests/specdrive-ide.test.ts` 覆盖 `clarification` receipt、scheduler job 和技能上下文。

@@ -17,6 +17,9 @@ function readSourceTree(dir: string): string {
 }
 
 const extensionSource = readSourceTree("apps/vscode-extension/src");
+const webviewSource = readSourceTree("apps/vscode-extension/src/webviews");
+const productConsoleSource = readFileSync("src/product-console.ts", "utf8");
+const vscodeRestartBackendScript = readFileSync("scripts/vscode-restart-backend.sh", "utf8");
 const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.json", "utf8")) as {
   activationEvents?: string[];
   files?: string[];
@@ -30,6 +33,13 @@ const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.
 
 test("VSCode IDE package includes bundled .agents runtime", () => {
   assert.equal((extensionPackage.files ?? []).includes(".agents/**"), true);
+});
+
+test("VSCode bundled server starts with embedded worker by default", () => {
+  assert.match(extensionSource, /extensionConfig<"off" \| "embedded" \| "worker-only">\("serverWorkerMode", "embedded"\)/);
+  assert.equal(extensionPackage.contributes?.configuration?.properties?.["specdrive.serverWorkerMode"]?.default, "embedded");
+  assert.match(vscodeRestartBackendScript, /WORKER_MODE="\$\{AUTOBUILD_WORKER_MODE:-embedded\}"/);
+  assert.match(vscodeRestartBackendScript, /docker compose up -d redis/);
 });
 
 test("VSCode IDE Webviews expose independent workbench commands", () => {
@@ -225,6 +235,23 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.doesNotMatch(extensionSource, /<h2>Evidence & Traceability<\/h2>/);
   assert.doesNotMatch(extensionSource, /Evidence Required/);
   assert.doesNotMatch(extensionSource, /Traceability Enforced/);
+});
+
+test("VSCode Webview controlled buttons only send supported Console command actions", () => {
+  const consoleActionsMatch = productConsoleSource.match(/const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>\(\[([\s\S]*?)\]\);/);
+  assert.ok(consoleActionsMatch, "Console command action allowlist should be discoverable");
+  const consoleActions = new Set([...consoleActionsMatch[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]));
+  const webviewControlledActions = new Set(
+    [...webviewSource.matchAll(/action: "([^"]+)"/g)]
+      .map((match) => match[1]),
+  );
+
+  assert.deepEqual(
+    [...webviewControlledActions].filter((action) => !consoleActions.has(action)).sort(),
+    [],
+  );
+  assert.equal(webviewControlledActions.has("check_project_health"), true);
+  assert.equal(webviewControlledActions.has("scan_spec_sources"), true);
 });
 
 test("VSCode IDE Webviews do not import Product Console UI surfaces", () => {

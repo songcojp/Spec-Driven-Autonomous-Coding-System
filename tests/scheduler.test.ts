@@ -12,6 +12,8 @@ import {
   CLI_RUNNER_QUEUE,
   EXECUTION_ADAPTER_QUEUE,
   createMemoryScheduler,
+  bullMqExecutionAdapterQueueName,
+  listRecoverableSchedulerJobs,
   runCodexAppServerRunJob,
   runCliRunJob,
   runRpcRunJob,
@@ -25,6 +27,11 @@ test("BullMQ queue names avoid reserved colon separator while logical queue name
   assert.equal(CLI_RUNNER_QUEUE, EXECUTION_ADAPTER_QUEUE);
   assert.equal(BULLMQ_EXECUTION_ADAPTER_QUEUE.includes(":"), false);
   assert.equal(BULLMQ_CLI_RUNNER_QUEUE.includes(":"), false);
+  assert.match(bullMqExecutionAdapterQueueName("/tmp/project-a/.autobuild/autobuild.db"), /^specdrive-execution-adapter-[a-f0-9]{12}$/);
+  assert.notEqual(
+    bullMqExecutionAdapterQueueName("/tmp/project-a/.autobuild/autobuild.db"),
+    bullMqExecutionAdapterQueueName("/tmp/project-b/.autobuild/autobuild.db"),
+  );
 });
 
 test("CLI worker lock is long enough for skill invocations", () => {
@@ -63,6 +70,35 @@ test("scheduler schema records executor job metadata without feature target colu
   assert.deepEqual(rows.map((row) => [row.queue_name, row.job_type, row.status, JSON.parse(String(row.payload_json)).operation]), [
     ["specdrive:execution-adapter", "cli.run", "queued", "feature_execution"],
     ["specdrive:execution-adapter", "rpc.run", "queued", "feature_execution"],
+  ]);
+});
+
+test("scheduler worker startup can recover transient queued jobs created while worker was unavailable", () => {
+  const dbPath = makeDbPath();
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, error, payload_json)
+        VALUES ('JOB-OFF', 'BULL-OFF', 'specdrive:execution-adapter', 'cli.run', 'blocked', 'Scheduler worker mode is off.', ?)`,
+      params: [JSON.stringify({
+        executionId: "RUN-OFF",
+        operation: "generate_ears",
+        projectId: "project-1",
+        requestedAction: "generate_ears",
+      })],
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status)
+        VALUES ('RUN-OFF', 'JOB-OFF', 'cli', 'generate_ears', 'project-1', '{}', 'queued')`,
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, error, payload_json)
+        VALUES ('JOB-REAL-BLOCKED', 'BULL-REAL-BLOCKED', 'specdrive:execution-adapter', 'cli.run', 'blocked', 'Project workspace root is required.', ?)`,
+      params: [JSON.stringify({ executionId: "RUN-REAL-BLOCKED", operation: "generate_ears" })],
+    },
+  ]);
+
+  assert.deepEqual(listRecoverableSchedulerJobs(dbPath).map((job) => [job.schedulerJobId, job.bullmqJobId, job.jobType, job.payload.operation]), [
+    ["JOB-OFF", "BULL-OFF", "cli.run", "generate_ears"],
   ]);
 });
 

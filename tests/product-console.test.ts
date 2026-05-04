@@ -1167,6 +1167,52 @@ test("spec intake commands scan, upload, and enqueue EARS skill invocation", () 
   assert.deepEqual(jobPayload.context.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
 });
 
+test("IDE lifecycle commands scan spec sources and run project health through Console gateway", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "ide-lifecycle-"));
+  mkdirSync(join(projectPath, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(projectPath, ".autobuild", "reports"), { recursive: true });
+  writeFileSync(join(projectPath, "docs", "zh-CN", "PRD.md"), "# PRD\n\nThe system shall keep IDE buttons executable.", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+  ]);
+
+  const scanReceipt = submitConsoleCommand(dbPath, {
+    action: "scan_spec_sources",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "vscode-extension",
+    reason: "Scan Spec sources from VSCode Spec Workspace.",
+    payload: { sourcePath: "docs/zh-CN/PRD.md" },
+    now: stableDate,
+  });
+  const healthReceipt = submitConsoleCommand(dbPath, {
+    action: "check_project_health",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "vscode-extension",
+    reason: "Check project health from VSCode Spec Workspace.",
+    payload: {},
+    now: stableDate,
+  });
+  const result = runSqlite(dbPath, [], [
+    { name: "scanEvidence", sql: "SELECT kind FROM status_check_results WHERE kind = 'spec_source_scan'" },
+    { name: "health", sql: "SELECT status FROM project_health_checks WHERE project_id = 'project-1' ORDER BY checked_at DESC LIMIT 1" },
+    { name: "audit", sql: "SELECT event_type FROM audit_timeline_events WHERE event_type IN ('console_command_scan_spec_sources', 'console_command_check_project_health') ORDER BY created_at, rowid" },
+  ]);
+
+  assert.equal(scanReceipt.status, "accepted");
+  assert.ok(["accepted", "blocked"].includes(healthReceipt.status));
+  assert.equal(result.queries.scanEvidence.length, 1);
+  assert.equal(result.queries.health.length, 1);
+  assert.deepEqual(result.queries.audit.map((row) => row.event_type), [
+    "console_command_scan_spec_sources",
+    "console_command_check_project_health",
+  ]);
+});
+
 test("spec workspace records EARS generation as a CLI skill run instead of direct Feature creation", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);

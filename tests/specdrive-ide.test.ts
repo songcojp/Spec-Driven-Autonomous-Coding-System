@@ -562,6 +562,44 @@ test("SpecDrive IDE New Feature intent lets model-facing intake handle unknown a
   assert.equal(payload.context.requirementText, "Top New Feature request that may add or change existing scope.");
 });
 
+test("SpecDrive IDE clarification requests enqueue ambiguity clarification skill", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const scheduler = createMemoryScheduler(dbPath);
+  const sourceText = "# FEAT-016 requirements";
+
+  const receipt = submitIdeSpecChangeRequest(dbPath, {
+    schemaVersion: 1,
+    projectId: "project-ide",
+    workspaceRoot,
+    source: {
+      file: "docs/features/feat-016-specdrive-ide-foundation/requirements.md",
+      range: { startLine: 0, endLine: 0 },
+      textHash: hashSpecSourceText(sourceText),
+    },
+    intent: "clarification",
+    comment: "Clarify whether the review gate should block scheduling.",
+    targetRequirementId: "REQ-074",
+    traceability: ["VSCode Feature Spec Webview", "Feature Review", "FEAT-016"],
+  }, { scheduler, now: new Date("2026-05-02T12:14:00.000Z") });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.routedIntent, "clarification");
+  assert.equal(receipt.action, "resolve_clarification");
+  assert.equal(receipt.schedulerJobId, scheduler.jobs[0].schedulerJobId);
+  const payload = JSON.parse(String(runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE id = ?", params: [scheduler.jobs[0].schedulerJobId] },
+  ]).queries.jobs[0].payload_json));
+  assert.equal(payload.operation, "resolve_clarification");
+  assert.equal(payload.context.skillSlug, "ambiguity-clarification-skill");
+  assert.equal(payload.context.skillPhase, "resolve_clarification");
+  assert.equal(payload.context.clarificationText, "Clarify whether the review gate should block scheduling.");
+  assert.equal(payload.context.featureId, "FEAT-016");
+  assert.equal(payload.context.targetRequirementId, "REQ-074");
+});
+
 test("SpecDrive IDE queue actions retry failed executions and preserve previous execution linkage", async () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();

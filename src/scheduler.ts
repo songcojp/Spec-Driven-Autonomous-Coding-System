@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, normalize, relative } from "node:path";
 import { Queue, Worker, type Job, type WorkerOptions } from "bullmq";
@@ -116,6 +116,13 @@ export type SchedulerWorkers = {
   close: () => Promise<void>;
 };
 
+export type RecoverableSchedulerJob = {
+  schedulerJobId: string;
+  bullmqJobId: string;
+  jobType: Exclude<SchedulerJobType, "native.run">;
+  payload: Record<string, unknown>;
+};
+
 export function createBullMqScheduler(dbPath: string, redisUrl: string): SchedulerClient {
   const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null, enableReadyCheck: false });
   let lastError: string | undefined;
@@ -125,7 +132,7 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
   connection.on("ready", () => {
     lastError = undefined;
   });
-  const cliQueue = new Queue(BULLMQ_EXECUTION_ADAPTER_QUEUE, { connection });
+  const cliQueue = new Queue(bullMqExecutionAdapterQueueName(dbPath), { connection });
 
   return {
     enqueueCliRun(payload) {
@@ -223,20 +230,78 @@ export async function createSchedulerWorkers(input: {
   connection.on("error", () => undefined);
   const scheduler = input.scheduler ?? createBullMqScheduler(input.dbPath, input.redisUrl);
   const cliWorkerOptions = workerOptions(connection, CLI_WORKER_LOCK_DURATION_MS);
+  const queueName = bullMqExecutionAdapterQueueName(input.dbPath);
+  const cliQueue = new Queue(queueName, { connection });
   const cliWorker = new Worker(
-    BULLMQ_EXECUTION_ADAPTER_QUEUE,
+    queueName,
     async (job) => dispatchCliJob(input.dbPath, job, input.runner, input.appServerTransport),
     cliWorkerOptions,
   );
+  await requeueRecoverableSchedulerJobs(input.dbPath, cliQueue);
   return {
     async close() {
       await Promise.all([
+        cliQueue.close(),
         cliWorker.close(),
         scheduler.close?.() ?? Promise.resolve(),
         connection.quit().catch(() => undefined),
       ]);
     },
   };
+}
+
+export function bullMqExecutionAdapterQueueName(dbPath: string): string {
+  const digest = createHash("sha256").update(normalize(dbPath)).digest("hex").slice(0, 12);
+  return `${BULLMQ_EXECUTION_ADAPTER_QUEUE}-${digest}`;
+}
+
+export function listRecoverableSchedulerJobs(dbPath: string): RecoverableSchedulerJob[] {
+  const transientErrors = [
+    "Scheduler worker mode is off.",
+    "Scheduler is not connected to Redis.",
+  ];
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "jobs",
+      sql: `SELECT sj.id, sj.bullmq_job_id, sj.job_type, sj.payload_json
+        FROM scheduler_job_records sj
+        LEFT JOIN execution_records er ON er.scheduler_job_id = sj.id
+        WHERE sj.job_type IN ('cli.run', 'rpc.run', 'codex.rpc.run', 'codex.app_server.run')
+          AND (
+            sj.status = 'queued'
+            OR (
+              sj.status = 'blocked'
+              AND sj.error IN (${transientErrors.map(() => "?").join(", ")})
+              AND er.status = 'queued'
+            )
+          )
+        ORDER BY sj.updated_at ASC`,
+      params: transientErrors,
+    },
+  ]);
+  return result.queries.jobs.flatMap((row) => {
+    const schedulerJobId = optionalString(row.id);
+    const bullmqJobId = optionalString(row.bullmq_job_id);
+    const jobType = optionalString(row.job_type);
+    const payload = parseJsonObject(row.payload_json);
+    if (!schedulerJobId || !bullmqJobId || !isRecoverableJobType(jobType) || Object.keys(payload).length === 0) {
+      return [];
+    }
+    return [{ schedulerJobId, bullmqJobId, jobType, payload }];
+  });
+}
+
+async function requeueRecoverableSchedulerJobs(dbPath: string, queue: Queue): Promise<void> {
+  for (const job of listRecoverableSchedulerJobs(dbPath)) {
+    const existing = await queue.getJob(job.bullmqJobId);
+    if (existing) continue;
+    await queue.add(job.jobType, { ...job.payload, schedulerJobId: job.schedulerJobId }, { jobId: job.bullmqJobId, attempts: 1 });
+    updateSchedulerJobRecord(dbPath, job.bullmqJobId, "queued");
+  }
+}
+
+function isRecoverableJobType(value?: string): value is RecoverableSchedulerJob["jobType"] {
+  return value === "cli.run" || value === "rpc.run" || value === "codex.rpc.run" || value === "codex.app_server.run";
 }
 
 function workerOptions(connection: IORedis, lockDuration: number): WorkerOptions {

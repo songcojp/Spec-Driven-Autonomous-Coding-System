@@ -55,6 +55,7 @@ import {
   initializeProjectPhase1,
   initializeProjectMemoryForProject,
   initializeProjectSpecProtocol,
+  runProjectHealthCheck,
   saveProjectConstitution,
 } from "./projects.ts";
 
@@ -65,9 +66,12 @@ export type ConsoleCommandAction =
   | "initialize_spec_protocol"
   | "import_or_create_constitution"
   | "initialize_project_memory"
+  | "check_project_health"
+  | "scan_spec_sources"
   | "scan_prd_source"
   | "upload_prd_source"
   | "intake_requirement"
+  | "resolve_clarification"
   | "generate_ears"
   | "generate_hld"
   | "generate_ui_spec"
@@ -104,9 +108,12 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "initialize_spec_protocol",
   "import_or_create_constitution",
   "initialize_project_memory",
+  "check_project_health",
+  "scan_spec_sources",
   "scan_prd_source",
   "upload_prd_source",
   "intake_requirement",
+  "resolve_clarification",
   "generate_ears",
   "generate_hld",
   "generate_ui_spec",
@@ -2669,7 +2676,7 @@ function executeProjectInitializationCommand(
   dbPath: string,
   input: ConsoleCommandInput,
 ): ({ blockedReasons: string[] } & Record<string, unknown>) | undefined {
-  if (!["register_project", "connect_git_repository", "initialize_spec_protocol", "import_or_create_constitution", "initialize_project_memory"].includes(input.action)) {
+  if (!["register_project", "connect_git_repository", "initialize_spec_protocol", "import_or_create_constitution", "initialize_project_memory", "check_project_health"].includes(input.action)) {
     return undefined;
   }
   if (input.entityType !== "project") {
@@ -2744,6 +2751,17 @@ function executeProjectInitializationCommand(
       return { projectMemoryId: memory.id, path: memory.path, blockedReasons: [] };
     }
 
+    if (input.action === "check_project_health") {
+      const healthCheck = runProjectHealthCheck(dbPath, project.id);
+      return {
+        healthCheckId: healthCheck.id,
+        healthStatus: healthCheck.status,
+        reasons: healthCheck.reasons,
+        repositorySummaryKind: healthCheck.repositorySummaryKind,
+        blockedReasons: healthCheck.status === "ready" ? [] : healthCheck.reasons,
+      };
+    }
+
     const existing = getCurrentProjectConstitution(dbPath, project.id);
     if (existing) {
       return { constitutionId: existing.id, blockedReasons: [] };
@@ -2761,7 +2779,7 @@ function executeSpecIntakeCommand(
   input: ConsoleCommandInput,
   acceptedAt: string,
 ): ({ blockedReasons: string[] } & Record<string, unknown>) | undefined {
-  if (!["scan_prd_source", "upload_prd_source"].includes(input.action)) {
+  if (!["scan_spec_sources", "scan_prd_source", "upload_prd_source"].includes(input.action)) {
     return undefined;
   }
   if (input.entityType !== "project") {
@@ -2778,7 +2796,7 @@ function executeSpecIntakeCommand(
 
   try {
     const payload = parseJsonObject(input.payload);
-    if (input.action === "scan_prd_source") {
+    if (input.action === "scan_spec_sources" || input.action === "scan_prd_source") {
       const scan = scanSpecSources(project.targetRepoPath, new Date(acceptedAt));
       const source = selectSpecSource(project.targetRepoPath, payload, scan);
       const resultPath = writeSpecIntakeArtifact(project.targetRepoPath, "reports", `spec-source-scan-${Date.parse(acceptedAt)}.json`, scan);
@@ -3264,7 +3282,7 @@ function executeSpecSkillCommand(
   scheduler: SchedulerClient,
   specIntakeResult?: ({ blockedReasons: string[] } & Record<string, unknown>),
 ): { executionId: string; schedulerJobId: string; skillSlug: string; workspaceRoot?: string } | undefined {
-  if (!["intake_requirement", "generate_ears", "generate_hld", "generate_ui_spec", "split_feature_specs"].includes(input.action)) {
+  if (!["intake_requirement", "resolve_clarification", "generate_ears", "generate_hld", "generate_ui_spec", "split_feature_specs"].includes(input.action)) {
     return undefined;
   }
   const payload = parseJsonObject(input.payload);
@@ -3296,6 +3314,7 @@ function executeSpecSkillCommand(
     workspaceRoot: project.targetRepoPath,
     skillSlug,
     skillPhase: input.action,
+    clarificationText: optionalString(payload.clarificationText),
     requirementText: optionalString(payload.requirementText),
     comment: optionalString(payload.comment),
     targetRequirementId: optionalString(payload.targetRequirementId),
@@ -3335,6 +3354,7 @@ function executeSpecSkillCommand(
 
 function skillSlugForSpecAction(action: ConsoleCommandAction): string {
   if (action === "intake_requirement") return "requirement-intake-skill";
+  if (action === "resolve_clarification") return "ambiguity-clarification-skill";
   if (action === "generate_ears") return "pr-ears-requirement-decomposition-skill";
   if (action === "generate_hld") return "create-project-hld";
   if (action === "generate_ui_spec") return "ui-spec-skill";
@@ -3354,7 +3374,7 @@ function sourcePathsForSpecAction(
     optionalString(payload.resolvedSourcePath),
     workspaceRoot,
   );
-  if (action === "intake_requirement" || action === "generate_ears") {
+  if (action === "intake_requirement" || action === "resolve_clarification" || action === "generate_ears") {
     return [payloadSourcePath ?? "docs/zh-CN/PRD.md"];
   }
   if (action === "split_feature_specs") {
@@ -3422,6 +3442,11 @@ function expectedArtifactsForSpecAction(
 ): string[] {
   if (action === "intake_requirement" || action === "generate_ears") {
     return [requirementsArtifactForSource(sourcePaths[0], workspaceRoot)];
+  }
+  if (action === "resolve_clarification") {
+    return featureId
+      ? [`docs/features/${featureId}/requirements.md`, `docs/features/${featureId}/design.md`]
+      : [requirementsArtifactForSource(sourcePaths[0], workspaceRoot)];
   }
   if (action === "split_feature_specs") {
     return [
@@ -4688,6 +4713,7 @@ function schedulerOperationName(operation?: string, skillSlug?: string, skillPha
   if (skillSlug === "codex-coding-skill" || skillPhase === "task_execution") return "Execute task";
   if (skillSlug === "create-project-hld" || operation === "generate_hld") return "Generate project HLD";
   if (skillSlug === "requirement-intake-skill" || operation === "intake_requirement") return "Intake requirement";
+  if (skillSlug === "ambiguity-clarification-skill" || operation === "resolve_clarification") return "Resolve clarification";
   if (skillSlug === "pr-ears-requirement-decomposition-skill" || operation === "generate_ears") return "Generate EARS requirements";
   if (skillSlug === "task-slicing-skill" || operation === "split_feature_specs") return "Split Feature Specs";
   if (skillSlug === "ui-spec-skill" || operation === "generate_ui_spec") return "Generate UI Spec";
