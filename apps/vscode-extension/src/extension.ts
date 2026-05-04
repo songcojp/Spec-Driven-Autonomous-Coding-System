@@ -465,7 +465,54 @@ async function fetchSpecDriveView(): Promise<SpecDriveIdeView> {
   if (!response.ok) {
     throw new Error(`SpecDrive request failed: ${response.status} ${response.statusText}`);
   }
-  return await response.json() as SpecDriveIdeView;
+  return await normalizeSpecDriveIdeView(await response.json() as SpecDriveIdeView);
+}
+
+async function normalizeSpecDriveIdeView(view: SpecDriveIdeView): Promise<SpecDriveIdeView> {
+  const hasSkillRuntime = await pathExists(".agents/skills");
+  const projectInitialization = view.projectInitialization ?? {
+    ready: false,
+    blocked: true,
+    steps: [],
+  };
+  const steps = [...(projectInitialization.steps ?? [])];
+  const existingIndex = steps.findIndex((step) => step.key === "copy_skill_runtime"
+    || step.label.includes(".agents")
+    || step.label.toLowerCase().includes("skill runtime"));
+  const skillRuntimeStep = {
+    key: "copy_skill_runtime" as const,
+    label: ".agents skill runtime initialized",
+    status: hasSkillRuntime ? "Ready" as const : view.project?.id ? "Draft" as const : "Blocked" as const,
+    blockedReason: hasSkillRuntime ? undefined : "Copy project-local .agents skills for governed SpecDrive workflows.",
+  };
+  if (existingIndex >= 0) {
+    steps[existingIndex] = { ...steps[existingIndex], ...skillRuntimeStep };
+  } else {
+    const specProtocolIndex = steps.findIndex((step) => step.key === "initialize_spec_protocol"
+      || step.label.includes("Spec Protocol")
+      || step.label.includes(".autobuild"));
+    steps.splice(specProtocolIndex >= 0 ? specProtocolIndex + 1 : steps.length, 0, skillRuntimeStep);
+  }
+  return {
+    ...view,
+    projectInitialization: {
+      ...projectInitialization,
+      ready: projectInitialization.ready && hasSkillRuntime,
+      blocked: steps.some((step) => step.status === "Blocked"),
+      steps,
+    },
+  };
+}
+
+async function pathExists(relativePath: string): Promise<boolean> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (!workspaceRoot) return false;
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.joinPath(workspaceRoot, ...relativePath.split("/")));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function fetchSystemSettings(): Promise<SystemSettingsViewModel> {

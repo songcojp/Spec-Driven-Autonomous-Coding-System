@@ -1007,7 +1007,7 @@ function buildProjectInitialization(
     },
     {
       key: "copy_skill_runtime",
-      label: "Skill runtime copied",
+      label: ".agents skill runtime initialized",
       status: hasSkillRuntime ? "Ready" : input.project?.id ? "Draft" : "Blocked",
       blockedReason: hasSkillRuntime ? undefined : "Copy project-local .agents skills for governed SpecDrive workflows.",
     },

@@ -66,17 +66,17 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
   const projectInitialization = view?.projectInitialization;
   const projectInitializationReady = projectInitialization?.ready ?? Boolean(view?.project?.id && view?.workspaceRoot && view?.recognized);
   const projectInitializationBlocked = projectInitialization?.blocked ?? !projectInitializationReady;
-  const initializationSteps = projectInitialization?.steps ?? [
+  const initializationSteps = normalizeInitializationSteps(projectInitialization?.steps ?? [
     { label: "Project created or imported", status: view?.project?.id ? "Ready" : "Blocked" },
     { label: "Workspace root resolved", status: view?.workspaceRoot ? "Ready" : "Blocked" },
     { label: "Git repository connected", status: view?.project?.targetRepoPath ? "Ready" : "Blocked" },
     { label: ".autobuild / Spec Protocol", status: view?.recognized ? "Ready" : "Blocked" },
-    { label: "Skill runtime copied", status: view?.workspaceRoot ? "Draft" : "Blocked" },
+    { label: ".agents skill runtime initialized", status: view?.workspaceRoot ? "Draft" : "Blocked" },
     { label: "Project constitution", status: "Draft" },
     { label: "Project Memory", status: "Draft" },
     { label: "Workspace health check", status: (view?.diagnostics.length ?? 0) === 0 ? "Draft" : "Active" },
     { label: "Current project context", status: view?.project?.id && view?.workspaceRoot ? "Ready" : "Blocked" },
-  ];
+  ], view);
   const activeId: SpecLifecycleStage["id"] = !projectInitializationReady
     ? "project-init"
     : !hasRequirementDocs
@@ -112,9 +112,10 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
       documentKinds: ["prd", "requirements", "ears", "hld", "design", "ui-spec", "feature-requirements", "tasks", "readme"],
       steps: [
         { label: "Spec source scan", status: (view?.documents.length ?? 0) > 0 ? "Ready" : "Not Started" },
-        { label: "PRD / requirements", status: hasRequirementDocs ? "Ready" : "Draft" },
-        { label: "HLD / design", status: docs.has("hld") || docs.has("design") ? "Ready" : "Draft" },
-        { label: "UI Spec document and concept images", status: docs.has("ui-spec") ? "Ready" : "Draft" },
+        { label: "PRD", status: docs.has("prd") ? "Ready" : "Draft" },
+        { label: "EARS Requirements", status: docs.has("requirements") || docs.has("ears") ? "Ready" : "Draft" },
+        { label: "HLD", status: docs.has("hld") ? "Ready" : "Draft" },
+        { label: "UI Spec", status: docs.has("ui-spec") ? "Ready" : "Draft" },
         { label: "Clarification and quality check", status: (view?.diagnostics.length ?? 0) === 0 ? "Ready" : "Active" },
       ],
       actions: [
@@ -141,6 +142,28 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
         { label: "Split Feature Specs", action: "split_feature_specs", reason: "Split Feature Specs from Feature Split lifecycle." },
       ],
     },
+  ];
+}
+
+function normalizeInitializationSteps(
+  steps: Array<{ label: string; status: string }>,
+  view: SpecDriveIdeView | undefined,
+): Array<{ label: string; status: string }> {
+  if (steps.some((step) => step.label.includes(".agents") || step.label.toLowerCase().includes("skill runtime"))) {
+    return steps.map((step) => step.label.toLowerCase().includes("skill runtime")
+      ? { ...step, label: ".agents skill runtime initialized" }
+      : step);
+  }
+  const specProtocolIndex = steps.findIndex((step) => step.label.includes("Spec Protocol") || step.label.includes(".autobuild"));
+  const skillRuntimeStep = {
+    label: ".agents skill runtime initialized",
+    status: view?.recognized ? "Ready" : view?.workspaceRoot ? "Draft" : "Blocked",
+  };
+  if (specProtocolIndex < 0) return [...steps, skillRuntimeStep];
+  return [
+    ...steps.slice(0, specProtocolIndex + 1),
+    skillRuntimeStep,
+    ...steps.slice(specProtocolIndex + 1),
   ];
 }
 

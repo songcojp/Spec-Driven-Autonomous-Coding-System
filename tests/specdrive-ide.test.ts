@@ -38,6 +38,7 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.documents.find((document) => document.kind === "ui-spec")?.path, "docs/ui/ui-spec.md");
   assert.equal(view.documents.find((document) => document.kind === "ui-spec")?.exists, true);
   assert.equal(view.projectInitialization.steps.find((step) => step.key === "copy_skill_runtime")?.status, "Ready");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "copy_skill_runtime")?.label, ".agents skill runtime initialized");
 
   const feature = view.features.find((entry) => entry.id === "FEAT-016");
   assert.equal(feature?.status, "ready");
