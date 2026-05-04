@@ -12,7 +12,7 @@
       "outFiles": [
         "${workspaceFolder}/apps/vscode-extension/out/**/*.js"
       ],
-      "preLaunchTask": "npm: ide:build"
+      "preLaunchTask": "specdrive: f5 setup"
     }
   ]
 }

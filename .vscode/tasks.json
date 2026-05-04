@@ -9,6 +9,21 @@
       "problemMatcher": "$tsc"
     },
     {
+      "label": "specdrive: restart backend",
+      "type": "shell",
+      "command": "bash scripts/vscode-restart-backend.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "specdrive: f5 setup",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "npm: ide:build",
+        "specdrive: restart backend"
+      ],
+      "problemMatcher": []
+    },
+    {
       "label": "npm: ide:watch",
       "type": "npm",
       "script": "ide:watch",
