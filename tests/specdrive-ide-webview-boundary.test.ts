@@ -74,6 +74,8 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
   ]);
   assert.match(extensionSource, /registerCommand\("specdrive\.registerProject"/);
   assert.match(extensionSource, /function registerCurrentProject/);
+  assert.match(extensionSource, /function isCompatibleControlPlane/);
+  assert.match(extensionSource, /consoleCommandActions/);
 });
 
 test("VSCode System Settings Webview manages adapter configs through controlled commands", () => {

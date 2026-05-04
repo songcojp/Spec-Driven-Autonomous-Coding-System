@@ -65,6 +65,11 @@ export function createControlPlaneServer(
       response.writeHead(statusCode, { "content-type": "application/json" });
       response.end(JSON.stringify({
         ...readyState,
+        capabilities: {
+          consoleCommandActions: [
+            "register_project",
+          ],
+        },
         scheduler: options.scheduler?.health?.(),
       }));
       return;

@@ -521,6 +521,7 @@ test("health endpoint reports initializing and ready states", async () => {
   const ready = await getJson(`http://127.0.0.1:${port}/health`);
   assert.equal(ready.status, "ready");
   assert.equal(ready.schemaVersion, SCHEMA_VERSION);
+  assert.deepEqual(ready.capabilities.consoleCommandActions, ["register_project"]);
 
   await new Promise<void>((resolve) => controlPlane.server.close(() => resolve()));
 });

@@ -79,13 +79,16 @@ class BundledControlPlaneManager implements vscode.Disposable {
 
   async ensureReady(): Promise<string> {
     const configuredUrl = configuredControlPlaneUrlFromSettings();
-    if (await isHealthy(configuredUrl)) {
-      this.runtimeUrl = configuredUrl;
+    const mode = extensionConfig<"auto" | "external" | "off">("serverMode", "auto");
+    if (mode === "external" || mode === "off") {
+      if (await isHealthy(configuredUrl)) {
+        this.runtimeUrl = configuredUrl;
+      }
       return configuredUrl;
     }
 
-    const mode = extensionConfig<"auto" | "external" | "off">("serverMode", "auto");
-    if (mode === "external" || mode === "off") {
+    if (await isCompatibleControlPlane(configuredUrl)) {
+      this.runtimeUrl = configuredUrl;
       return configuredUrl;
     }
 
@@ -1473,6 +1476,23 @@ async function isHealthy(baseUrl: string): Promise<boolean> {
   try {
     const response = await fetch(new URL("/health", baseUrl));
     return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function isCompatibleControlPlane(baseUrl: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/health", baseUrl));
+    if (!response.ok) return false;
+    const body = await response.json() as Record<string, unknown>;
+    const capabilities = typeof body.capabilities === "object" && body.capabilities !== null
+      ? body.capabilities as Record<string, unknown>
+      : {};
+    const actions = Array.isArray(capabilities.consoleCommandActions)
+      ? capabilities.consoleCommandActions
+      : [];
+    return actions.includes("register_project");
   } catch {
     return false;
   }
