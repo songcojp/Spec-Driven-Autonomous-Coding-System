@@ -13,7 +13,7 @@
     "console:test": "playwright test --config apps/product-console/playwright.config.ts",
     "ide:build": "tsc -p apps/vscode-extension/tsconfig.json",
     "ide:watch": "tsc -w -p apps/vscode-extension/tsconfig.json",
-    "ide:debug": "code --new-window --extensionDevelopmentPath=$(pwd)/apps/vscode-extension $(pwd)",
+    "ide:debug": "bash scripts/vscode-debug.sh",
     "ide:package": "bash scripts/package-vsix.sh package",
     "ide:install": "bash scripts/package-vsix.sh",
     "ide:test": "node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts",

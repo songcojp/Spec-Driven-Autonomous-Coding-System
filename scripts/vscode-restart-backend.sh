@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_PORT="${AUTOBUILD_PORT:-4317}"
+BACKEND_PORT="${AUTOBUILD_PORT:-43117}"
 WORKER_MODE="${AUTOBUILD_WORKER_MODE:-embedded}"
 PID_FILE="${ROOT_DIR}/.autobuild/vscode-backend.pid"
 LOG_DIR="${ROOT_DIR}/.autobuild/logs"

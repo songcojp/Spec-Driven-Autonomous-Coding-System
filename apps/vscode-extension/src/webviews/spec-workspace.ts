@@ -95,6 +95,7 @@ function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleS
       documentKinds: ["constitution", "memory", "readme"],
       steps: initializationSteps.map((step) => ({ label: step.label, status: step.status })),
       actions: [
+        { label: "Register Current Project", action: "register_project", reason: "Register current VSCode workspace as a SpecDrive project." },
         { label: "Connect Git Repository", action: "connect_git_repository", reason: "Connect Git repository from Project Initialization lifecycle." },
         { label: "Initialize Spec Protocol", action: "initialize_spec_protocol", reason: "Initialize .autobuild / Spec Protocol from Project Initialization lifecycle." },
         { label: "Import or Create Constitution", action: "import_or_create_constitution", reason: "Import or create project constitution from Project Initialization lifecycle." },

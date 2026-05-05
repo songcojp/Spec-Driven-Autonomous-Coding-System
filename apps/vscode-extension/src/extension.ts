@@ -80,6 +80,7 @@ class BundledControlPlaneManager implements vscode.Disposable {
   async ensureReady(): Promise<string> {
     const configuredUrl = configuredControlPlaneUrlFromSettings();
     const mode = extensionConfig<"auto" | "external" | "off">("serverMode", "auto");
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (mode === "external" || mode === "off") {
       if (await isHealthy(configuredUrl)) {
         this.runtimeUrl = configuredUrl;
@@ -87,7 +88,7 @@ class BundledControlPlaneManager implements vscode.Disposable {
       return configuredUrl;
     }
 
-    if (await isCompatibleControlPlane(configuredUrl)) {
+    if (await isCompatibleControlPlane(configuredUrl, workspaceRoot)) {
       this.runtimeUrl = configuredUrl;
       return configuredUrl;
     }
@@ -223,10 +224,7 @@ class SpecExplorerProvider implements vscode.TreeDataProvider<SpecExplorerItem> 
   }
 
   getTreeItem(element: SpecExplorerItem): vscode.TreeItem {
-    const collapsible = "children" in element || element.type === "feature"
-      ? vscode.TreeItemCollapsibleState.Collapsed
-      : vscode.TreeItemCollapsibleState.None;
-    const treeItem = new vscode.TreeItem(element.label, collapsible);
+    const treeItem = new vscode.TreeItem(element.label, collapsibleStateFor(element));
     treeItem.description = element.description;
     treeItem.tooltip = element.description;
     treeItem.contextValue = element.type === "queue-item" ? `queue-item:${element.item.status}` : element.type;
@@ -278,6 +276,12 @@ class SpecExplorerProvider implements vscode.TreeDataProvider<SpecExplorerItem> 
     await this.context.workspaceState.update("specdrive.queueStatusFilter", status);
     this.changed.fire(undefined);
   }
+}
+
+function collapsibleStateFor(element: SpecExplorerItem): vscode.TreeItemCollapsibleState {
+  if (!("children" in element) && element.type !== "feature") return vscode.TreeItemCollapsibleState.None;
+  if (element.type === "root") return vscode.TreeItemCollapsibleState.Expanded;
+  return vscode.TreeItemCollapsibleState.Collapsed;
 }
 
 function updateDiagnostics(collection: vscode.DiagnosticCollection, view: SpecDriveIdeView): void {
@@ -482,7 +486,7 @@ async function normalizeSpecDriveIdeView(view: SpecDriveIdeView): Promise<SpecDr
   const skillRuntimeStep = {
     key: "copy_skill_runtime" as const,
     label: ".agents skill runtime initialized",
-    status: hasSkillRuntime ? "Ready" as const : view.project?.id ? "Draft" as const : "Blocked" as const,
+    status: hasSkillRuntime ? "Ready" as const : view.workspaceRoot ? "Draft" as const : "Blocked" as const,
     blockedReason: hasSkillRuntime ? undefined : "Copy project-local .agents skills for governed SpecDrive workflows.",
   };
   if (existingIndex >= 0) {
@@ -1531,7 +1535,7 @@ function extensionConfig<T>(key: string, defaultValue: T): T {
 }
 
 async function openSpecWorkspaceOnStartup(provider: SpecExplorerProvider): Promise<void> {
-  if (startupSpecWorkspaceOpened || !extensionConfig("openSpecWorkspaceOnStartup", true)) return;
+  if (startupSpecWorkspaceOpened || !extensionConfig("openSpecWorkspaceOnStartup", false)) return;
   if (!provider.currentView()?.recognized) return;
   startupSpecWorkspaceOpened = true;
   await openSpecWorkspace(provider);
@@ -1546,11 +1550,17 @@ async function isHealthy(baseUrl: string): Promise<boolean> {
   }
 }
 
-async function isCompatibleControlPlane(baseUrl: string): Promise<boolean> {
+async function isCompatibleControlPlane(baseUrl: string, workspaceRoot?: string): Promise<boolean> {
   try {
     const response = await fetch(new URL("/health", baseUrl));
     if (!response.ok) return false;
     const body = await response.json() as Record<string, unknown>;
+    if (workspaceRoot && typeof body.artifactRoot === "string") {
+      const expectedArtifactRoot = join(workspaceRoot, ".autobuild");
+      if (normalizeFsPath(body.artifactRoot) !== normalizeFsPath(expectedArtifactRoot)) {
+        return false;
+      }
+    }
     const capabilities = typeof body.capabilities === "object" && body.capabilities !== null
       ? body.capabilities as Record<string, unknown>
       : {};
@@ -1561,6 +1571,10 @@ async function isCompatibleControlPlane(baseUrl: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function normalizeFsPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
 async function findFreePort(startPort: number): Promise<number> {

@@ -82,7 +82,7 @@
         },
         "specdrive.openSpecWorkspaceOnStartup": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Open the Spec Workspace webview after the Spec Explore view activates and the Control Plane is ready."
         },
         "specdrive.productConsoleUrl": {

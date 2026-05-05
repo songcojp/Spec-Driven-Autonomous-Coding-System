@@ -20,6 +20,10 @@ const extensionSource = readSourceTree("apps/vscode-extension/src");
 const webviewSource = readSourceTree("apps/vscode-extension/src/webviews");
 const productConsoleSource = readFileSync("src/product-console.ts", "utf8");
 const vscodeRestartBackendScript = readFileSync("scripts/vscode-restart-backend.sh", "utf8");
+const vscodeDebugScript = readFileSync("scripts/vscode-debug.sh", "utf8");
+const rootPackage = JSON.parse(readFileSync("package.json", "utf8")) as {
+  scripts?: Record<string, string>;
+};
 const extensionPackage = JSON.parse(readFileSync("apps/vscode-extension/package.json", "utf8")) as {
   activationEvents?: string[];
   files?: string[];
@@ -38,13 +42,29 @@ test("VSCode IDE package includes bundled .agents runtime", () => {
 test("VSCode bundled server starts with embedded worker by default", () => {
   assert.match(extensionSource, /extensionConfig<"off" \| "embedded" \| "worker-only">\("serverWorkerMode", "embedded"\)/);
   assert.equal(extensionPackage.contributes?.configuration?.properties?.["specdrive.serverWorkerMode"]?.default, "embedded");
+  assert.match(vscodeRestartBackendScript, /BACKEND_PORT="\$\{AUTOBUILD_PORT:-43117\}"/);
   assert.match(vscodeRestartBackendScript, /WORKER_MODE="\$\{AUTOBUILD_WORKER_MODE:-embedded\}"/);
   assert.match(vscodeRestartBackendScript, /docker compose up -d redis/);
+});
+
+test("VSCode debug entry rebuilds artifacts and clears stale backend", () => {
+  assert.equal(rootPackage.scripts?.["ide:debug"], "bash scripts/vscode-debug.sh");
+  assert.match(vscodeDebugScript, /npm run ide:build/);
+  assert.match(vscodeDebugScript, /esbuild src\/index\.ts/);
+  assert.match(vscodeDebugScript, /outfile="\$\{EXTENSION_DIR\}\/server\/index\.cjs"/);
+  assert.match(vscodeDebugScript, /BACKEND_PORT="\$\{AUTOBUILD_PORT:-43117\}"/);
+  assert.match(vscodeDebugScript, /lsof -t -i:"\$\{BACKEND_PORT\}"/);
+  assert.match(vscodeDebugScript, /--extensionDevelopmentPath="\$\{EXTENSION_DIR\}"/);
 });
 
 test("VSCode IDE Webviews expose independent workbench commands", () => {
   const activationEvents = new Set(extensionPackage.activationEvents ?? []);
   const commands = new Set((extensionPackage.contributes?.commands ?? []).map((command) => command.command));
+
+  assert.equal(extensionPackage.contributes?.configuration?.properties?.["specdrive.openSpecWorkspaceOnStartup"]?.default, false);
+  assert.match(extensionSource, /extensionConfig\("openSpecWorkspaceOnStartup", false\)/);
+  assert.match(extensionSource, /function collapsibleStateFor/);
+  assert.match(extensionSource, /element\.type === "root"\) return vscode\.TreeItemCollapsibleState\.Expanded/);
 
   for (const command of [
     "specdrive.openExecutionWorkbench",
@@ -118,6 +138,9 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
   assert.match(extensionSource, /registerCommand\("specdrive\.registerProject"/);
   assert.match(extensionSource, /function registerCurrentProject/);
   assert.match(extensionSource, /function isCompatibleControlPlane/);
+  assert.match(extensionSource, /isCompatibleControlPlane\(configuredUrl, workspaceRoot\)/);
+  assert.match(extensionSource, /expectedArtifactRoot = join\(workspaceRoot, "\.autobuild"\)/);
+  assert.match(extensionSource, /normalizeFsPath\(body\.artifactRoot\) !== normalizeFsPath\(expectedArtifactRoot\)/);
   assert.match(extensionSource, /consoleCommandActions/);
   assert.match(extensionSource, /AUTOBUILD_AGENT_RUNTIME_PATHS/);
   assert.match(extensionSource, /this\.context\.extensionPath/);
@@ -230,6 +253,9 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /function normalizeSpecDriveIdeView/);
   assert.match(extensionSource, /pathExists\("\.agents\/skills"\)/);
   assert.match(extensionSource, /key: "copy_skill_runtime"/);
+  assert.match(extensionSource, /view\.workspaceRoot \? "Draft"/);
+  assert.match(extensionSource, /label: "Register Current Project"/);
+  assert.match(extensionSource, /action: "register_project"/);
   assert.match(extensionSource, /action: "connect_git_repository"/);
   assert.match(extensionSource, /entityType: "project"/);
   assert.match(extensionSource, /action: "initialize_spec_protocol"/);

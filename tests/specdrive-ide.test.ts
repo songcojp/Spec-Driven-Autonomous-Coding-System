@@ -273,7 +273,7 @@ test("SpecDrive IDE automation state uses latest audit write when timestamps tie
   assert.equal(view.automation.status, "running");
 });
 
-test("SpecDrive IDE keeps project initialization blocked for an unregistered PRD-only workspace", () => {
+test("SpecDrive IDE keeps unregistered PRD-only workspace active for project initialization", () => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-ide-prd-only-"));
   mkdirSync(join(workspaceRoot, "docs"), { recursive: true });
   writeFileSync(join(workspaceRoot, "docs/PRD.md"), "# PRD\n");
@@ -284,11 +284,12 @@ test("SpecDrive IDE keeps project initialization blocked for an unregistered PRD
 
   assert.equal(view.project?.id, undefined);
   assert.equal(view.projectInitialization.ready, false);
-  assert.equal(view.projectInitialization.blocked, true);
-  assert.equal(view.projectInitialization.steps.find((step) => step.key === "create_or_import_project")?.status, "Blocked");
-  assert.equal(view.projectInitialization.steps.find((step) => step.key === "connect_git_repository")?.status, "Blocked");
-  assert.equal(view.projectInitialization.steps.find((step) => step.key === "initialize_spec_protocol")?.status, "Blocked");
-  assert.equal(view.projectInitialization.steps.find((step) => step.key === "copy_skill_runtime")?.status, "Blocked");
+  assert.equal(view.projectInitialization.blocked, false);
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "create_or_import_project")?.status, "Draft");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "connect_git_repository")?.status, "Draft");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "initialize_spec_protocol")?.status, "Draft");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "copy_skill_runtime")?.status, "Draft");
+  assert.equal(view.projectInitialization.steps.find((step) => step.key === "current_project_context")?.status, "Draft");
 });
 
 test("SpecDrive IDE register project command imports an unregistered workspace before continuing initialization", async () => {

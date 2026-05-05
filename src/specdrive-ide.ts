@@ -1102,7 +1102,7 @@ function buildProjectInitialization(
     {
       key: "create_or_import_project",
       label: "Project created or imported",
-      status: input.project?.id ? "Ready" : "Blocked",
+      status: input.project?.id ? "Ready" : existingWorkspace ? "Draft" : "Blocked",
       updatedAt: optionalString(input.project?.updated_at) ?? optionalString(input.project?.created_at),
       blockedReason: input.project?.id ? undefined : "Create or import this workspace as a SpecDrive project.",
     },
@@ -1115,47 +1115,47 @@ function buildProjectInitialization(
     {
       key: "connect_git_repository",
       label: "Git repository connected",
-      status: hasGitRepository ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      status: hasGitRepository ? "Ready" : existingWorkspace ? "Draft" : "Blocked",
       updatedAt: optionalString(repositoryConnection?.connected_at),
       blockedReason: hasGitRepository ? undefined : "Connect or initialize a local Git repository for this project.",
     },
     {
       key: "initialize_spec_protocol",
       label: ".autobuild / Spec Protocol",
-      status: hasSpecProtocol ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      status: hasSpecProtocol ? "Ready" : existingWorkspace ? "Draft" : "Blocked",
       blockedReason: hasSpecProtocol ? undefined : "Initialize .autobuild / Spec Protocol for this workspace.",
     },
     {
       key: "copy_skill_runtime",
       label: ".agents skill runtime initialized",
-      status: hasSkillRuntime ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      status: hasSkillRuntime ? "Ready" : existingWorkspace ? "Draft" : "Blocked",
       blockedReason: hasSkillRuntime ? undefined : "Copy project-local .agents skills for governed SpecDrive workflows.",
     },
     {
       key: "import_or_create_constitution",
       label: "Project constitution",
-      status: hasConstitution ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      status: hasConstitution ? "Ready" : existingWorkspace ? "Draft" : "Blocked",
       updatedAt: optionalString(constitution?.created_at),
       blockedReason: hasConstitution ? undefined : "Import or create the project constitution.",
     },
     {
       key: "initialize_project_memory",
       label: "Project Memory",
-      status: hasProjectMemory ? "Ready" : input.project?.id ? "Draft" : "Blocked",
+      status: hasProjectMemory ? "Ready" : existingWorkspace ? "Draft" : "Blocked",
       updatedAt: optionalString(memoryVersion?.created_at),
       blockedReason: hasProjectMemory ? undefined : "Initialize Project Memory for this workspace.",
     },
     {
       key: "check_project_health",
       label: "Workspace health check",
-      status: healthReady ? "Ready" : healthBlocked ? "Active" : input.project?.id ? "Draft" : "Blocked",
+      status: healthReady ? "Ready" : healthBlocked ? "Active" : existingWorkspace ? "Draft" : "Blocked",
       updatedAt: optionalString(healthCheck?.checked_at),
       blockedReason: healthReady ? undefined : healthReason ?? "Run the project health check.",
     },
     {
       key: "current_project_context",
       label: "Current project context",
-      status: input.project?.id && existingWorkspace ? "Ready" : "Blocked",
+      status: input.project?.id && existingWorkspace ? "Ready" : existingWorkspace ? "Draft" : "Blocked",
       blockedReason: input.project?.id && existingWorkspace ? undefined : "Register the current workspace before continuing.",
     },
   ];
@@ -1167,7 +1167,9 @@ function buildProjectInitialization(
     "copy_skill_runtime",
     "current_project_context",
   ]);
-  const blocked = steps.some((step) => step.status === "Blocked");
+  const blocked = steps
+    .filter((step) => blockingKeys.has(step.key))
+    .some((step) => step.status === "Blocked");
   const ready = steps
     .filter((step) => blockingKeys.has(step.key))
     .every((step) => step.status === "Ready");
