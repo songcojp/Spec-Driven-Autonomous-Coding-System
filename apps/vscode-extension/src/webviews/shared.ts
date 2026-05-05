@@ -51,13 +51,9 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
       if (form) form.hidden = true;
     };
     const selectedExecutionPreference = () => {
-      const mode = document.getElementById("job-run-mode")?.value === "rpc" ? "rpc" : "cli";
       const adapterSelect = document.getElementById("job-adapter-id");
-      const options = Array.from(adapterSelect?.options || []);
-      let selected = options.find((option) => option.selected && option.dataset.runMode === mode);
-      if (!selected) selected = options.find((option) => option.dataset.runMode === mode);
-      if (selected && adapterSelect) adapterSelect.value = selected.value;
-      return selected ? {runMode: mode, adapterId: selected.value, source: "job"} : undefined;
+      const selected = adapterSelect?.selectedOptions?.[0] || adapterSelect?.options?.[adapterSelect.selectedIndex];
+      return selected ? {adapterId: selected.value, source: "job"} : undefined;
     };
     const scheduleRunPayload = (payload, executionPreference) => {
       if (payload.action !== "schedule_run") return executionPreference ? {executionPreference} : undefined;

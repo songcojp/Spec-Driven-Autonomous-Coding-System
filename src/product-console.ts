@@ -2355,7 +2355,7 @@ function buildProjectExecutionPreferenceSettings(
     : { queries: { preference: [] as Record<string, unknown>[] } };
   const row = result.queries.preference[0];
   const active: ExecutionPreferenceV1 = row
-    ? {
+    ? executionPreferenceForAdapterId(String(row.adapter_id), cliRows, rpcRows, "project").preference ?? {
         runMode: String(row.run_mode) === "rpc" ? "rpc" : "cli",
         adapterId: String(row.adapter_id),
         source: "project",
@@ -3227,13 +3227,10 @@ function resolveExecutionPreference(
   const rpcRows = readRpcAdapterRows(dbPath);
   const payloadPreference = isRecord(payload.executionPreference) ? payload.executionPreference : undefined;
   if (payloadPreference) {
-    const preference: ExecutionPreferenceV1 = {
-      runMode: optionalString(payloadPreference.runMode) === "rpc" ? "rpc" : "cli",
-      adapterId: optionalString(payloadPreference.adapterId) ?? "",
-      source: "job",
-    };
-    const validation = validateExecutionPreference(preference, cliRows, rpcRows);
-    return { preference, blockedReasons: validation.errors };
+    const resolved = executionPreferenceForAdapterId(optionalString(payloadPreference.adapterId), cliRows, rpcRows, "job");
+    return resolved.preference
+      ? { preference: resolved.preference, blockedReasons: resolved.errors }
+      : { preference: { runMode: "cli", adapterId: optionalString(payloadPreference.adapterId) ?? "", source: "job" }, blockedReasons: resolved.errors };
   }
   const row = projectId
     ? runSqlite(dbPath, [], [
@@ -4291,16 +4288,16 @@ function executeProjectExecutionPreferenceCommand(
   if (!projectId) {
     return { blockedReasons: ["Project execution preference requires a projectId."] };
   }
-  const preference: ExecutionPreferenceV1 = {
-    runMode: optionalString(config.runMode) === "rpc" ? "rpc" : "cli",
-    adapterId: optionalString(config.adapterId) ?? "",
-    source: "project",
-  };
   const cliRows = readCliAdapterRows(dbPath);
   const rpcRows = readRpcAdapterRows(dbPath);
-  const validation = validateExecutionPreference(preference, cliRows, rpcRows);
-  if (!validation.valid) {
-    return { blockedReasons: validation.errors, preference };
+  const resolved = executionPreferenceForAdapterId(optionalString(config.adapterId), cliRows, rpcRows, "project");
+  const preference = resolved.preference ?? {
+    runMode: "cli" as const,
+    adapterId: optionalString(config.adapterId) ?? "",
+    source: "project" as const,
+  };
+  if (resolved.errors.length > 0) {
+    return { blockedReasons: resolved.errors, preference };
   }
   runSqlite(dbPath, [
     {
@@ -5432,20 +5429,35 @@ function validateExecutionPreference(
   cliRows: Record<string, unknown>[],
   rpcRows: Record<string, unknown>[],
 ): { valid: boolean; errors: string[] } {
+  const resolved = executionPreferenceForAdapterId(preference.adapterId, cliRows, rpcRows, "job");
+  return { valid: resolved.errors.length === 0, errors: resolved.errors };
+}
+
+function executionPreferenceForAdapterId(
+  adapterId: string | undefined,
+  cliRows: Record<string, unknown>[],
+  rpcRows: Record<string, unknown>[],
+  source: ExecutionPreferenceV1["source"],
+): { preference?: ExecutionPreferenceV1; errors: string[] } {
   const errors: string[] = [];
-  if (preference.runMode !== "cli" && preference.runMode !== "rpc") errors.push("runMode must be cli or rpc");
-  if (!preference.adapterId) errors.push("adapterId is required");
-  if (preference.runMode === "cli") {
-    const adapter = uniqueCliAdapters(cliRows).find((entry) => entry.id === preference.adapterId);
-    if (!adapter) errors.push(`CLI adapter not found: ${preference.adapterId}`);
-    else if (adapter.status === "disabled" || adapter.status === "invalid") errors.push(`CLI adapter is not available: ${preference.adapterId}`);
+  if (!adapterId) {
+    return { errors: ["adapterId is required"] };
   }
-  if (preference.runMode === "rpc") {
-    const adapter = uniqueRpcAdapters(rpcRows).find((entry) => entry.id === preference.adapterId);
-    if (!adapter) errors.push(`RPC adapter not found: ${preference.adapterId}`);
-    else if (adapter.status === "disabled" || adapter.status === "invalid") errors.push(`RPC adapter is not available: ${preference.adapterId}`);
+  const cliAdapter = uniqueCliAdapters(cliRows).find((entry) => entry.id === adapterId);
+  const rpcAdapter = uniqueRpcAdapters(rpcRows).find((entry) => entry.id === adapterId);
+  if (cliAdapter && rpcAdapter) {
+    errors.push(`Adapter id is ambiguous across CLI and RPC adapters: ${adapterId}`);
+    return { errors };
   }
-  return { valid: errors.length === 0, errors };
+  if (cliAdapter) {
+    if (cliAdapter.status === "disabled" || cliAdapter.status === "invalid") errors.push(`CLI adapter is not available: ${adapterId}`);
+    return { preference: { runMode: "cli", adapterId, source }, errors };
+  }
+  if (rpcAdapter) {
+    if (rpcAdapter.status === "disabled" || rpcAdapter.status === "invalid") errors.push(`RPC adapter is not available: ${adapterId}`);
+    return { preference: { runMode: "rpc", adapterId, source }, errors };
+  }
+  return { errors: [`Adapter not found: ${adapterId}`] };
 }
 
 function adapterFromRows(

@@ -49,19 +49,17 @@ function renderExecutionPreferenceSection(section: SystemSettingsViewModel["proj
       <span class="${statusClass(validation.valid ? "passed" : "failed")}">${validation.valid ? "valid" : "invalid"}</span>
     </div>
     <div class="row"><span>Project</span><span><code>${escapeHtml(section.projectId ?? "none")}</code></span></div>
-    <div class="row"><span>Run Mode</span><span><code>${escapeHtml(String(active.runMode ?? "cli"))}</code></span></div>
     <div class="row"><span>Provider Adapter</span><span><code>${escapeHtml(String(active.adapterId ?? "none"))}</code></span></div>
     <h3>Provider Presets</h3>
     <div class="toolbar">
-      ${section.cliAdapters.map((adapter) => executionPreferencePresetButton("CLI", editorId, section.projectId, "cli", adapter)).join("")}
-      ${section.rpcAdapters.map((adapter) => executionPreferencePresetButton("RPC", editorId, section.projectId, "rpc", adapter)).join("")}
+      ${section.cliAdapters.map((adapter) => executionPreferencePresetButton("CLI", editorId, section.projectId, adapter)).join("")}
+      ${section.rpcAdapters.map((adapter) => executionPreferencePresetButton("RPC", editorId, section.projectId, adapter)).join("")}
     </div>
     <h3>Validation Errors</h3>
     ${renderErrors(validation.errors)}
     <h3>JSON Config</h3>
     <textarea id="${editorId}" class="settings-editor" spellcheck="false" aria-label="Project execution preference JSON">${escapeHtml(JSON.stringify({
       projectId: section.projectId,
-      runMode: active.runMode ?? "cli",
       adapterId: active.adapterId,
     }, null, 2))}</textarea>
     <div class="toolbar">
@@ -70,12 +68,12 @@ function renderExecutionPreferenceSection(section: SystemSettingsViewModel["proj
   </section>`;
 }
 
-function executionPreferencePresetButton(label: string, editorId: string, projectId: string | undefined, runMode: "cli" | "rpc", adapter: Record<string, unknown>): string {
+function executionPreferencePresetButton(label: string, editorId: string, projectId: string | undefined, adapter: Record<string, unknown>): string {
   const adapterId = stringField(adapter, "id");
   const displayName = stringField(adapter, "displayName") ?? adapterId ?? "Adapter";
   return commandButton(`${label}: ${displayName}`, "loadSettingsPreset", {
     editorId,
-    presetJson: JSON.stringify({ projectId, runMode, adapterId }, null, 2),
+    presetJson: JSON.stringify({ projectId, adapterId }, null, 2),
   });
 }
 

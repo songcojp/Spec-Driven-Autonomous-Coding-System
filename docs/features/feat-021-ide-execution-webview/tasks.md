@@ -103,5 +103,5 @@ Feature ID: FEAT-021
 
 ### T-021-20 Feature 多选调度与 adapter 选择
 状态: done
-描述: Feature Spec Webview 支持勾选多个 Feature，并在顶部提供 run mode 与 provider adapter 选择；点击 Schedule Selected 后通过 VSCode extension host 为每个选中 Feature 创建独立 `schedule_run`，每个 Job 都携带 `mode=manual`、`operation=feature_execution`、`projectId`、`featureId` 和 Job 级 `executionPreference`。单个 Feature 的 Schedule Current 和详情 Schedule 也使用同一组执行偏好。
+描述: Feature Spec Webview 支持勾选多个 Feature，并在顶部提供 provider adapter 选择；点击 Schedule Selected 后通过 VSCode extension host 为每个选中 Feature 创建独立 `schedule_run`，每个 Job 都携带 `mode=manual`、`operation=feature_execution`、`projectId`、`featureId` 和 Job 级 `executionPreference`；run mode 由 adapter id 推导。单个 Feature 的 Schedule Current 和详情 Schedule 也使用同一组执行偏好。
 验证: `npm run ide:build` 验证 VSCode Webview 编译；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 控件、批量调度消息和 adapter payload。

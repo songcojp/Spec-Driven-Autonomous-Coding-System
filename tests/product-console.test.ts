@@ -975,7 +975,7 @@ test("system settings saves project execution preference with adapter provider v
     entityId: "project-1",
     requestedBy: "operator",
     reason: "Use RPC by default for this project.",
-    payload: { config: { projectId: "project-1", runMode: "rpc", adapterId: "codex-rpc-default" } },
+    payload: { config: { projectId: "project-1", adapterId: "codex-rpc-default" } },
     now: stableDate,
   });
   const settings = buildSystemSettingsView(dbPath);
@@ -989,12 +989,12 @@ test("system settings saves project execution preference with adapter provider v
     entityType: "settings",
     entityId: "project-1",
     requestedBy: "operator",
-    reason: "Reject mismatched provider.",
-    payload: { config: { projectId: "project-1", runMode: "cli", adapterId: "codex-rpc-default" } },
+    reason: "Reject missing provider.",
+    payload: { config: { projectId: "project-1", adapterId: "missing-adapter" } },
     now: stableDate,
   });
   assert.equal(invalid.status, "blocked");
-  assert.match(invalid.blockedReasons?.join("; ") ?? "", /CLI adapter not found/);
+  assert.match(invalid.blockedReasons?.join("; ") ?? "", /Adapter not found/);
 });
 
 test("schedule_run chooses run mode and provider from job override before project default", () => {
@@ -1048,7 +1048,7 @@ test("schedule_run chooses run mode and provider from job override before projec
       projectId: "project-1",
       featureId: "FEAT-013",
       mode: "manual",
-      executionPreference: { runMode: "cli", adapterId: "gemini-cli", source: "job" },
+      executionPreference: { adapterId: "gemini-cli", source: "job" },
     },
     now: stableDate,
   }, { scheduler });

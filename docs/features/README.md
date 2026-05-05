@@ -150,6 +150,6 @@ FEAT-000 System Bootstrap
 | CHG-022 | FEAT-018、FEAT-019 | RPC Adapter 增加迁移期兼容的 `codex.rpc.run` provider，与 `cli.run` 并存，并收敛到 `rpc.run`。 | Execution Adapter Layer 是唯一调用 app-server thread/turn API 的组件；Execution Record 扩展 thread/turn/transport/raw logs/approval/output schema 投影。 |
 | CHG-023 | FEAT-021 | VSCode 插件开发独立 Webview Web UI，不复用当前 Product Console Web UI；核心关注任务调度和自动执行、Spec 全流程控制、Feature Spec 卡片总览。 | 新增 FEAT-021，必须提供 Execution Workbench、Spec Workspace、Feature Spec 三组 VSCode IDE Webview。 |
 | CHG-024 | FEAT-021 | VSCode Feature Spec Webview 顶部 New Feature 输入提交后进入需求新增/变更模型判定；刷新同步 Feature index 与 Feature 文件夹；Feature 详情解析 `tasks.md` 任务状态。 | 已执行 `T-021-09` 至 `T-021-12`；`requirement-intake-skill` 已同步 Feature index 责任。 |
-| CHG-043 | FEAT-019 / FEAT-021 / FEAT-022 | VSCode Feature Spec Webview 支持 Feature 多选调度；Schedule Selected 和单 Feature Schedule 都必须携带 Job 级 `runMode` 与 provider adapter，并为每个 Feature 创建独立 `feature_execution` Job。 | 已执行 FEAT-021 `T-021-20`；复用 REQ-086 的执行偏好解析与 adapter 校验。 |
+| CHG-043 | FEAT-019 / FEAT-021 / FEAT-022 | VSCode Feature Spec Webview 支持 Feature 多选调度；Schedule Selected 和单 Feature Schedule 都必须携带 Job 级 provider adapter，并由 adapter id 推导 `runMode`，为每个 Feature 创建独立 `feature_execution` Job。 | 已执行 FEAT-021 `T-021-20`；复用 REQ-086 的执行偏好解析与 adapter 校验。 |
 | CHG-007 | FEAT-010 | 失败重试上限、2/4/8 分钟退避和失败指纹已由现有实现与测试覆盖。 | 无需重新执行 Feature Spec。 |
 | CHG-006 / CHG-008 | Mainline Docs | Issue Tracker 非目标和性能阈值基线记录是文档约束，不形成实现任务。 | 无需执行 Feature Spec。 |

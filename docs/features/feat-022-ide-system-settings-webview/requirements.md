@@ -25,5 +25,5 @@ Feature 名称: IDE System Settings Webview
 - [x] 所有配置修改通过 extension host 调用 Control Plane command API，不直接写 SQLite、配置文件或运行事实源。
 - [x] Webview 不复用 Product Console 页面、路由、App Shell 或组件实现。
 - [x] Product Console 系统设置保留；VSCode 与 Product Console 共享 `cli_adapter_configs`、`rpc_adapter_configs` 和审计事实源。
-- [ ] System Settings 展示并保存当前项目的默认 run mode 与 provider adapter。
-- [ ] 项目默认 provider 必须从对应 run mode 的 adapter 配置列表中选择。
+- [ ] System Settings 展示并保存当前项目的默认 provider adapter；run mode 由 adapter id 推导。
+- [ ] 项目默认 provider 必须从 CLI 或 RPC adapter 配置列表中选择，并由所选 adapter 推导 run mode。

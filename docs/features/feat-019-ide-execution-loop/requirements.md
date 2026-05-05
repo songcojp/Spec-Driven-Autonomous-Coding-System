@@ -26,7 +26,7 @@ Feature 名称: IDE Execution Loop
 - [ ] retry 引用上一条 execution id，并创建新 Job 和 Execution Record。
 - [ ] approval pending 可恢复，插件重载后仍能展示。
 - [ ] 未响应审批不得自动通过。
-- [ ] Enqueue、Run Now 和 Start Auto Run 创建新 Job 时可以携带 Job 级 `runMode` 与 provider adapter，覆盖项目级默认。
-- [ ] Feature Spec Webview 多选 Feature 后点击 Schedule 时，每个选中 Feature 都创建独立 `feature_execution` Job，并携带同一组 Job 级 `runMode` 与 provider adapter。
+- [ ] Enqueue、Run Now 和 Start Auto Run 创建新 Job 时可以携带 Job 级 provider adapter，覆盖项目级默认；`runMode` 由 adapter id 推导。
+- [ ] Feature Spec Webview 多选 Feature 后点击 Schedule 时，每个选中 Feature 都创建独立 `feature_execution` Job，并携带同一组 Job 级 provider adapter。
 - [ ] `cli` 偏好创建 `cli.run`，`rpc` 偏好创建 `rpc.run`，且 Execution Record 记录最终偏好。
-- [ ] Retry 继承 previous execution 的 run mode 与 provider adapter。
+- [ ] Retry 继承 previous execution 推导出的 run mode 与 provider adapter。

@@ -128,7 +128,7 @@ export function SettingsPage({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-[15px] font-semibold text-ink">Project Execution Defaults</h3>
-                <p className="mt-1 text-[13px] text-muted">Choose the default run mode and provider adapter for new project jobs.</p>
+                <p className="mt-1 text-[13px] text-muted">Choose the default provider adapter for new project jobs.</p>
               </div>
               <Chip tone={data.settings.projectExecutionPreference.validation.valid ? "green" : "red"}>
                 {data.settings.projectExecutionPreference.validation.valid ? text.dryRunPassed : text.dryRunFailed}
@@ -144,7 +144,7 @@ export function SettingsPage({
                     key={adapter.id}
                     disabled={busy}
                     onClick={() => onCommand("save_project_execution_preference", "settings", data.settings.projectExecutionPreference?.projectId ?? "project", {
-                      config: { projectId: data.settings.projectExecutionPreference?.projectId, runMode: "cli", adapterId: adapter.id },
+                      config: { projectId: data.settings.projectExecutionPreference?.projectId, adapterId: adapter.id },
                     })}
                   >
                     <Settings size={14} />
@@ -159,7 +159,7 @@ export function SettingsPage({
                     key={adapter.id}
                     disabled={busy}
                     onClick={() => onCommand("save_project_execution_preference", "settings", data.settings.projectExecutionPreference?.projectId ?? "project", {
-                      config: { projectId: data.settings.projectExecutionPreference?.projectId, runMode: "rpc", adapterId: adapter.id },
+                      config: { projectId: data.settings.projectExecutionPreference?.projectId, adapterId: adapter.id },
                     })}
                   >
                     <Settings size={14} />
@@ -178,7 +178,6 @@ export function SettingsPage({
                   <FactList
                     rows={[
                       ["Project", data.settings.projectExecutionPreference.projectId ?? text.none],
-                      ["Run Mode", data.settings.projectExecutionPreference.active.runMode],
                       ["Provider", data.settings.projectExecutionPreference.active.adapterId],
                     ]}
                   />

@@ -1055,17 +1055,17 @@ THE SYSTEM SHALL 展示独立 System Settings Webview，用于查看和管理 CL
 优先级：Must
 
 WHEN 用户在 System Settings 或 Execution Workbench 中选择执行方式
-THE SYSTEM SHALL 支持按项目保存系统级默认 `runMode` 与 provider adapter，并允许新建 Job 时用 Job 级 `runMode` 与 provider adapter 覆盖项目默认。
+THE SYSTEM SHALL 支持按项目保存系统级默认 provider adapter，并允许新建 Job 时用 Job 级 provider adapter 覆盖项目默认；系统必须由 adapter id 所属配置表推导 `runMode`。
 
 验收：
-- [ ] 项目级执行偏好必须保存在 SQLite，包含 `runMode` (`cli` / `rpc`) 与对应 adapter id。
+- [ ] 项目级执行偏好必须保存在 SQLite，包含 adapter id；`runMode` (`cli` / `rpc`) 为由 adapter id 推导的内部调度字段。
 - [ ] `cli` provider 必须来自 `cli_adapter_configs.id`，`rpc` provider 必须来自 `rpc_adapter_configs.id`。
 - [ ] 新建 Job 的执行偏好优先级必须为 Job payload > 项目默认 > 兼容默认 `cli + active CLI adapter`。
 - [ ] `runMode = cli` 必须创建 `cli.run` Job；`runMode = rpc` 必须创建 `rpc.run` Job。
-- [ ] adapter id 与 run mode 不匹配、缺失、disabled 或 invalid 时，调度必须 blocked，且不得覆盖已有 active adapter。
+- [ ] adapter id 缺失、不存在、disabled 或 invalid 时，调度必须 blocked，且不得覆盖已有 active adapter；用户界面不得要求单独选择 run mode。
 - [ ] Retry 必须继承 previous execution 的 `runMode` 与 adapter id，不因新的项目默认而静默切换。
-- [ ] VSCode Execution Workbench 必须在 Enqueue、Run Now、Start Auto Run 前提供 Job 级 run mode 与 provider adapter 选择。
-- [ ] VSCode Feature Spec Webview 必须支持多选 Feature；点击 Schedule 时为每个选中的 Feature 创建新 Job，并允许本次调度指定 Job 级 run mode 与 provider adapter。
+- [ ] VSCode Execution Workbench 必须在 Enqueue、Run Now、Start Auto Run 前提供 Job 级 provider adapter 选择。
+- [ ] VSCode Feature Spec Webview 必须支持多选 Feature；点击 Schedule 时为每个选中的 Feature 创建新 Job，并允许本次调度指定 Job 级 provider adapter。
 - [ ] Queue item、Execution detail、审计 payload 和 Execution Record 必须展示或记录最终执行偏好及来源。
 
 ## 7. 非功能需求

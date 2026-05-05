@@ -242,6 +242,7 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
 
 test("VSCode Feature Spec Webview schedules selected Features with adapter preference", () => {
   assert.match(extensionSource, /executionPreferenceControls\(view\)/);
+  assert.doesNotMatch(extensionSource, /id="job-run-mode"/);
   assert.match(extensionSource, /commandButton\("Schedule Selected", "scheduleSelectedFeatures"/);
   assert.match(extensionSource, /data-feature-select/);
   assert.match(extensionSource, /const selectedFeatureIds = \(\) =>/);
