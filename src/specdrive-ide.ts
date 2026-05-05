@@ -1233,11 +1233,20 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         ...(folderExists ? [] : [`Feature folder is missing for indexed Feature ${featureId}: docs/features/${folder}.`]),
         ...taskProjection.blockedReasons,
       ];
+      const status = resolveFeatureNodeStatus(optionalString(state.status), indexEntry?.status, documents, taskProjection);
+      const stateCurrentJob = isRecord(state.currentJob) ? state.currentJob : undefined;
+      const stateExecutionId = optionalString(stateCurrentJob?.executionId);
+      const latestExecutionStatus = isCompletedFeatureStatus(status)
+        ? "completed"
+        : latestExecution?.status;
+      const latestExecutionId = isCompletedFeatureStatus(status)
+        ? stateExecutionId ?? latestExecution?.executionId
+        : latestExecution?.executionId;
       return {
         id: featureId,
         folder,
         title: optionalString(state.title) ?? indexEntry?.title ?? titleFromFolder(folder),
-        status: resolveFeatureNodeStatus(optionalString(state.status), indexEntry?.status, documents, taskProjection),
+        status,
         priority: optionalString(queueEntry?.priority),
         dependencies: stringArray(state.dependencies).length > 0
           ? stringArray(state.dependencies)
@@ -1246,14 +1255,19 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
             : stringArray(queueEntry?.dependencies),
         blockedReasons: syncBlockedReasons,
         nextAction: optionalString(state.nextAction),
-        latestExecutionId: latestExecution?.executionId,
-        latestExecutionStatus: latestExecution?.status,
+        latestExecutionId,
+        latestExecutionStatus,
         indexStatus: indexed ? folderExists ? "indexed" : "missing_folder" : "missing_from_index",
         tasks: taskProjection.tasks,
         taskParseBlockedReasons: taskProjection.blockedReasons,
         documents,
       };
     });
+}
+
+function isCompletedFeatureStatus(status: string): boolean {
+  const normalized = status.toLowerCase().replaceAll("_", " ").replaceAll("-", " ").trim();
+  return normalized === "done" || normalized === "completed" || normalized === "delivered";
 }
 
 function resolveFeatureNodeStatus(

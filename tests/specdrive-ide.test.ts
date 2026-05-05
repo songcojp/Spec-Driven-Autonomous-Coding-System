@@ -464,6 +464,69 @@ test("SpecDrive IDE view supports legacy feature index without Folder column", (
   assert.equal(feature?.documents.find((document) => document.kind === "feature-tasks")?.path, "docs/features/FEAT-001/tasks.md");
 });
 
+test("SpecDrive IDE keeps completed Feature projection after later cancelled scheduling noise", () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-ide-completed-feature-"));
+  mkdirSync(join(workspaceRoot, ".autobuild"), { recursive: true });
+  mkdirSync(join(workspaceRoot, "docs/features/FEAT-001"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs/PRD.md"), "# PRD\n");
+  writeFileSync(join(workspaceRoot, "docs/features/README.md"), [
+    "# Feature Specs",
+    "",
+    "| Feature ID | Status | Name | Milestone | Dependencies |",
+    "| --- | --- | --- | --- | --- |",
+    "| FEAT-001 | done | Android Project Foundation | V1.0 Foundation | - |",
+    "",
+  ].join("\n"));
+  writeFileSync(join(workspaceRoot, "docs/features/feature-pool-queue.json"), JSON.stringify({
+    version: 1,
+    features: [
+      { id: "FEAT-001", priority: "P1", status: "done", dependencies: [] },
+    ],
+  }));
+  writeFileSync(join(workspaceRoot, "docs/features/FEAT-001/requirements.md"), "# FEAT-001 requirements\n");
+  writeFileSync(join(workspaceRoot, "docs/features/FEAT-001/design.md"), "# FEAT-001 design\n");
+  writeFileSync(join(workspaceRoot, "docs/features/FEAT-001/tasks.md"), "- [x] T001 Create Android project foundation.\n");
+  writeFileSync(join(workspaceRoot, "docs/features/FEAT-001/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-001",
+    status: "completed",
+    currentJob: { executionId: "RUN-DONE", schedulerJobId: "JOB-DONE" },
+    blockedReasons: [],
+    dependencies: [],
+    nextAction: "Run verification outside sandbox.",
+  }));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-DONE', 'bull-done', 'specdrive:execution-adapter', 'rpc.run', 'completed', '{}', '2026-05-05T10:00:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, summary, metadata_json)
+        VALUES ('RUN-DONE', 'JOB-DONE', 'codex.rpc', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05T10:00:00.000Z', '2026-05-05T10:05:00.000Z', 'Completed.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-001" })],
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-CANCELLED', 'bull-cancelled', 'specdrive:execution-adapter', 'rpc.run', 'cancelled', '{}', '2026-05-05T11:00:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, summary, metadata_json)
+        VALUES ('RUN-CANCELLED', 'JOB-CANCELLED', 'codex.rpc', 'feature_execution', 'project-ide', ?, 'cancelled', '2026-05-05T11:00:00.000Z', '2026-05-05T11:01:00.000Z', 'Cancelled duplicate schedule.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-001" })],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-001");
+
+  assert.equal(feature?.status, "completed");
+  assert.equal(feature?.latestExecutionId, "RUN-DONE");
+  assert.equal(feature?.latestExecutionStatus, "completed");
+});
+
 test("parseFeatureTasksMarkdown supports checkbox and status block task formats", () => {
   const tasks = parseFeatureTasksMarkdown([
     "- [x] TASK-001: Completed checkbox task",

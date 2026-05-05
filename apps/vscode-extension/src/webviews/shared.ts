@@ -73,6 +73,16 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
         .map((entry) => entry.dataset.featureSelect)
         .filter(Boolean);
     };
+    document.addEventListener("change", (event) => {
+      const checkbox = event.target.closest("[data-feature-select]");
+      if (!checkbox) return;
+      const card = checkbox.closest("[data-feature-card]");
+      const selected = Boolean(checkbox.checked);
+      if (card) {
+        card.classList.toggle("selected", selected);
+        card.setAttribute("aria-selected", selected ? "true" : "false");
+      }
+    });
     document.addEventListener("click", (event) => {
       const target = event.target.closest("[data-command]");
       if (!target) return;

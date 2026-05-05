@@ -231,6 +231,9 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /\.feature-panel summary::before\{content:"\+"/);
   assert.match(extensionSource, /\.feature-panel\[open\] summary::before\{content:"-"\}/);
   assert.match(extensionSource, /\.feature-card\.selected\{border-color:var\(--accent\);background:var\(--vscode-list-activeSelectionBackground\)/);
+  assert.match(extensionSource, /data-feature-card="\$\{escapeAttr\(feature\.id\)\}"/);
+  assert.match(extensionSource, /card\.classList\.toggle\("selected", selected\)/);
+  assert.match(extensionSource, /card\.setAttribute\("aria-selected", selected \? "true" : "false"\)/);
   assert.match(extensionSource, /aria-current=\\"true\\"/);
   assert.match(extensionSource, /isClarificationNeededFeature\(feature\)/);
   assert.match(extensionSource, /commandButton\("Clarify", "openWorkbenchForm"/);
@@ -251,7 +254,10 @@ test("VSCode Feature Spec Webview schedules selected Features with adapter prefe
   assert.match(extensionSource, /executionPreference: selectedExecutionPreference\(\)/);
   assert.match(extensionSource, /message\.command === "scheduleFeatures"/);
   assert.match(extensionSource, /scheduleFeatureSelection\(message, provider\)/);
-  assert.match(extensionSource, /for \(const featureId of featureIds\)/);
+  assert.match(extensionSource, /const schedulableFeatureIds = featureIds\.filter/);
+  assert.match(extensionSource, /Skipped completed or terminal Feature Specs/);
+  assert.match(extensionSource, /function isSchedulableFeature/);
+  assert.match(extensionSource, /for \(const featureId of schedulableFeatureIds\)/);
   assert.match(extensionSource, /action: "schedule_run"/);
   assert.match(extensionSource, /mode: "manual"/);
   assert.match(extensionSource, /operation: "feature_execution"/);

@@ -2299,6 +2299,46 @@ test("console schedule command blocks feature execution when Feature Spec direct
   assert.deepEqual(result.queries.jobs, []);
 });
 
+test("console schedule command blocks completed Feature execution", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "feature-execution-completed-"));
+  const featureDir = join(projectPath, "docs", "features", "feat-013-product-console");
+  mkdirSync(featureDir, { recursive: true });
+  writeFileSync(join(featureDir, "requirements.md"), "# Requirements\n", "utf8");
+  writeFileSync(join(featureDir, "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n", "utf8");
+  writeFileSync(join(featureDir, "spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-013",
+    status: "completed",
+    blockedReasons: [],
+  }));
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE features SET status = 'done' WHERE id = 'FEAT-013'" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Do not rerun completed feature execution.",
+    payload: { projectId: "project-1", mode: "manual" },
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT id FROM scheduler_job_records" },
+  ]);
+
+  assert.equal(receipt.status, "blocked");
+  assert.match(receipt.blockedReasons?.join("\n") ?? "", /already completed/);
+  assert.equal(receipt.schedulerJobId, undefined);
+  assert.deepEqual(result.queries.jobs, []);
+});
+
 function makeDbPath(): string {
   const root = mkdtempSync(join(tmpdir(), "feat-013-console-"));
   const dbPath = join(root, ".autobuild", "autobuild.db");

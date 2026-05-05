@@ -3006,6 +3006,9 @@ function executeScheduleCommand(
     ? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt))
     : undefined;
   if (operation === "feature_execution" && skillSlug === "codex-coding-skill") {
+    if (isCompletedFeatureExecutionTarget(dbPath, projectId, featureId, specState?.status)) {
+      return { triggerId: trigger.id, blockedReasons: [`${featureId ?? input.entityId} is already completed and cannot be scheduled again.`] };
+    }
     const readiness = validateFeatureSpecExecutionInput(workspaceRoot, featureSpecPath);
     if (readiness.length > 0) {
       if (workspaceRoot && featureFolder && featureId) {
@@ -3080,6 +3083,29 @@ function executeScheduleCommand(
     }));
   }
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId };
+}
+
+function isCompletedFeatureExecutionTarget(
+  dbPath: string,
+  projectId: string | undefined,
+  featureId: string | undefined,
+  specStateStatus: string | undefined,
+): boolean {
+  if (isCompletedFeatureStatusValue(specStateStatus)) return true;
+  if (!projectId || !featureId) return false;
+  const rows = runSqlite(dbPath, [], [
+    {
+      name: "feature",
+      sql: "SELECT status FROM features WHERE project_id = ? AND id = ? LIMIT 1",
+      params: [projectId, featureId],
+    },
+  ]).queries.feature;
+  return isCompletedFeatureStatusValue(optionalString(rows[0]?.status));
+}
+
+function isCompletedFeatureStatusValue(status: string | undefined): boolean {
+  const normalized = (status ?? "").toLowerCase().replaceAll("_", " ").replaceAll("-", " ").trim();
+  return normalized === "done" || normalized === "completed" || normalized === "delivered";
 }
 
 function validateFeatureSpecExecutionInput(workspaceRoot?: string, featureSpecPath?: string): string[] {

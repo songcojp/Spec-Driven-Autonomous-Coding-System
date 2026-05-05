@@ -114,7 +114,7 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean):
   const progress = taskCount > 0
     ? Math.round((doneTasks / taskCount) * 100)
     : feature.latestExecutionStatus === "completed" ? 100 : feature.latestExecutionStatus === "running" ? 70 : feature.status === "ready" ? 60 : 30;
-  return `<article class="feature-card ${selected ? "selected" : ""}" ${selected ? "aria-current=\"true\"" : ""}>
+  return `<article class="feature-card ${selected ? "selected" : ""}" data-feature-card="${escapeAttr(feature.id)}" aria-selected="${selected ? "true" : "false"}" ${selected ? "aria-current=\"true\"" : ""}>
     <header><strong>${escapeHtml(feature.id)}</strong><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></header>
     <div>${escapeHtml(feature.title)}</div>
     <div class="metric"><span>Task Progress</span><strong>${progress}%</strong><div class="bar"><span style="width:${progress}%"></span></div></div>

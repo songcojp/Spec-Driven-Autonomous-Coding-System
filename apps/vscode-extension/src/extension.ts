@@ -1227,19 +1227,25 @@ async function scheduleFeatureSelection(message: Record<string, unknown>, provid
     await vscode.window.showErrorMessage("SpecDrive Feature scheduling requires a recognized project.");
     return;
   }
-  const knownFeatureIds = new Set((view?.features ?? []).map((feature) => feature.id));
+  const featuresById = new Map((view?.features ?? []).map((feature) => [feature.id, feature]));
   const featureIds = Array.isArray(message.featureIds)
-    ? message.featureIds.filter((entry): entry is string => typeof entry === "string" && knownFeatureIds.has(entry))
+    ? message.featureIds.filter((entry): entry is string => typeof entry === "string" && featuresById.has(entry))
     : [];
   if (featureIds.length === 0) {
     await vscode.window.showErrorMessage("Select at least one Feature Spec to schedule.");
+    return;
+  }
+  const schedulableFeatureIds = featureIds.filter((featureId) => isSchedulableFeature(featuresById.get(featureId)));
+  const skippedFeatureIds = featureIds.filter((featureId) => !schedulableFeatureIds.includes(featureId));
+  if (schedulableFeatureIds.length === 0) {
+    await vscode.window.showInformationMessage(`No selected Feature Specs can be scheduled. Skipped: ${skippedFeatureIds.join(", ")}.`);
     return;
   }
   const executionPreference = typeof message.executionPreference === "object" && message.executionPreference !== null && !Array.isArray(message.executionPreference)
     ? message.executionPreference as Record<string, unknown>
     : undefined;
   const receipts: string[] = [];
-  for (const featureId of featureIds) {
+  for (const featureId of schedulableFeatureIds) {
     const response = await postIdeCommand({
       action: "schedule_run",
       entityType: "feature",
@@ -1259,8 +1265,21 @@ async function scheduleFeatureSelection(message: Record<string, unknown>, provid
     const executionId = typeof response.executionId === "string" ? `:${response.executionId}` : "";
     receipts.push(`${featureId}=${status}${executionId}`);
   }
-  await vscode.window.showInformationMessage(`SpecDrive scheduled ${receipts.length} Feature Spec${receipts.length === 1 ? "" : "s"}: ${receipts.join(", ")}`);
+  const skipped = skippedFeatureIds.length > 0 ? ` Skipped completed or terminal Feature Specs: ${skippedFeatureIds.join(", ")}.` : "";
+  await vscode.window.showInformationMessage(`SpecDrive scheduled ${receipts.length} Feature Spec${receipts.length === 1 ? "" : "s"}: ${receipts.join(", ")}.${skipped}`);
   await provider.refresh();
+}
+
+function isSchedulableFeature(feature: SpecDriveIdeFeatureNode | undefined): boolean {
+  if (!feature) return false;
+  const status = normalizeFeatureScheduleStatus(feature.status);
+  const executionStatus = normalizeFeatureScheduleStatus(feature.latestExecutionStatus);
+  return !["done", "completed", "delivered"].includes(status)
+    && !["queued", "running"].includes(executionStatus);
+}
+
+function normalizeFeatureScheduleStatus(status: string | undefined): string {
+  return (status ?? "").toLowerCase().replaceAll("_", " ").replaceAll("-", " ").trim();
 }
 
 async function submitSpecWorkspaceRequest(content: string, intent: unknown, provider: SpecExplorerProvider): Promise<void> {
