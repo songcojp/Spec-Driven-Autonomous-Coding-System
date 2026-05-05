@@ -8,7 +8,9 @@ export type FileSpecLifecycleStatus =
   | "ready"
   | "queued"
   | "running"
+  | "paused"
   | "approval_needed"
+  | "cancelled"
   | "blocked"
   | "review_needed"
   | "completed"
@@ -843,7 +845,10 @@ function isFileSpecLifecycleStatus(value: unknown): value is FileSpecLifecycleSt
     "ready",
     "queued",
     "running",
+    "paused",
+    "approval_needed",
     "blocked",
+    "cancelled",
     "review_needed",
     "completed",
     "failed",

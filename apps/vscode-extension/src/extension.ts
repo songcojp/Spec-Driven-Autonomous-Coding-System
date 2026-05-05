@@ -1018,7 +1018,7 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
     try {
       await provider.refresh();
       const view = provider.currentView();
-      if (autoRefreshEnabled && view) {
+      if (autoRefreshEnabled && view && !selectedQueueKey) {
         selectedQueueKey = queueItemKeyForWorkbench(runningExecutionItem(view)) ?? selectedQueueKey;
       }
       const selected = executionItemByKey(view, selectedQueueKey);

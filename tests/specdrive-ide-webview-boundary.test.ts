@@ -18,6 +18,7 @@ function readSourceTree(dir: string): string {
 
 const extensionSource = readSourceTree("apps/vscode-extension/src");
 const webviewSource = readSourceTree("apps/vscode-extension/src/webviews");
+const executionQueueGroupsBlock = webviewSource.match(/const EXECUTION_QUEUE_GROUPS[\s\S]*?\];/)?.[0] ?? "";
 const productConsoleSource = readFileSync("src/product-console.ts", "utf8");
 const vscodeRestartBackendScript = readFileSync("scripts/vscode-restart-backend.sh", "utf8");
 const vscodeDebugScript = readFileSync("scripts/vscode-debug.sh", "utf8");
@@ -96,6 +97,7 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /setInterval\(\(\) => \{/);
   assert.match(extensionSource, /\}, WEBVIEW_AUTO_REFRESH_INTERVAL_MS\)/);
   assert.match(extensionSource, /message\.command === "toggleAutoRefresh"/);
+  assert.match(extensionSource, /if \(autoRefreshEnabled && view && !selectedQueueKey\)/);
   assert.match(extensionSource, /runningExecutionItem\(view\)/);
   assert.match(webviewSource, /autoRefreshSwitch\(autoRefreshEnabled\)/);
   assert.match(webviewSource, /role="switch"/);
@@ -107,6 +109,14 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /commandButton\("Start Auto Run", "controlled"/);
   assert.match(extensionSource, /commandButton\(selected \? "Selected" : "Select", "selectQueueItem"/);
   assert.match(extensionSource, /class="queue-item\$\{selected \? " selected" : ""\}"/);
+  assert.match(extensionSource, /const EXECUTION_QUEUE_GROUPS: Array<\{ status: string; open: boolean \}> = \[/);
+  assert.match(extensionSource, /\{ status: "running", open: true \},\n  \{ status: "queued", open: true \}/);
+  assert.match(extensionSource, /\{ status: "approval_needed", open: false \}/);
+  assert.doesNotMatch(executionQueueGroupsBlock, /status: "ready"/);
+  assert.match(extensionSource, /renderQueueGroup\(group\.status, grouped\[group\.status\] \?\? \[\], selectedKey, group\.open\)/);
+  assert.match(extensionSource, /<details class="queue-group"\$\{open \? " open" : ""\}>/);
+  assert.match(extensionSource, /<summary class="queue-head">/);
+  assert.match(extensionSource, /\.queue-group\[open\] \.queue-head::before\{content:"-"\}/);
   assert.match(extensionSource, /Select a job to enable job actions\./);
   assert.match(extensionSource, /<main class="execution-layout">/);
   assert.match(extensionSource, /<h2>Current Selected<\/h2>/);

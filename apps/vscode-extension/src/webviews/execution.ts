@@ -19,6 +19,18 @@ import {
   webviewNonce,
 } from "./shared";
 
+const EXECUTION_QUEUE_GROUPS: Array<{ status: string; open: boolean }> = [
+  { status: "running", open: true },
+  { status: "queued", open: true },
+  { status: "approval_needed", open: false },
+  { status: "blocked", open: false },
+  { status: "failed", open: false },
+  { status: "paused", open: false },
+  { status: "cancelled", open: false },
+  { status: "skipped", open: false },
+  { status: "completed", open: false },
+];
+
 export function renderExecutionWorkbenchWebview(
   view: SpecDriveIdeView | undefined,
   detail: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined,
@@ -42,7 +54,7 @@ export function renderExecutionWorkbenchWebview(
     <main class="execution-layout">
       <section class="panel execution-queue-column">
         <div class="panel-title"><h2>Execution Queue</h2><span>${queue.length} items</span></div>
-        ${["ready", "queued", "running", "approval_needed", "blocked", "failed", "paused", "cancelled", "skipped", "completed"].map((status) => renderQueueGroup(status, grouped[status] ?? [], selectedKey)).join("")}
+        ${EXECUTION_QUEUE_GROUPS.map((group) => renderQueueGroup(group.status, grouped[group.status] ?? [], selectedKey, group.open)).join("")}
       </section>
       <section class="panel current-selected-column">
         <div class="panel-title selected-title">

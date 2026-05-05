@@ -696,6 +696,79 @@ test("SpecDrive IDE queue actions operate on schedule-only jobs", async () => {
   ]).queries.job[0].status, "cancelled");
 });
 
+test("SpecDrive IDE queue actions can pause and cancel another job while a run is active", async () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedRuntimeState(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "JOB-WAITING",
+        "bull-waiting",
+        "specdrive:execution-adapter",
+        "cli.run",
+        "queued",
+        JSON.stringify({
+          projectId: "project-ide",
+          operation: "feature_execution",
+          requestedAction: "feature_execution",
+          context: { projectId: "project-ide", featureId: "FEAT-016", taskId: "TASK-WAITING", skillSlug: "codex-coding-skill" },
+        }),
+        "2026-05-02T12:10:00.000Z",
+      ],
+    },
+  ]);
+
+  const pause = await submitIdeQueueCommand(dbPath, {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: "project-ide",
+    workspaceRoot,
+    queueAction: "pause",
+    entityType: "job",
+    entityId: "JOB-WAITING",
+    requestedBy: "vscode-extension",
+    reason: "Pause waiting job while another run is active.",
+  }, { now: new Date("2026-05-02T12:11:00.000Z") });
+  const pausedState = readFileSpecState(workspaceRoot, "feat-016-specdrive-ide-foundation", "FEAT-016");
+  const pausedView = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const cancel = await submitIdeQueueCommand(dbPath, {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: "project-ide",
+    workspaceRoot,
+    queueAction: "cancel",
+    entityType: "job",
+    entityId: "JOB-WAITING",
+    requestedBy: "vscode-extension",
+    reason: "Cancel waiting job while another run is active.",
+  }, { now: new Date("2026-05-02T12:12:00.000Z") });
+
+  assert.equal(pause.status, "accepted");
+  assert.equal(pausedState.status, "paused");
+  assert.equal(pausedState.currentJob?.schedulerJobId, "JOB-WAITING");
+  assert.equal(pausedView.features.find((entry) => entry.id === "FEAT-016")?.status, "paused");
+  assert.equal(cancel.status, "accepted");
+  const cancelledState = readFileSpecState(workspaceRoot, "feat-016-specdrive-ide-foundation", "FEAT-016");
+  const cancelledView = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  assert.equal(cancelledState.status, "cancelled");
+  assert.equal(cancelledState.lastResult?.status, "cancelled");
+  assert.equal(cancelledState.currentJob?.completedAt, "2026-05-02T12:12:00.000Z");
+  assert.equal(cancelledState.history.at(-1)?.source, "ide.queue_action");
+  assert.equal(cancelledView.features.find((entry) => entry.id === "FEAT-016")?.status, "cancelled");
+  const rows = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT id, status FROM scheduler_job_records WHERE id IN ('JOB-IDE', 'JOB-WAITING') ORDER BY id" },
+  ]).queries.jobs;
+  assert.deepEqual(rows.map((row) => [row.id, row.status]), [
+    ["JOB-IDE", "running"],
+    ["JOB-WAITING", "cancelled"],
+  ]);
+});
+
 test("SpecDrive IDE view exposes diagnostics for blocked spec state and failed executions", () => {
   const workspaceRoot = makeWorkspace();
   writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({

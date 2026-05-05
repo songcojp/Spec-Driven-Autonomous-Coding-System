@@ -105,3 +105,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Feature Spec Webview 支持勾选多个 Feature，并在顶部提供 provider adapter 选择；点击 Schedule Selected 后通过 VSCode extension host 为每个选中 Feature 创建独立 `schedule_run`，每个 Job 都携带 `mode=manual`、`operation=feature_execution`、`projectId`、`featureId` 和 Job 级 `executionPreference`；run mode 由 adapter id 推导。单个 Feature 的 Schedule Current 和详情 Schedule 也使用同一组执行偏好。
 验证: `npm run ide:build` 验证 VSCode Webview 编译；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 控件、批量调度消息和 adapter payload。
+
+### T-021-21 Execution Workbench 队列分类折叠
+状态: done
+描述: Execution Workbench 队列分类 panel 支持折叠/展开；分类移除 `ready`，并按 `running`、`queued`、`approval_needed`、`blocked`、`failed`、`paused`、`cancelled`、`skipped`、`completed` 固定排序；`running` 和 `queued` 默认展开，其它分类默认折叠。
+验证: `node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 源码边界；`git diff --check` 验证文档和代码格式。

@@ -2366,6 +2366,55 @@ test("console schedule command blocks duplicate active manual Feature execution"
   assert.equal(rows.queries.jobs.length, 1);
 });
 
+test("console schedule command serializes project-level Feature executions", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "feature-execution-serial-"));
+  for (const folder of ["feat-013-product-console", "feat-012-delivery-spec-evolution"]) {
+    const featureDir = join(projectPath, "docs", "features", folder);
+    mkdirSync(featureDir, { recursive: true });
+    writeFileSync(join(featureDir, "requirements.md"), "# Requirements\n", "utf8");
+    writeFileSync(join(featureDir, "design.md"), "# Design\n", "utf8");
+    writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n", "utf8");
+  }
+  runSqlite(dbPath, [
+    { sql: "DELETE FROM execution_records" },
+    { sql: "DELETE FROM scheduler_job_records" },
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE features SET status = 'ready', folder = 'feat-013-product-console' WHERE id = 'FEAT-013'" },
+    { sql: "UPDATE features SET status = 'ready', folder = 'feat-012-delivery-spec-evolution' WHERE id = 'FEAT-012'" },
+  ]);
+
+  const first = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Schedule first feature execution.",
+    payload: { projectId: "project-1", mode: "manual" },
+    now: stableDate,
+  }, { scheduler });
+  const second = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-012",
+    requestedBy: "operator",
+    reason: "Do not run a second feature in the same checkout.",
+    payload: { projectId: "project-1", mode: "manual" },
+    now: stableDate,
+  }, { scheduler });
+  const rows = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT id FROM scheduler_job_records" },
+  ]);
+
+  assert.equal(first.status, "accepted");
+  assert.equal(second.status, "blocked");
+  assert.match(second.blockedReasons?.join("\n") ?? "", /Project already has active feature_execution/);
+  assert.equal(second.schedulerJobId, undefined);
+  assert.equal(rows.queries.jobs.length, 1);
+});
+
 test("console schedule command blocks completed Feature execution", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);

@@ -13,10 +13,15 @@ staging, and commit creation. GitHub-facing delivery operations use `gh`, includ
 push setup when available, PR creation, PR checks, PR merge, and remote branch
 cleanup.
 
+The scheduler/runtime may start the skill in the source checkout. It must not create
+the implementation worktree on the skill's behalf. Treat the invocation
+`workspaceRoot` as the source checkout unless it is already verified as an isolated
+worktree.
+
 ## Workflow
 
 1. Read the task, related Feature Spec, restrictive requirements, design constraints, allowed file scope, and project constitution constraints.
-2. Inspect the current repository state and create or verify an isolated implementation worktree on a feature branch before editing. If the scheduler already provided a worktree path, verify it with `git worktree list --porcelain`; otherwise create one with `git worktree add -b <branch> <worktree-path> <base>`. Do not implement feature code directly in the source checkout.
+2. Inspect the current repository state and create or verify an isolated implementation worktree on a feature branch before editing. Verify an existing isolated worktree with `git worktree list --porcelain`; otherwise create one with `git worktree add -b <branch> <worktree-path> <base>` from the source checkout. Do not implement feature code directly in the source checkout.
 3. Run requirements review against the Feature Spec and source requirements. Confirm that each implementation task maps to approved `REQ-*`, `NFR-*`, `EDGE-*`, or task traceability. Stop with `clarification_needed` when material requirement intent is unclear.
 4. Run design review against the Feature Spec design, HLD/design constraints, data/contract boundaries, and allowed file scope. Stop with `risk_review_needed` when the implementation would exceed approved design or scope.
 5. If requirements or design review exposes a question that can be safely resolved by automatic decision, record it in a dedicated clarification and decision section in the corresponding document before implementation. Use the affected document closest to the decision:

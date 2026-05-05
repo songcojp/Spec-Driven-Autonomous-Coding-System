@@ -10,6 +10,12 @@ import {
 import { submitConsoleCommand, type ConsoleCommandInput, type ConsoleCommandReceipt } from "./product-console.ts";
 import type { SchedulerClient } from "./scheduler.ts";
 import { runSqlite } from "./sqlite.ts";
+import {
+  mergeFileSpecState,
+  readFileSpecState,
+  writeFileSpecState,
+  type FileSpecLifecycleStatus,
+} from "./spec-protocol.ts";
 
 export type SpecDriveIdeDocument = {
   kind:
@@ -679,7 +685,7 @@ export async function submitIdeQueueCommand(
       cancelReason: command.reason,
       cancelledBy: command.requestedBy ?? "vscode-extension",
       interruptResult,
-    });
+    }, command.workspaceRoot);
     return { ...base(), schedulerJobId: target.schedulerJobId, executionId: target.executionId, interruptResult };
   }
 
@@ -689,7 +695,7 @@ export async function submitIdeQueueCommand(
       blockedReasons.push(`Execution or job not found for skip: ${command.entityId}`);
       return base();
     }
-    updateQueueTarget(dbPath, target, "skipped", acceptedAt, { skipReason: command.reason });
+    updateQueueTarget(dbPath, target, "skipped", acceptedAt, { skipReason: command.reason }, command.workspaceRoot);
     return { ...base(), schedulerJobId: target.schedulerJobId, executionId: target.executionId };
   }
 
@@ -700,9 +706,9 @@ export async function submitIdeQueueCommand(
       return base();
     }
     if (command.queueAction === "pause") {
-      updateQueueTarget(dbPath, target, "paused", acceptedAt, { pausedReason: command.reason });
+      updateQueueTarget(dbPath, target, "paused", acceptedAt, { pausedReason: command.reason }, command.workspaceRoot);
     } else if (command.queueAction === "resume") {
-      updateQueueTarget(dbPath, target, "queued", acceptedAt, { resumedReason: command.reason, blockedReason: undefined });
+      updateQueueTarget(dbPath, target, "queued", acceptedAt, { resumedReason: command.reason, blockedReason: undefined }, command.workspaceRoot);
     } else if (command.queueAction === "reprioritize") {
       updateQueuePriority(dbPath, target, command.payload, acceptedAt);
     } else {
@@ -714,7 +720,7 @@ export async function submitIdeQueueCommand(
         approvalState: "answered",
         approvalDecision: command.approvalDecision,
         approvalReason: command.reason,
-      });
+      }, command.workspaceRoot);
     }
     return { ...base(), schedulerJobId: target.schedulerJobId, executionId: target.executionId };
   }
@@ -1711,6 +1717,7 @@ function updateQueueTarget(
   status: string,
   acceptedAt: string,
   metadataPatch: Record<string, unknown>,
+  workspaceRoot?: string,
 ): void {
   const metadata = { ...target.metadata };
   for (const [key, value] of Object.entries(metadataPatch)) {
@@ -1727,6 +1734,112 @@ function updateQueueTarget(
       params: [status, status, acceptedAt, JSON.stringify(metadata), acceptedAt, target.executionId],
     }] : []),
   ]);
+  updateQueueTargetSpecState(dbPath, target, status, acceptedAt, metadataPatch, workspaceRoot);
+}
+
+function updateQueueTargetSpecState(
+  dbPath: string,
+  target: QueueExecutionRow,
+  status: string,
+  acceptedAt: string,
+  metadataPatch: Record<string, unknown>,
+  workspaceRoot?: string,
+): void {
+  const fileStatus = queueStatusToFileSpecStatus(status);
+  if (!fileStatus) return;
+  const root = workspaceRoot
+    ?? optionalString(target.context.workspaceRoot)
+    ?? optionalString(target.payload.workspaceRoot)
+    ?? optionalString(target.metadata.workspaceRoot);
+  const featureId = optionalString(target.context.featureId)
+    ?? optionalString(target.payload.featureId)
+    ?? optionalString(isRecord(target.payload.context) ? target.payload.context.featureId : undefined);
+  if (!root || !featureId) return;
+  const folder = featureFolderForQueueTarget(dbPath, root, featureId, target);
+  if (!folder) return;
+  try {
+    const current = readFileSpecState(root, folder, featureId, new Date(acceptedAt));
+    const summary = queueStatusSpecStateSummary(status, metadataPatch);
+    writeFileSpecState(root, folder, mergeFileSpecState(current, {
+      status: fileStatus,
+      blockedReasons: fileStatus === "blocked" || fileStatus === "failed" ? [summary] : [],
+      currentJob: {
+        ...current.currentJob,
+        schedulerJobId: target.schedulerJobId ?? current.currentJob?.schedulerJobId,
+        executionId: target.executionId ?? current.currentJob?.executionId,
+        operation: target.operation,
+        queuedAt: current.currentJob?.queuedAt ?? optionalString(target.payload.requestedFor),
+        startedAt: current.currentJob?.startedAt,
+        completedAt: ["cancelled", "skipped", "completed", "failed"].includes(fileStatus) ? acceptedAt : current.currentJob?.completedAt,
+      },
+      lastResult: ["cancelled", "skipped", "completed", "failed"].includes(fileStatus)
+        ? {
+            status: fileStatus,
+            summary,
+            producedArtifacts: current.lastResult?.producedArtifacts ?? [],
+            completedAt: acceptedAt,
+          }
+        : current.lastResult,
+      nextAction: queueStatusSpecStateNextAction(fileStatus),
+    }, {
+      now: new Date(acceptedAt),
+      source: "ide.queue_action",
+      summary,
+      schedulerJobId: target.schedulerJobId,
+      executionId: target.executionId,
+    }));
+  } catch {
+    // Queue records remain the runtime facts if the operator-facing file projection cannot be updated.
+  }
+}
+
+function queueStatusToFileSpecStatus(status: string): FileSpecLifecycleStatus | undefined {
+  if (status === "queued" || status === "running" || status === "paused" || status === "cancelled" || status === "skipped") return status;
+  if (status === "approval_needed") return "approval_needed";
+  if (status === "blocked" || status === "failed" || status === "completed") return status;
+  return undefined;
+}
+
+function queueStatusSpecStateSummary(status: string, metadataPatch: Record<string, unknown>): string {
+  const reason = optionalString(metadataPatch.cancelReason)
+    ?? optionalString(metadataPatch.pausedReason)
+    ?? optionalString(metadataPatch.resumedReason)
+    ?? optionalString(metadataPatch.skipReason)
+    ?? optionalString(metadataPatch.approvalReason);
+  return reason ? `Queue ${status}: ${reason}` : `Queue status changed to ${status}.`;
+}
+
+function queueStatusSpecStateNextAction(status: FileSpecLifecycleStatus): string {
+  if (status === "paused") return "Resume, cancel, or reprioritize this queued Feature from the Execution Workbench.";
+  if (status === "cancelled") return "Retry, skip, or reschedule this Feature when ready.";
+  if (status === "skipped") return "Review the skipped execution and select the next Feature.";
+  if (status === "queued") return "Waiting for Runner to start this Feature.";
+  if (status === "running") return "Runner is executing this Feature.";
+  if (status === "approval_needed") return "Resolve the pending approval request before autonomous execution can continue.";
+  return "Review execution result and choose the next queue action.";
+}
+
+function featureFolderForQueueTarget(dbPath: string, workspaceRoot: string, featureId: string, target: QueueExecutionRow): string | undefined {
+  const specStatePath = optionalString(target.context.specStatePath) ?? optionalString(target.payload.specStatePath);
+  if (specStatePath?.startsWith("docs/features/") && specStatePath.endsWith("/spec-state.json")) {
+    return specStatePath.slice("docs/features/".length, -"/spec-state.json".length);
+  }
+  const featureSpecPath = optionalString(target.context.featureSpecPath) ?? optionalString(target.payload.featureSpecPath);
+  if (featureSpecPath?.startsWith("docs/features/")) return featureSpecPath.slice("docs/features/".length);
+  const rows = runSqlite(dbPath, [], [
+    {
+      name: "features",
+      sql: "SELECT folder FROM features WHERE id = ? LIMIT 1",
+      params: [featureId],
+    },
+  ]).queries.features;
+  const dbFolder = optionalString(rows[0]?.folder);
+  if (dbFolder) return dbFolder;
+  const featureRoot = join(workspaceRoot, "docs/features");
+  if (!existsSync(featureRoot)) return undefined;
+  const folders = new Set(readdirSync(featureRoot).filter((entry) => statSync(join(featureRoot, entry)).isDirectory()).sort());
+  const indexEntry = readFeatureIndex(workspaceRoot).find((entry) => entry.id === featureId);
+  return resolveFeatureFolder(featureId, indexEntry?.folder, folders);
 }
 
 function updateQueuePriority(dbPath: string, target: QueueExecutionRow, payload: unknown, acceptedAt: string): void {

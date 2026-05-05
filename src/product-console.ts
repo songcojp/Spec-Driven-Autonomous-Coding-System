@@ -3144,6 +3144,9 @@ function activeManualScheduleConflict(
   for (const row of executionRows) {
     if (input.sourceExecutionId && String(row.id) === input.sourceExecutionId) continue;
     const context = parseJsonObject(row.context_json);
+    if (!scheduleTargetMatches(input, optionalString(context.featureId), optionalString(context.taskId))) {
+      return [`Project already has active feature_execution ${String(row.id)} with status ${String(row.status)}. Finish, cancel, or review it before scheduling another Feature.`];
+    }
     if (scheduleTargetMatches(input, optionalString(context.featureId), optionalString(context.taskId))) {
       return [`${input.taskId ?? input.featureId} already has active execution ${String(row.id)} with status ${String(row.status)}. Cancel, finish, or retry it before scheduling again.`];
     }
@@ -3170,6 +3173,9 @@ function activeManualScheduleConflict(
     if (projectId !== input.projectId || operation !== input.operation) continue;
     const featureId = optionalString(payload.featureId) ?? optionalString(payloadContext.featureId);
     const taskId = optionalString(payload.taskId) ?? optionalString(payloadContext.taskId);
+    if (!scheduleTargetMatches(input, featureId, taskId)) {
+      return [`Project already has active scheduler job ${String(row.id)} with status ${String(row.status)}. Finish, cancel, or review it before scheduling another Feature.`];
+    }
     if (scheduleTargetMatches(input, featureId, taskId)) {
       return [`${input.taskId ?? input.featureId} already has active scheduler job ${String(row.id)} with status ${String(row.status)}. Cancel, finish, or retry it before scheduling again.`];
     }

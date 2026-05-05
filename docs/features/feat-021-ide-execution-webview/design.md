@@ -17,7 +17,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 
 | Webview | View | 说明 |
 |---|---|
-| Execution Workbench | Queue Timeline | 按 ready、blocked、queued、running、approval_needed、failed、completed 展示 Job 和 Feature/Task 上下文。 |
+| Execution Workbench | Queue Timeline | 按 `running`、`queued`、`approval_needed`、`blocked`、`failed`、`paused`、`cancelled`、`skipped`、`completed` 展示可折叠 Job 分类 panel；不展示独立 `ready` 分类；`running` 和 `queued` 默认展开，其它分类默认折叠。 |
 | Execution Workbench | Auto Run Control | 提供 start auto run、pause automation、resume automation、stop、并发策略和下一步动作预览。 |
 | Execution Workbench | Selected Task Actions | 队列行支持显式选中；顶部自动执行入口在 Start Auto Run / Pause Auto Run 间切换；Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 默认禁用，只对选中任务可用，并根据选中任务状态启用、禁用或切换按钮文案。 |
 | Execution Workbench | Current Execution | 展示当前 Execution Record、thread/turn、步骤进度、raw log refs、diff 摘要和输出校验状态。 |
@@ -41,6 +41,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - 命令输入：`IdeCommandReceiptV1` 支持的 queue action、auto run / pause automation / resume automation 意图、Spec lifecycle controlled command 和 Feature schedule/open artifact intent。
 - 输出：Webview 只消费 Control Plane 返回的轻量 view model；完整 raw logs、diff、执行输出、evidence 和 Feature artifacts 通过引用或分页查询加载。
 - Execution Workbench 不自行选择下一 Feature；它展示 Control Plane 返回的 `feature-selection-skill` 决策、代码安全校验结果、approval pending、blocked/review_needed/failed 投影和可执行恢复动作。
+- Execution Workbench 队列分类展示只影响 VSCode Webview 投影，不改变 Scheduler / Execution 状态机；分类 panel 使用可折叠结构，`running` 和 `queued` 作为优先操作上下文固定置顶并默认展开，其它异常、暂停、取消、跳过和完成类状态默认折叠；`ready` 不作为独立分类 panel 出现。
 - Execution Workbench 默认不要求用户阅读大段 JSON；`SkillOutputContractV1.result` 中的 `commands`、`verification`、`decision`、`blockers`、`findings`、`risks`、`coverage`、`openQuestions`、`updatedDocuments` 等常见字段按分组展示，未识别字段放入 Additional Result JSON，完整 contract JSON 仍保留用于审计。
 - Execution Workbench 顶部任务按钮不得默认作用于未确认任务；除全局自动执行和刷新外，任务动作必须绑定当前选中的 queue item。全局自动执行入口根据 Control Plane 的项目自动执行启用标记在 `Start Auto Run` 和 `Pause Auto Run` 之间切换；该按钮表达是否启用自动续跑，不表达当前队列是否 idle / running。点击 Start 必须先启用项目自动执行，再尝试在队列为空时选择可执行 Feature；选不到 Feature 只记录为 selection blocked，不得阻止启用状态切换。点击 Pause 必须禁用项目自动执行；禁用后已有队列任务仍可继续执行，但完成后不得自动从 Feature 选择下一项。Pause / Resume 使用同一个任务级双态入口：选中任务为 `paused` 时显示 Resume，其它允许暂停状态显示 Pause；状态不允许该动作时按钮必须禁用并保留提示。
 - Execution Workbench 的全局任务调度动作和 Job 动作必须分离：全局动作直接提交 controlled command；Job 动作提交 queue command，并使用选中 queue item 的 scheduler job id 或 execution id 作为目标。后端必须支持 schedule-only Job（只有 `scheduler_job_records`）和已有 Execution Record 的 Run，不能只从 `execution_records` 查找目标。
@@ -67,3 +68,4 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - Webview 级验证覆盖 Feature 分类 panel 顺序、折叠/展开行为、展开/折叠状态图标、Done 默认折叠，以及 panel 内 Feature list 自适应换行且不出现水平滚动条。
 - Webview 级验证覆盖单个视图切换按钮显示在第一个控件位置、点击后切换 Feature List / Dependency Graph 并修改按钮文字、树状层级展示、默认展开二级节点、节点折叠/展开、缺失依赖提示，以及点击 Feature 节点后仍能选中详情。
 - Webview 级验证覆盖 Execution Workbench 队列任务选中、高亮、顶部按钮无选中时禁用、按 selected task status 启用 Run Now / Pause / Resume / Retry / Cancel / Skip / Reprioritize / Enqueue，以及选中后详情面板切换到该任务。
+- Webview 级验证覆盖 Execution Workbench 队列分类 panel 顺序、折叠/展开行为、移除 `ready` 分类、`running` 和 `queued` 默认展开，以及其它分类默认折叠。
