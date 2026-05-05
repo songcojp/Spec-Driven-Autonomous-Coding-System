@@ -313,9 +313,10 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /skillOutputContract/);
   assert.match(extensionSource, /contract\.producedArtifacts/);
   assert.match(extensionSource, /detail\.producedArtifacts/);
-  assert.doesNotMatch(extensionSource, /discoverUiConceptImages/);
-  assert.doesNotMatch(extensionSource, /docs\/ui\/concepts/);
-  assert.doesNotMatch(extensionSource, /readDirectory\(directoryUri\)/);
+  assert.match(extensionSource, /uiConceptWorkspaceRoot\(provider\.currentView\(\), workspaceRoot\)/);
+  assert.match(extensionSource, /localResourceRoots/);
+  assert.match(extensionSource, /discoverUiConceptImages\(rootUri, "docs\/ui\/concepts"\)/);
+  assert.match(extensionSource, /readDirectory\(directoryUri\)/);
   assert.match(extensionSource, /img-src \$\{imgSource\}/);
   assert.doesNotMatch(extensionSource, /<h2>Lifecycle<\/h2>/);
   assert.doesNotMatch(extensionSource, /<h2>Control Guardrails<\/h2>/);

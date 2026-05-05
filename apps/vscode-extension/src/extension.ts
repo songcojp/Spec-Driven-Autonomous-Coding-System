@@ -1011,16 +1011,19 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
 }
 
 async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> {
+  await provider.refresh();
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const conceptRoot = uiConceptWorkspaceRoot(provider.currentView(), workspaceRoot);
+  const localResourceRoots = uniqueUris([workspaceRoot, conceptRoot]);
   const panel = vscode.window.createWebviewPanel("specdriveSpecWorkspace", "Spec Workspace", vscode.ViewColumn.Active, {
     enableScripts: true,
     retainContextWhenHidden: true,
-    localResourceRoots: workspaceRoot ? [workspaceRoot] : [],
+    localResourceRoots,
   });
   const render = async (): Promise<void> => {
     await provider.refresh();
     const view = provider.currentView();
-    const uiConceptImages = await collectUiConceptImages(panel.webview, view);
+    const uiConceptImages = await collectUiConceptImages(panel.webview, view, uiConceptWorkspaceRoot(view, workspaceRoot));
     panel.webview.html = renderSpecWorkspaceWebview(view, uiConceptImages, panel.webview.cspSource);
   };
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
@@ -1336,15 +1339,20 @@ async function openProductConsole(item: unknown, provider: SpecExplorerProvider)
   await vscode.env.openExternal(vscode.Uri.parse(url.toString()));
 }
 
-async function collectUiConceptImages(webview: vscode.Webview, view: SpecDriveIdeView | undefined): Promise<UiConceptImage[]> {
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-  if (!workspaceRoot) return [];
-  const rootUri = workspaceRoot;
+async function collectUiConceptImages(
+  webview: vscode.Webview,
+  view: SpecDriveIdeView | undefined,
+  rootUri: vscode.Uri | undefined,
+): Promise<UiConceptImage[]> {
+  if (!rootUri) return [];
   const uiSpecDetail = await latestUiSpecExecutionDetail(view);
   const artifacts = uiConceptImageArtifacts(uiSpecDetail);
+  const candidates = artifacts.length > 0
+    ? artifacts
+    : await discoverUiConceptImages(rootUri, "docs/ui/concepts");
   const images: UiConceptImage[] = [];
   const seen = new Set<string>();
-  for (const [label, path] of artifacts) {
+  for (const [label, path] of candidates) {
     if (seen.has(path)) continue;
     seen.add(path);
     const uri = conceptImageUri(rootUri, path);
@@ -1357,6 +1365,22 @@ async function collectUiConceptImages(webview: vscode.Webview, view: SpecDriveId
     }
   }
   return images;
+}
+
+function uiConceptWorkspaceRoot(view: SpecDriveIdeView | undefined, fallback: vscode.Uri | undefined): vscode.Uri | undefined {
+  const path = view?.project?.targetRepoPath ?? view?.workspaceRoot;
+  return path ? vscode.Uri.file(path) : fallback;
+}
+
+function uniqueUris(uris: Array<vscode.Uri | undefined>): vscode.Uri[] {
+  const seen = new Set<string>();
+  return uris.filter((uri): uri is vscode.Uri => {
+    if (!uri) return false;
+    const key = uri.toString();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function latestUiSpecExecutionDetail(view: SpecDriveIdeView | undefined): Promise<SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined> {
@@ -1395,6 +1419,21 @@ function conceptImageUri(workspaceRoot: vscode.Uri, path: string): vscode.Uri | 
   if (isAbsolutePath(path)) return vscode.Uri.file(path);
   const segments = path.split(/[\\/]+/u).filter(Boolean);
   return segments.length > 0 ? vscode.Uri.joinPath(workspaceRoot, ...segments) : undefined;
+}
+
+async function discoverUiConceptImages(workspaceRoot: vscode.Uri, directory: string): Promise<Array<[string, string]>> {
+  const directoryUri = vscode.Uri.joinPath(workspaceRoot, ...directory.split("/"));
+  try {
+    const entries: Array<[string, vscode.FileType]> = await vscode.workspace.fs.readDirectory(directoryUri);
+    return entries
+      .filter(([, type]) => type === vscode.FileType.File)
+      .map(([name]) => name)
+      .filter((name: string) => isUiConceptImagePath(name))
+      .sort((left: string, right: string) => left.localeCompare(right))
+      .map((name: string): [string, string] => [conceptImageLabel(name), `${directory}/${name}`]);
+  } catch {
+    return [];
+  }
 }
 
 function conceptImageLabel(path: string): string {
