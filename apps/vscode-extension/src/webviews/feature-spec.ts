@@ -108,13 +108,13 @@ function renderFeaturePanel(group: FeaturePanelGroup, selectedFeatureId: string 
   </details>`;
 }
 
-function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean): string {
+function renderFeatureCard(feature: SpecDriveIdeFeatureNode, current: boolean): string {
   const taskCount = feature.tasks?.length ?? 0;
   const doneTasks = (feature.tasks ?? []).filter((task) => ["done", "completed", "x"].includes(task.status.toLowerCase())).length;
   const progress = taskCount > 0
     ? Math.round((doneTasks / taskCount) * 100)
     : feature.latestExecutionStatus === "completed" ? 100 : feature.latestExecutionStatus === "running" ? 70 : feature.status === "ready" ? 60 : 30;
-  return `<article class="feature-card ${selected ? "selected" : ""}" data-feature-card="${escapeAttr(feature.id)}" aria-selected="${selected ? "true" : "false"}" ${selected ? "aria-current=\"true\"" : ""}>
+  return `<article class="feature-card${current ? " current" : ""}" data-feature-card="${escapeAttr(feature.id)}" aria-selected="false" ${current ? "aria-current=\"true\"" : ""}>
     <header><strong>${escapeHtml(feature.id)}</strong><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></header>
     <div>${escapeHtml(feature.title)}</div>
     <div class="metric"><span>Task Progress</span><strong>${progress}%</strong><div class="bar"><span style="width:${progress}%"></span></div></div>
@@ -122,7 +122,7 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean):
     <div class="metric"><span>Tasks</span><strong>${doneTasks}/${taskCount}</strong></div>
     <div class="metric"><span>Next Action</span><strong>${escapeHtml(feature.nextAction ?? "None")}</strong></div>
     <div class="feature-card-actions">
-      <label class="feature-select"><input type="checkbox" data-feature-select="${escapeAttr(feature.id)}" ${selected ? "checked" : ""}> Select</label>
+      <label class="feature-select"><input type="checkbox" data-feature-select="${escapeAttr(feature.id)}"> Select</label>
       <button data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}">Open</button>
     </div>
   </article>`;

@@ -239,8 +239,14 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /const open = depth < 2/);
   assert.match(extensionSource, /\.feature-panel summary::before\{content:"\+"/);
   assert.match(extensionSource, /\.feature-panel\[open\] summary::before\{content:"-"\}/);
-  assert.match(extensionSource, /\.feature-card\.selected\{border-color:var\(--accent\);background:var\(--vscode-list-activeSelectionBackground\)/);
+  assert.match(extensionSource, /\.feature-card\.current\{background:var\(--vscode-list-activeSelectionBackground\);box-shadow:inset 4px 0 0 var\(--accent\)\}/);
+  assert.match(extensionSource, /\.feature-card\.selected\{border-color:var\(--accent\);box-shadow:0 0 0 2px/);
+  assert.match(extensionSource, /\.feature-card\.current\.selected\{box-shadow:inset 4px 0 0 var\(--accent\),0 0 0 2px/);
   assert.match(extensionSource, /data-feature-card="\$\{escapeAttr\(feature\.id\)\}"/);
+  assert.match(extensionSource, /class="feature-card\$\{current \? " current" : ""\}"/);
+  assert.match(extensionSource, /setCurrentFeatureCard\(card\)/);
+  assert.match(extensionSource, /setCurrentFeatureCard\(featureCard\)/);
+  assert.match(extensionSource, /vscode\.postMessage\(\{command:"selectFeature", featureId: featureCard\.dataset\.featureCard\}\)/);
   assert.match(extensionSource, /card\.classList\.toggle\("selected", selected\)/);
   assert.match(extensionSource, /card\.setAttribute\("aria-selected", selected \? "true" : "false"\)/);
   assert.match(extensionSource, /aria-current=\\"true\\"/);
