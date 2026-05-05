@@ -41,6 +41,7 @@ Feature 名称: IDE Workbench Webviews
 - CHG-043（2026-05-05）：用户要求 VSCode Feature Spec Webview 支持 Feature 多选；选中后点击 Schedule 时必须可以设置 provider adapter，并为每个选中 Feature 创建携带同一组 Job 级执行偏好的调度 Job；run mode 由 adapter id 推导。影响 REQ-084、REQ-086 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-044（2026-05-05）：用户要求 Execution Workbench 不通过类别分类 panel 支持折叠；队列分类移除 `ready`，`running` 排第一、`queued` 排第二；除 `running` 和 `queued` 默认展开外，其它分类默认折叠。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-045（2026-05-05）：用户要求 Feature Spec Webview 在 Feature 状态为 `blocked` / `block` 或 `need review` / `review_needed` 时显示 `Pass` 按钮；点击后必须通过受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 标记为 `completed`。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-046（2026-05-05）：用户要求 VSCode Feature Spec Webview 在选中非 ready、非终态 Feature 后显示 `Ready` 按钮；点击后必须通过受控命令将 Feature 状态和 `spec-state.json.status` 设置为 `ready`，并清空阻塞原因。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -82,3 +83,4 @@ Feature 名称: IDE Workbench Webviews
 - [x] `Execution Workbench` 必须以摘要优先方式展示结构化 Skill 输出：状态、summary、nextAction、traceability chips、produced artifacts 表格、常见 result 分组和完整 JSON 审计视图。
 - [x] `Execution Workbench` 必须把未识别的 result 字段保留在 Additional Result JSON 中，不得丢弃。
 - [x] `Feature Spec` 必须支持多选 Feature；顶部 Schedule Selected 使用当前 provider adapter 为每个选中 Feature 创建独立 `schedule_run` / `feature_execution` Job，且单个 Feature 的 Schedule Current / 详情 Schedule 也必须携带完整调度 payload 与 Job 级执行偏好。
+- [x] `Feature Spec` 在选中非 ready、非 done / completed / delivered Feature 后必须在详情动作区显示 `Ready` 入口；点击后通过 Control Plane 受控命令将 Feature 记录和 `spec-state.json.status` 设置为 `ready`，清空 blocked reasons，并保留审计 history。

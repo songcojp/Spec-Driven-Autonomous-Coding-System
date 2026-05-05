@@ -115,3 +115,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Feature Spec Webview 在 blocked / block 或 need review / review_needed Feature 上显示 `Pass` 按钮；点击后通过 `mark_feature_complete` 受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 同步为 `completed`。
 验证: `node --test tests/specdrive-ide.test.ts` 覆盖 blocked 与 review-needed 状态的完成投影；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 按钮显示和受控命令边界。
+
+### T-021-23 Feature Ready 状态入口
+状态: done
+描述: Feature Spec Webview 在选中非 ready、非终态 Feature 后显示 `Ready` 按钮；点击后通过 `mark_feature_ready` 受控命令将 Feature `spec-state.json.status` 和数据库 Feature 状态同步为 `ready`，并清空 blocked reasons。
+验证: `node --test tests/specdrive-ide.test.ts` 覆盖 ready 状态写入；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 按钮和受控命令边界。

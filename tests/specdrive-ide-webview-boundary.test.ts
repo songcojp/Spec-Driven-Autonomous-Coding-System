@@ -281,6 +281,9 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.doesNotMatch(extensionSource, /selected && isPassableFeature\(selected\)/);
   assert.match(extensionSource, /approveFeatureReviewButton\("Pass", feature, projectId, "Feature Detail"\)/);
   assert.match(extensionSource, /action: "mark_feature_complete"/);
+  assert.match(extensionSource, /isReadyMarkableFeature\(feature\)/);
+  assert.match(extensionSource, /markFeatureReadyButton\("Ready", feature, projectId, "Feature Detail"\)/);
+  assert.match(extensionSource, /action: "mark_feature_ready"/);
   assert.match(extensionSource, /renderFeatureSpecWebview\(view, selectedFeatureId, autoRefreshEnabled\)/);
   assert.match(extensionSource, /panel\.onDidDispose\(stopAutoRefresh\)/);
   assert.match(webviewSource, /autoRefreshSwitch\(autoRefreshEnabled\)/);

@@ -1292,6 +1292,51 @@ test("SpecDrive IDE pass command marks blocked Feature and latest execution comp
   assert.equal(rows.job[0].status, "completed");
 });
 
+test("SpecDrive IDE ready command marks selected Feature ready", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "draft",
+    updatedAt: "2026-05-02T12:00:00.000Z",
+    blockedReasons: ["Operator has not marked this Feature ready."],
+    dependencies: ["FEAT-013"],
+    nextAction: "Mark ready after review.",
+    history: [],
+  }));
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, priority, folder, primary_requirements_json)
+        VALUES ('FEAT-016', 'project-ide', 'SpecDrive IDE Foundation', 'draft', 10, 'feat-016-specdrive-ide-foundation', '["REQ-074"]')`,
+    },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "mark_feature_ready",
+    entityType: "feature",
+    entityId: "FEAT-016",
+    requestedBy: "vscode-extension",
+    reason: "Mark selected FEAT-016 ready from Feature Spec Webview.",
+    payload: { projectId: "project-ide" },
+    now: new Date("2026-05-02T12:25:00.000Z"),
+  });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.featureId, "FEAT-016");
+  const state = readFileSpecState(workspaceRoot, "feat-016-specdrive-ide-foundation", "FEAT-016");
+  assert.equal(state.status, "ready");
+  assert.deepEqual(state.blockedReasons, []);
+  assert.equal(state.nextAction, "Ready for scheduling.");
+  assert.equal(state.history.at(-1)?.source, "feature-ready");
+  const rows = runSqlite(dbPath, [], [
+    { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-016'" },
+  ]).queries;
+  assert.equal(rows.feature[0].status, "ready");
+});
+
 test("SpecDrive IDE queue actions retry failed executions and preserve previous execution linkage", async () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();

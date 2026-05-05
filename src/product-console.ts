@@ -79,6 +79,7 @@ export type ConsoleCommandAction =
   | "start_auto_run"
   | "pause_runner"
   | "resume_runner"
+  | "mark_feature_ready"
   | "mark_feature_complete"
   | "approve_review"
   | "reject_review"
@@ -123,6 +124,7 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "start_auto_run",
   "pause_runner",
   "resume_runner",
+  "mark_feature_ready",
   "mark_feature_complete",
   "approve_review",
   "reject_review",
@@ -2706,6 +2708,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt, scheduler);
   const autoRunResult = executeAutoRunCommand(dbPath, input, acceptedAt, scheduler);
   const featureReviewResult = executeFeatureReviewCommand(dbPath, input, acceptedAt);
+  const featureReadyResult = executeFeatureReadyCommand(dbPath, input, acceptedAt);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
   const projectInitializationResult = executeProjectInitializationCommand(dbPath, input);
   const specIntakeResult = executeSpecIntakeCommand(dbPath, input, acceptedAt);
@@ -2718,6 +2721,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     ...(scheduleResult?.blockedReasons ?? []),
     ...(autoRunResult?.blockedReasons ?? []),
     ...(featureReviewResult?.blockedReasons ?? []),
+    ...(featureReadyResult?.blockedReasons ?? []),
     ...(boardResult?.blockedReasons ?? []),
     ...(projectInitializationResult?.blockedReasons ?? []),
     ...(specIntakeResult?.blockedReasons ?? []),
@@ -2737,6 +2741,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
       specIntake: specIntakeResult,
       specSkill: specSkillResult,
       featureReview: featureReviewResult,
+      featureReady: featureReadyResult,
       autoRun: autoRunResult,
       scheduleTriggerId: scheduleResult?.triggerId,
       schedulerJobId: scheduleResult?.schedulerJobId ?? autoRunResult?.schedulerJobId,
@@ -2759,7 +2764,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     auditEventId,
     acceptedAt,
     approvalRecordId: approvalRecord?.id,
-    featureId: optionalString(specIntakeResult?.featureId) ?? optionalString(featureReviewResult?.featureId),
+    featureId: optionalString(specIntakeResult?.featureId) ?? optionalString(featureReviewResult?.featureId) ?? optionalString(featureReadyResult?.featureId),
     scheduleTriggerId: scheduleResult?.triggerId ?? autoRunResult?.scheduleTriggerId,
     schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId ?? autoRunResult?.schedulerJobId,
     schedulerJobIds: boardResult?.schedulerJobIds,
@@ -3466,6 +3471,64 @@ function executeFeatureReviewCommand(
     },
   ]);
   return { blockedReasons: [], featureId, specStatePath, status: "completed", executionId: executionTarget?.executionId };
+}
+
+function executeFeatureReadyCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+): ({ blockedReasons: string[]; featureId?: string; specStatePath?: string } & Record<string, unknown>) | undefined {
+  if (input.action !== "mark_feature_ready") {
+    return undefined;
+  }
+  if (input.entityType !== "feature") {
+    return { blockedReasons: ["Feature ready marking requires a feature entity."] };
+  }
+  const payload = parseJsonObject(input.payload);
+  const featureId = input.entityId.toUpperCase();
+  const projectId = optionalString(payload.projectId);
+  const project = projectId ? getProject(dbPath, projectId) : undefined;
+  const workspaceRoot = scheduleRunWorkspaceRoot(dbPath, projectId, project?.targetRepoPath);
+  if (!workspaceRoot) {
+    return { blockedReasons: ["Feature ready marking requires a project workspace root."], featureId };
+  }
+  const featureSpecPath = featureSpecPathForScheduleRun(dbPath, workspaceRoot, featureId);
+  const featureFolder = featureSpecPath?.replace(/^docs\/features\//, "");
+  if (!featureFolder) {
+    return { blockedReasons: [`Feature Spec directory not found for ${featureId}.`], featureId };
+  }
+  const now = new Date(acceptedAt);
+  const current = readFileSpecState(workspaceRoot, featureFolder, featureId, now);
+  if (isCompletedFeatureStatusValue(current.status)) {
+    return {
+      blockedReasons: [`${featureId} is ${current.status}; completed or delivered Features cannot be marked ready.`],
+      featureId,
+      specStatePath: specStateRelativePath(featureFolder),
+    };
+  }
+  if (current.status === "ready") {
+    return { blockedReasons: [], featureId, specStatePath: specStateRelativePath(featureFolder), status: "ready", alreadyReady: true };
+  }
+  const summary = optionalString(payload.summary) ?? "Operator marked selected Feature ready from VSCode Feature Spec Webview.";
+  const nextState = mergeFileSpecState(current, {
+    status: "ready",
+    blockedReasons: [],
+    nextAction: "Ready for scheduling.",
+  }, {
+    now,
+    source: "feature-ready",
+    summary,
+    schedulerJobId: current.currentJob?.schedulerJobId,
+    executionId: current.currentJob?.executionId,
+  });
+  const specStatePath = writeFileSpecState(workspaceRoot, featureFolder, nextState);
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE features SET status = ?, updated_at = ? WHERE id = ? AND (? IS NULL OR project_id = ?)",
+      params: ["ready", acceptedAt, featureId, projectId ?? null, projectId ?? null],
+    },
+  ]);
+  return { blockedReasons: [], featureId, specStatePath, status: "ready" };
 }
 
 function resolveFeatureCompletionExecutionTarget(
