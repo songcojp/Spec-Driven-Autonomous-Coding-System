@@ -297,8 +297,8 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
   const project = resolveProject(dbPath, options);
   const workspaceRoot = options.workspaceRoot ? resolve(options.workspaceRoot) : optionalString(project?.target_repo_path);
   const projectId = options.projectId ?? optionalString(project?.id);
-  const language = workspaceRoot ? detectSpecLanguage(workspaceRoot) : undefined;
-  const specRoot = workspaceRoot && language ? `docs/${language}` : workspaceRoot && hasRootSpec(workspaceRoot) ? "docs" : undefined;
+  const specRoot = workspaceRoot ? detectSpecRoot(workspaceRoot) : undefined;
+  const language = specRoot?.startsWith("docs/") ? specRoot.slice("docs/".length) : undefined;
   const documents = workspaceRoot ? buildTopLevelDocuments(workspaceRoot, specRoot) : [];
   const features = workspaceRoot ? buildFeatureNodes(dbPath, workspaceRoot, projectId) : [];
   const queue = buildQueueGroups(dbPath, projectId);
@@ -989,20 +989,55 @@ function escapeLike(value: string): string {
   return value.replace(/[%_]/g, (match) => `\\${match}`);
 }
 
-function detectSpecLanguage(workspaceRoot: string): string | undefined {
-  for (const language of ["zh-CN", "en", "ja"]) {
+function detectSpecRoot(workspaceRoot: string): string | undefined {
+  if (hasRootSpec(workspaceRoot)) return "docs";
+  if (!hasMultilingualSpecSupport(workspaceRoot)) return undefined;
+  for (const language of preferredSpecLanguages(workspaceRoot)) {
     const root = join(workspaceRoot, "docs", language);
     if (existsSync(join(root, "PRD.md")) || existsSync(join(root, "requirements.md")) || existsSync(join(root, "hld.md"))) {
-      return language;
+      return `docs/${language}`;
     }
   }
   return undefined;
+}
+
+function hasMultilingualSpecSupport(workspaceRoot: string): boolean {
+  const docsReadme = join(workspaceRoot, "docs", "README.md");
+  if (existsSync(docsReadme)) {
+    const content = readFileSafe(docsReadme).toLowerCase();
+    if (content.includes("default language") || content.includes("languages:") || content.includes("multilingual")) {
+      return true;
+    }
+  }
+  return ["en", "zh-CN", "ja"].filter((language) => {
+    const root = join(workspaceRoot, "docs", language);
+    return existsSync(join(root, "PRD.md")) || existsSync(join(root, "requirements.md")) || existsSync(join(root, "hld.md"));
+  }).length > 1;
+}
+
+function preferredSpecLanguages(workspaceRoot: string): string[] {
+  const docsReadme = join(workspaceRoot, "docs", "README.md");
+  if (existsSync(docsReadme)) {
+    const content = readFileSafe(docsReadme).toLowerCase();
+    if (content.includes("default language: english")) return ["en", "zh-CN", "ja"];
+    if (content.includes("default language: 中文") || content.includes("default language: chinese")) return ["zh-CN", "en", "ja"];
+    if (content.includes("default language: japanese") || content.includes("default language: 日本")) return ["ja", "en", "zh-CN"];
+  }
+  return ["en", "zh-CN", "ja"];
 }
 
 function hasRootSpec(workspaceRoot: string): boolean {
   return existsSync(join(workspaceRoot, "docs", "PRD.md"))
     || existsSync(join(workspaceRoot, "docs", "requirements.md"))
     || existsSync(join(workspaceRoot, "docs", "hld.md"));
+}
+
+function readFileSafe(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 function buildTopLevelDocuments(workspaceRoot: string, specRoot?: string): SpecDriveIdeDocument[] {

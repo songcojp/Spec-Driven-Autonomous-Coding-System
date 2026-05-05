@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
@@ -29,15 +29,15 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
 
   assert.equal(view.recognized, true);
   assert.equal(view.workspaceRoot, workspaceRoot);
-  assert.equal(view.specRoot, "docs/zh-CN");
-  assert.equal(view.language, "zh-CN");
+  assert.equal(view.specRoot, "docs");
+  assert.equal(view.language, undefined);
   assert.equal(view.project?.id, "project-ide");
   assert.equal(view.activeAdapter?.id, "codex-rpc");
   assert.equal(view.automation.status, "idle");
   assert.equal(view.automation.source, "project");
   assert.equal(view.projectInitialization.ready, true);
   assert.equal(view.documents.find((document) => document.kind === "prd")?.exists, true);
-  assert.equal(view.documents.find((document) => document.kind === "hld")?.path, "docs/zh-CN/hld.md");
+  assert.equal(view.documents.find((document) => document.kind === "hld")?.path, "docs/hld.md");
   assert.equal(view.documents.find((document) => document.kind === "ui-spec")?.path, "docs/ui/ui-spec.md");
   assert.equal(view.documents.find((document) => document.kind === "ui-spec")?.exists, true);
   assert.equal(view.projectInitialization.steps.find((step) => step.key === "copy_skill_runtime")?.status, "Ready");
@@ -57,6 +57,44 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.queue.groups.running[0].featureId, "FEAT-016");
   assert.deepEqual(view.diagnostics, []);
   assert.equal(view.factSources.includes("execution_records"), true);
+});
+
+test("SpecDrive IDE prefers root docs over localized specs unless multilingual is explicit", () => {
+  const workspaceRoot = makeWorkspace();
+  mkdirSync(join(workspaceRoot, "docs", "zh-CN"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs", "zh-CN", "PRD.md"), "# Localized PRD\n");
+  writeFileSync(join(workspaceRoot, "docs", "zh-CN", "requirements.md"), "# Localized Requirements\n");
+  writeFileSync(join(workspaceRoot, "docs", "zh-CN", "hld.md"), "# Localized HLD\n");
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.specRoot, "docs");
+  assert.equal(view.language, undefined);
+  assert.equal(view.documents.find((document) => document.kind === "prd")?.path, "docs/PRD.md");
+});
+
+test("SpecDrive IDE uses localized docs only for explicit multilingual projects", () => {
+  const workspaceRoot = makeWorkspace();
+  rmRootProjectDocs(workspaceRoot);
+  mkdirSync(join(workspaceRoot, "docs", "en"), { recursive: true });
+  mkdirSync(join(workspaceRoot, "docs", "zh-CN"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs", "README.md"), "Default language: English\n\nLanguages: English | 中文\n");
+  writeFileSync(join(workspaceRoot, "docs", "en", "PRD.md"), "# English PRD\n");
+  writeFileSync(join(workspaceRoot, "docs", "en", "requirements.md"), "# English Requirements\n");
+  writeFileSync(join(workspaceRoot, "docs", "en", "hld.md"), "# English HLD\n");
+  writeFileSync(join(workspaceRoot, "docs", "zh-CN", "PRD.md"), "# Chinese PRD\n");
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.specRoot, "docs/en");
+  assert.equal(view.language, "en");
+  assert.equal(view.documents.find((document) => document.kind === "prd")?.path, "docs/en/PRD.md");
 });
 
 test("SpecDrive IDE automation state follows latest auto-run audit event", () => {
@@ -611,7 +649,7 @@ test("SpecDrive IDE HTTP routes expose spec tree and controlled command receipts
       entityId: "project-ide",
       requestedBy: "vscode-extension",
       reason: "Generate EARS from VSCode CodeLens.",
-      payload: { sourcePath: "docs/zh-CN/PRD.md" },
+      payload: { sourcePath: "docs/PRD.md" },
     });
 
     assert.equal(receipt.status, "accepted");
@@ -705,7 +743,7 @@ test("SpecDrive IDE SpecChangeRequest validates textHash and routes requirement 
     projectId: "project-ide",
     workspaceRoot,
     source: {
-      file: "docs/zh-CN/PRD.md",
+      file: "docs/PRD.md",
       range: { startLine: 0, endLine: 0 },
       textHash: hashSpecSourceText(sourceText),
     },
@@ -728,7 +766,7 @@ test("SpecDrive IDE SpecChangeRequest validates textHash and routes requirement 
     projectId: "project-ide",
     workspaceRoot,
     source: {
-      file: "docs/zh-CN/PRD.md",
+      file: "docs/PRD.md",
       range: { startLine: 0, endLine: 0 },
       textHash: hashSpecSourceText("old text"),
     },
@@ -755,7 +793,7 @@ test("SpecDrive IDE SpecChangeRequest routes existing requirement changes to spe
     projectId: "project-ide",
     workspaceRoot,
     source: {
-      file: "docs/zh-CN/requirements.md",
+      file: "docs/requirements.md",
       range: { startLine: 0, endLine: 0 },
       textHash: hashSpecSourceText(sourceText),
     },
@@ -994,12 +1032,12 @@ function makeWorkspace(): string {
   const root = mkdtempSync(join(tmpdir(), "specdrive-ide-workspace-"));
   mkdirSync(join(root, ".autobuild"), { recursive: true });
   mkdirSync(join(root, ".agents/skills/requirement-intake-skill"), { recursive: true });
-  mkdirSync(join(root, "docs/zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs"), { recursive: true });
   mkdirSync(join(root, "docs/ui"), { recursive: true });
   mkdirSync(join(root, "docs/features/feat-016-specdrive-ide-foundation"), { recursive: true });
-  writeFileSync(join(root, "docs/zh-CN/PRD.md"), "# PRD\n");
-  writeFileSync(join(root, "docs/zh-CN/requirements.md"), "# Requirements\n");
-  writeFileSync(join(root, "docs/zh-CN/hld.md"), "# HLD\n");
+  writeFileSync(join(root, "docs/PRD.md"), "# PRD\n");
+  writeFileSync(join(root, "docs/requirements.md"), "# Requirements\n");
+  writeFileSync(join(root, "docs/hld.md"), "# HLD\n");
   writeFileSync(join(root, "docs/ui/ui-spec.md"), "# UI Spec\n");
   writeFileSync(join(root, ".agents/skills/requirement-intake-skill/SKILL.md"), "# Requirement intake\n");
   writeFileSync(join(root, "docs/features/README.md"), [
@@ -1045,6 +1083,12 @@ function makeWorkspace(): string {
     history: [],
   }));
   return root;
+}
+
+function rmRootProjectDocs(root: string): void {
+  for (const fileName of ["PRD.md", "requirements.md", "hld.md"]) {
+    rmSync(join(root, "docs", fileName), { force: true });
+  }
 }
 
 function seedProject(dbPath: string, workspaceRoot: string): void {

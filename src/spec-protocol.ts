@@ -573,21 +573,23 @@ export function scanSpecSources(projectPath: string, now = new Date()): SpecSour
   const conflicts: SpecConflictItem[] = [];
   const clarificationItems: SpecSourceClarificationItem[] = [];
 
-  const staticCandidates: Array<[string, SpecSourceFileType]> = [
+  const rootCandidates: Array<[string, SpecSourceFileType]> = [
     ["README.md", "README"],
     ["docs/README.md", "README"],
     ["docs/PRD.md", "PRD"],
-    ["docs/zh-CN/PRD.md", "PRD"],
-    ["docs/en/PRD.md", "PRD"],
     ["docs/requirements.md", "EARS"],
-    ["docs/zh-CN/requirements.md", "EARS"],
-    ["docs/en/requirements.md", "EARS"],
     ["docs/hld.md", "HLD"],
-    ["docs/zh-CN/hld.md", "HLD"],
     ["docs/design.md", "design"],
-    ["docs/zh-CN/design.md", "design"],
-    ["docs/en/requirements.md", "EARS"],
   ];
+  const localizedCandidates: Array<[string, SpecSourceFileType]> = hasMultilingualSpecSupport(root)
+    ? preferredSpecLanguages(root).flatMap((language): Array<[string, SpecSourceFileType]> => [
+      [`docs/${language}/PRD.md`, "PRD"],
+      [`docs/${language}/requirements.md`, "EARS"],
+      [`docs/${language}/hld.md`, "HLD"],
+      [`docs/${language}/design.md`, "design"],
+    ])
+    : [];
+  const staticCandidates = [...rootCandidates, ...localizedCandidates];
 
   for (const [relPath, fileType] of staticCandidates) {
     const result = scanSpecFile(join(root, relPath), relPath, fileType);
@@ -655,6 +657,40 @@ export function scanSpecSources(projectPath: string, now = new Date()): SpecSour
   }
 
   return { projectPath: root, scannedAt: now.toISOString(), sources, missingItems, conflicts, clarificationItems };
+}
+
+function hasMultilingualSpecSupport(root: string): boolean {
+  const docsReadme = join(root, "docs", "README.md");
+  if (existsSync(docsReadme)) {
+    const content = readFileSafe(docsReadme).toLowerCase();
+    if (content.includes("default language") || content.includes("languages:") || content.includes("multilingual")) {
+      return true;
+    }
+  }
+  return ["en", "zh-CN", "ja"].filter((language) => hasAnyProjectSpecFile(join(root, "docs", language))).length > 1;
+}
+
+function preferredSpecLanguages(root: string): string[] {
+  const docsReadme = join(root, "docs", "README.md");
+  if (existsSync(docsReadme)) {
+    const content = readFileSafe(docsReadme).toLowerCase();
+    if (content.includes("default language: english")) return ["en", "zh-CN", "ja"];
+    if (content.includes("default language: 中文") || content.includes("default language: chinese")) return ["zh-CN", "en", "ja"];
+    if (content.includes("default language: japanese") || content.includes("default language: 日本")) return ["ja", "en", "zh-CN"];
+  }
+  return ["en", "zh-CN", "ja"];
+}
+
+function hasAnyProjectSpecFile(root: string): boolean {
+  return existsSync(join(root, "PRD.md")) || existsSync(join(root, "requirements.md")) || existsSync(join(root, "hld.md"));
+}
+
+function readFileSafe(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 export function projectSpecArtifact(spec: FeatureSpec, artifactRoot: string): string {

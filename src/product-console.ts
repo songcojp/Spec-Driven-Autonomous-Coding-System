@@ -2934,7 +2934,7 @@ function executeScheduleCommand(
     featureSpecPath,
     specStatePath: featureFolder ? specStateRelativePath(featureFolder) : undefined,
     specState,
-    sourcePaths: scheduleRunSourcePaths(payload, featureSpecPath),
+    sourcePaths: scheduleRunSourcePaths(payload, featureSpecPath, project.targetRepoPath),
     expectedArtifacts: scheduleRunExpectedArtifacts(payload),
     workspaceRoot,
     skillSlug,
@@ -3030,13 +3030,14 @@ function featureSpecPathForScheduleRun(dbPath: string, targetRepoPath?: string, 
   return `docs/features/${folder ?? featureId}`;
 }
 
-function scheduleRunSourcePaths(payload: Record<string, unknown>, featureSpecPath?: string): string[] {
+function scheduleRunSourcePaths(payload: Record<string, unknown>, featureSpecPath?: string, workspaceRoot?: string): string[] {
   const requested = optionalStringArray(payload.sourcePaths);
   if (requested.length > 0) return requested;
+  const projectDocs = projectSpecPaths(workspaceRoot);
   return [
-    "docs/zh-CN/PRD.md",
-    "docs/zh-CN/requirements.md",
-    "docs/zh-CN/hld.md",
+    projectDocs.prd,
+    projectDocs.requirements,
+    projectDocs.hld,
     ...(featureSpecPath ? [
       `${featureSpecPath}/requirements.md`,
       `${featureSpecPath}/design.md`,
@@ -3248,15 +3249,16 @@ function enqueueNextFeatureExecutionFromQueue(
   const selectedFolder = selectedFeature.folder ?? selected.id.toLowerCase();
   const specState = readFileSpecState(project.targetRepoPath, selectedFolder, selected.id, new Date(acceptedAt));
   const executionId = randomUUID();
+  const projectDocs = projectSpecPaths(project.targetRepoPath);
   const context = {
     featureId: selected.id,
     featureSpecPath,
     specStatePath: specStateRelativePath(selectedFolder),
     specState,
     sourcePaths: [
-      "docs/zh-CN/PRD.md",
-      "docs/zh-CN/requirements.md",
-      "docs/zh-CN/hld.md",
+      projectDocs.prd,
+      projectDocs.requirements,
+      projectDocs.hld,
       `${featureSpecPath}/requirements.md`,
       `${featureSpecPath}/design.md`,
       `${featureSpecPath}/tasks.md`,
@@ -3410,36 +3412,33 @@ function sourcePathsForSpecAction(
     workspaceRoot,
   );
   if (action === "intake_requirement" || action === "resolve_clarification" || action === "generate_ears") {
-    return [payloadSourcePath ?? "docs/zh-CN/PRD.md"];
+    return [payloadSourcePath ?? projectSpecPaths(workspaceRoot).prd];
   }
   if (action === "split_feature_specs") {
+    const projectDocs = projectSpecPaths(workspaceRoot);
     return uniqueSourcePaths([
       ...(payloadSourcePath ? [payloadSourcePath, requirementsArtifactForSource(payloadSourcePath, workspaceRoot)] : []),
-      "docs/PRD.md",
-      "docs/zh-CN/PRD.md",
-      "docs/en/PRD.md",
-      "docs/requirements.md",
-      "docs/zh-CN/requirements.md",
-      "docs/en/requirements.md",
-      "docs/hld.md",
-      "docs/zh-CN/hld.md",
-      "docs/en/hld.md",
+      projectDocs.prd,
+      projectDocs.requirements,
+      projectDocs.hld,
       "docs/features/README.md",
     ]);
   }
   if (action === "generate_ui_spec") {
+    const projectDocs = projectSpecPaths(workspaceRoot);
     return [
-      "docs/zh-CN/PRD.md",
-      "docs/zh-CN/requirements.md",
-      "docs/zh-CN/hld.md",
+      projectDocs.prd,
+      projectDocs.requirements,
+      projectDocs.hld,
       "docs/features/README.md",
       ...(featureId ? [`docs/features/${featureId}/requirements.md`] : []),
     ];
   }
+  const projectDocs = projectSpecPaths(workspaceRoot);
   return [
-    "docs/zh-CN/PRD.md",
-    "docs/zh-CN/requirements.md",
-    "docs/zh-CN/hld.md",
+    projectDocs.prd,
+    projectDocs.requirements,
+    projectDocs.hld,
     ...(featureId ? [`docs/features/${featureId}/requirements.md`] : []),
   ];
 }
@@ -3461,6 +3460,74 @@ function workspaceRelativeSourcePath(sourcePath?: string, resolvedSourcePath?: s
     return relativeSource.replaceAll("\\", "/");
   }
   return undefined;
+}
+
+type ProjectSpecPaths = {
+  prd: string;
+  requirements: string;
+  hld: string;
+};
+
+function projectSpecPaths(workspaceRoot?: string): ProjectSpecPaths {
+  if (!workspaceRoot) return rootProjectSpecPaths();
+  if (hasAnyProjectSpecFile(workspaceRoot, "docs")) return rootProjectSpecPaths();
+  if (hasMultilingualSpecSupport(workspaceRoot)) {
+    for (const language of preferredSpecLanguages(workspaceRoot)) {
+      const root = `docs/${language}`;
+      if (hasAnyProjectSpecFile(workspaceRoot, root)) {
+        return {
+          prd: `${root}/PRD.md`,
+          requirements: `${root}/requirements.md`,
+          hld: `${root}/hld.md`,
+        };
+      }
+    }
+  }
+  return rootProjectSpecPaths();
+}
+
+function rootProjectSpecPaths(): ProjectSpecPaths {
+  return {
+    prd: "docs/PRD.md",
+    requirements: "docs/requirements.md",
+    hld: "docs/hld.md",
+  };
+}
+
+function hasAnyProjectSpecFile(workspaceRoot: string, root: string): boolean {
+  return existsSync(join(workspaceRoot, root, "PRD.md"))
+    || existsSync(join(workspaceRoot, root, "requirements.md"))
+    || existsSync(join(workspaceRoot, root, "hld.md"));
+}
+
+function hasMultilingualSpecSupport(workspaceRoot: string): boolean {
+  const docsReadme = join(workspaceRoot, "docs", "README.md");
+  if (existsSync(docsReadme)) {
+    const content = readFileSafe(docsReadme).toLowerCase();
+    if (content.includes("default language") || content.includes("languages:") || content.includes("multilingual")) {
+      return true;
+    }
+  }
+  return ["en", "zh-CN", "ja"].filter((language) => hasAnyProjectSpecFile(workspaceRoot, `docs/${language}`)).length > 1;
+}
+
+function preferredSpecLanguages(workspaceRoot: string): string[] {
+  const docsReadme = join(workspaceRoot, "docs", "README.md");
+  if (existsSync(docsReadme)) {
+    const content = readFileSafe(docsReadme).toLowerCase();
+    if (content.includes("default language: english")) return ["en", "zh-CN", "ja"];
+    if (content.includes("default language: 中文") || content.includes("default language: chinese")) return ["zh-CN", "en", "ja"];
+    if (content.includes("default language: japanese") || content.includes("default language: 日本")) return ["ja", "en", "zh-CN"];
+  }
+  return ["en", "zh-CN", "ja"];
+}
+
+function readFileSafe(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "";
+  }
 }
 
 function imagePathsForSpecAction(action: ConsoleCommandAction, payload: Record<string, unknown>): string[] | undefined {
@@ -3493,7 +3560,7 @@ function expectedArtifactsForSpecAction(
     ];
   }
   if (action === "generate_hld") {
-    return ["docs/zh-CN/hld.md"];
+    return [projectSpecPaths(workspaceRoot).hld];
   }
   if (action === "generate_ui_spec") {
     return [
@@ -3505,7 +3572,7 @@ function expectedArtifactsForSpecAction(
 }
 
 function requirementsArtifactForSource(sourcePath?: string, workspaceRoot?: string): string {
-  const fallback = "docs/zh-CN/requirements.md";
+  const fallback = projectSpecPaths(workspaceRoot).requirements;
   if (!sourcePath) return fallback;
   const relativeSource = isAbsolute(sourcePath) && workspaceRoot
     ? relative(workspaceRoot, sourcePath)
@@ -3513,12 +3580,20 @@ function requirementsArtifactForSource(sourcePath?: string, workspaceRoot?: stri
   if (!relativeSource || relativeSource.startsWith("..") || isAbsolute(relativeSource)) {
     return fallback;
   }
-  if (relativeSource === "docs/PRD.md") {
-    return fallback;
+  if (basename(relativeSource) === "PRD.md") {
+    if (workspaceRoot && isLocalizedProjectSpecPath(relativeSource) && !hasMultilingualSpecSupport(workspaceRoot)) {
+      return rootProjectSpecPaths().requirements;
+    }
+    const folder = dirname(relativeSource);
+    return (folder === "." ? "requirements.md" : join(folder, "requirements.md")).replaceAll("\\", "/");
   }
   const folder = dirname(relativeSource);
   const artifact = folder === "." ? "requirements.md" : join(folder, "requirements.md");
   return artifact.replaceAll("\\", "/");
+}
+
+function isLocalizedProjectSpecPath(relativeSource: string): boolean {
+  return /^docs\/(en|zh-CN|ja)\/PRD\.md$/.test(relativeSource.replaceAll("\\", "/"));
 }
 
 function writeSpecIntakeArtifact(projectPath: string, directory: string, fileName: string, value: unknown): string {

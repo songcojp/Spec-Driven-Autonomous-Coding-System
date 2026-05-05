@@ -1164,7 +1164,7 @@ test("spec intake commands scan, upload, and enqueue EARS skill invocation", () 
   const jobPayload = JSON.parse(String(result.queries.jobs[0].payload_json));
   assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "pr-ears-requirement-decomposition-skill");
   assert.equal(jobPayload.context.skillSlug, "pr-ears-requirement-decomposition-skill");
-  assert.deepEqual(jobPayload.context.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
+  assert.deepEqual(jobPayload.context.expectedArtifacts, ["docs/requirements.md"]);
 });
 
 test("IDE lifecycle commands scan spec sources and run project health through Console gateway", () => {
@@ -1279,8 +1279,8 @@ test("generate HLD dispatches the project HLD skill and writes hld.md", () => {
   assert.equal(payload.projectId, "project-1");
   assert.equal(payload.context.skillSlug, "create-project-hld");
   assert.equal(payload.requestedAction, "generate_hld");
-  assert.deepEqual(payload.context.expectedArtifacts, ["docs/zh-CN/hld.md"]);
-  assert.equal(payload.context.expectedArtifacts.includes("docs/zh-CN/design.md"), false);
+  assert.deepEqual(payload.context.expectedArtifacts, ["docs/hld.md"]);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/design.md"), false);
   assert.deepEqual(payload.traceability.changeIds, []);
   assert.equal(JSON.parse(String(result.queries.executions[0].context_json)).featureId, undefined);
   assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "create-project-hld");
@@ -1838,7 +1838,7 @@ test("generate UI Spec dispatches the UI spec skill from project-level Spec Work
   assert.equal(payload.context.skillSlug, "ui-spec-skill");
   assert.equal(payload.requestedAction, "generate_ui_spec");
   assert.deepEqual(payload.context.imagePaths ?? [], []);
-  assert.equal(payload.context.sourcePaths.includes("docs/zh-CN/requirements.md"), true);
+  assert.equal(payload.context.sourcePaths.includes("docs/requirements.md"), true);
   assert.equal(payload.context.expectedArtifacts.includes("docs/ui/ui-spec.md"), true);
   assert.equal(payload.context.expectedArtifacts.includes("docs/ui/concepts/<page-id>.svg"), true);
   assert.equal(JSON.parse(String(result.queries.executions[0].context_json)).featureId, undefined);
@@ -1934,7 +1934,7 @@ test("spec intake workflow discovers docs PRD at the project docs root", () => {
   assert.equal(workspace.prdWorkflow.resolvedSourcePath, join(projectPath, "docs", "PRD.md"));
   assert.equal(generateReceipt.status, "accepted");
   assert.deepEqual(jobPayload.context.sourcePaths, ["docs/PRD.md"]);
-  assert.deepEqual(jobPayload.context.expectedArtifacts, ["docs/zh-CN/requirements.md"]);
+  assert.deepEqual(jobPayload.context.expectedArtifacts, ["docs/requirements.md"]);
 });
 
 test("console write commands persist rule and spec evolution evidence", () => {

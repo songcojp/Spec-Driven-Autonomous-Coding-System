@@ -282,16 +282,15 @@ test("scanSpecSources returns scan results for existing project spec files", () 
   const root = mkdtempSync(join(tmpdir(), "spec-scan-"));
 
   // Create a minimal project structure
-  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs"), { recursive: true });
   mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
   mkdirSync(join(root, "docs", "features", "feat-002"), { recursive: true });
 
   writeFileSync(join(root, "README.md"), "# My Project\nREQ-001 is satisfied by FEAT-001.");
   writeFileSync(join(root, "docs", "PRD.md"), "## Root PRD\n# Goal\nCreate a project from root docs.");
-  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"),
+  writeFileSync(join(root, "docs", "requirements.md"),
     "REQ-001: The system shall create a project.\nREQ-002: The system shall validate input.");
-  writeFileSync(join(root, "docs", "zh-CN", "hld.md"), "## HLD\nFEAT-001 covers REQ-001.");
-  writeFileSync(join(root, "docs", "zh-CN", "PRD.md"), "## PRD\n# Goal\nCreate a project management system.");
+  writeFileSync(join(root, "docs", "hld.md"), "## HLD\nFEAT-001 covers REQ-001.");
 
   // feat-001 has all three files
   writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "REQ-001, REQ-002");
@@ -321,12 +320,24 @@ test("scanSpecSources returns scan results for existing project spec files", () 
   assert.ok(summary.sources.every((s) => s.exists), "All scanned sources should exist");
 });
 
+test("scanSpecSources ignores single localized lane unless multilingual docs are declared", () => {
+  const root = mkdtempSync(join(tmpdir(), "spec-scan-single-localized-"));
+  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  writeFileSync(join(root, "docs", "zh-CN", "PRD.md"), "# Localized PRD\n");
+  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "# Localized Requirements\n");
+
+  const summary = scanSpecSources(root);
+
+  assert.equal(summary.sources.some((source) => source.relativePath === "docs/zh-CN/PRD.md"), false);
+  assert.equal(summary.sources.some((source) => source.relativePath === "docs/zh-CN/requirements.md"), false);
+});
+
 test("scanSpecSources detects trace IDs in spec files", () => {
   const root = mkdtempSync(join(tmpdir(), "spec-scan-trace-"));
-  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs"), { recursive: true });
   mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
 
-  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"),
+  writeFileSync(join(root, "docs", "requirements.md"),
     "REQ-001: The system shall validate.\nREQ-002: The system shall record.\nNFR-001: Performance under 200ms.\nEDGE-001: Empty input is rejected.");
   writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "Covers REQ-001, REQ-002");
   writeFileSync(join(root, "docs", "features", "feat-001", "design.md"), "## Design\nFEAT-001");
@@ -375,11 +386,11 @@ test("scanSpecSources detects missing requirements file when tasks exist", () =>
 
 test("scanSpecSources detects orphaned traceability (REQ not in any feature spec)", () => {
   const root = mkdtempSync(join(tmpdir(), "spec-scan-orphan-"));
-  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs"), { recursive: true });
   mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
 
   // REQ-001 and REQ-002 in EARS, only REQ-001 in feature spec
-  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "REQ-001: feature one.\nREQ-002: unassigned requirement.");
+  writeFileSync(join(root, "docs", "requirements.md"), "REQ-001: feature one.\nREQ-002: unassigned requirement.");
   writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "REQ-001");
   writeFileSync(join(root, "docs", "features", "feat-001", "design.md"), "REQ-001 design.");
   writeFileSync(join(root, "docs", "features", "feat-001", "tasks.md"), "TASK-001: implement REQ-001");
@@ -397,10 +408,10 @@ test("scanSpecSources detects orphaned traceability (REQ not in any feature spec
 
 test("scanSpecSources scan summary integrates into createFeatureSpec clarification log", () => {
   const root = mkdtempSync(join(tmpdir(), "spec-scan-integrate-"));
-  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs"), { recursive: true });
   mkdirSync(join(root, "docs", "features", "feat-001"), { recursive: true });
 
-  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "REQ-001: validate.\nREQ-999: unassigned requirement.");
+  writeFileSync(join(root, "docs", "requirements.md"), "REQ-001: validate.\nREQ-999: unassigned requirement.");
   writeFileSync(join(root, "docs", "features", "feat-001", "requirements.md"), "REQ-001");
   writeFileSync(join(root, "docs", "features", "feat-001", "design.md"), "Design for REQ-001.");
   writeFileSync(join(root, "docs", "features", "feat-001", "tasks.md"), "TASK-001");
@@ -430,15 +441,15 @@ PRD: When the scan runs, the system shall detect missing traceability.
 
 test("scanSpecSources is read-only and does not modify project files", () => {
   const root = mkdtempSync(join(tmpdir(), "spec-scan-readonly-"));
-  mkdirSync(join(root, "docs", "zh-CN"), { recursive: true });
+  mkdirSync(join(root, "docs"), { recursive: true });
 
-  writeFileSync(join(root, "docs", "zh-CN", "requirements.md"), "REQ-001: The system shall validate.");
-  const mtime = readFileSync(join(root, "docs", "zh-CN", "requirements.md")).length;
+  writeFileSync(join(root, "docs", "requirements.md"), "REQ-001: The system shall validate.");
+  const mtime = readFileSync(join(root, "docs", "requirements.md")).length;
 
   scanSpecSources(root);
 
   // File should be unchanged
-  const mtimeAfter = readFileSync(join(root, "docs", "zh-CN", "requirements.md")).length;
+  const mtimeAfter = readFileSync(join(root, "docs", "requirements.md")).length;
   assert.equal(mtime, mtimeAfter, "scanSpecSources must not modify spec files");
   // No new files created
   assert.equal(existsSync(join(root, "docs", "zh-CN", "hld.md")), false, "Scanner must not create missing files");
