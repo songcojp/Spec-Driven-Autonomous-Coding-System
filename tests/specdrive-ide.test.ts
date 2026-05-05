@@ -423,6 +423,47 @@ test("SpecDrive IDE view promotes draft index status when task slices are comple
   assert.equal(feature?.status, "ready");
 });
 
+test("SpecDrive IDE view supports legacy feature index without Folder column", () => {
+  const workspaceRoot = mkdtempSync(join(tmpdir(), "specdrive-ide-legacy-index-"));
+  mkdirSync(join(workspaceRoot, ".autobuild"), { recursive: true });
+  mkdirSync(join(workspaceRoot, "docs/features/FEAT-001"), { recursive: true });
+  writeFileSync(join(workspaceRoot, "docs/PRD.md"), "# PRD\n");
+  writeFileSync(join(workspaceRoot, "docs/features/README.md"), [
+    "# Feature Specs",
+    "",
+    "| Feature ID | Status | Name | Milestone | Dependencies |",
+    "| --- | --- | --- | --- | --- |",
+    "| FEAT-001 | planned | Android Project Foundation | V1.0 Foundation | - |",
+    "",
+  ].join("\n"));
+  writeFileSync(join(workspaceRoot, "docs/features/feature-pool-queue.json"), JSON.stringify({
+    version: 1,
+    features: [
+      { id: "FEAT-001", priority: "P1", status: "planned", dependencies: [] },
+    ],
+  }));
+  writeFileSync(join(workspaceRoot, "docs/features/FEAT-001/requirements.md"), "# FEAT-001 requirements\n");
+  writeFileSync(join(workspaceRoot, "docs/features/FEAT-001/design.md"), "# FEAT-001 design\n");
+  writeFileSync(join(workspaceRoot, "docs/features/FEAT-001/tasks.md"), [
+    "# FEAT-001 tasks",
+    "",
+    "- [ ] T001 Create Android project foundation.",
+    "",
+  ].join("\n"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-001");
+
+  assert.equal(feature?.folder, "FEAT-001");
+  assert.equal(feature?.title, "Android Project Foundation");
+  assert.equal(feature?.status, "ready");
+  assert.deepEqual(feature?.blockedReasons, []);
+  assert.equal(feature?.documents.find((document) => document.kind === "feature-tasks")?.path, "docs/features/FEAT-001/tasks.md");
+});
+
 test("parseFeatureTasksMarkdown supports checkbox and status block task formats", () => {
   const tasks = parseFeatureTasksMarkdown([
     "- [x] TASK-001: Completed checkbox task",
@@ -613,6 +654,45 @@ test("SpecDrive IDE view exposes diagnostics for blocked spec state and failed e
   assert.equal(view.diagnostics.some((diagnostic) => diagnostic.source === "spec-state" && diagnostic.message.includes("Missing approval")), true);
   assert.equal(view.diagnostics.some((diagnostic) => diagnostic.source === "execution" && diagnostic.severity === "error"), true);
   assert.equal(view.diagnostics.every((diagnostic) => diagnostic.path === "docs/features/feat-016-specdrive-ide-foundation/requirements.md"), true);
+});
+
+test("SpecDrive IDE diagnostics suppress stale failed executions after a newer success", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedFailedRuntimeState(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-LATEST-SUCCESS', 'bull-latest-success', 'specdrive:execution-adapter', 'rpc.run', 'completed', '{}', '2026-05-02T12:03:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, completed_at, summary, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-LATEST-SUCCESS",
+        "JOB-LATEST-SUCCESS",
+        "codex.rpc",
+        "feature_execution",
+        "project-ide",
+        JSON.stringify({ featureId: "FEAT-016" }),
+        "completed",
+        "2026-05-02T12:02:00.000Z",
+        "2026-05-02T12:03:00.000Z",
+        "Latest execution completed.",
+        "{}",
+      ],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.equal(view.features.find((entry) => entry.id === "FEAT-016")?.latestExecutionId, "RUN-LATEST-SUCCESS");
+  assert.equal(view.diagnostics.some((diagnostic) => diagnostic.executionId === "RUN-FAILED"), false);
+  assert.equal(view.queue.groups.failed?.some((item) => item.executionId === "RUN-FAILED"), true);
 });
 
 test("SpecDrive IDE view warns when feature requirements miss traceability or acceptance criteria", () => {

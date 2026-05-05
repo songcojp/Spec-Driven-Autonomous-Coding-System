@@ -1197,7 +1197,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
   return indexedEntries
     .map((indexEntry) => {
       const featureId = indexEntry.id;
-      const folder = indexEntry.folder ?? featureId.toLowerCase();
+      const folder = resolveFeatureFolder(featureId, indexEntry.folder, folders);
       const state = readJson(join(featureRoot, folder, "spec-state.json"));
       const queueEntry = queueById.get(featureId);
       const latestExecution = latestExecutions.get(featureId);
@@ -1252,8 +1252,9 @@ function resolveFeatureNodeStatus(
   if (stateStatus) return stateStatus;
   const docsStatus = featureNodeStatusFromDocuments(documents, taskProjection);
   if (!indexStatus) return docsStatus;
-  if (indexStatus === "draft" && docsStatus !== "draft") return docsStatus;
-  if (indexStatus === "planning" && docsStatus === "ready") return docsStatus;
+  const normalizedIndexStatus = indexStatus.toLowerCase();
+  if (["draft", "planned"].includes(normalizedIndexStatus) && docsStatus !== "draft") return docsStatus;
+  if (normalizedIndexStatus === "planning" && docsStatus === "ready") return docsStatus;
   return indexStatus;
 }
 
@@ -1278,24 +1279,52 @@ function readFeatureIndex(workspaceRoot: string): FeatureIndexEntry[] {
   if (!existsSync(indexPath)) return [];
   const content = readFileSync(indexPath, "utf8");
   const entries: FeatureIndexEntry[] = [];
+  let header: string[] | undefined;
   for (const line of content.split(/\r?\n/)) {
-    if (!line.trim().startsWith("|") || line.includes("---") || /Feature ID/i.test(line)) continue;
+    if (!line.trim().startsWith("|") || line.includes("---")) continue;
     const columns = line.split("|").slice(1, -1).map((column) => column.trim());
+    if (/Feature ID/i.test(line)) {
+      header = columns.map((column) => column.toLowerCase());
+      continue;
+    }
     if (columns.length < 3) continue;
     const id = columns[0]?.match(/\bFEAT-\d+\b/i)?.[0]?.toUpperCase();
     if (!id) continue;
-    const folder = columns[2]?.match(/`([^`]+)`/)?.[1] ?? columns[2];
+    const folderColumn = columnByHeader(columns, header, "folder");
+    const statusColumn = columnByHeader(columns, header, "status") ?? columns[3];
+    const titleColumn = columnByHeader(columns, header, "feature")
+      ?? columnByHeader(columns, header, "name")
+      ?? columns[1];
+    const requirementsColumn = columnByHeader(columns, header, "primary requirements");
+    const milestoneColumn = columnByHeader(columns, header, "suggested milestone")
+      ?? columnByHeader(columns, header, "milestone");
+    const dependenciesColumn = columnByHeader(columns, header, "dependencies");
+    const folder = folderColumn?.match(/`([^`]+)`/)?.[1] ?? folderColumn;
     entries.push({
       id,
-      title: columns[1],
+      title: titleColumn,
       folder: folder && folder !== "-" ? folder : undefined,
-      status: columns[3] && columns[3] !== "-" ? columns[3] : undefined,
-      primaryRequirements: splitChineseList(columns[4]),
-      milestone: columns[5] && columns[5] !== "-" ? columns[5] : undefined,
-      dependencies: splitChineseList(columns[6]),
+      status: statusColumn && statusColumn !== "-" ? statusColumn : undefined,
+      primaryRequirements: splitChineseList(requirementsColumn),
+      milestone: milestoneColumn && milestoneColumn !== "-" ? milestoneColumn : undefined,
+      dependencies: splitChineseList(dependenciesColumn),
     });
   }
   return entries;
+}
+
+function columnByHeader(columns: string[], header: string[] | undefined, name: string): string | undefined {
+  const index = header?.findIndex((column) => column === name);
+  return index !== undefined && index >= 0 ? columns[index] : undefined;
+}
+
+function resolveFeatureFolder(featureId: string, indexedFolder: string | undefined, folders: Set<string>): string {
+  if (indexedFolder) return indexedFolder;
+  if (folders.has(featureId)) return featureId;
+  const lowercaseId = featureId.toLowerCase();
+  if (folders.has(lowercaseId)) return lowercaseId;
+  const matchingFolder = Array.from(folders).find((folder) => folder.toLowerCase().startsWith(lowercaseId));
+  return matchingFolder ?? lowercaseId;
 }
 
 function readFeatureTasks(workspaceRoot: string, folder: string): { tasks: SpecDriveIdeTaskProjection[]; blockedReasons: string[] } {
@@ -1318,9 +1347,9 @@ export function parseFeatureTasksMarkdown(content: string): SpecDriveIdeTaskProj
   let current: SpecDriveIdeTaskProjection | undefined;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const headingMatch = line.match(/^#{2,4}\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+)\s*:?\s*(?<title>.*)$/);
-    const listMatch = line.match(/^\s*[-*]\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+)\s*:?\s*(?<title>.*)$/);
-    const plainMatch = line.match(/^(?<id>TASK-[A-Z0-9-]+|TASK-\d+)\s*:?\s*(?<title>.*)$/);
+    const headingMatch = line.match(/^#{2,4}\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
+    const listMatch = line.match(/^\s*[-*]\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
+    const plainMatch = line.match(/^(?<id>TASK-[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
     const match = headingMatch ?? listMatch ?? plainMatch;
     if (match?.groups?.id) {
       current = {
@@ -1750,6 +1779,7 @@ function buildDiagnostics(
   }
   for (const item of [...(queueGroups.failed ?? []), ...(queueGroups.blocked ?? [])]) {
     const feature = item.featureId ? features.find((entry) => entry.id === item.featureId) : undefined;
+    if (feature?.latestExecutionId && item.executionId && feature.latestExecutionId !== item.executionId) continue;
     const path = firstExistingFeatureDocument(feature)?.path ?? fallbackPath;
     if (!path) continue;
     diagnostics.push({
