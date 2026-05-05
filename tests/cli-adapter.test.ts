@@ -219,7 +219,7 @@ test("CLI adapter exposes unified execution adapter config", () => {
   assert.equal(config.kind, "cli");
   assert.equal(config.provider, "codex-cli");
   assert.equal(config.transport, "process");
-  assert.equal(config.defaults.model, "gpt-5.3-codex-spark");
+  assert.equal(config.defaults.model, "gpt-5.5");
   assert.deepEqual(config.inputMapping.argumentTemplate, DEFAULT_CLI_ADAPTER_CONFIG.argumentTemplate);
 });
 
@@ -355,7 +355,7 @@ test("CLI adapter upgrades stale built-in sandbox defaults", () => {
     id: "codex-cli",
     schema_version: 1,
     defaults: {
-      model: "gpt-5.3-codex-spark",
+      model: "gpt-5.5",
       reasoningEffort: "medium",
       sandbox: "workspace-write",
       approval: "never",
@@ -378,7 +378,7 @@ test("runner policy resolves development defaults and clamps heartbeat cadence",
 
   assert.equal(lowRisk.sandboxMode, "danger-full-access");
   assert.equal(lowRisk.approvalPolicy, "never");
-  assert.equal(lowRisk.model, "gpt-5.3-codex-spark");
+  assert.equal(lowRisk.model, "gpt-5.5");
   assert.equal(lowRisk.reasoningEffort, "medium");
   assert.equal(lowRisk.heartbeatIntervalSeconds, 10);
 
@@ -621,7 +621,7 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
     runId: "RUN-004",
     risk: "low",
     workspaceRoot,
-    model: "gpt-5.3-codex-spark",
+    model: "gpt-5.5",
     profile: "automation",
     resumeSessionId: "SESSION-OLD",
     now: stableDate,
@@ -663,7 +663,7 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   ]);
   assert.equal(calls[0].args[13], "--json");
   assert.equal(calls[0].args[14], "-m");
-  assert.equal(calls[0].args[15], "gpt-5.3-codex-spark");
+  assert.equal(calls[0].args[15], "gpt-5.5");
   assert.equal(calls[0].args[16], "SESSION-OLD");
   assert.match(calls[0].args[17], /Implement bounded task token=abc123/);
   assert.match(calls[0].args[17], /matching this schema/);
@@ -835,7 +835,7 @@ test("Codex CLI adapter passes output schema for new exec runs", async () => {
     "--sandbox",
     "danger-full-access",
     "--model",
-    "gpt-5.3-codex-spark",
+    "gpt-5.5",
     "--output-schema",
   ]);
   assert.equal(calls[0].args[14], "/tmp/runner-output.schema.json");
@@ -2015,7 +2015,7 @@ test("runner artifacts persist for audit and console lookup", async () => {
 
   assert.equal(rows.queries.policy[0].sandbox_mode, "danger-full-access");
   assert.equal(rows.queries.policy[0].approval_policy, "never");
-  assert.equal(rows.queries.policy[0].model, "gpt-5.3-codex-spark");
+  assert.equal(rows.queries.policy[0].model, "gpt-5.5");
   assert.equal(rows.queries.policy[0].reasoning_effort, "medium");
   assert.equal(rows.queries.heartbeat[0].queue_status, "completed");
   assert.equal(rows.queries.session[0].session_id, "S-1");

@@ -1,6 +1,6 @@
 import type { CliAdapterConfig, RunnerReasoningEffort } from "./cli-adapter.ts";
 
-const CODEX_DEFAULT_MODEL = "gpt-5.3-codex-spark";
+const CODEX_DEFAULT_MODEL = "gpt-5.5";
 const CODEX_DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
 
 export const CODEX_CLI_ADAPTER_CONFIG: CliAdapterConfig = {

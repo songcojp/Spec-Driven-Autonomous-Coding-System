@@ -434,7 +434,7 @@ test("codex.rpc.run executes mocked app-server transport and persists runner art
   assert.equal(metadata.threadId, "THREAD-APP");
   assert.equal(metadata.turnId, "TURN-APP");
   assert.equal(metadata.transport, "stdio");
-  assert.equal(metadata.model, "gpt-5.3-codex-spark");
+  assert.equal(metadata.model, "gpt-5.5");
   assert.equal(metadata.cwd, root);
   assert.equal(metadata.contractValidation.valid, true);
   assert.equal(rows.session[0].session_id, "THREAD-APP");

@@ -516,7 +516,7 @@ export function resolveRunnerPolicy(input: RunnerPolicyInput): RunnerPolicy {
     risk: input.risk,
     sandboxMode,
     approvalPolicy,
-    model: input.model ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.model ?? "gpt-5.3-codex-spark",
+    model: input.model ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.model ?? "gpt-5.5",
     reasoningEffort: input.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
     profile: input.profile,
     outputSchema: input.outputSchema ?? DEFAULT_OUTPUT_SCHEMA,
