@@ -1141,6 +1141,27 @@ test("SpecDrive IDE execution detail includes projection logs, artifacts, contra
   ]);
   assert.equal(detail?.rawLogs[0].stdout, "approval requested");
   assert.equal(detail?.approvalRequests.length, 1);
+  assert.deepEqual(detail?.tokenConsumption, {
+    runId: "RUN-APPROVAL",
+    schedulerJobId: "JOB-APPROVAL",
+    projectId: "project-ide",
+    featureId: "FEAT-016",
+    taskId: "TASK-001",
+    operation: "feature_execution",
+    model: "gpt-5.5",
+    inputTokens: 1200,
+    cachedInputTokens: 200,
+    outputTokens: 320,
+    reasoningOutputTokens: 80,
+    totalTokens: 1600,
+    costUsd: 0.00524,
+    currency: "USD",
+    pricingStatus: "priced",
+    usage: { inputTokens: 1200, cachedInputTokens: 200, outputTokens: 320, reasoningOutputTokens: 80, totalTokens: 1600 },
+    pricing: { model: "gpt-5.5", inputUsdPer1M: 1.25, cachedInputUsdPer1M: 0.125, outputUsdPer1M: 10, reasoningOutputUsdPer1M: 10 },
+    sourcePath: join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "stdout.log"),
+    recordedAt: "2026-05-02T12:00:06.000Z",
+  });
   assert.deepEqual(detail?.skillOutputContract, {
     contractVersion: "skill-contract/v1",
     executionId: "RUN-APPROVAL",
@@ -1506,6 +1527,35 @@ function seedApprovalRuntimeState(dbPath: string, workspaceRoot: string): void {
         "",
         JSON.stringify([{ type: "approval/request", threadId: "thread-approval", turnId: "turn-approval", requestId: "approval-1" }]),
         "2026-05-02T12:00:05.000Z",
+      ],
+    },
+    {
+      sql: `INSERT INTO token_consumption_records (
+          id, run_id, scheduler_job_id, project_id, feature_id, task_id, operation, model,
+          input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens,
+          cost_usd, currency, pricing_status, usage_json, pricing_json, source_path, recorded_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "TOKEN-APPROVAL",
+        "RUN-APPROVAL",
+        "JOB-APPROVAL",
+        "project-ide",
+        "FEAT-016",
+        "TASK-001",
+        "feature_execution",
+        "gpt-5.5",
+        1200,
+        200,
+        320,
+        80,
+        1600,
+        0.00524,
+        "USD",
+        "priced",
+        JSON.stringify({ inputTokens: 1200, cachedInputTokens: 200, outputTokens: 320, reasoningOutputTokens: 80, totalTokens: 1600 }),
+        JSON.stringify({ model: "gpt-5.5", inputUsdPer1M: 1.25, cachedInputUsdPer1M: 0.125, outputUsdPer1M: 10, reasoningOutputUsdPer1M: 10 }),
+        join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "stdout.log"),
+        "2026-05-02T12:00:06.000Z",
       ],
     },
   ]);

@@ -77,6 +77,7 @@ export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   metadata: Record<string, unknown>;
   rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
   rawLogRefs: string[];
+  tokenConsumption?: SpecDriveIdeTokenConsumption;
   producedArtifacts: unknown[];
   executionResults: Array<{ id: string; kind: string; path?: string; summary?: string; metadata: Record<string, unknown>; createdAt?: string }>;
   diffSummary?: unknown;
@@ -84,6 +85,28 @@ export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   contractValidation?: unknown;
   outputSchema?: unknown;
   approvalRequests: unknown[];
+};
+
+export type SpecDriveIdeTokenConsumption = {
+  runId: string;
+  schedulerJobId?: string;
+  projectId?: string;
+  featureId?: string;
+  taskId?: string;
+  operation?: string;
+  model?: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  currency: string;
+  pricingStatus: string;
+  usage: Record<string, unknown>;
+  pricing: Record<string, unknown>;
+  sourcePath: string;
+  recordedAt: string;
 };
 
 export type BuildSpecDriveIdeExecutionDetailOptions = {
@@ -432,6 +455,33 @@ export function buildSpecDriveIdeExecutionDetail(
       sql: "SELECT id, 'status_check' AS kind, '' AS path, summary, execution_result_json AS metadata_json, created_at FROM status_check_results WHERE run_id = ? ORDER BY created_at DESC LIMIT 20",
       params: [executionId],
     },
+    {
+      name: "tokenConsumption",
+      sql: `SELECT
+          run_id,
+          scheduler_job_id,
+          project_id,
+          feature_id,
+          task_id,
+          operation,
+          model,
+          input_tokens,
+          cached_input_tokens,
+          output_tokens,
+          reasoning_output_tokens,
+          total_tokens,
+          cost_usd,
+          currency,
+          pricing_status,
+          usage_json,
+          pricing_json,
+          source_path,
+          recorded_at
+        FROM token_consumption_records
+        WHERE run_id = ?
+        LIMIT 1`,
+      params: [executionId],
+    },
   ]);
   const row = result.queries.execution[0];
   if (!row) return undefined;
@@ -459,6 +509,7 @@ export function buildSpecDriveIdeExecutionDetail(
   const approvalRequests = rawLogs
     .flatMap((log) => log.events)
     .filter((event) => isApprovalRequestEvent(event));
+  const tokenConsumption = tokenConsumptionFromRow(result.queries.tokenConsumption[0]);
   return {
     schedulerJobId: optionalString(row.scheduler_job_id),
     executionId: String(row.id),
@@ -476,6 +527,7 @@ export function buildSpecDriveIdeExecutionDetail(
     metadata,
     rawLogs,
     rawLogRefs,
+    tokenConsumption,
     producedArtifacts: metadataArtifacts.length > 0 ? metadataArtifacts : resultArtifacts,
     executionResults,
     diffSummary: metadata.diffSummary ?? metadata.diff ?? resultDiff,
@@ -483,6 +535,31 @@ export function buildSpecDriveIdeExecutionDetail(
     contractValidation: metadata.contractValidation,
     outputSchema: metadata.outputSchema,
     approvalRequests: approvalRequests.length > 0 ? approvalRequests : eventRefs.filter(isApprovalRequestEvent),
+  };
+}
+
+function tokenConsumptionFromRow(row: Record<string, unknown> | undefined): SpecDriveIdeTokenConsumption | undefined {
+  if (!row) return undefined;
+  return {
+    runId: String(row.run_id),
+    schedulerJobId: optionalString(row.scheduler_job_id),
+    projectId: optionalString(row.project_id),
+    featureId: optionalString(row.feature_id),
+    taskId: optionalString(row.task_id),
+    operation: optionalString(row.operation),
+    model: optionalString(row.model),
+    inputTokens: numberOrZero(row.input_tokens),
+    cachedInputTokens: numberOrZero(row.cached_input_tokens),
+    outputTokens: numberOrZero(row.output_tokens),
+    reasoningOutputTokens: numberOrZero(row.reasoning_output_tokens),
+    totalTokens: numberOrZero(row.total_tokens),
+    costUsd: nonNegativeNumberOrZero(row.cost_usd),
+    currency: optionalString(row.currency) ?? "USD",
+    pricingStatus: optionalString(row.pricing_status) ?? "unknown",
+    usage: parseJsonObject(optionalString(row.usage_json)),
+    pricing: parseJsonObject(optionalString(row.pricing_json)),
+    sourcePath: optionalString(row.source_path) ?? "",
+    recordedAt: optionalString(row.recorded_at) ?? "",
   };
 }
 
@@ -1001,6 +1078,15 @@ function isIdeApprovalDecision(value: unknown): value is IdeApprovalDecision {
 
 function numberOrZero(value: unknown): number {
   return typeof value === "number" ? Math.max(0, Math.trunc(value)) : 0;
+}
+
+function nonNegativeNumberOrZero(value: unknown): number {
+  const numberValue = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim().length > 0
+      ? Number(value)
+      : NaN;
+  return Number.isFinite(numberValue) ? Math.max(0, numberValue) : 0;
 }
 
 function escapeLike(value: string): string {

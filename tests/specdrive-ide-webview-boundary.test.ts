@@ -113,6 +113,9 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
 test("VSCode Execution Workbench renders execution result sections from durable runtime fields", () => {
   assert.match(webviewSource, /<h2>Summary<\/h2>/);
   assert.match(webviewSource, /<h3>Raw Log Refs<\/h3>/);
+  assert.match(webviewSource, /<h3>Token Consumption<\/h3>/);
+  assert.match(webviewSource, /renderTokenConsumption\(executionDetail\)/);
+  assert.match(webviewSource, /No token consumption recorded\./);
   assert.match(webviewSource, /commandButton\("Open", "openRawLogRef"/);
   assert.match(extensionSource, /message\.command === "openRawLogRef"/);
   assert.match(extensionSource, /openRawLogRef\(message\.path\)/);
@@ -124,6 +127,9 @@ test("VSCode Execution Workbench renders execution result sections from durable 
   assert.match(webviewSource, /<h2>Result Projection<\/h2>/);
   assert.match(webviewSource, /renderSkillOutputSummary\(executionDetail\)/);
   assert.match(webviewSource, /renderTraceabilityChips/);
+  assert.match(webviewSource, /<h3>Token Cost<\/h3>/);
+  assert.match(webviewSource, /renderTokenCostSummary\(executionDetail\)/);
+  assert.match(webviewSource, /Calculated Cost/);
   assert.match(webviewSource, /<h3>Produced Artifacts<\/h3>/);
   assert.match(webviewSource, /renderProducedArtifacts\(executionDetail\)/);
   assert.match(webviewSource, /<h3>Additional Result<\/h3>/);

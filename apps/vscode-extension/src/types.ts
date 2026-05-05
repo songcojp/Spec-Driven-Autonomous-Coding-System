@@ -54,12 +54,35 @@ export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   metadata: Record<string, unknown>;
   rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
   rawLogRefs: string[];
+  tokenConsumption?: SpecDriveIdeTokenConsumption;
   producedArtifacts: unknown[];
   diffSummary?: unknown;
   skillOutputContract?: unknown;
   contractValidation?: unknown;
   outputSchema?: unknown;
   approvalRequests: unknown[];
+};
+
+export type SpecDriveIdeTokenConsumption = {
+  runId: string;
+  schedulerJobId?: string;
+  projectId?: string;
+  featureId?: string;
+  taskId?: string;
+  operation?: string;
+  model?: string;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  currency: string;
+  pricingStatus: string;
+  usage: Record<string, unknown>;
+  pricing: Record<string, unknown>;
+  sourcePath: string;
+  recordedAt: string;
 };
 
 export type SpecDriveIdeDiagnostic = {

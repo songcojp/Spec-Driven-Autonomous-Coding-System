@@ -51,6 +51,8 @@ export function renderExecutionWorkbenchWebview(
       <section class="panel span-3">
         <div class="panel-title"><h2>Current Execution</h2><span>${escapeHtml(detail?.status ?? "none")}</span></div>
         ${detail ? executionFieldsHtml(detail) : emptyState("No active execution selected.")}
+        <h3>Token Consumption</h3>
+        ${renderTokenConsumption(executionDetail)}
         <h3>Raw Log Refs</h3>
         ${renderRawLogRefs(detail)}
         <h3>Diff Summary</h3>
@@ -65,6 +67,8 @@ export function renderExecutionWorkbenchWebview(
       <section class="panel span-4">
         <div class="panel-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
         ${renderSkillOutputSummary(executionDetail)}
+        <h3>Token Cost</h3>
+        ${renderTokenCostSummary(executionDetail)}
         <h3>Produced Artifacts</h3>
         ${renderProducedArtifacts(executionDetail)}
         <h3>Additional Result</h3>
@@ -72,6 +76,43 @@ export function renderExecutionWorkbenchWebview(
       </section>
     </main>
   `);
+}
+
+function renderTokenConsumption(detail: SpecDriveIdeExecutionDetail | undefined): string {
+  const token = detail?.tokenConsumption;
+  if (!token) return emptyState("No token consumption recorded.");
+  const rows: Array<[string, string]> = [
+    ["Model", token.model ?? "unknown"],
+    ["Input", formatInteger(token.inputTokens)],
+    ["Cached Input", formatInteger(token.cachedInputTokens)],
+    ["Output", formatInteger(token.outputTokens)],
+    ["Reasoning Output", formatInteger(token.reasoningOutputTokens)],
+    ["Total", formatInteger(token.totalTokens)],
+    ["Cost", formatCurrency(token.costUsd, token.currency)],
+    ["Pricing", token.pricingStatus],
+    ["Source", token.sourcePath],
+  ];
+  return `<div class="result-summary token-consumption">${rows.map(([label, value]) => `<div class="row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`).join("")}</div>`;
+}
+
+function renderTokenCostSummary(detail: SpecDriveIdeExecutionDetail | undefined): string {
+  const token = detail?.tokenConsumption;
+  if (!token) return emptyState("No cost calculation recorded.");
+  return `<div class="result-summary token-cost-summary">
+    <div class="row"><span>Total Tokens</span><span>${escapeHtml(formatInteger(token.totalTokens))}</span></div>
+    <div class="row"><span>Calculated Cost</span><span>${escapeHtml(formatCurrency(token.costUsd, token.currency))}</span></div>
+    <div class="row"><span>Pricing Status</span><span>${escapeHtml(token.pricingStatus)}</span></div>
+    <div class="row"><span>Recorded At</span><span>${escapeHtml(token.recordedAt || "unknown")}</span></div>
+  </div>`;
+}
+
+function formatInteger(value: number): string {
+  return Number.isFinite(value) ? Math.trunc(value).toLocaleString("en-US") : "0";
+}
+
+function formatCurrency(value: number, currency: string): string {
+  const amount = Number.isFinite(value) ? value : 0;
+  return `${currency || "USD"} ${amount.toFixed(6)}`;
 }
 
 function executionPreferenceControls(view: SpecDriveIdeView | undefined): string {
