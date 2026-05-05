@@ -65,6 +65,7 @@ When a new requirement or capability is proposed, evaluate **before writing any 
 ## Verification Expectations
 
 - For code changes, run the smallest meaningful targeted test first, then broader tests when the change affects shared behavior, state, persistence, contracts, or UI.
+- Do not run the full test suite only because a commit was requested. Use scoped checks such as `git diff --check`, `git diff --cached --check`, targeted tests, or affected build commands for commit-time validation unless the user explicitly requests full tests, the Feature Spec acceptance criteria require them, or the change's blast radius justifies them.
 - For docs-only changes, run at least `git diff --check` and inspect the affected links or referenced paths.
 - For Product Console UI changes, verify with browser evidence when practical and check both desktop and mobile layouts.
 - Report commands run, failures, skipped checks, and residual risks in the final response.
@@ -73,5 +74,6 @@ When a new requirement or capability is proposed, evaluate **before writing any 
 
 - Do not commit unless the user asks for a commit or delivery action.
 - Use narrow Conventional Commit messages when committing.
+- Keep commit-time verification proportional to the staged diff; do not escalate to `npm test` or other full-suite commands by default.
 - Do not include unrelated modified files in commits or PRs.
 - Include traceability in delivery summaries: affected requirements, Feature Spec, verification evidence, and known follow-ups.
