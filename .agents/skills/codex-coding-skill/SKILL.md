@@ -6,13 +6,17 @@ description: "Implement bounded coding tasks through Codex. Use when a scheduled
 # Codex Coding Skill
 
 Use this skill for implementation tasks after planning and scheduling. The skill owns
-the delivery lane from an isolated implementation worktree through PR merge and
-branch cleanup.
+the feature implementation lane from an isolated implementation worktree through
+scoped commit and GitHub pull request handoff. Local repository mutations use `git`
+only where `gh` has no equivalent, such as `git worktree`, local branch inspection,
+staging, and commit creation. GitHub-facing delivery operations use `gh`, including
+push setup when available, PR creation, PR checks, PR merge, and remote branch
+cleanup.
 
 ## Workflow
 
 1. Read the task, related Feature Spec, restrictive requirements, design constraints, allowed file scope, and project constitution constraints.
-2. Inspect the current repository state and create an isolated implementation worktree on a feature branch before editing.
+2. Inspect the current repository state and create or verify an isolated implementation worktree on a feature branch before editing. If the scheduler already provided a worktree path, verify it with `git worktree list --porcelain`; otherwise create one with `git worktree add -b <branch> <worktree-path> <base>`. Do not implement feature code directly in the source checkout.
 3. Run requirements review against the Feature Spec and source requirements. Confirm that each implementation task maps to approved `REQ-*`, `NFR-*`, `EDGE-*`, or task traceability. Stop with `clarification_needed` when material requirement intent is unclear.
 4. Run design review against the Feature Spec design, HLD/design constraints, data/contract boundaries, and allowed file scope. Stop with `risk_review_needed` when the implementation would exceed approved design or scope.
 5. If requirements or design review exposes a question that can be safely resolved by automatic decision, record it in a dedicated clarification and decision section in the corresponding document before implementation. Use the affected document closest to the decision:
@@ -27,12 +31,12 @@ branch cleanup.
 10. Fix required code review findings before running the test flow. If a finding requires requirement or design changes, route through clarification, risk review, or spec evolution before continuing.
 11. Add or update focused tests when behavior, contracts, state, or user-visible UI changes.
 12. Run targeted verification and capture command results.
-13. Commit the scoped changes on the feature branch with a narrow Conventional Commit message.
-14. Create a pull request with traceability, changed files, verification results, deviations, and residual risks.
-15. Merge the pull request after required checks/reviews pass.
-16. Delete the remote feature branch after merge.
-17. Delete the local worktree branch and remove the implementation worktree after confirming no uncommitted changes remain.
-18. Report any deviations, blockers, cleanup failures, or required spec evolution.
+13. Confirm the implementation worktree contains only scoped changes, then commit them on the feature branch with a narrow Conventional Commit message.
+14. Use `gh` for GitHub delivery: authenticate or report the blocker, push/set upstream as needed, create a pull request with traceability, changed files, verification results, deviations, and residual risks, then record the PR URL.
+15. Use `gh pr checks` or the configured equivalent to inspect required checks. If checks or required reviews are pending or failing, stop with `approval_needed`, `review_needed`, or `blocked` instead of claiming delivery is complete.
+16. Use `gh pr merge` only after required checks/reviews pass and project policy allows merge.
+17. Delete the remote feature branch through `gh` or the PR merge cleanup option when available. Delete the local worktree branch and remove the implementation worktree only after confirming no uncommitted changes remain.
+18. Report any deviations, blockers, cleanup failures, missing worktree evidence, missing commit evidence, missing PR evidence, or required spec evolution.
 
 ## Review Gates
 
@@ -45,11 +49,13 @@ branch cleanup.
 
 ## Git Delivery
 
-- Work in an isolated worktree for each implementation task or feature branch.
+- Work in an isolated worktree for each implementation task or feature branch. A feature implementation that runs in the source checkout without an explicitly verified implementation worktree must not return `completed`.
 - Preserve unrelated changes in the source checkout and in the implementation worktree.
-- Commit only the scoped implementation, tests, and required spec or decision-record updates.
-- Create and merge the PR as part of the skill delivery lane when the environment has the required repository permissions and checks pass.
+- Commit only the scoped implementation, tests, and required spec or decision-record updates. Local staging and commit creation may use `git`; never include unrelated modified files.
+- Use `gh` for GitHub-facing operations: checking authentication, creating PRs, reading PR status/checks, merging PRs, and remote branch cleanup. Do not hardcode GitHub API calls when `gh` can provide the operation.
+- Create and merge the PR as part of the skill delivery lane when the environment has the required repository permissions and checks pass. If repository policy requires a separate delivery skill, stop after the scoped commit and return `approval_needed` with a `nextAction` to run `pr-generation-skill`.
 - After merge, clean up both the remote feature branch and local worktree branch. If cleanup cannot complete safely, report the exact blocker and leave the branch or worktree intact.
+- `completed` requires auditable `gitDelivery` evidence for the worktree path, branch, commit hash, PR URL or approved delivery exemption, merge status, and cleanup status. Missing worktree, commit, or PR evidence must produce `review_needed`, `approval_needed`, or `blocked`.
 
 ## Output
 
@@ -58,7 +64,7 @@ branch cleanup.
 - Code review findings and fixes.
 - Test or verification summary.
 - Residual risks and follow-up notes.
-- Pull request, merge, branch cleanup, and worktree cleanup summary.
+- Pull request, merge, branch cleanup, and worktree cleanup summary with `gh` command evidence for GitHub-facing actions.
 - Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability`; echo invocation-owned traceability fields and manage any `changeIds` from the source documents.
 - Put verification command results in `summary`, `producedArtifacts[].summary`, or `result` fields; do not add extra top-level output fields.
 
@@ -79,7 +85,7 @@ branch cleanup.
 - `implementationPlan`: object with `summary`, `fileScope`, `testPlan`, `reviewFocus`, `traceabilityIds`, and `scopeStatus`.
 - `codeReview`: object with `status`, `findings`, `fixesApplied`, and `residualReviewRisks`.
 - `recordedDecisions`: array of automatic clarification or design decisions recorded in source documents with `document`, `section`, `decision`, `rationale`, `rejectedAlternatives`, and `residualRisk`.
-- `gitDelivery`: object with `worktreePath`, `branch`, `commit`, `pullRequest`, `mergeStatus`, `remoteBranchDeleted`, `localBranchDeleted`, and `worktreeRemoved`.
+- `gitDelivery`: object with `worktreePath`, `worktreeVerified`, `sourceCheckoutPath`, `branch`, `baseCommit`, `targetBranch`, `commit`, `commitCreated`, `pullRequest`, `pullRequestUrl`, `ghCommands`, `checksStatus`, `mergeStatus`, `remoteBranchDeleted`, `localBranchDeleted`, `worktreeRemoved`, and `deliveryExemption`.
 - `residualRisks`: array of remaining risks or follow-ups.
 - `blockedReason`: string or `null`.
 
@@ -88,4 +94,6 @@ branch cleanup.
 - Use `clarification_needed` when implementation intent is unclear.
 - Use `risk_review_needed` when the required change exceeds the approved scope.
 - Use `failure-recovery-skill` input when verification fails and recovery is allowed.
-- Use `blocked` when worktree creation, PR creation, merge, remote branch deletion, local branch deletion, or worktree removal cannot complete safely.
+- Use `review_needed` when implementation produced changes but the output lacks auditable worktree, commit, PR, or verification evidence.
+- Use `approval_needed` when protected branch, missing review, pending checks, or delivery policy prevents merge or requires a separate `pr-generation-skill` handoff.
+- Use `blocked` when worktree creation, `gh` authentication, PR creation, merge, remote branch deletion, local branch deletion, or worktree removal cannot complete safely.
