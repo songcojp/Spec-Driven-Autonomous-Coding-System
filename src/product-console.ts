@@ -2763,7 +2763,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     scheduleTriggerId: scheduleResult?.triggerId ?? autoRunResult?.scheduleTriggerId,
     schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId ?? autoRunResult?.schedulerJobId,
     schedulerJobIds: boardResult?.schedulerJobIds,
-    executionId: specSkillResult?.executionId ?? scheduleResult?.executionId ?? autoRunResult?.executionId,
+    executionId: specSkillResult?.executionId ?? scheduleResult?.executionId ?? autoRunResult?.executionId ?? optionalString(featureReviewResult?.executionId),
     executionIds: boardResult?.runIds,
     runId: specSkillResult?.executionId,
     runIds: boardResult?.runIds,
@@ -3383,14 +3383,25 @@ function executeFeatureReviewCommand(
   }
   const now = new Date(acceptedAt);
   const current = readFileSpecState(workspaceRoot, featureFolder, featureId, now);
-  if (current.status !== "review_needed") {
+  const indexedStatus = optionalString(listFeatureSpecsFromDocs(workspaceRoot, []).find((feature) => feature.id === featureId)?.status);
+  const featureRowStatus = readFeatureStatus(dbPath, featureId, projectId);
+  const passable = isPassableFeatureCompletionStatus(current.status)
+    || isPassableFeatureCompletionStatus(indexedStatus)
+    || isPassableFeatureCompletionStatus(featureRowStatus)
+    || current.blockedReasons.length > 0;
+  if (!passable) {
     return {
-      blockedReasons: [`${featureId} is ${current.status}; only review_needed Features can be passed from Review.`],
+      blockedReasons: [`${featureId} is ${current.status}; only blocked or review_needed Features can be passed.`],
       featureId,
       specStatePath: specStateRelativePath(featureFolder),
     };
   }
-  const summary = optionalString(payload.summary) ?? "Operator passed Review Needed Feature; status marked completed.";
+  const summary = optionalString(payload.summary) ?? "Operator passed blocked or review-needed Feature; status marked completed.";
+  const executionTarget = resolveFeatureCompletionExecutionTarget(dbPath, {
+    projectId,
+    featureId,
+    preferredExecutionId: current.currentJob?.executionId,
+  });
   const lastResult = current.lastResult
     ? {
       ...current.lastResult,
@@ -3409,21 +3420,44 @@ function executeFeatureReviewCommand(
     executionStatus: "completed",
     blockedReasons: [],
     lastResult,
-    nextAction: "Feature review passed; ready for downstream dependency selection or delivery.",
-    currentJob: current.currentJob ? { ...current.currentJob, completedAt: current.currentJob.completedAt ?? acceptedAt } : undefined,
+    nextAction: "Feature passed by operator; ready for downstream dependency selection or delivery.",
+    currentJob: current.currentJob || executionTarget
+      ? {
+        ...current.currentJob,
+        schedulerJobId: executionTarget?.schedulerJobId ?? current.currentJob?.schedulerJobId,
+        executionId: executionTarget?.executionId ?? current.currentJob?.executionId,
+        completedAt: current.currentJob?.completedAt ?? acceptedAt,
+      }
+      : undefined,
   }, {
     now,
-    source: "feature-review",
+    source: "feature-pass",
     summary,
-    schedulerJobId: current.currentJob?.schedulerJobId,
-    executionId: current.currentJob?.executionId,
+    schedulerJobId: executionTarget?.schedulerJobId ?? current.currentJob?.schedulerJobId,
+    executionId: executionTarget?.executionId ?? current.currentJob?.executionId,
   });
   const specStatePath = writeFileSpecState(workspaceRoot, featureFolder, nextState);
+  const executionMetadata = executionTarget
+    ? {
+      ...executionTarget.metadata,
+      operatorPassReason: input.reason,
+      operatorPassedAt: acceptedAt,
+      operatorPassedBy: input.requestedBy,
+    }
+    : undefined;
   runSqlite(dbPath, [
     {
       sql: "UPDATE features SET status = ?, updated_at = ? WHERE id = ? AND (? IS NULL OR project_id = ?)",
       params: ["completed", acceptedAt, featureId, projectId ?? null, projectId ?? null],
     },
+    ...(executionTarget ? [{
+      sql: "UPDATE execution_records SET status = 'completed', completed_at = ?, summary = COALESCE(summary, ?), metadata_json = ?, updated_at = ? WHERE id = ?",
+      params: [acceptedAt, summary, JSON.stringify(executionMetadata), acceptedAt, executionTarget.executionId],
+    }] : []),
+    ...(executionTarget?.schedulerJobId ? [{
+      sql: "UPDATE scheduler_job_records SET status = 'completed', updated_at = ? WHERE id = ?",
+      params: [acceptedAt, executionTarget.schedulerJobId],
+    }] : []),
     {
       sql: `UPDATE review_items
         SET status = 'approved', updated_at = ?
@@ -3431,7 +3465,69 @@ function executeFeatureReviewCommand(
       params: [acceptedAt, featureId],
     },
   ]);
-  return { blockedReasons: [], featureId, specStatePath, status: "completed" };
+  return { blockedReasons: [], featureId, specStatePath, status: "completed", executionId: executionTarget?.executionId };
+}
+
+function resolveFeatureCompletionExecutionTarget(
+  dbPath: string,
+  input: { projectId?: string; featureId: string; preferredExecutionId?: string },
+): { executionId: string; schedulerJobId?: string; metadata: Record<string, unknown> } | undefined {
+  if (input.preferredExecutionId) {
+    const preferred = runSqlite(dbPath, [], [
+      {
+        name: "execution",
+        sql: "SELECT id, scheduler_job_id, metadata_json FROM execution_records WHERE id = ? LIMIT 1",
+        params: [input.preferredExecutionId],
+      },
+    ]).queries.execution[0];
+    if (preferred) {
+      return {
+        executionId: String(preferred.id),
+        schedulerJobId: optionalString(preferred.scheduler_job_id),
+        metadata: parseJsonObject(optionalString(preferred.metadata_json)),
+      };
+    }
+  }
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "executions",
+      sql: `SELECT id, scheduler_job_id, context_json, metadata_json
+        FROM execution_records
+        WHERE operation = 'feature_execution' ${input.projectId ? "AND project_id = ?" : ""}
+        ORDER BY COALESCE(updated_at, completed_at, started_at, created_at) DESC, rowid DESC`,
+      params: input.projectId ? [input.projectId] : [],
+    },
+  ]);
+  for (const row of result.queries.executions) {
+    const context = parseJsonObject(optionalString(row.context_json));
+    if (optionalString(context.featureId)?.toUpperCase() !== input.featureId) continue;
+    return {
+      executionId: String(row.id),
+      schedulerJobId: optionalString(row.scheduler_job_id),
+      metadata: parseJsonObject(optionalString(row.metadata_json)),
+    };
+  }
+  return undefined;
+}
+
+function readFeatureStatus(dbPath: string, featureId: string, projectId?: string): string | undefined {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "feature",
+      sql: `SELECT status FROM features WHERE id = ? ${projectId ? "AND project_id = ?" : ""} LIMIT 1`,
+      params: projectId ? [featureId, projectId] : [featureId],
+    },
+  ]);
+  return optionalString(result.queries.feature[0]?.status);
+}
+
+function isPassableFeatureCompletionStatus(status?: string): boolean {
+  const normalized = (status ?? "").toLowerCase().replaceAll("_", " ").replaceAll("-", " ").trim();
+  return normalized === "blocked"
+    || normalized === "block"
+    || normalized === "review needed"
+    || normalized === "need review"
+    || normalized === "review";
 }
 
 function resolveExecutionPreference(

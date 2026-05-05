@@ -1147,6 +1147,29 @@ test("SpecDrive IDE pass review command marks review-needed Feature completed", 
       sql: `INSERT INTO features (id, project_id, title, status, priority, folder, primary_requirements_json)
         VALUES ('FEAT-016', 'project-ide', 'SpecDrive IDE Foundation', 'review_needed', 10, 'feat-016-specdrive-ide-foundation', '["REQ-074"]')`,
     },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
+        VALUES ('JOB-REVIEW', 'bull-review', 'specdrive:execution-adapter', 'rpc.run', 'review_needed', '{}')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, completed_at, summary, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-REVIEW",
+        "JOB-REVIEW",
+        "codex.rpc",
+        "feature_execution",
+        "project-ide",
+        JSON.stringify({ featureId: "FEAT-016" }),
+        "review_needed",
+        "2026-05-02T12:00:00.000Z",
+        "2026-05-02T12:00:00.000Z",
+        "Implementation needs operator review.",
+        "{}",
+      ],
+    },
   ]);
 
   const receipt = submitConsoleCommand(dbPath, {
@@ -1161,14 +1184,106 @@ test("SpecDrive IDE pass review command marks review-needed Feature completed", 
 
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.featureId, "FEAT-016");
+  assert.equal(receipt.executionId, "RUN-REVIEW");
   const state = readFileSpecState(workspaceRoot, "feat-016-specdrive-ide-foundation", "FEAT-016");
   assert.equal(state.status, "completed");
   assert.equal(state.lastResult?.status, "completed");
-  assert.equal(state.history.at(-1)?.source, "feature-review");
-  const row = runSqlite(dbPath, [], [
+  assert.equal(state.executionStatus, "completed");
+  assert.equal(state.history.at(-1)?.source, "feature-pass");
+  const rows = runSqlite(dbPath, [], [
     { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-016'" },
-  ]).queries.feature[0];
-  assert.equal(row.status, "completed");
+    { name: "execution", sql: "SELECT status, completed_at FROM execution_records WHERE id = 'RUN-REVIEW'" },
+    { name: "job", sql: "SELECT status FROM scheduler_job_records WHERE id = 'JOB-REVIEW'" },
+  ]).queries;
+  assert.equal(rows.feature[0].status, "completed");
+  assert.equal(rows.execution[0].status, "completed");
+  assert.equal(rows.execution[0].completed_at, "2026-05-02T12:15:00.000Z");
+  assert.equal(rows.job[0].status, "completed");
+});
+
+test("SpecDrive IDE pass command marks blocked Feature and latest execution completed", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "blocked",
+    executionStatus: "blocked",
+    updatedAt: "2026-05-02T12:00:00.000Z",
+    blockedReasons: ["Adapter approval is blocked."],
+    dependencies: ["FEAT-013"],
+    currentJob: {
+      schedulerJobId: "JOB-BLOCKED",
+      executionId: "RUN-BLOCKED",
+      operation: "feature_execution",
+      completedAt: "2026-05-02T12:00:00.000Z",
+    },
+    lastResult: {
+      status: "blocked",
+      summary: "Adapter approval is blocked.",
+      producedArtifacts: [],
+      completedAt: "2026-05-02T12:00:00.000Z",
+    },
+    nextAction: "Resolve blocker.",
+    history: [],
+  }));
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, priority, folder, primary_requirements_json)
+        VALUES ('FEAT-016', 'project-ide', 'SpecDrive IDE Foundation', 'blocked', 10, 'feat-016-specdrive-ide-foundation', '["REQ-074"]')`,
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
+        VALUES ('JOB-BLOCKED', 'bull-blocked', 'specdrive:execution-adapter', 'rpc.run', 'blocked', '{}')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, completed_at, summary, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-BLOCKED",
+        "JOB-BLOCKED",
+        "codex.rpc",
+        "feature_execution",
+        "project-ide",
+        JSON.stringify({ featureId: "FEAT-016" }),
+        "blocked",
+        "2026-05-02T12:00:00.000Z",
+        "2026-05-02T12:00:00.000Z",
+        "Adapter approval is blocked.",
+        "{}",
+      ],
+    },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "mark_feature_complete",
+    entityType: "feature",
+    entityId: "FEAT-016",
+    requestedBy: "vscode-extension",
+    reason: "Pass blocked FEAT-016 from Feature Spec Webview.",
+    payload: { projectId: "project-ide" },
+    now: new Date("2026-05-02T12:20:00.000Z"),
+  });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.executionId, "RUN-BLOCKED");
+  const state = readFileSpecState(workspaceRoot, "feat-016-specdrive-ide-foundation", "FEAT-016");
+  assert.equal(state.status, "completed");
+  assert.equal(state.executionStatus, "completed");
+  assert.deepEqual(state.blockedReasons, []);
+  const rows = runSqlite(dbPath, [], [
+    { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-016'" },
+    { name: "execution", sql: "SELECT status, completed_at FROM execution_records WHERE id = 'RUN-BLOCKED'" },
+    { name: "job", sql: "SELECT status FROM scheduler_job_records WHERE id = 'JOB-BLOCKED'" },
+  ]).queries;
+  assert.equal(rows.feature[0].status, "completed");
+  assert.equal(rows.execution[0].status, "completed");
+  assert.equal(rows.execution[0].completed_at, "2026-05-02T12:20:00.000Z");
+  assert.equal(rows.job[0].status, "completed");
 });
 
 test("SpecDrive IDE queue actions retry failed executions and preserve previous execution linkage", async () => {

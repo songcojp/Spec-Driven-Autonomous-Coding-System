@@ -1021,6 +1021,9 @@ THE SYSTEM SHALL 将提交内容转换为受控需求输入，由模型判定进
 WHEN VSCode Feature Spec Webview 刷新 Feature 列表
 THE SYSTEM SHALL 同步读取 Feature index 和 `docs/features/*` Feature 文件夹，并在发现 index 漏项时更新 Feature index 或返回明确的同步阻塞原因。
 
+WHEN VSCode Feature Spec Webview 中选中的 Feature 处于 blocked / block 或 need review / review_needed 状态
+THE SYSTEM SHALL 显示 `Pass` 入口，并通过 Control Plane 受控命令将 Feature 状态、Feature `spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 标记为 completed。
+
 验收：
 - [ ] Webview 使用独立前端入口、布局、状态模型和组件，不复用 Product Console 的页面、路由、导航、App Shell 或组件实现。
 - [ ] 第一屏默认展示 Job 队列、当前运行、下一步动作、阻塞原因、自动执行开关和审批待办。
@@ -1031,6 +1034,7 @@ THE SYSTEM SHALL 同步读取 Feature index 和 `docs/features/*` Feature 文件
 - [ ] 刷新 Feature Spec 视图时同时扫描 `docs/features/README.md` 和 `docs/features/*` 三件套目录；因需求新增不经过拆分流程导致 index 漏项时，刷新流程必须补齐 Feature index 或报告需要人工处理的冲突。
 - [ ] 需求新增 Skill 在创建或更新 Feature Spec 后必须同步 `docs/features/README.md`，写入 Feature ID、名称、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
 - [ ] 用户点击 Feature 后，右侧详情必须解析对应 `tasks.md`，展示任务列表、任务状态、描述和验证命令；缺失或不可解析时展示 blocked reason。
+- [ ] blocked / block 或 need review / review_needed Feature 的 `Pass` 操作必须只通过受控命令执行，不得由 VSCode Webview 直接写 `spec-state.json`、`execution_records` 或 `scheduler_job_records`。
 - [ ] Execution Workbench 必须以摘要优先方式展示结构化 Skill 输出：状态、summary、nextAction、traceability、produced artifacts、常见 result 分组和完整 JSON 审计视图。
 - [ ] Execution Workbench 必须把 produced artifacts 展示为可扫描表格，并把 `commands`、`verification`、`decision`、`blockers`、`findings`、`risks`、`coverage`、`openQuestions`、`updatedDocuments` 等常见 result 字段分组展示。
 - [ ] 未识别的 result 字段必须保留在 Additional Result JSON 中，不得丢弃。

@@ -110,3 +110,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Execution Workbench 队列分类 panel 支持折叠/展开；分类移除 `ready`，并按 `running`、`queued`、`approval_needed`、`blocked`、`failed`、`paused`、`cancelled`、`skipped`、`completed` 固定排序；`running` 和 `queued` 默认展开，其它分类默认折叠。
 验证: `node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 源码边界；`git diff --check` 验证文档和代码格式。
+
+### T-021-22 Feature blocked / review Pass
+状态: done
+描述: Feature Spec Webview 在 blocked / block 或 need review / review_needed Feature 上显示 `Pass` 按钮；点击后通过 `mark_feature_complete` 受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 同步为 `completed`。
+验证: `node --test tests/specdrive-ide.test.ts` 覆盖 blocked 与 review-needed 状态的完成投影；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 按钮显示和受控命令边界。

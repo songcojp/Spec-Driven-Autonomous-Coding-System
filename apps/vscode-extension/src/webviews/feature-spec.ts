@@ -31,6 +31,7 @@ export function renderFeatureSpecWebview(
       ${commandButton("New Feature", "openWorkbenchForm", { formMode: "newFeature" })}
       ${commandButton("Refresh", "refresh", {})}
       ${selected && isClarificationNeededFeature(selected) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: selected.id }) : ""}
+      ${selected && isPassableFeature(selected) ? approveFeatureReviewButton("Pass", selected, projectId, "Feature Spec Webview") : ""}
       ${autoRefreshSwitch(autoRefreshEnabled)}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
@@ -134,7 +135,7 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, current: boolean): 
 }
 
 function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: string): string {
-  const actions = `${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}${isReviewNeededFeature(feature) ? approveFeatureReviewButton("Pass", feature, projectId, "Feature Detail") : ""}`;
+  const actions = `${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}${isPassableFeature(feature) ? approveFeatureReviewButton("Pass", feature, projectId, "Feature Detail") : ""}`;
   return `<div class="panel-title selected-title"><div><h2>${escapeHtml(feature.id)}</h2><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></div><div class="title-actions">${actions}</div></div>
     <h3>${escapeHtml(feature.title)}</h3>
     <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
@@ -170,7 +171,7 @@ function approveFeatureReviewButton(label: string, feature: SpecDriveIdeFeatureN
     entityId: feature.id,
     projectId,
     featureId: feature.id,
-    reason: `Approve ${feature.id} review from ${source}.`,
+    reason: `Pass ${feature.id} blocked or review state from ${source}.`,
   });
 }
 
@@ -268,6 +269,10 @@ function isDoneFeature(feature: SpecDriveIdeFeatureNode): boolean {
 function isReviewNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
   const status = normalizedFeatureStatus(feature);
   return status === "need review" || status === "review needed" || status === "review";
+}
+
+function isPassableFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  return isReviewNeededFeature(feature) || isBlockedFeature(feature);
 }
 
 export function isClarificationNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
