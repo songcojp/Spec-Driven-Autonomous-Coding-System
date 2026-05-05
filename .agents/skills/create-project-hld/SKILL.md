@@ -127,6 +127,22 @@ Use these patterns when the source documents support them. They are reusable HLD
 - The `summary` field must briefly state whether the HLD was created, regenerated, blocked, or routed for review, and must name the primary HLD artifact path.
 - The `summary` or `producedArtifacts[].summary` should mention input files, technology-stack decisions, required-structure coverage, requirement coverage, and unresolved architecture questions when relevant.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state whether the HLD was created, regenerated, blocked, or routed for review, and name the primary HLD artifact path.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `hldPath`: primary HLD artifact path.
+- `inputFiles`: source files consumed.
+- `technologyDecisions`: key stack/runtime/persistence decisions or explicit `TBD` items.
+- `coverage`: requirement and required-section coverage summary.
+- `unresolvedQuestions`: architecture questions that remain open.
+
 ## Example Skill Invocation Contract
 
 ```json

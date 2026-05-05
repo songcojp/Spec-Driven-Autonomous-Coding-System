@@ -22,6 +22,22 @@ Use this skill to produce trustworthy verification summaries.
 - Status Checker summary.
 - Recommended next action.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state commands run, pass/fail state, failure classification, and recommended next action.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `commands`: array with command, cwd, exitCode, status, and concise output summary.
+- `failureClassification`: failure category or `null`.
+- `statusChecker`: status checker decision and reasons.
+- `artifacts`: logs, screenshots, reports, or evidence paths.
+- `recommendedNextAction`: recovery, review, rerun, broaden tests, or no action.
+
 ## Failure Routing
 
 - Use `failure-recovery-skill` for recoverable implementation or test failures.

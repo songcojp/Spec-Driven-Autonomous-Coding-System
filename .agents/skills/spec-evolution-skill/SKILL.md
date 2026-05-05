@@ -62,6 +62,24 @@ Before editing, follow the governance checklist in `docs/change-management.md` w
 - Do not directly modify implementation code unless the user explicitly asks to implement the changed requirement.
 - Keep feature worktrees and unrelated docs out of scope unless they are part of the affected traceability chain.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the change classification, documents updated, affected features, and review routing.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `classification`: `PATCH`, `MINOR`, or `MAJOR`.
+- `sourceReference`: implementation result, test failure, review finding, delivery report, approval decision, repository fact, or user instruction.
+- `updatedDocuments`: array of documents changed or intentionally unchanged.
+- `affectedFeatures`: array of affected Feature IDs and required sync.
+- `supersededRequirements`: existing requirement IDs changed, deprecated, or superseded.
+- `reviewRouting`: approval, risk-review, clarification, or no routing.
+- `residualRisk`: concise risk summary.
+
 ## Failure Routing
 
 - Use `approval_needed` for scope-changing product decisions.

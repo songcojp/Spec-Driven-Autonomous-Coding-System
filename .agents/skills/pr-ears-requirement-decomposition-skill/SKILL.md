@@ -61,6 +61,23 @@ THE SYSTEM SHALL [safe handling, error message, rollback, retry, or blocked acti
 - No Feature Spec package, task graph, or Feature Spec index output.
 - Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state how many user stories, requirements, NFRs, edge cases, and open questions were produced.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `userStories`: array of `US-*` IDs with priority and independent-testability status.
+- `requirements`: array of produced `REQ-*` IDs grouped by parent user story.
+- `nonFunctionalRequirements`: array of produced `NFR-*` IDs.
+- `edgeCases`: array of produced `EDGE-*` IDs.
+- `openQuestions`: array of unresolved product-intent questions.
+- `traceabilityMatrix`: compact mapping from requirement ID to source section and user story.
+
 ## Quality Bar
 
 - Every requirement has exactly one primary behavior.

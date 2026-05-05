@@ -22,6 +22,22 @@ Use this skill to define the interfaces a feature exposes or consumes.
 - Backward-compatibility notes.
 - Required contract tests.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the contract type, compatibility impact, and whether downstream task slicing can proceed.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `contracts`: array of contract definitions with `type`, `name`, `consumer`, `producer`, and payload/status summary.
+- `validationRules`: array of field, status, error, or compatibility rules.
+- `examples`: array of compact request/response, file, event, or CLI examples when useful.
+- `requiredTests`: array of contract tests to add or run.
+- `breakingChanges`: array of backward-incompatible changes, empty when none.
+
 ## Failure Routing
 
 - Use `risk_review_needed` for public, cross-feature, or backward-incompatible contract changes.

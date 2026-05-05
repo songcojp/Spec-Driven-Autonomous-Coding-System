@@ -122,8 +122,15 @@ test("VSCode Execution Workbench renders execution result sections from durable 
   assert.match(webviewSource, /<h2>Blockers & Approvals<\/h2>/);
   assert.match(webviewSource, /Approval Requests/);
   assert.match(webviewSource, /<h2>Result Projection<\/h2>/);
-  assert.match(webviewSource, /resultProjection\(executionDetail\)/);
+  assert.match(webviewSource, /renderSkillOutputSummary\(executionDetail\)/);
+  assert.match(webviewSource, /renderTraceabilityChips/);
   assert.match(webviewSource, /<h3>Produced Artifacts<\/h3>/);
+  assert.match(webviewSource, /renderProducedArtifacts\(executionDetail\)/);
+  assert.match(webviewSource, /<h3>Additional Result<\/h3>/);
+  assert.match(webviewSource, /renderAdditionalResult\(executionDetail\)/);
+  assert.match(webviewSource, /commandsChecked/);
+  assert.match(webviewSource, /openQuestions/);
+  assert.match(webviewSource, /updatedDocuments/);
   assert.equal(webviewSource.includes('<h3>SkillOutputContractV1</h3>\n        ${compactJsonBlock(executionDetail?.contractValidation'), false);
 });
 

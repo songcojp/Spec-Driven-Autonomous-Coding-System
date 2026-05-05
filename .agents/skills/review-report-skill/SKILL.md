@@ -31,6 +31,22 @@ Use this skill for code, spec, or delivery review summaries.
 - Required fixes or approval decision.
 - Residual risk summary.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state finding count by severity and whether the change can proceed.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `specDriftFindings`: array of requirement ID, expected behavior, actual behavior, and severity.
+- `findings`: array of other review findings ordered by severity.
+- `verificationReferences`: commands, files, lines, or evidence used.
+- `requiredFixes`: blocking fixes or approval decisions.
+- `residualRisks`: remaining risks after review.
+
 ## Failure Routing
 
 - Use `risk_review_needed` for high-risk unresolved findings.

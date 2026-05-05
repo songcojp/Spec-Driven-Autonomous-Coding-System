@@ -42,6 +42,23 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
 - Summary listing generated pages, generated concept image paths, and REQ coverage
 - Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must list generated pages, generated concept image paths, and REQ coverage.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `uiSpecPath`: generated UI Spec path.
+- `pages`: array of generated page/view IDs, routes, owning Feature, and requirement coverage.
+- `conceptImages`: array of generated concept SVG/image artifact paths.
+- `componentCatalog`: reusable component names and state contracts.
+- `viewModels`: required page data shapes.
+- `accessibilityNotes`: keyboard, focus, ARIA, and responsive notes.
+
 ## Example Skill Invocation Contract
 
 ```json

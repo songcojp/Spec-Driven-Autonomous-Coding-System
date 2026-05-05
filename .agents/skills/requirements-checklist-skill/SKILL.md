@@ -22,6 +22,22 @@ Use this skill as the readiness gate for requirements.
 - Missing acceptance checks.
 - Required clarification or risk-review routing.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state pass/fail readiness and the most important blocking gaps.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `decision`: `"pass"` or `"fail"`.
+- `gaps`: array of requirement gaps by ID.
+- `missingAcceptanceChecks`: array of missing or untestable checks.
+- `traceabilityFindings`: requirement/source/feature traceability issues.
+- `requiredRouting`: `"none"`, `"clarification_needed"`, or `"risk_review_needed"`.
+
 ## Failure Routing
 
 - Use `clarification_needed` for untestable or conflicting requirements.

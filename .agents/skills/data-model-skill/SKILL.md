@@ -22,6 +22,22 @@ Use this skill in planning when a feature reads, writes, migrates, or presents d
 - Validation and lifecycle rules.
 - Test and verification-summary requirements.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the data ownership and migration/compatibility outcome.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `entities`: array of entity/table/model changes and ownership.
+- `fields`: array of field-level changes with compatibility notes.
+- `migrations`: array of required migrations, rollback notes, and data-loss risks.
+- `lifecycleRules`: array of validation, state transition, concurrency, or retention rules.
+- `verification`: array of required data, migration, or query checks.
+
 ## Failure Routing
 
 - Use `risk_review_needed` for destructive migration, compatibility risk, or data-loss potential.

@@ -35,6 +35,22 @@ Use this skill to make a single lifecycle side effect explicit and auditable. Ea
 - Idempotency key or duplicate-handling note.
 - Failure route if the hook did not complete.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the trigger, side effect, updated artifact/state, and idempotency outcome.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `triggerEvent`: lifecycle event handled.
+- `sideEffect`: side effect executed or skipped.
+- `updatedTarget`: artifact, state record, audit note, or status attachment updated.
+- `idempotencyKey`: idempotency key or duplicate-handling note.
+- `failureRoute`: blocked/review route when the hook did not complete.
+
 ## Failure Routing
 
 - Use `blocked` for missing storage, permissions, or unavailable dependency.

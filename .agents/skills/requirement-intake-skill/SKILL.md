@@ -67,6 +67,23 @@ Before editing, follow the governance checklist in `docs/change-management.md` w
 - Keep implementation details out of requirements unless the PRD states them as hard constraints.
 - If only documentation changed, do not touch code or feature worktrees.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the intake classification, affected requirement IDs, affected docs, and whether downstream sync is needed.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `classification`: user request, PRD change, review finding, test result, delivery report, or implementation result.
+- `requirementIds`: new stable requirement IDs added.
+- `affectedDocuments`: docs created, updated, or intentionally unchanged.
+- `acceptanceCriteria`: added or updated acceptance checks.
+- `openQuestions`: unresolved intake questions.
+- `downstreamSync`: feature index, Feature Spec, HLD, UI Spec, or task sync notes.
+
 ## Failure Routing
 
 - Use `clarification_needed` when intent or acceptance cannot be made testable.

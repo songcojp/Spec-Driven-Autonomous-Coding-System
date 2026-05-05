@@ -22,6 +22,22 @@ Use this skill after technical context collection and before architecture planni
 - Rejected alternatives.
 - Impacted requirements, files, and tests.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the chosen option, why it was chosen, and whether any review is needed.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `decision`: decision statement.
+- `chosenOption`: selected option and rationale.
+- `rejectedAlternatives`: array of rejected options with reasons.
+- `impact`: impacted requirements, files, tests, and downstream planning stages.
+- `risks`: risks, mitigations, and review routing.
+
 ## Failure Routing
 
 - Use `risk_review_needed` when a decision changes shared architecture, major dependencies, or public contracts.

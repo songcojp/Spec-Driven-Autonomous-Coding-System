@@ -22,6 +22,22 @@ Use this skill for bounded read-only exploration.
 - Existing conventions to reuse.
 - Unknowns or risks.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the source-backed repository facts gathered and any unresolved unknowns.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `facts`: array of source-backed facts with file/path references.
+- `paths`: relevant files, directories, or modules.
+- `commands`: commands discovered for build, test, dev, or verification.
+- `conventions`: implementation patterns to reuse.
+- `unknowns`: unresolved questions or risks.
+
 ## Failure Routing
 
 - Use `clarification_needed` when the probe target is too broad or ambiguous.

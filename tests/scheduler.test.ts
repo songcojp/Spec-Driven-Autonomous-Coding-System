@@ -407,6 +407,7 @@ test("codex.rpc.run executes mocked app-server transport and persists runner art
           requestedAction: "feature_execution",
           status: "completed",
           summary: "App server completed.",
+          nextAction: "Continue.",
           producedArtifacts: [],
           traceability: {
             featureId: "FEAT-CLI",
@@ -414,6 +415,7 @@ test("codex.rpc.run executes mocked app-server transport and persists runner art
             requirementIds: [],
             changeIds: ["CHG-016"],
           },
+          result: { verification: [{ status: "passed" }] },
         },
       };
     },
@@ -633,6 +635,7 @@ test("codex.rpc.run fails when SkillOutputContractV1 validation fails", async ()
           requestedAction: "feature_execution",
           status: "completed",
           summary: "Bad contract.",
+          nextAction: "Review mismatch.",
           producedArtifacts: [],
           traceability: {
             featureId: "FEAT-CLI",
@@ -640,6 +643,7 @@ test("codex.rpc.run fails when SkillOutputContractV1 validation fails", async ()
             requirementIds: [],
             changeIds: ["CHG-016"],
           },
+          result: {},
         },
       };
     },
@@ -716,6 +720,7 @@ function skillOutputEvent(executionId: string, overrides: {
     requestedAction: overrides.requestedAction ?? "feature_execution",
     status: "completed",
     summary: "Skill completed.",
+    nextAction: "Continue scheduler flow.",
     producedArtifacts: overrides.producedArtifacts ?? [],
     traceability: {
       featureId: overrides.skillSlug ? undefined : "FEAT-CLI",
@@ -723,6 +728,7 @@ function skillOutputEvent(executionId: string, overrides: {
       requirementIds: [],
       changeIds: ["CHG-016"],
     },
+    result: {},
   };
   return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
 }
@@ -735,6 +741,7 @@ function skillOutputObject(executionId: string): Record<string, unknown> {
     requestedAction: "feature_execution",
     status: "completed",
     summary: "Skill completed.",
+    nextAction: "Continue scheduler flow.",
     producedArtifacts: [],
     traceability: {
       featureId: "FEAT-CLI",
@@ -742,6 +749,7 @@ function skillOutputObject(executionId: string): Record<string, unknown> {
       requirementIds: [],
       changeIds: ["CHG-016"],
     },
+    result: {},
   };
 }
 

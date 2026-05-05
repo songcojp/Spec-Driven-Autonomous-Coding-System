@@ -23,6 +23,23 @@ Use this skill after implementation, tests, and review have passed.
 - Verification summary.
 - Delivery notes.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state whether the commit, push, and PR creation completed or where delivery stopped.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `commitHash`: created commit hash or `null`.
+- `branchName`: pushed branch name or current delivery branch.
+- `prUrl`: pull request URL or `null`.
+- `verification`: array of checks run before delivery.
+- `deliveryNotes`: concise release/PR notes and follow-ups.
+- `blockedReason`: authentication, remote, permission, or policy blocker when applicable.
+
 ## Failure Routing
 
 - Use `blocked` for authentication, remote, or network failures.

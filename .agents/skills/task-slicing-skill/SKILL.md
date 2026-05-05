@@ -50,6 +50,23 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 - Requirement, user story, and acceptance mapping.
 - Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the generated or updated Feature Specs, queue plan, dependencies, and verification plan readiness.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `features`: array of Feature IDs with name, status, milestone, dependencies, and primary requirements.
+- `queuePlan`: `docs/features/feature-pool-queue.json` summary, including runnable order and blocked entries.
+- `dependencyGraph`: dependency relationships and missing dependencies.
+- `userStoryMapping`: mapping from `US-*` to Feature/task checkpoints.
+- `verificationPlan`: commands or acceptance checks per feature/story phase.
+- `openQuestions`: unsliced or blocked scope questions.
+
 ## Failure Routing
 
 - Use `clarification_needed` for unsliceable scope or missing acceptance.

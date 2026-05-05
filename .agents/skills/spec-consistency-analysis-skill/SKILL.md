@@ -22,6 +22,22 @@ Use this skill as the final planning gate before a feature moves to `tasked`.
 - Contradictions or stale assumptions.
 - Required fixes before implementation.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state whether planning artifacts are consistent and what must be fixed before implementation.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `decision`: `"consistent"` or `"inconsistent"`.
+- `coverage`: requirement-to-task coverage rows.
+- `contradictions`: array of conflicts across requirements, design, data model, contracts, quickstart, or tasks.
+- `staleAssumptions`: assumptions that no longer match current artifacts.
+- `requiredFixes`: fixes required before implementation.
+
 ## Failure Routing
 
 - Use `review_needed` when consistency fails.

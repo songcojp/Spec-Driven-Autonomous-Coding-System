@@ -22,7 +22,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 | Execution Workbench | Selected Task Actions | 队列行支持显式选中；顶部自动执行入口在 Start Auto Run / Pause Auto Run 间切换；Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 默认禁用，只对选中任务可用，并根据选中任务状态启用、禁用或切换按钮文案。 |
 | Execution Workbench | Current Execution | 展示当前 Execution Record、thread/turn、步骤进度、raw log refs、diff 摘要和输出校验状态。 |
 | Execution Workbench | Blockers and Approvals | 汇总 blocked reason、approval pending、失败原因和可执行恢复动作。 |
-| Execution Workbench | Result Projection | 展示 `feature-selection-skill` 选择原因、`spec-state.json.lastResult`、nextAction、produced artifacts 和最近状态投影。 |
+| Execution Workbench | Result Projection | 摘要优先展示结构化 Skill 输出：状态、summary、nextAction、traceability、produced artifacts 表格、常见 result 分组、Additional Result 和完整 JSON 审计视图。 |
 | Spec Workspace | Lifecycle Pipeline | 展示 PRD 到 Delivery 的 Spec 全流程阶段、阶段状态、当前阶段和下一步动作。 |
 | Spec Workspace | Stage Detail | 展示当前阶段来源文档、traceability、required skills、evidence、blockers 和阶段推进按钮。 |
 | Spec Workspace | Control Guardrails | 展示 constitution checks、command approvals、safe action confirmations、spec consistency 和 manual approval。 |
@@ -41,6 +41,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - 命令输入：`IdeCommandReceiptV1` 支持的 queue action、auto run / pause automation / resume automation 意图、Spec lifecycle controlled command 和 Feature schedule/open artifact intent。
 - 输出：Webview 只消费 Control Plane 返回的轻量 view model；完整 raw logs、diff、执行输出、evidence 和 Feature artifacts 通过引用或分页查询加载。
 - Execution Workbench 不自行选择下一 Feature；它展示 Control Plane 返回的 `feature-selection-skill` 决策、代码安全校验结果、approval pending、blocked/review_needed/failed 投影和可执行恢复动作。
+- Execution Workbench 默认不要求用户阅读大段 JSON；`SkillOutputContractV1.result` 中的 `commands`、`verification`、`decision`、`blockers`、`findings`、`risks`、`coverage`、`openQuestions`、`updatedDocuments` 等常见字段按分组展示，未识别字段放入 Additional Result JSON，完整 contract JSON 仍保留用于审计。
 - Execution Workbench 顶部任务按钮不得默认作用于未确认任务；除全局自动执行和刷新外，任务动作必须绑定当前选中的 queue item。全局自动执行入口根据 Control Plane 的项目自动执行启用标记在 `Start Auto Run` 和 `Pause Auto Run` 之间切换；该按钮表达是否启用自动续跑，不表达当前队列是否 idle / running。点击 Start 必须先启用项目自动执行，再尝试在队列为空时选择可执行 Feature；选不到 Feature 只记录为 selection blocked，不得阻止启用状态切换。点击 Pause 必须禁用项目自动执行；禁用后已有队列任务仍可继续执行，但完成后不得自动从 Feature 选择下一项。Pause / Resume 使用同一个任务级双态入口：选中任务为 `paused` 时显示 Resume，其它允许暂停状态显示 Pause；状态不允许该动作时按钮必须禁用并保留提示。
 - Execution Workbench 的全局任务调度动作和 Job 动作必须分离：全局动作直接提交 controlled command；Job 动作提交 queue command，并使用选中 queue item 的 scheduler job id 或 execution id 作为目标。后端必须支持 schedule-only Job（只有 `scheduler_job_records`）和已有 Execution Record 的 Run，不能只从 `execution_records` 查找目标。
 - Execution Workbench 禁用按钮必须在视觉上区别于可用按钮：使用 disabled foreground、次级背景、降低透明度和 `not-allowed` 光标；禁用按钮 hover 状态不得恢复为可用按钮样式。

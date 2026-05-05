@@ -20,3 +20,4 @@
 - [x] TASK-017: 将 Feature 级 `codex-coding-skill` 执行边界改为读取完整 Feature Spec 目录（`requirements.md` / `design.md` / `tasks.md`），不再依赖 `task_graph_tasks` / `tasks`，并阻止 report-only completion。
 - [x] TASK-016: 添加 workspace root、skill invocation contract、blocked path cases、mock Codex cwd 和 Execution Record metadata 测试。
 - [x] TASK-017: 在 `SkillInvocationContractV1` 中携带当前 `specState`，并将有效 `SkillOutputContractV1` 投影回 Feature `spec-state.json`。
+- [x] TASK-018: 将 `SkillOutputContractV1.result` 调整为灵活对象并要求 `nextAction` / `result` 作为通用输出字段，由调用端校验通用字段、由 Skill 文档声明专用 result 语义。

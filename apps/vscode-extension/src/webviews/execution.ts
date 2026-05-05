@@ -13,6 +13,7 @@ import {
   renderQueueGroup,
   renderRawLogRefs,
   renderWorkbenchPage,
+  statusClass,
   textBlock,
   webviewNonce,
 } from "./shared";
@@ -62,9 +63,11 @@ export function renderExecutionWorkbenchWebview(
       </section>
       <section class="panel span-4">
         <div class="panel-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
-        ${compactJsonBlock(resultProjection(executionDetail))}
+        ${renderSkillOutputSummary(executionDetail)}
         <h3>Produced Artifacts</h3>
-        ${compactJsonBlock(executionDetail?.producedArtifacts ?? [])}
+        ${renderProducedArtifacts(executionDetail)}
+        <h3>Additional Result</h3>
+        ${renderAdditionalResult(executionDetail)}
       </section>
     </main>
   `);
@@ -96,6 +99,108 @@ function resultProjection(detail: SpecDriveIdeExecutionDetail | undefined): unkn
     producedArtifacts: detail.producedArtifacts,
     traceability: output.traceability,
   };
+}
+
+function renderSkillOutputSummary(detail: SpecDriveIdeExecutionDetail | undefined): string {
+  if (!detail) return emptyState("No execution result selected.");
+  const output = skillOutputRecord(detail);
+  const projection = resultProjection(detail) as Record<string, unknown>;
+  const result = resultRecord(output);
+  return `
+    <div class="result-summary">
+      <div class="result-status"><span class="badge ${statusClass(detail.status)}">${escapeHtml(detail.status)}</span><strong>${escapeHtml(String(projection.summary ?? "No summary."))}</strong></div>
+      <div class="row"><span>Next Action</span><span>${escapeHtml(stringOrNone(output?.nextAction))}</span></div>
+      ${renderTraceabilityChips(output?.traceability, detail)}
+    </div>
+    ${renderResultGroups(result)}
+  `;
+}
+
+function renderTraceabilityChips(traceability: unknown, detail: SpecDriveIdeExecutionDetail): string {
+  const record = traceability && typeof traceability === "object" && !Array.isArray(traceability)
+    ? traceability as Record<string, unknown>
+    : {};
+  const requirementIds = Array.isArray(record.requirementIds) ? record.requirementIds.filter((item): item is string => typeof item === "string") : [];
+  const chips = [
+    ["Feature", stringOrNone(record.featureId ?? detail.featureId)],
+    ["Task", stringOrNone(record.taskId ?? detail.taskId)],
+    ...requirementIds.map((id) => ["REQ", id]),
+  ];
+  return `<div class="chip-row">${chips.map(([label, value]) => `<span class="badge"><strong>${escapeHtml(label)}</strong>&nbsp;${escapeHtml(value)}</span>`).join("")}</div>`;
+}
+
+function renderProducedArtifacts(detail: SpecDriveIdeExecutionDetail | undefined): string {
+  const artifacts = Array.isArray(detail?.producedArtifacts) ? detail.producedArtifacts : [];
+  if (artifacts.length === 0) return emptyState("No produced artifacts.");
+  return `<table class="artifact-table"><thead><tr><th>Path</th><th>Kind</th><th>Status</th><th>Summary</th></tr></thead><tbody>${artifacts.map((artifact) => {
+    const record = artifact && typeof artifact === "object" && !Array.isArray(artifact) ? artifact as Record<string, unknown> : {};
+    return `<tr><td><code>${escapeHtml(String(record.path ?? "-"))}</code></td><td>${escapeHtml(String(record.kind ?? "-"))}</td><td><span class="${statusClass(String(record.status ?? ""))}">${escapeHtml(String(record.status ?? "-"))}</span></td><td>${escapeHtml(String(record.summary ?? ""))}</td></tr>`;
+  }).join("")}</tbody></table>`;
+}
+
+function renderResultGroups(result: Record<string, unknown>): string {
+  const groups: Array<[string, string[]]> = [
+    ["Decision", ["decision", "reason", "selectedFeature", "featureId", "blockedReason"]],
+    ["Commands", ["commands", "commandsChecked"]],
+    ["Verification", ["verification", "statusChecker", "failureClassification", "recommendedNextAction"]],
+    ["Blockers", ["blockers", "blockedReasons", "openQuestions", "residualQuestions"]],
+    ["Findings", ["findings", "specDriftFindings", "requiredFixes"]],
+    ["Risks", ["risks", "residualRisks", "residualRisk"]],
+    ["Coverage", ["coverage", "traceabilityMatrix", "userStoryMapping"]],
+    ["Updated Documents", ["updatedDocuments", "updatedArtifacts", "affectedDocuments"]],
+  ];
+  const html = groups.map(([title, keys]) => renderResultGroup(title, keys, result)).filter(Boolean).join("");
+  return html || emptyState("No structured result fields.");
+}
+
+function renderResultGroup(title: string, keys: string[], result: Record<string, unknown>): string {
+  const entries = keys.filter((key) => result[key] !== undefined).map((key) => [key, result[key]] as const);
+  if (entries.length === 0) return "";
+  return `<div class="result-group"><h3>${escapeHtml(title)}</h3>${entries.map(([key, value]) => `<div class="row"><span>${escapeHtml(labelize(key))}</span><span>${renderResultValue(value)}</span></div>`).join("")}</div>`;
+}
+
+function renderAdditionalResult(detail: SpecDriveIdeExecutionDetail | undefined): string {
+  const result = resultRecord(skillOutputRecord(detail));
+  const known = new Set(["decision", "reason", "selectedFeature", "featureId", "blockedReason", "commands", "commandsChecked", "verification", "statusChecker", "failureClassification", "recommendedNextAction", "blockers", "blockedReasons", "openQuestions", "residualQuestions", "findings", "specDriftFindings", "requiredFixes", "risks", "residualRisks", "residualRisk", "coverage", "traceabilityMatrix", "userStoryMapping", "updatedDocuments", "updatedArtifacts", "affectedDocuments"]);
+  const additional = Object.fromEntries(Object.entries(result).filter(([key]) => !known.has(key)));
+  return Object.keys(additional).length > 0 ? compactJsonBlock(additional) : emptyState("No additional result fields.");
+}
+
+function renderResultValue(value: unknown): string {
+  if (value === null || value === undefined) return `<span class="muted">none</span>`;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return escapeHtml(String(value));
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `<span class="muted">empty</span>`;
+    return `<ul class="compact-list">${value.slice(0, 6).map((entry) => `<li>${escapeHtml(resultLabel(entry))}</li>`).join("")}${value.length > 6 ? `<li class="muted">+${value.length - 6} more</li>` : ""}</ul>`;
+  }
+  return `<code>${escapeHtml(resultLabel(value))}</code>`;
+}
+
+function resultLabel(value: unknown): string {
+  if (value === null || value === undefined) return "none";
+  if (typeof value !== "object") return String(value);
+  const record = value as Record<string, unknown>;
+  return String(record.summary ?? record.reason ?? record.command ?? record.path ?? record.id ?? record.name ?? JSON.stringify(value));
+}
+
+function skillOutputRecord(detail: SpecDriveIdeExecutionDetail | undefined): Record<string, unknown> | undefined {
+  return detail?.skillOutputContract && typeof detail.skillOutputContract === "object" && !Array.isArray(detail.skillOutputContract)
+    ? detail.skillOutputContract as Record<string, unknown>
+    : undefined;
+}
+
+function resultRecord(output: Record<string, unknown> | undefined): Record<string, unknown> {
+  return output?.result && typeof output.result === "object" && !Array.isArray(output.result)
+    ? output.result as Record<string, unknown>
+    : {};
+}
+
+function stringOrNone(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value : "none";
+}
+
+function labelize(key: string): string {
+  return key.replace(/([A-Z])/g, " $1").replace(/^./, (match) => match.toUpperCase());
 }
 
 function autoRunButton(view: SpecDriveIdeView | undefined): string {

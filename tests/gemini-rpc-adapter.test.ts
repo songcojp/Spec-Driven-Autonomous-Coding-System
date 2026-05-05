@@ -118,6 +118,7 @@ function skillOutput(): SkillOutputContract {
     requestedAction: "feature_execution",
     status: "completed",
     summary: "Implemented.",
+    nextAction: null,
     producedArtifacts: [],
     traceability: {
       featureId: "FEAT-016",
@@ -125,6 +126,7 @@ function skillOutput(): SkillOutputContract {
       requirementIds: ["REQ-VSC-010"],
       changeIds: [],
     },
+    result: { changedFiles: ["src/example.ts"] },
   };
 }
 

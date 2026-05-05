@@ -977,6 +977,8 @@ THE SYSTEM SHALL 将 provider session id、threadId、turnId、eventRefs、appro
 - [ ] `SkillOutputContractV1` 校验通过后，Execution Record 标记 completed，并更新 Feature `spec-state.json`。
 - [ ] output schema 校验失败时，Execution Record 标记 failed，保留 raw output 供重试或恢复。
 - [ ] Gemini ACP permission pending 投影为 `approval_needed`，不写入 SkillOutputContractV1.status。
+- [ ] `SkillOutputContractV1` 的通用机器契约由 CLI/RPC Adapter 调用端定义和校验；所有 Skill 输出必须包含 `summary`、`nextAction`、`producedArtifacts`、`traceability` 和 `result`。
+- [ ] `result` 必须是机器可读对象，允许不同 Skill 写入专用执行详情；调用端不得按 `skillSlug` 硬编码专用字段校验。
 - [ ] 不新增重型 Execution Result；聊天记录、provider 事件流、raw logs 和 Execution Record 共同构成执行证据。
 
 ### REQ-082：支持 VSCode app-server 审批交互
@@ -1028,6 +1030,9 @@ THE SYSTEM SHALL 同步读取 Feature index 和 `docs/features/*` Feature 文件
 - [ ] 刷新 Feature Spec 视图时同时扫描 `docs/features/README.md` 和 `docs/features/*` 三件套目录；因需求新增不经过拆分流程导致 index 漏项时，刷新流程必须补齐 Feature index 或报告需要人工处理的冲突。
 - [ ] 需求新增 Skill 在创建或更新 Feature Spec 后必须同步 `docs/features/README.md`，写入 Feature ID、名称、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
 - [ ] 用户点击 Feature 后，右侧详情必须解析对应 `tasks.md`，展示任务列表、任务状态、描述和验证命令；缺失或不可解析时展示 blocked reason。
+- [ ] Execution Workbench 必须以摘要优先方式展示结构化 Skill 输出：状态、summary、nextAction、traceability、produced artifacts、常见 result 分组和完整 JSON 审计视图。
+- [ ] Execution Workbench 必须把 produced artifacts 展示为可扫描表格，并把 `commands`、`verification`、`decision`、`blockers`、`findings`、`risks`、`coverage`、`openQuestions`、`updatedDocuments` 等常见 result 字段分组展示。
+- [ ] 未识别的 result 字段必须保留在 Additional Result JSON 中，不得丢弃。
 
 ### REQ-085：在 VSCode IDE 中管理系统设置
 来源：用户指令“vscode ide添加系统设置”

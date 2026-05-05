@@ -25,6 +25,7 @@ import {
   runCliAdapter,
   runDueRecoveryDispatches,
   validateCliAdapterConfig,
+  validateSkillOutputContract,
 } from "../src/cli-adapter.ts";
 import { listStatusCheckResults } from "../src/status-checker.ts";
 import { handleRecoveryResult, persistRecoveryResultHandling } from "../src/recovery.ts";
@@ -94,6 +95,7 @@ function skillOutputEvent(overrides: Partial<{
     nextAction: "Update spec-state.json and continue.",
     producedArtifacts: overrides.producedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
     traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+    result: { resultSummary: overrides.resultSummary ?? "Skill result details." },
   };
   return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
 }
@@ -101,6 +103,11 @@ function skillOutputEvent(overrides: Partial<{
 function assertStrictSchemaObjects(schema: unknown, path = "$"): void {
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) return;
   const record = schema as Record<string, unknown>;
+  if (path === "$.properties.result") {
+    assert.equal(record.type, "object", `${path} should remain an object`);
+    assert.equal(record.additionalProperties, true, `${path} should allow skill-specific result fields`);
+    return;
+  }
   if (record.type === "object") {
     assert.equal(record.additionalProperties, false, `${path} should reject additional properties`);
     const properties = record.properties && typeof record.properties === "object" && !Array.isArray(record.properties)
@@ -259,6 +266,7 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
       status: Record<string, unknown>;
       producedArtifacts: { items: { required: string[]; properties: { status: Record<string, unknown>; checksum: Record<string, unknown>; summary: Record<string, unknown> } } };
       traceability: { required: string[]; properties: { featureId: Record<string, unknown>; taskId: Record<string, unknown> } };
+      result: Record<string, unknown>;
     };
   };
 
@@ -272,7 +280,49 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
   assert.deepEqual(schema.properties.producedArtifacts.items.properties.summary, { type: ["string", "null"] });
   assert.deepEqual(schema.properties.traceability.properties.featureId, { type: ["string", "null"] });
   assert.deepEqual(schema.properties.traceability.properties.taskId, { type: ["string", "null"] });
+  assert.deepEqual(schema.properties.result, { type: "object", additionalProperties: true });
   assertStrictSchemaObjects(policy.outputSchema);
+});
+
+test("SkillOutputContract validation requires common fields but allows skill-specific result fields", () => {
+  const invocation = skillInvocationContract({ executionId: "RUN-VALIDATE", featureId: "FEAT-008", taskId: "TASK-001" });
+  const valid = {
+    contractVersion: "skill-contract/v1",
+    executionId: "RUN-VALIDATE",
+    skillSlug: "pr-ears-requirement-decomposition-skill",
+    requestedAction: "generate_ears",
+    status: "completed",
+    summary: "Generated requirements.",
+    nextAction: null,
+    producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
+    traceability: { featureId: "FEAT-008", taskId: "TASK-001", requirementIds: [], changeIds: ["CHG-016"] },
+    result: { requirements: ["REQ-001"], openQuestions: [], nested: { allowed: true } },
+  } as const;
+
+  assert.deepEqual(validateSkillOutputContract(invocation, valid).reasons, []);
+
+  const missingSummary = validateSkillOutputContract(invocation, { ...valid, summary: "" });
+  assert.equal(missingSummary.valid, false);
+  assert.match(missingSummary.reasons.join("\n"), /summary is required/);
+
+  const missingNextAction = validateSkillOutputContract(invocation, { ...valid, nextAction: undefined } as never);
+  assert.equal(missingNextAction.valid, false);
+  assert.match(missingNextAction.reasons.join("\n"), /nextAction/);
+
+  const missingResult = validateSkillOutputContract(invocation, { ...valid, result: undefined } as never);
+  assert.equal(missingResult.valid, false);
+  assert.match(missingResult.reasons.join("\n"), /result must be an object/);
+
+  const traceabilityMismatch = validateSkillOutputContract(invocation, {
+    ...valid,
+    traceability: { ...valid.traceability, featureId: "FEAT-OTHER" },
+  });
+  assert.equal(traceabilityMismatch.valid, false);
+  assert.match(traceabilityMismatch.reasons.join("\n"), /traceability\.featureId mismatch/);
+
+  const missingArtifact = validateSkillOutputContract(invocation, { ...valid, producedArtifacts: [] });
+  assert.equal(missingArtifact.valid, false);
+  assert.match(missingArtifact.reasons.join("\n"), /Required artifact was not produced/);
 });
 
 test("CLI adapter validation rejects configs with missing or empty executable", () => {
@@ -738,7 +788,7 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
     nextAction: "Continue.",
     producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
     traceability: { requirementIds: [], changeIds: ["CHG-016"] },
-    result: {},
+    result: { userStories: ["US-001"], openQuestions: [] },
   };
 
   const result = await runCliAdapter({
@@ -766,6 +816,7 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
 
   assert.equal(result.session.sessionId, "GEMINI-SESSION");
   assert.equal(result.result.skillOutput?.summary, "Gemini completed.");
+  assert.deepEqual(result.result.skillOutput?.result, { userStories: ["US-001"], openQuestions: [] });
   assert.equal(result.result.contractValidation?.valid, true);
 
   const outputLog = JSON.parse(readFileSync(result.rawLog.files?.output ?? "", "utf8"));

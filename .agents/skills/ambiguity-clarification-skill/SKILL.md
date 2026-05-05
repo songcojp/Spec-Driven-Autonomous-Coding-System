@@ -60,6 +60,22 @@ When invoked through the scheduler with `requestedAction: "resolve_clarification
 - Post-resolution: updated spec artifact with the resolved decision recorded.
 - Recommended `review_needed_reason` if the answer requires routing elsewhere.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state the ambiguity outcome: resolved, still blocked, routed to review, or no matching clarification target.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+For `requestedAction = "resolve_clarification"`, `result` should contain:
+
+- `ambiguities`: array of ambiguity locations and classifications.
+- `resolvedDecision`: applied operator decision, or `null`.
+- `updatedArtifacts`: array of spec paths changed or intentionally unchanged.
+- `residualQuestions`: array of unrelated or still-open questions.
+- `routing`: `"none"`, `"spec_evolution"`, `"requirement_intake"`, `"clarification_needed"`, or `"risk_review_needed"`.
+
 ## Failure Routing
 
 - Use `clarification_needed` for blocking ambiguity that requires a user decision.

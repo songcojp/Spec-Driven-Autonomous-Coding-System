@@ -24,6 +24,22 @@ Use this skill for implementation tasks after planning and scheduling.
 - Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
 - Put verification command results in `summary`, `producedArtifacts[].summary`, or `result` fields; do not add extra top-level output fields.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state what was implemented and the verification outcome.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `changedFiles`: array of code, test, config, or docs files changed.
+- `verification`: array of commands with `command`, `cwd`, `status`, `exitCode`, and concise `summary`.
+- `implementedTasks`: array of completed Feature Spec task IDs or task names.
+- `residualRisks`: array of remaining risks or follow-ups.
+- `blockedReason`: string or `null`.
+
 ## Failure Routing
 
 - Use `clarification_needed` when implementation intent is unclear.

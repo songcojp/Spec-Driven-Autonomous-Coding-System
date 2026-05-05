@@ -23,6 +23,22 @@ Use this skill to establish the project-level operating contract consumed by Pro
 - Review routing rules for `approval_needed`, `clarification_needed`, and `risk_review_needed`.
 - Traceability to source references.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state whether the constitution was created, updated, unchanged, blocked, or approval-routed.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `projectIdentity`: project name, goal, and repository boundary.
+- `branchContract`: default branch, protected branches, and delivery policy.
+- `trustRules`: approval, sandbox, and write-boundary rules.
+- `reviewRouting`: mapping for approval, clarification, and risk-review outcomes.
+- `sourceReferences`: source files or decisions used.
+
 ## Failure Routing
 
 - Use `clarification_needed` when the project goal, target repo, or allowed write boundary is unclear.

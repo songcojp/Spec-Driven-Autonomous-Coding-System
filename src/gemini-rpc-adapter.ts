@@ -474,8 +474,10 @@ function isSkillOutput(value: unknown): value is SkillOutputContract {
     && typeof value.requestedAction === "string"
     && typeof value.status === "string"
     && typeof value.summary === "string"
+    && (typeof value.nextAction === "string" || value.nextAction === null)
     && Array.isArray(value.producedArtifacts)
-    && isRecord(value.traceability);
+    && isRecord(value.traceability)
+    && isRecord(value.result);
 }
 
 function parseJsonLine(line: string): Record<string, unknown> | undefined {

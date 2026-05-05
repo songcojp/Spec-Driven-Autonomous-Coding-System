@@ -317,10 +317,10 @@ export type SkillOutputContract = {
   requestedAction: string;
   status: "completed" | "review_needed" | "blocked" | "failed";
   summary: string;
-  nextAction?: string;
+  nextAction: string | null;
   producedArtifacts: SkillOutputArtifact[];
   traceability: SkillTraceabilityContract;
-  result?: Record<string, unknown>;
+  result: Record<string, unknown>;
 };
 
 export type SkillContractValidationResult = {
@@ -473,7 +473,7 @@ const DEFAULT_OUTPUT_SCHEMA = {
         changeIds: { type: "array", items: { type: "string" } },
       },
     },
-    result: { type: "object", additionalProperties: false, required: [], properties: {} },
+    result: { type: "object", additionalProperties: true },
   },
 };
 const FORBIDDEN_FILE_PATTERNS = [
@@ -1047,6 +1047,16 @@ function parseSkillOutputRecord(record: Record<string, unknown> | undefined): Sk
   if (!status) return undefined;
   const traceability = parseTraceabilityContract(record.traceability);
   if (!traceability) return undefined;
+  if (!hasOwn(record, "summary")) return undefined;
+  if (!hasOwn(record, "nextAction")) return undefined;
+  if (!hasOwn(record, "result")) return undefined;
+  const nextAction = typeof record.nextAction === "string"
+    ? record.nextAction
+    : record.nextAction === null
+      ? null
+      : undefined;
+  if (nextAction === undefined) return undefined;
+  if (typeof record.result !== "object" || record.result === null || Array.isArray(record.result)) return undefined;
   return {
     contractVersion: "skill-contract/v1",
     executionId: String(record.executionId ?? ""),
@@ -1054,13 +1064,15 @@ function parseSkillOutputRecord(record: Record<string, unknown> | undefined): Sk
     requestedAction: String(record.requestedAction ?? ""),
     status,
     summary: String(record.summary ?? ""),
-    nextAction: typeof record.nextAction === "string" ? record.nextAction : undefined,
+    nextAction,
     producedArtifacts: parseProducedArtifacts(record.producedArtifacts),
     traceability,
-    result: typeof record.result === "object" && record.result !== null && !Array.isArray(record.result)
-      ? record.result as Record<string, unknown>
-      : undefined,
+    result: record.result as Record<string, unknown>,
   };
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
 }
 
 function parseTraceabilityContract(value: unknown): SkillTraceabilityContract | undefined {
@@ -1102,6 +1114,9 @@ export function validateSkillOutputContract(invocation: SkillInvocationContract 
   if (!output) {
     return { valid: false, reasons: ["Skill output contract is missing or invalid JSON."] };
   }
+  if (typeof output.summary !== "string" || output.summary.trim().length === 0) reasons.push("Skill output summary is required.");
+  if (output.nextAction !== null && typeof output.nextAction !== "string") reasons.push("Skill output nextAction must be a string or null.");
+  if (typeof output.result !== "object" || output.result === null || Array.isArray(output.result)) reasons.push("Skill output result must be an object.");
   if (output.contractVersion !== invocation.contractVersion) reasons.push(`Skill output contractVersion mismatch: ${output.contractVersion}.`);
   if (output.executionId !== invocation.executionId) reasons.push(`Skill output executionId mismatch: ${output.executionId}.`);
   if (output.skillSlug !== invocation.skillSlug) reasons.push(`Skill output skillSlug mismatch: ${output.skillSlug}.`);

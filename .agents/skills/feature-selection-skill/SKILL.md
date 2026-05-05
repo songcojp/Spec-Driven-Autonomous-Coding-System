@@ -21,6 +21,10 @@ Use this skill when the scheduler must choose the next Feature Spec to run from 
 
 Return exactly one `SkillOutputContractV1` JSON object matching the invocation contract.
 
+Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md`. `summary` must state the selected Feature, no-op decision, or blocking reason. `nextAction` must tell the scheduler whether to enqueue a Feature execution, wait, ask for resume, or route review.
+
+## Specialized Result Contract
+
 For `requestedAction = "select_next_feature"`, the `result` object must contain:
 
 - `decision`: `"selected"`, `"none"`, or `"blocked"`.

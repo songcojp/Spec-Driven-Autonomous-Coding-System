@@ -36,6 +36,7 @@ Feature 名称: IDE Workbench Webviews
 - CHG-039（2026-05-04）：用户要求区分顶部按钮作用域：部分按钮针对整个任务调度，部分按钮针对 Job；Job 按钮只有选中 Job 后才启用，且点击后必须能处理 schedule-only Job 和已有 Execution Record 的 Run。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-040（2026-05-04）：用户反馈顶部按钮启用/禁用样式没有区别；禁用按钮必须使用明显不同的视觉样式，并且无 Job 选中时 Job 按钮必须显示为禁用状态。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-041（2026-05-04）：用户澄清 Auto Run 是启用/禁用自动执行的状态标记，不是当前队列运行状态；队列为空时也可以启用 Auto Run，启用后若队列无任务才从 Feature 中选择可执行项，选不到 Feature 不得导致开关切换失败。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-042（2026-05-05）：用户要求结构化 Skill 输出能充分说明技能执行情况并可在 UI 上展示；Execution Workbench 必须从纯 JSON 投影升级为摘要优先、分组展示，同时保留完整 `SkillOutputContractV1` JSON 审计视图。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -72,3 +73,5 @@ Feature 名称: IDE Workbench Webviews
 - [x] `Execution Workbench` 自动执行入口状态必须使用 Control Plane 返回的自动执行启用状态；Auto Run 是启用/禁用自动续跑的状态标记，不是当前队列运行状态。点击 `Start Auto Run` 必须将项目自动执行标记置为启用，即使队列为空或暂时选不到可执行 Feature 也要切换为启用；点击 `Pause Auto Run` 必须禁用自动执行。普通队列是否存在 running / queued 任务不得决定该按钮状态。
 - [x] `Execution Workbench` 顶部按钮必须区分全局任务调度动作和 Job 动作；全局动作不依赖 Job 选择，Job 动作必须在选中 Job 后才启用，并且对 schedule-only Job 与已有 Execution Record 的 Run 都能正确执行。
 - [x] `Execution Workbench` 禁用按钮必须具备不同于可用按钮的视觉样式，包括禁用文字色、次级背景、降低透明度和不可点击光标；禁用按钮 hover 不得呈现为可用按钮。
+- [x] `Execution Workbench` 必须以摘要优先方式展示结构化 Skill 输出：状态、summary、nextAction、traceability chips、produced artifacts 表格、常见 result 分组和完整 JSON 审计视图。
+- [x] `Execution Workbench` 必须把未识别的 result 字段保留在 Additional Result JSON 中，不得丢弃。

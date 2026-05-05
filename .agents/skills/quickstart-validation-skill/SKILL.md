@@ -24,6 +24,22 @@ Use this skill as the pre-task-slicing feasibility gate. Its purpose is to confi
 - Constitution compliance: pass or list of violations with article reference.
 - Blockers and required remediation.
 
+## Output Contract
+
+- Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- `summary` must state go/blocked, command availability, testability, and constitution compliance.
+- `result` must follow the specialized contract below.
+
+## Specialized Result Contract
+
+`result` should contain:
+
+- `startability`: `"go"` or `"blocked"`.
+- `commandsChecked`: array with command, cwd, found/expected status, and summary.
+- `testability`: pass/fail decision with smallest meaningful test command.
+- `constitutionCompliance`: pass/fail plus article references.
+- `blockers`: array of blockers and required remediation.
+
 ## Failure Routing
 
 - Use `review_needed` with `clarification_needed` when the implementation path cannot be located.

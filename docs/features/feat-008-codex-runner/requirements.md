@@ -44,7 +44,7 @@
 - Feature 级 `codex-coding-skill` 不得只生成报告 JSON 或总结计划来满足执行；输出 contract 的 `producedArtifacts` 必须列出实际创建或更新的代码、测试、配置或文档文件。
 - CLI skill invocation contract 必须使用 `SkillInvocationContractV1`，包含 `contractVersion`、`executionId`、`projectId`、`workspaceRoot`、`operation`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability`、`constraints` 和 `requestedAction`。
 - CLI skill invocation contract 必须携带当前 `specState`，供 Skill 明确读取 Feature 文件状态而不是查询数据库。
-- CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts` 和 `traceability`，并允许技能在 `result` 中写入扩展结果。
+- CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts`、`traceability` 和 `result`；调用端只校验通用字段和输入回显，`result` 作为灵活对象承载技能专用执行详情。
 - Execution Adapter 校验有效输出后必须把状态、结果摘要、产物和下一步动作投影回 `docs/features/<feature-id>/spec-state.json`。
 - Execution Adapter 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配或必需 artifact 缺失时，Execution Record 必须进入 `review_needed` 并保留原因。
 - CLI Adapter 必须以 `execution_records` 作为执行状态主表；不得为 `cli.run` 创建或更新旧 `runs` 记录。
@@ -69,6 +69,7 @@
 - [ ] `run_board_tasks` 作为兼容入口仍可产生 `cli.run` scheduler job，但编码执行不依赖 Task Board 或旧 task 表。
 - [ ] Spec/UI 操作可以生成 `SkillInvocationContractV1` prompt，并在 Execution Record metadata 中追踪 workspace、skill phase、expected artifacts 和输出 contract 校验结果。
 - [ ] 有效 `SkillOutputContractV1` 会写入 Execution Record metadata；无效输出会进入 `review_needed` 而不是被当成成功。
+- [ ] `result` 可以包含 Skill 专用字段，CLI/RPC Adapter 不按 `skillSlug` 做专用字段校验。
 - [ ] Feature 级 coding prompt 明确要求读取 Feature Spec 三件套并执行 `tasks.md`，不能将 report-only completion 当成成功。
 - [ ] Execution Policy 能根据开发阶段策略解析 sandbox、approval、model、profile 和输出 schema。
 - [ ] CLI Adapter JSON 配置可以校验、保存草稿、启用，并在无效时阻塞新 Execution Record。
