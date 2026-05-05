@@ -205,6 +205,13 @@ declare module "vscode" {
     Expanded = 1
   }
 
+  export enum FileType {
+    Unknown = 0,
+    File = 1,
+    Directory = 2,
+    SymbolicLink = 64
+  }
+
   export type Comment = {
     body: string | MarkdownString;
     mode: CommentMode;
@@ -259,6 +266,7 @@ declare module "vscode" {
     const workspaceFolders: Array<{ uri: Uri; name: string }> | undefined;
     const fs: {
       stat(uri: Uri): Thenable<unknown>;
+      readDirectory(uri: Uri): Thenable<Array<[string, FileType]>>;
     };
     function getConfiguration(section?: string): {
       get<T>(key: string, defaultValue: T): T;

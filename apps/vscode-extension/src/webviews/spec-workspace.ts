@@ -190,9 +190,7 @@ function renderSpecLifecycleDetail(
 }
 
 function renderUiSpecAssets(images: UiConceptImage[]): string {
-  return `<h3>UI Spec Assets</h3>
-    <p class="muted">UI Spec includes the Markdown document above plus the concept images below.</p>
-    <h3>UI Spec Concept Images</h3>
+  return `<h3>UI Spec Concept Images</h3>
     ${images.length === 0 ? emptyState("No UI concept images discovered.") : `<div class="concept-grid">${images.map(renderUiConceptImage).join("")}</div>`}`;
 }
 

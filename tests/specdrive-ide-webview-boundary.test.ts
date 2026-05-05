@@ -278,13 +278,15 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.doesNotMatch(extensionSource, /reason: "Generate UI Spec from Feature Split lifecycle\."/);
   assert.match(extensionSource, /action: "split_feature_specs"/);
   assert.match(extensionSource, /<h3>UI Spec Concept Images<\/h3>/);
-  assert.match(extensionSource, /<h3>UI Spec Assets<\/h3>/);
-  assert.match(extensionSource, /UI Spec includes the Markdown document above plus the concept images below\./);
+  assert.doesNotMatch(extensionSource, /<h3>UI Spec Assets<\/h3>/);
+  assert.doesNotMatch(extensionSource, /UI Spec includes the Markdown document above plus the concept images below\./);
   assert.match(extensionSource, /class="concept-card" data-command="openConceptImage"/);
   assert.match(extensionSource, /id="concept-modal" class="concept-modal" hidden/);
   assert.match(extensionSource, /payload\.command === "openConceptImage"/);
   assert.match(extensionSource, /payload\.command === "closeConceptImage"/);
   assert.match(extensionSource, /asWebviewUri\(uri\)/);
+  assert.match(extensionSource, /docs\/ui\/concepts/);
+  assert.match(extensionSource, /readDirectory\(directoryUri\)/);
   assert.match(extensionSource, /img-src \$\{imgSource\}/);
   assert.doesNotMatch(extensionSource, /<h2>Lifecycle<\/h2>/);
   assert.doesNotMatch(extensionSource, /<h2>Control Guardrails<\/h2>/);

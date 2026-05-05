@@ -1318,7 +1318,9 @@ async function openProductConsole(item: unknown, provider: SpecExplorerProvider)
 async function collectUiConceptImages(webview: vscode.Webview): Promise<UiConceptImage[]> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
   if (!workspaceRoot) return [];
-  const candidates = [
+  const rootUri = workspaceRoot;
+  const generatedConcepts = await discoverUiConceptImages("docs/ui/concepts");
+  const legacyConcepts: Array<[string, string]> = [
     ["Spec Workspace PRD Flow", "docs/ui/spec-workspace-prd-flow-concept.png"],
     ["Execution Workbench", "docs/ui/feat-021-execution-workbench-concept.png"],
     ["Spec Workspace", "docs/ui/feat-021-spec-workspace-concept.png"],
@@ -1327,8 +1329,11 @@ async function collectUiConceptImages(webview: vscode.Webview): Promise<UiConcep
     ["Audit Center", "docs/ui/audit-center-concept.png"],
   ];
   const images: UiConceptImage[] = [];
-  for (const [label, path] of candidates) {
-    const uri = vscode.Uri.joinPath(workspaceRoot, ...path.split("/"));
+  const seen = new Set<string>();
+  for (const [label, path] of [...generatedConcepts, ...legacyConcepts]) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const uri = vscode.Uri.joinPath(rootUri, ...path.split("/"));
     try {
       await vscode.workspace.fs.stat(uri);
       images.push({ label, path, uri: webview.asWebviewUri(uri).toString() });
@@ -1337,6 +1342,28 @@ async function collectUiConceptImages(webview: vscode.Webview): Promise<UiConcep
     }
   }
   return images;
+
+  async function discoverUiConceptImages(directory: string): Promise<Array<[string, string]>> {
+    const directoryUri = vscode.Uri.joinPath(rootUri, ...directory.split("/"));
+    try {
+      const entries: Array<[string, vscode.FileType]> = await vscode.workspace.fs.readDirectory(directoryUri);
+      return entries
+        .filter(([, type]) => type === vscode.FileType.File)
+        .map(([name]) => name)
+        .filter((name: string) => /\.(svg|png|jpe?g|webp)$/iu.test(name))
+        .sort((left: string, right: string) => left.localeCompare(right))
+        .map((name: string): [string, string] => [conceptImageLabel(name), `${directory}/${name}`]);
+    } catch {
+      return [];
+    }
+  }
+}
+
+function conceptImageLabel(fileName: string): string {
+  return fileName
+    .replace(/\.(svg|png|jpe?g|webp)$/iu, "")
+    .replace(/[-_]+/gu, " ")
+    .replace(/\b\w/gu, (match) => match.toUpperCase());
 }
 
 function isDocumentItem(item: unknown): item is Extract<SpecExplorerItem, { type: "document" }> {
