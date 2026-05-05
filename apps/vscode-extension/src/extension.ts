@@ -1110,6 +1110,10 @@ async function handleWorkbenchMessage(
       await openDocumentPath(message.path);
       return;
     }
+    if (message.command === "openRawLogRef" && typeof message.path === "string") {
+      await openRawLogRef(message.path);
+      return;
+    }
     if (message.command === "queue" && isQueueAction(message.action) && typeof message.entityId === "string") {
       const payload = message.action === "reprioritize" ? await priorityPayload() : undefined;
       if (message.action === "reprioritize" && !payload) return;
@@ -1301,6 +1305,22 @@ async function openDocumentPath(path: string): Promise<void> {
   if (!workspaceRoot) return;
   const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(workspaceRoot, ...path.split("/")));
   await vscode.window.showTextDocument(document);
+}
+
+async function openRawLogRef(path: string): Promise<void> {
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const uri = isAbsolutePath(path)
+    ? vscode.Uri.file(path)
+    : workspaceRoot
+      ? vscode.Uri.joinPath(workspaceRoot, ...path.split(/[\\/]+/u))
+      : undefined;
+  if (!uri) return;
+  const document = await vscode.workspace.openTextDocument(uri);
+  await vscode.window.showTextDocument(document);
+}
+
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith("/") || /^[A-Za-z]:[\\/]/u.test(path);
 }
 
 async function openProductConsole(item: unknown, provider: SpecExplorerProvider): Promise<void> {

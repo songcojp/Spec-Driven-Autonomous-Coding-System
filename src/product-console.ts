@@ -4684,7 +4684,7 @@ function buildSkillInvocationFeedback(
       const workspaceRoot = optionalString(metadata.workspaceRoot)
         ?? optionalString(context.workspaceRoot)
         ?? workspaceRootByProject.get(String(execution.project_id));
-      const output = readSkillOutputViewModel(workspaceRoot, executionId);
+      const output = readSkillOutputViewModel(workspaceRoot, executionId, metadata);
       if (output && tokenConsumptionByRun.has(executionId)) {
         output.tokenConsumption = tokenConsumptionByRun.get(executionId);
       }
@@ -4722,6 +4722,7 @@ function latestSkillOutputForFeature(
   const output = readSkillOutputViewModel(
     optionalString(metadata.workspaceRoot) ?? optionalString(context.workspaceRoot) ?? projectWorkspaceRoot,
     String(execution.id),
+    metadata,
   );
   if (output && tokenConsumptionByRun.has(String(execution.id))) {
     output.tokenConsumption = tokenConsumptionByRun.get(String(execution.id));
@@ -4770,7 +4771,7 @@ function buildRunnerSchedulerJobs(
     const workspaceRoot = optionalString(metadata.workspaceRoot)
       ?? optionalString(mergedContext.workspaceRoot)
       ?? (projectId ? workspaceRootByProject.get(projectId) : undefined);
-    const skillOutput = readSkillOutputViewModel(workspaceRoot, executionId);
+    const skillOutput = readSkillOutputViewModel(workspaceRoot, executionId, metadata);
     if (skillOutput && executionId && tokenConsumptionByRun.has(executionId)) {
       skillOutput.tokenConsumption = tokenConsumptionByRun.get(executionId);
     }
@@ -5468,9 +5469,22 @@ function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
-function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId: string | undefined): SkillOutputViewModel | undefined {
+function readSkillOutputViewModel(
+  workspaceRoot: string | undefined,
+  executionId: string | undefined,
+  metadata: Record<string, unknown> = {},
+): SkillOutputViewModel | undefined {
   if (!executionId) return undefined;
+  const persistedOutput = parseJsonObject(metadata.skillOutputContract);
+  const persistedInputContract = metadata.skillInvocationContract;
+  const persistedArtifacts = Array.isArray(metadata.producedArtifacts) ? metadata.producedArtifacts : undefined;
   if (!workspaceRoot) {
+    if (Object.keys(persistedOutput).length > 0) {
+      return skillOutputViewModelFromRecord(persistedOutput, undefined, {
+        inputContract: persistedInputContract,
+        producedArtifacts: persistedArtifacts,
+      });
+    }
     return {
       parseStatus: "missing",
       error: "workspace_root_missing",
@@ -5482,6 +5496,13 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
   const stdoutLogPath = join(runDir, "stdout.log");
   const stdoutLog = readStdoutLogEvents(stdoutLogPath);
   if (!stdoutLog.exists) {
+    if (Object.keys(persistedOutput).length > 0) {
+      return skillOutputViewModelFromRecord(persistedOutput, undefined, {
+        stdoutLogPath,
+        inputContract: persistedInputContract,
+        producedArtifacts: persistedArtifacts,
+      });
+    }
     return {
       parseStatus: "missing",
       stdoutLogPath,
@@ -5499,21 +5520,36 @@ function readSkillOutputViewModel(workspaceRoot: string | undefined, executionId
   }
 
   const raw = stdoutLog.events;
-  const output = findSkillOutputRecord(raw);
-  const recordCount = Array.isArray(raw) ? raw.length : undefined;
+  const output = findSkillOutputRecord(raw) ?? (Object.keys(persistedOutput).length > 0 ? persistedOutput : undefined);
+  return skillOutputViewModelFromRecord(output, raw, {
+    stdoutLogPath,
+    inputContract: persistedInputContract,
+    producedArtifacts: persistedArtifacts,
+  });
+}
+
+function skillOutputViewModelFromRecord(
+  output: Record<string, unknown> | undefined,
+  raw: unknown,
+  options: {
+    stdoutLogPath?: string;
+    inputContract?: unknown;
+    producedArtifacts?: unknown[];
+  } = {},
+): SkillOutputViewModel {
   const tokenUsage = skillOutputTokenUsage(output, raw);
   return {
     parseStatus: "found",
-    stdoutLogPath,
+    stdoutLogPath: options.stdoutLogPath,
     status: optionalString(output?.status),
     summary: optionalString(output?.summary),
     nextAction: optionalString(output?.nextAction),
     tokenUsage,
-    inputContract: compactSkillOutputValue(skillInputContract(output, raw)),
-    producedArtifacts: arrayValue(output?.producedArtifacts).map(compactSkillOutputValue),
+    inputContract: compactSkillOutputValue(skillInputContract(output, raw) ?? options.inputContract),
+    producedArtifacts: arrayValue(output?.producedArtifacts ?? options.producedArtifacts).map(compactSkillOutputValue),
     traceability: compactSkillOutputValue(output?.traceability),
     result: compactSkillOutputValue(output?.result),
-    recordCount,
+    recordCount: Array.isArray(raw) ? raw.length : undefined,
   };
 }
 

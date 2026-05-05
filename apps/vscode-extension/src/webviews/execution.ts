@@ -27,6 +27,7 @@ export function renderExecutionWorkbenchWebview(
   const grouped = view?.queue.groups ?? {};
   const blockers = queue.filter((item) => item.status === "blocked" || item.status === "approval_needed");
   const selectedItem = selectedKey ? detail : undefined;
+  const executionDetail = detail && "metadata" in detail ? detail as SpecDriveIdeExecutionDetail : undefined;
   return renderWorkbenchPage("Execution Workbench", nonce, `
     <section class="toolbar">
       ${autoRunButton(view)}
@@ -51,21 +52,50 @@ export function renderExecutionWorkbenchWebview(
         <h3>Raw Log Refs</h3>
         ${renderRawLogRefs(detail)}
         <h3>Diff Summary</h3>
-        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).diffSummary ?? null : null)}
+        ${compactJsonBlock(executionDetail?.diffSummary ?? null)}
         <h3>SkillOutputContractV1</h3>
-        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).contractValidation ?? null : null)}
+        ${compactJsonBlock(executionDetail?.skillOutputContract ?? null)}
       </section>
       <section class="panel span-4">
         <div class="panel-title"><h2>Blockers & Approvals</h2><span>${blockers.length}</span></div>
-        ${blockers.length === 0 ? emptyState("No blockers or approval requests.") : blockers.map(renderBlockerCard).join("")}
+        ${renderBlockersAndApprovals(blockers, executionDetail)}
       </section>
       <section class="panel span-4">
         <div class="panel-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
+        ${compactJsonBlock(resultProjection(executionDetail))}
         <h3>Produced Artifacts</h3>
-        ${compactJsonBlock("metadata" in (detail ?? {}) ? (detail as SpecDriveIdeExecutionDetail).producedArtifacts ?? [] : [])}
+        ${compactJsonBlock(executionDetail?.producedArtifacts ?? [])}
       </section>
     </main>
   `);
+}
+
+function renderBlockersAndApprovals(blockers: SpecDriveIdeQueueItem[], detail: SpecDriveIdeExecutionDetail | undefined): string {
+  const approvalRequests = detail?.approvalRequests ?? [];
+  const queueHtml = blockers.map(renderBlockerCard).join("");
+  const approvalHtml = approvalRequests.length > 0
+    ? `<h3>Approval Requests</h3>${compactJsonBlock(approvalRequests)}`
+    : "";
+  return queueHtml || approvalHtml
+    ? `${queueHtml}${approvalHtml}`
+    : emptyState("No blockers or approval requests.");
+}
+
+function resultProjection(detail: SpecDriveIdeExecutionDetail | undefined): unknown {
+  if (!detail) return null;
+  const output = detail.skillOutputContract && typeof detail.skillOutputContract === "object"
+    ? detail.skillOutputContract as Record<string, unknown>
+    : {};
+  return {
+    status: detail.status,
+    summary: output.summary ?? detail.summary,
+    nextAction: output.nextAction,
+    featureId: detail.featureId,
+    taskId: detail.taskId,
+    executionId: detail.executionId,
+    producedArtifacts: detail.producedArtifacts,
+    traceability: output.traceability,
+  };
 }
 
 function autoRunButton(view: SpecDriveIdeView | undefined): string {

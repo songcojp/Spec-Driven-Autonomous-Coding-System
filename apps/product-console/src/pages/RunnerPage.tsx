@@ -106,6 +106,19 @@ function friendlyWork(job: RunnerSchedulerJob, invocation: { skillSlug?: string;
   return text.workExecuteTask;
 }
 
+function executionResultSummary(
+  job: RunnerSchedulerJob,
+  invocation: { resultSummary?: string; output?: SkillOutputModel } | undefined,
+  text: UiStrings,
+): string {
+  return job.skillOutput?.summary
+    ?? invocation?.output?.summary
+    ?? invocation?.resultSummary
+    ?? job.skillOutput?.error
+    ?? invocation?.output?.error
+    ?? text.noEvidence;
+}
+
 function filterOptionLabel(option: string, text: UiStrings): string {
   if (option === "all") return text.allTypesQueues;
   if (option.startsWith("type:")) return option.slice("type:".length);
@@ -147,7 +160,7 @@ function JobDetailDrawer({
 }: {
   job?: RunnerSchedulerJob;
   text: UiStrings;
-  invocation?: { skillSlug?: string; skillPhase?: string; workspaceRoot?: string; resultSummary?: string };
+  invocation?: { skillSlug?: string; skillPhase?: string; workspaceRoot?: string; resultSummary?: string; output?: SkillOutputModel };
   recentLog?: { runId: string; stdout: string; stderr: string; createdAt: string };
   error?: string;
   open: boolean;
@@ -159,6 +172,7 @@ function JobDetailDrawer({
   const runId = job.executionId ?? job.runId;
   const recentLogText = recentLog?.stderr || recentLog?.stdout || text.none;
   const skillOutput = job.skillOutput ?? invocation?.output;
+  const resultSummary = executionResultSummary(job, invocation, text);
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -202,9 +216,9 @@ function JobDetailDrawer({
             </section>
 
             <section className="rounded-md border border-line bg-white p-3">
-              <div className="text-[12px] font-semibold text-ink">{text.latestExecutionInfo}</div>
+              <div className="text-[12px] font-semibold text-ink">{text.executionResult}</div>
               <div className="mt-2 space-y-2 leading-5 text-muted">
-                <p>{invocation?.resultSummary ?? text.noEvidence}</p>
+                <p className="text-ink">{resultSummary}</p>
                 <p className="font-mono text-[11px]">{runId ? `${runId}: ${recentLogText}` : recentLogText}</p>
               </div>
             </section>
@@ -486,7 +500,7 @@ export function RunnerPage({
                 <tbody className="divide-y divide-line">
                   {pagedJobs.map((job) => (
                     <tr key={job.id} className="h-10 bg-white hover:bg-slate-50">
-                      <td className="px-4 py-1">
+                      <td className="px-4 py-2">
                         <button
                           type="button"
                           onClick={() => setDetailJobId(job.id)}
@@ -495,6 +509,9 @@ export function RunnerPage({
                         >
                           {jobDisplayName(job, text)}
                         </button>
+                        {job.skillOutput?.summary ? (
+                          <div className="mt-1 truncate text-[11px] text-muted">{job.skillOutput.summary}</div>
+                        ) : null}
                       </td>
                       <td className="px-3 py-1"><Chip tone={statusTone[job.status] ?? "neutral"}>{friendlyStatus(job, text)}</Chip></td>
                       <td className="truncate px-3 py-1 text-[11px] text-muted">{job.updatedAt}</td>

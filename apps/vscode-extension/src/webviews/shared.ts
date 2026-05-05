@@ -235,8 +235,29 @@ export function renderBlockerCard(item: SpecDriveIdeQueueItem): string {
 }
 
 export function renderRawLogRefs(item: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined): string {
-  if (!item || !("rawLogs" in item) || item.rawLogs.length === 0) return emptyState("No raw log references.");
+  if (!item || !("rawLogs" in item)) return emptyState("No raw log references.");
+  const refs = item.rawLogRefs ?? [];
+  if (refs.length > 0) {
+    return refs.map((ref, index) => {
+      const label = rawLogRefLabel(ref, index);
+      const open = isOpenableRawLogRef(ref)
+        ? commandButton("Open", "openRawLogRef", { path: ref })
+        : `<span class="muted">stored ref</span>`;
+      return `<div class="row"><span><code>${escapeHtml(label)}</code></span>${open}</div>`;
+    }).join("");
+  }
+  if (item.rawLogs.length === 0) return emptyState("No raw log references.");
   return item.rawLogs.map((log, index) => `<div class="row"><span>Log ${index + 1}</span><span>${escapeHtml(log.createdAt ?? "recorded")}</span></div>`).join("");
+}
+
+function isOpenableRawLogRef(ref: string): boolean {
+  return ref.includes("/") || ref.includes("\\") || ref.startsWith(".");
+}
+
+function rawLogRefLabel(ref: string, index: number): string {
+  const normalized = ref.replaceAll("\\", "/");
+  const segments = normalized.split("/").filter(Boolean);
+  return segments.length > 0 ? segments.slice(-3).join("/") : `Log ${index + 1}`;
 }
 
 export function statusClass(status: string | undefined): string {

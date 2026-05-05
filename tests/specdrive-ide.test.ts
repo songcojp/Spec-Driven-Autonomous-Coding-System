@@ -963,7 +963,7 @@ test("SpecDrive IDE execution detail includes projection logs, artifacts, contra
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
   seedProject(dbPath, workspaceRoot);
-  seedApprovalRuntimeState(dbPath);
+  seedApprovalRuntimeState(dbPath, workspaceRoot);
 
   const detail = buildSpecDriveIdeExecutionDetail(dbPath, "RUN-APPROVAL");
 
@@ -971,8 +971,22 @@ test("SpecDrive IDE execution detail includes projection logs, artifacts, contra
   assert.equal(detail?.threadId, "thread-approval");
   assert.equal(detail?.turnId, "turn-approval");
   assert.equal(detail?.producedArtifacts.length, 1);
+  assert.deepEqual(detail?.rawLogRefs, [
+    join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "cli-input.json"),
+    join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "stdout.log"),
+  ]);
   assert.equal(detail?.rawLogs[0].stdout, "approval requested");
   assert.equal(detail?.approvalRequests.length, 1);
+  assert.deepEqual(detail?.skillOutputContract, {
+    contractVersion: "skill-contract/v1",
+    executionId: "RUN-APPROVAL",
+    skillSlug: "codex-coding-skill",
+    requestedAction: "feature_execution",
+    status: "completed",
+    summary: "Approval requested.",
+    producedArtifacts: [{ path: "src/example.ts", kind: "typescript", status: "updated" }],
+    traceability: { featureId: "FEAT-016", taskId: "TASK-001", requirementIds: ["REQ-084"], changeIds: [] },
+  });
   assert.deepEqual(detail?.contractValidation, { valid: true });
 });
 
@@ -981,7 +995,7 @@ test("SpecDrive IDE execution detail can read incremental raw logs", () => {
   const dbPath = makeDbPath();
   initializeSchema(dbPath);
   seedProject(dbPath, workspaceRoot);
-  seedApprovalRuntimeState(dbPath);
+  seedApprovalRuntimeState(dbPath, workspaceRoot);
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO raw_execution_logs (id, run_id, stdout, stderr, events_json, created_at)
@@ -1269,7 +1283,7 @@ function seedFailedRuntimeState(dbPath: string): void {
   ]);
 }
 
-function seedApprovalRuntimeState(dbPath: string): void {
+function seedApprovalRuntimeState(dbPath: string, workspaceRoot: string): void {
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
@@ -1294,6 +1308,20 @@ function seedApprovalRuntimeState(dbPath: string): void {
           threadId: "thread-approval",
           turnId: "turn-approval",
           skillSlug: "codex-coding-skill",
+          rawLogRefs: [
+            join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "cli-input.json"),
+            join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "stdout.log"),
+          ],
+          skillOutputContract: {
+            contractVersion: "skill-contract/v1",
+            executionId: "RUN-APPROVAL",
+            skillSlug: "codex-coding-skill",
+            requestedAction: "feature_execution",
+            status: "completed",
+            summary: "Approval requested.",
+            producedArtifacts: [{ path: "src/example.ts", kind: "typescript", status: "updated" }],
+            traceability: { featureId: "FEAT-016", taskId: "TASK-001", requirementIds: ["REQ-084"], changeIds: [] },
+          },
           approvalState: "pending",
           producedArtifacts: [{ path: "src/example.ts", kind: "typescript", status: "updated" }],
           contractValidation: { valid: true },

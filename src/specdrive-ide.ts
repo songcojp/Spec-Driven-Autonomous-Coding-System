@@ -73,9 +73,11 @@ export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   context: Record<string, unknown>;
   metadata: Record<string, unknown>;
   rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
+  rawLogRefs: string[];
   producedArtifacts: unknown[];
   executionResults: Array<{ id: string; kind: string; path?: string; summary?: string; metadata: Record<string, unknown>; createdAt?: string }>;
   diffSummary?: unknown;
+  skillOutputContract?: unknown;
   contractValidation?: unknown;
   outputSchema?: unknown;
   approvalRequests: unknown[];
@@ -440,6 +442,7 @@ export function buildSpecDriveIdeExecutionDetail(
   const metadataArtifacts = arrayValue(metadata.producedArtifacts);
   const resultArtifacts = executionResults.flatMap((entry) => arrayValue(entry.metadata.producedArtifacts));
   const eventRefs = arrayValue(metadata.eventRefs);
+  const rawLogRefs = arrayValue(metadata.rawLogRefs).filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
   const resultDiff = executionResults.map((entry) => entry.metadata.diff ?? entry.metadata.diffSummary).find((entry) => entry !== undefined);
   const approvalRequests = rawLogs
     .flatMap((log) => log.events)
@@ -460,9 +463,11 @@ export function buildSpecDriveIdeExecutionDetail(
     context,
     metadata,
     rawLogs,
+    rawLogRefs,
     producedArtifacts: metadataArtifacts.length > 0 ? metadataArtifacts : resultArtifacts,
     executionResults,
     diffSummary: metadata.diffSummary ?? metadata.diff ?? resultDiff,
+    skillOutputContract: metadata.skillOutputContract,
     contractValidation: metadata.contractValidation,
     outputSchema: metadata.outputSchema,
     approvalRequests: approvalRequests.length > 0 ? approvalRequests : eventRefs.filter(isApprovalRequestEvent),

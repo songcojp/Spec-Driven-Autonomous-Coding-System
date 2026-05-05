@@ -30,11 +30,13 @@ test("renders the console first screen and navigates across all pages", async ({
       await expect(page.getByRole("heading", { name: "调度流水线" })).toHaveCount(0);
       await expect(page.getByRole("heading", { name: "任务队列" })).toBeVisible();
       await expect(page.getByText("Connect carrier label quote mock").first()).toBeVisible();
+      await expect(page.getByRole("row", { name: /Carrier label quote fixture wired and acceptance evidence recorded\./ })).toBeVisible();
       await expect(page.getByLabel("类型/队列")).toBeVisible();
       await expect(page.getByText("JOB-709")).toHaveCount(0);
       await expect(page.getByText("feature_execution")).toHaveCount(0);
       await page.getByRole("row", { name: /Connect carrier label quote mock/ }).getByRole("button", { name: "详情" }).click();
       const skillDrawer = page.getByRole("dialog", { name: "Connect carrier label quote mock" });
+      await expect(skillDrawer.getByText("执行结果")).toBeVisible();
       await expect(skillDrawer.getByText("Skill 输出")).toBeVisible();
       await expect(skillDrawer.getByText("Carrier label quote fixture wired and acceptance evidence recorded.", { exact: true }).first()).toBeVisible();
       await expect(skillDrawer.getByText("docs/features/feat-204-mobile-returns/tasks.md")).toBeVisible();

@@ -814,6 +814,43 @@ test("runner and spec workspace record token consumption only from stdout.log", 
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
+        VALUES ('JOB-METADATA-OUTPUT', 'BULL-METADATA-OUTPUT', 'specdrive:execution-adapter', 'cli.run', 'completed', ?, 1, '2026-04-28T12:04:30.000Z')`,
+      params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-METADATA-OUTPUT", operation: "generate_ui_spec", context: { featureId: "FEAT-013" } })],
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, metadata_json)
+        VALUES ('RUN-METADATA-OUTPUT', 'JOB-METADATA-OUTPUT', 'cli', 'generate_ui_spec', 'project-1', ?, 'completed', '2026-04-28T12:04:05.000Z', '2026-04-28T12:04:30.000Z', ?)`,
+      params: [
+        JSON.stringify({ featureId: "FEAT-013", skillPhase: "generate_ui_spec" }),
+        JSON.stringify({
+          skillSlug: "ui-spec-skill",
+          skillPhase: "generate_ui_spec",
+          workspaceRoot: projectPath,
+          skillInvocationContract: { skillSlug: "ui-spec-skill", requestedAction: "generate_ui_spec" },
+          skillOutputContract: {
+            contractVersion: "skill-contract/v1",
+            executionId: "RUN-METADATA-OUTPUT",
+            skillSlug: "ui-spec-skill",
+            requestedAction: "generate_ui_spec",
+            status: "completed",
+            summary: "UI spec generated from persisted metadata.",
+            producedArtifacts: [{ path: "docs/zh-CN/ui-spec.md", kind: "markdown", status: "created" }],
+            traceability: { featureId: "FEAT-013", requirementIds: ["REQ-066"], changeIds: [] },
+            result: { pageCount: 4 },
+          },
+        }),
+      ],
+    },
+  ]);
+  const metadataOutput = buildRunnerConsoleView(dbPath, stableDate, "project-1").schedulerJobs.find((job) => job.id === "JOB-METADATA-OUTPUT")?.skillOutput;
+  assert.equal(metadataOutput?.parseStatus, "found");
+  assert.equal(metadataOutput?.summary, "UI spec generated from persisted metadata.");
+  assert.deepEqual(metadataOutput?.producedArtifacts, [{ path: "docs/zh-CN/ui-spec.md", kind: "markdown", status: "created" }]);
+  assert.equal(metadataOutput?.tokenUsage, undefined);
+
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, attempts, updated_at)
         VALUES ('JOB-MISSING', 'BULL-MISSING', 'specdrive:execution-adapter', 'cli.run', 'completed', ?, 1, '2026-04-28T12:05:00.000Z')`,
       params: [JSON.stringify({ projectId: "project-1", executionId: "RUN-MISSING", operation: "generate_ui_spec", context: { featureId: "FEAT-013" } })],
     },

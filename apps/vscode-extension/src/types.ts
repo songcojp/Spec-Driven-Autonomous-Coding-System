@@ -50,8 +50,10 @@ export type SpecDriveIdeExecutionDetail = SpecDriveIdeQueueItem & {
   context: Record<string, unknown>;
   metadata: Record<string, unknown>;
   rawLogs: Array<{ stdout: string; stderr: string; events: unknown[]; createdAt?: string }>;
+  rawLogRefs: string[];
   producedArtifacts: unknown[];
   diffSummary?: unknown;
+  skillOutputContract?: unknown;
   contractValidation?: unknown;
   outputSchema?: unknown;
   approvalRequests: unknown[];

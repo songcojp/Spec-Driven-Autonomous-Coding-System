@@ -110,6 +110,23 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.doesNotMatch(extensionSource, /queueButton\("Run Now", queue\.find/);
 });
 
+test("VSCode Execution Workbench renders execution result sections from durable runtime fields", () => {
+  assert.match(webviewSource, /<h2>Summary<\/h2>/);
+  assert.match(webviewSource, /<h3>Raw Log Refs<\/h3>/);
+  assert.match(webviewSource, /commandButton\("Open", "openRawLogRef"/);
+  assert.match(extensionSource, /message\.command === "openRawLogRef"/);
+  assert.match(extensionSource, /openRawLogRef\(message\.path\)/);
+  assert.match(webviewSource, /<h3>Diff Summary<\/h3>/);
+  assert.match(webviewSource, /<h3>SkillOutputContractV1<\/h3>/);
+  assert.match(webviewSource, /executionDetail\?\.skillOutputContract/);
+  assert.match(webviewSource, /<h2>Blockers & Approvals<\/h2>/);
+  assert.match(webviewSource, /Approval Requests/);
+  assert.match(webviewSource, /<h2>Result Projection<\/h2>/);
+  assert.match(webviewSource, /resultProjection\(executionDetail\)/);
+  assert.match(webviewSource, /<h3>Produced Artifacts<\/h3>/);
+  assert.equal(webviewSource.includes('<h3>SkillOutputContractV1</h3>\n        ${compactJsonBlock(executionDetail?.contractValidation'), false);
+});
+
 test("VSCode Webview disabled buttons are visually distinct", () => {
   assert.match(extensionSource, /button:disabled,button:disabled:hover/);
   assert.match(extensionSource, /cursor:not-allowed/);
