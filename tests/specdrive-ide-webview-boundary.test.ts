@@ -122,6 +122,8 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /<h2>Current Selected<\/h2>/);
   assert.match(extensionSource, /<div class="title-actions">\$\{selectedTaskActionButtons\(selectedItem\)\}<\/div>/);
   assert.match(extensionSource, /queueActionButton\("Run Now", selectedItem, "run_now", \["ready", "queued"\]\)/);
+  assert.match(extensionSource, /runScheduledReceiptNow\(response, provider, "Auto Run is enabled; run the scheduled Feature now\."\)/);
+  assert.match(extensionSource, /queueAction: "run_now"/);
   assert.match(extensionSource, /pauseResumeButton\(selectedItem\)/);
   assert.match(extensionSource, /if \(status === "paused"\) return queueActionButton\("Resume", item, "resume", \["paused"\]\)/);
   assert.match(extensionSource, /return queueActionButton\("Pause", item, "pause", \["queued", "running"\]\)/);
@@ -275,8 +277,8 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /isReviewNeededFeature\(feature\)/);
   assert.match(extensionSource, /function isPassableFeature\(feature: SpecDriveIdeFeatureNode\): boolean/);
   assert.match(extensionSource, /return isReviewNeededFeature\(feature\) \|\| isBlockedFeature\(feature\)/);
-  assert.match(extensionSource, /selected && isClarificationNeededFeature\(selected\)/);
-  assert.match(extensionSource, /selected && isPassableFeature\(selected\)/);
+  assert.doesNotMatch(extensionSource, /selected && isClarificationNeededFeature\(selected\)/);
+  assert.doesNotMatch(extensionSource, /selected && isPassableFeature\(selected\)/);
   assert.match(extensionSource, /approveFeatureReviewButton\("Pass", feature, projectId, "Feature Detail"\)/);
   assert.match(extensionSource, /action: "mark_feature_complete"/);
   assert.match(extensionSource, /renderFeatureSpecWebview\(view, selectedFeatureId, autoRefreshEnabled\)/);
@@ -303,6 +305,7 @@ test("VSCode Feature Spec Webview schedules selected Features with adapter prefe
   assert.match(extensionSource, /Skipped completed or terminal Feature Specs/);
   assert.match(extensionSource, /function isSchedulableFeature/);
   assert.match(extensionSource, /for \(const featureId of schedulableFeatureIds\)/);
+  assert.match(extensionSource, /const shouldRunNowAfterSchedule = view\?\.automation\?\.status === "running" && !hasActiveQueueItem\(view\)/);
   assert.match(extensionSource, /action: "schedule_run"/);
   assert.match(extensionSource, /mode: "manual"/);
   assert.match(extensionSource, /operation: "feature_execution"/);
@@ -310,6 +313,7 @@ test("VSCode Feature Spec Webview schedules selected Features with adapter prefe
   assert.match(extensionSource, /\.\.\.\(executionPreference \? \{ executionPreference \} : \{\}\)/);
   assert.match(extensionSource, /payload\.action === "schedule_run" \|\| payload\.action === "start_auto_run"/);
   assert.match(extensionSource, /scheduleRunPayload\(payload, executionPreference\)/);
+  assert.match(extensionSource, /runScheduledReceiptNow\(response, provider, `Auto Run is enabled; run \$\{featureId\} now\.`\)/);
 });
 
 test("VSCode Spec Workspace keeps global skill input at top and document actions inside lifecycle", () => {
