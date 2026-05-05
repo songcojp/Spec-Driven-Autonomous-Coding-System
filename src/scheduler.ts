@@ -1116,8 +1116,14 @@ function updateFeatureSpecFileState(input: {
   executionId: string;
   skillOutput?: SkillOutputContract;
 }): void {
-  if (!input.workspaceRoot || !input.featureId || input.context.skillSlug !== "codex-coding-skill") return;
-  const featureSpecPath = optionalString(input.context.featureSpecPath);
+  const featureSpecPath = optionalString(input.context.featureSpecPath)
+    ?? optionalString(input.context.specStatePath)?.replace(/\/spec-state\.json$/, "");
+  const effectiveSkillSlug = optionalString(input.context.skillSlug)
+    ?? input.skillOutput?.skillSlug
+    ?? (featureSpecPath && (input.context.skillPhase === "feature_execution" || input.context.operation === "feature_execution")
+      ? "codex-coding-skill"
+      : undefined);
+  if (!input.workspaceRoot || !input.featureId || effectiveSkillSlug !== "codex-coding-skill") return;
   if (!featureSpecPath?.startsWith("docs/features/")) return;
   const featureFolder = featureSpecPath.slice("docs/features/".length);
   try {

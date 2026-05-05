@@ -583,6 +583,49 @@ test("codex.rpc.run projects approval pending to Feature spec-state", async () =
   assert.match(state.nextAction, /approval/i);
 });
 
+test("codex.rpc.run writes completed Feature execution to spec-state file", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-completed-state-"));
+  prepareSkillWorkspace(root);
+  const featureDir = join(root, "docs", "features", "feat-cli");
+  mkdirSync(featureDir, { recursive: true });
+  writeFileSync(join(featureDir, "requirements.md"), "# Feature Spec: FEAT-CLI\n");
+  writeFileSync(join(featureDir, "design.md"), "# Design\n");
+  writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n");
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const transport: CodexAppServerTransport = {
+    async request(method) {
+      if (method === "thread/start") return { threadId: "THREAD-COMPLETED" };
+      if (method === "turn/start") return { turnId: "TURN-COMPLETED" };
+      return {};
+    },
+    notify() {},
+    async *events() {
+      yield {
+        type: "turn/completed",
+        status: "completed",
+        output: skillOutputObject("RUN-COMPLETED-STATE"),
+      };
+    },
+  };
+  const payload = cliRunPayload("RUN-COMPLETED-STATE");
+
+  const result = await runCodexAppServerRunJob(dbPath, {
+    ...payload,
+    context: {
+      ...payload.context,
+      featureSpecPath: "docs/features/feat-cli",
+    },
+  }, transport);
+  const state = JSON.parse(readFileSync(join(featureDir, "spec-state.json"), "utf8"));
+
+  assert.equal(result.status, "completed");
+  assert.equal(state.status, "completed");
+  assert.equal(state.currentJob.executionId, "RUN-COMPLETED-STATE");
+  assert.equal(state.lastResult.status, "completed");
+  assert.equal(state.lastResult.summary, "Skill completed.");
+});
+
 test("codex.rpc.run fails when app-server cannot be started", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-app-server-run-"));
   prepareSkillWorkspace(root);
