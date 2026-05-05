@@ -1019,8 +1019,9 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
   });
   const render = async (): Promise<void> => {
     await provider.refresh();
-    const uiConceptImages = await collectUiConceptImages(panel.webview);
-    panel.webview.html = renderSpecWorkspaceWebview(provider.currentView(), uiConceptImages, panel.webview.cspSource);
+    const view = provider.currentView();
+    const uiConceptImages = await collectUiConceptImages(panel.webview, view);
+    panel.webview.html = renderSpecWorkspaceWebview(view, uiConceptImages, panel.webview.cspSource);
   };
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "specWorkspaceRequest" && typeof message.content === "string") {
@@ -1335,25 +1336,19 @@ async function openProductConsole(item: unknown, provider: SpecExplorerProvider)
   await vscode.env.openExternal(vscode.Uri.parse(url.toString()));
 }
 
-async function collectUiConceptImages(webview: vscode.Webview): Promise<UiConceptImage[]> {
+async function collectUiConceptImages(webview: vscode.Webview, view: SpecDriveIdeView | undefined): Promise<UiConceptImage[]> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
   if (!workspaceRoot) return [];
   const rootUri = workspaceRoot;
-  const generatedConcepts = await discoverUiConceptImages("docs/ui/concepts");
-  const legacyConcepts: Array<[string, string]> = [
-    ["Spec Workspace PRD Flow", "docs/ui/spec-workspace-prd-flow-concept.png"],
-    ["Execution Workbench", "docs/ui/feat-021-execution-workbench-concept.png"],
-    ["Spec Workspace", "docs/ui/feat-021-spec-workspace-concept.png"],
-    ["Feature Spec", "docs/ui/feat-021-feature-spec-concept.png"],
-    ["Task Scheduler Console", "docs/ui/task-scheduler-console-concept.png"],
-    ["Audit Center", "docs/ui/audit-center-concept.png"],
-  ];
+  const uiSpecDetail = await latestUiSpecExecutionDetail(view);
+  const artifacts = uiConceptImageArtifacts(uiSpecDetail);
   const images: UiConceptImage[] = [];
   const seen = new Set<string>();
-  for (const [label, path] of [...generatedConcepts, ...legacyConcepts]) {
+  for (const [label, path] of artifacts) {
     if (seen.has(path)) continue;
     seen.add(path);
-    const uri = vscode.Uri.joinPath(rootUri, ...path.split("/"));
+    const uri = conceptImageUri(rootUri, path);
+    if (!uri) continue;
     try {
       await vscode.workspace.fs.stat(uri);
       images.push({ label, path, uri: webview.asWebviewUri(uri).toString() });
@@ -1362,28 +1357,64 @@ async function collectUiConceptImages(webview: vscode.Webview): Promise<UiConcep
     }
   }
   return images;
-
-  async function discoverUiConceptImages(directory: string): Promise<Array<[string, string]>> {
-    const directoryUri = vscode.Uri.joinPath(rootUri, ...directory.split("/"));
-    try {
-      const entries: Array<[string, vscode.FileType]> = await vscode.workspace.fs.readDirectory(directoryUri);
-      return entries
-        .filter(([, type]) => type === vscode.FileType.File)
-        .map(([name]) => name)
-        .filter((name: string) => /\.(svg|png|jpe?g|webp)$/iu.test(name))
-        .sort((left: string, right: string) => left.localeCompare(right))
-        .map((name: string): [string, string] => [conceptImageLabel(name), `${directory}/${name}`]);
-    } catch {
-      return [];
-    }
-  }
 }
 
-function conceptImageLabel(fileName: string): string {
+async function latestUiSpecExecutionDetail(view: SpecDriveIdeView | undefined): Promise<SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined> {
+  const items = Object.values(view?.queue.groups ?? {}).flat();
+  const uiSpecItem = items
+    .filter((item) => item.executionId && (item.operation === "generate_ui_spec" || item.adapter === "ui-spec-skill"))
+    .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""))[0];
+  return uiSpecItem ? await fetchExecutionDetail(uiSpecItem) : undefined;
+}
+
+function uiConceptImageArtifacts(detail: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined): Array<[string, string]> {
+  const contract = detail && "skillOutputContract" in detail && isRecord(detail.skillOutputContract)
+    ? detail.skillOutputContract
+    : {};
+  const contractArtifacts = arrayValue(contract.producedArtifacts);
+  const detailArtifacts = detail && "producedArtifacts" in detail ? arrayValue(detail.producedArtifacts) : [];
+  return [...contractArtifacts, ...detailArtifacts]
+    .map(uiConceptImageArtifact)
+    .filter((entry): entry is [string, string] => Boolean(entry));
+}
+
+function uiConceptImageArtifact(artifact: unknown): [string, string] | undefined {
+  if (!isRecord(artifact)) return undefined;
+  const path = optionalString(artifact.path);
+  if (!path || !isUiConceptImagePath(path)) return undefined;
+  const status = optionalString(artifact.status)?.toLowerCase();
+  if (status === "missing" || status === "skipped") return undefined;
+  return [optionalString(artifact.summary) ?? conceptImageLabel(path), path];
+}
+
+function isUiConceptImagePath(path: string): boolean {
+  return /\.(svg|png|jpe?g|webp)$/iu.test(path);
+}
+
+function conceptImageUri(workspaceRoot: vscode.Uri, path: string): vscode.Uri | undefined {
+  if (isAbsolutePath(path)) return vscode.Uri.file(path);
+  const segments = path.split(/[\\/]+/u).filter(Boolean);
+  return segments.length > 0 ? vscode.Uri.joinPath(workspaceRoot, ...segments) : undefined;
+}
+
+function conceptImageLabel(path: string): string {
+  const fileName = path.split(/[\\/]+/u).filter(Boolean).at(-1) ?? path;
   return fileName
     .replace(/\.(svg|png|jpe?g|webp)$/iu, "")
     .replace(/[-_]+/gu, " ")
     .replace(/\b\w/gu, (match) => match.toUpperCase());
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
 function isDocumentItem(item: unknown): item is Extract<SpecExplorerItem, { type: "document" }> {
