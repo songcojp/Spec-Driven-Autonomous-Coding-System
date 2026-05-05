@@ -33,23 +33,22 @@ export function renderExecutionWorkbenchWebview(
     <section class="toolbar">
       ${executionPreferenceControls(view)}
       ${autoRunButton(view)}
-      ${queueActionButton("Run Now", selectedItem, "run_now", ["ready", "queued"])}
-      ${pauseResumeButton(selectedItem)}
-      ${queueActionButton("Retry", selectedItem, "retry", ["failed", "cancelled", "skipped"])}
-      ${queueActionButton("Cancel", selectedItem, "cancel", ["ready", "queued", "running", "approval_needed", "blocked", "paused"])}
-      ${queueActionButton("Skip", selectedItem, "skip", ["queued", "approval_needed", "blocked", "failed", "paused"])}
-      ${queueActionButton("Reprioritize", selectedItem, "reprioritize", ["ready", "queued", "blocked", "paused"])}
-      ${queueActionButton("Enqueue", selectedItem, "enqueue", ["ready", "blocked"])}
       ${commandButton("Refresh", "refresh", {})}
     </section>
     <div id="workbench-status" class="status-text" role="status" aria-live="polite">${escapeHtml(selectedItem ? `Selected job: ${selectedItem.executionId ?? selectedItem.schedulerJobId ?? "unknown"} · ${selectedItem.status}` : "Select a job to enable job actions.")}</div>
-    <main class="grid execution-grid">
-      <section class="panel span-5">
+    <main class="execution-layout">
+      <section class="panel execution-queue-column">
         <div class="panel-title"><h2>Execution Queue</h2><span>${queue.length} items</span></div>
         ${["ready", "queued", "running", "approval_needed", "blocked", "failed", "paused", "cancelled", "skipped", "completed"].map((status) => renderQueueGroup(status, grouped[status] ?? [], selectedKey)).join("")}
       </section>
-      <section class="panel span-3">
-        <div class="panel-title"><h2>Current Execution</h2><span>${escapeHtml(detail?.status ?? "none")}</span></div>
+      <section class="panel current-selected-column">
+        <div class="panel-title selected-title">
+          <div>
+            <h2>Current Selected</h2>
+            <span>${escapeHtml(selectedItem ? `${selectedItem.status} · ${selectedItem.operation ?? selectedItem.jobType ?? "execution"}` : "none")}</span>
+          </div>
+          <div class="title-actions">${selectedTaskActionButtons(selectedItem)}</div>
+        </div>
         ${detail ? executionFieldsHtml(detail) : emptyState("No active execution selected.")}
         <h3>Token Consumption</h3>
         ${renderTokenConsumption(executionDetail)}
@@ -59,13 +58,9 @@ export function renderExecutionWorkbenchWebview(
         ${compactJsonBlock(executionDetail?.diffSummary ?? null)}
         <h3>SkillOutputContractV1</h3>
         ${compactJsonBlock(executionDetail?.skillOutputContract ?? null)}
-      </section>
-      <section class="panel span-4">
-        <div class="panel-title"><h2>Blockers & Approvals</h2><span>${blockers.length}</span></div>
+        <div class="section-title"><h2>Blockers & Approvals</h2><span>${blockers.length}</span></div>
         ${renderBlockersAndApprovals(blockers, executionDetail)}
-      </section>
-      <section class="panel span-4">
-        <div class="panel-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
+        <div class="section-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
         ${renderSkillOutputSummary(executionDetail)}
         <h3>Token Cost</h3>
         ${renderTokenCostSummary(executionDetail)}
@@ -172,6 +167,18 @@ function renderSkillOutputSummary(detail: SpecDriveIdeExecutionDetail | undefine
     </div>
     ${renderResultGroups(result)}
   `;
+}
+
+function selectedTaskActionButtons(selectedItem: SpecDriveIdeQueueItem | undefined): string {
+  return [
+    queueActionButton("Run Now", selectedItem, "run_now", ["ready", "queued"]),
+    pauseResumeButton(selectedItem),
+    queueActionButton("Retry", selectedItem, "retry", ["failed", "cancelled", "skipped"]),
+    queueActionButton("Cancel", selectedItem, "cancel", ["ready", "queued", "running", "approval_needed", "blocked", "paused"]),
+    queueActionButton("Skip", selectedItem, "skip", ["queued", "approval_needed", "blocked", "failed", "paused"]),
+    queueActionButton("Reprioritize", selectedItem, "reprioritize", ["ready", "queued", "blocked", "paused"]),
+    queueActionButton("Enqueue", selectedItem, "enqueue", ["ready", "blocked"]),
+  ].join("");
 }
 
 function renderTraceabilityChips(traceability: unknown, detail: SpecDriveIdeExecutionDetail): string {

@@ -98,6 +98,9 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /commandButton\(selected \? "Selected" : "Select", "selectQueueItem"/);
   assert.match(extensionSource, /class="queue-item\$\{selected \? " selected" : ""\}"/);
   assert.match(extensionSource, /Select a job to enable job actions\./);
+  assert.match(extensionSource, /<main class="execution-layout">/);
+  assert.match(extensionSource, /<h2>Current Selected<\/h2>/);
+  assert.match(extensionSource, /<div class="title-actions">\$\{selectedTaskActionButtons\(selectedItem\)\}<\/div>/);
   assert.match(extensionSource, /queueActionButton\("Run Now", selectedItem, "run_now", \["ready", "queued"\]\)/);
   assert.match(extensionSource, /pauseResumeButton\(selectedItem\)/);
   assert.match(extensionSource, /if \(status === "paused"\) return queueActionButton\("Resume", item, "resume", \["paused"\]\)/);
@@ -122,9 +125,9 @@ test("VSCode Execution Workbench renders execution result sections from durable 
   assert.match(webviewSource, /<h3>Diff Summary<\/h3>/);
   assert.match(webviewSource, /<h3>SkillOutputContractV1<\/h3>/);
   assert.match(webviewSource, /executionDetail\?\.skillOutputContract/);
-  assert.match(webviewSource, /<h2>Blockers & Approvals<\/h2>/);
+  assert.match(webviewSource, /<div class="section-title"><h2>Blockers & Approvals<\/h2><span>\$\{blockers\.length\}<\/span><\/div>/);
   assert.match(webviewSource, /Approval Requests/);
-  assert.match(webviewSource, /<h2>Result Projection<\/h2>/);
+  assert.match(webviewSource, /<div class="section-title"><h2>Result Projection<\/h2><span>spec-state\.json<\/span><\/div>/);
   assert.match(webviewSource, /renderSkillOutputSummary\(executionDetail\)/);
   assert.match(webviewSource, /renderTraceabilityChips/);
   assert.match(webviewSource, /<h3>Token Cost<\/h3>/);
