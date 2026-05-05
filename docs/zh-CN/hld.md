@@ -221,6 +221,7 @@ Responsibilities:
 - 从自然语言、PR、RP、PRD、EARS 或混合输入创建 Feature Spec。
 - 拆解原子化、可测试、可追踪的 EARS Requirement。
 - 自动扫描 PRD、EARS、requirements、HLD、design、已有 Feature Spec、tasks 和 README / 索引等 Spec Sources，并识别已有规格产物、来源追踪、缺失项和冲突。
+- 拆分 Feature Spec 时固化通用规格约束：如果拆分结果包含项目初始化作为第一个 Feature Spec，必须在该 Feature Spec 的 requirements/design/tasks 中包含项目根目录 `.gitignore` 创建或安全更新要求。
 - 维护 Clarification Log、Requirement Checklist、Spec Version、Spec Slice 和来源追踪。
 - 为计划流水线提供 Feature Spec、需求、验收、数据域、契约和 `tasks.md` 输入。
 
@@ -869,6 +870,7 @@ Decomposition rules:
 
 - System Bootstrap 是所有其他 Feature Spec 的先决条件，必须优先实现、独立验证和出货。
 - 优先拆出可独立验证的控制面能力，再接 Execution Adapter 写入能力。
+- 当目标项目的拆分结果包含“项目初始化 / Project Initialization”作为第一个 Feature Spec 时，该 Feature Spec 必须要求创建或安全更新项目根目录 `.gitignore`，缺失时创建，已存在时只追加缺失的本地运行产物忽略规则，并保留用户已有内容。
 - 任何 Feature Spec 都必须声明对应数据域、状态机影响、执行结果输出和 Review 触发条件。
 - 涉及写代码、测试执行或 Git 修改的 Feature Spec 必须明确 Workspace Manager 与 Execution Policy。
 - UI Feature Spec 只消费控制面状态，不重新定义调度真实来源。

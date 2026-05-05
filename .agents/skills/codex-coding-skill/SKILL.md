@@ -20,21 +20,26 @@ branch cleanup.
    - Design ambiguity: add or update `## Clarifications and Decisions` / `## 澄清与决策记录` in the relevant `design.md` or HLD document.
    - Task execution ambiguity: add or update a dedicated clarification and decision section in the relevant `tasks.md` or delivery notes.
    Record the chosen option, rationale, rejected alternatives, traceability IDs, and residual risk. If the decision needs user approval, do not auto-decide; return `clarification_needed`.
-6. Inspect current files before editing and preserve unrelated user changes.
-7. Implement the smallest change that satisfies the task and local patterns.
-8. Add or update focused tests when behavior, contracts, state, or user-visible UI changes.
-9. Run targeted verification and capture command results.
-10. Commit the scoped changes on the feature branch with a narrow Conventional Commit message.
-11. Create a pull request with traceability, changed files, verification results, deviations, and residual risks.
-12. Merge the pull request after required checks/reviews pass.
-13. Delete the remote feature branch after merge.
-14. Delete the local worktree branch and remove the implementation worktree after confirming no uncommitted changes remain.
-15. Report any deviations, blockers, cleanup failures, or required spec evolution.
+6. Create an implementation plan before editing. The plan must name the intended file scope, code path, test plan, review focus, and traceability IDs. Stop with `risk_review_needed` if the plan exceeds approved scope.
+7. Inspect current files before editing and preserve unrelated user changes.
+8. Implement the smallest change that satisfies the task and local patterns.
+9. Run code review before test execution. Review the scoped diff for correctness, spec drift, architecture violations, missed edge cases, security risks, and test gaps.
+10. Fix required code review findings before running the test flow. If a finding requires requirement or design changes, route through clarification, risk review, or spec evolution before continuing.
+11. Add or update focused tests when behavior, contracts, state, or user-visible UI changes.
+12. Run targeted verification and capture command results.
+13. Commit the scoped changes on the feature branch with a narrow Conventional Commit message.
+14. Create a pull request with traceability, changed files, verification results, deviations, and residual risks.
+15. Merge the pull request after required checks/reviews pass.
+16. Delete the remote feature branch after merge.
+17. Delete the local worktree branch and remove the implementation worktree after confirming no uncommitted changes remain.
+18. Report any deviations, blockers, cleanup failures, or required spec evolution.
 
 ## Review Gates
 
 - Requirements review must happen before implementation and must verify the task has approved acceptance criteria and stable traceability.
 - Design review must happen before implementation and must verify the planned code path respects architecture, persistence, contract, UI, and file-scope constraints.
+- Implementation planning must happen after requirements/design review and before editing. The plan is binding for scope control unless later review or implementation evidence requires a recorded change.
+- Code review must happen after implementation and before test execution. Required findings must be fixed before tests are treated as acceptance evidence.
 - Both review gates are blocking. Do not continue into implementation when either gate requires user clarification, risk review, or spec evolution.
 - Automatic clarification or design decisions are allowed only when the approved sources provide enough context to choose safely and the result is recorded in the corresponding document's dedicated clarification and decision section.
 
@@ -49,6 +54,8 @@ branch cleanup.
 ## Output
 
 - Code changes within scope.
+- Implementation plan summary.
+- Code review findings and fixes.
 - Test or verification summary.
 - Residual risks and follow-up notes.
 - Pull request, merge, branch cleanup, and worktree cleanup summary.
@@ -69,6 +76,8 @@ branch cleanup.
 - `verification`: array of commands with `command`, `cwd`, `status`, `exitCode`, and concise `summary`.
 - `implementedTasks`: array of completed Feature Spec task IDs or task names.
 - `reviewGates`: array of requirements and design review outcomes with `gate`, `status`, `summary`, and related traceability IDs.
+- `implementationPlan`: object with `summary`, `fileScope`, `testPlan`, `reviewFocus`, `traceabilityIds`, and `scopeStatus`.
+- `codeReview`: object with `status`, `findings`, `fixesApplied`, and `residualReviewRisks`.
 - `recordedDecisions`: array of automatic clarification or design decisions recorded in source documents with `document`, `section`, `decision`, `rationale`, `rejectedAlternatives`, and `residualRisk`.
 - `gitDelivery`: object with `worktreePath`, `branch`, `commit`, `pullRequest`, `mergeStatus`, `remoteBranchDeleted`, `localBranchDeleted`, and `worktreeRemoved`.
 - `residualRisks`: array of remaining risks or follow-ups.

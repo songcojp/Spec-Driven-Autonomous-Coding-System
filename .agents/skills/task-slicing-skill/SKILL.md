@@ -20,13 +20,14 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 6. Keep shared platform or foundation work as its own feature only when multiple downstream features genuinely depend on it.
 7. Assign stable feature IDs such as `FEAT-001`, `FEAT-002`, ... and map each to source `REQ-*`, `NFR-*`, `US-*`, and HLD sections.
 8. Classify user-facing surfaces before drafting tasks. Any feature sourced from PRD/HLD words such as UI, page, Dashboard, Console, Workspace, Center, browser, frontend, interaction, or navigation is a UI-bearing feature.
-9. For each feature, define scope, non-scope, dependencies, acceptance, risks, and implementation tasks.
-10. **Structure tasks by user story phase**: organize tasks into phases that mirror the user story priority order—Phase 1: shared setup (no story yet), Phase 2: P1 story tasks, Phase 3: P2 story tasks, Phase 4: P3 story tasks, Phase N: polish and cross-cutting. Each story phase must have an independent test checkpoint.
-11. Create tasks that are independently reviewable, ordered by dependency, and tied to requirement IDs.
-12. Assign expected files, allowed scope, required skill, subagent type, verification command, and done criteria.
-13. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`.
-14. Always create or update the feature index table at `docs/features/README.md`. The index table MUST strictly use the following format: `| Feature ID | Status | Name | Milestone | Dependencies |`. A tree-structured dependency graph (树状依赖关系图) MUST be included to visualize the feature dependencies. This file is required by the downstream coding, testing, review, and PR generation skills.
-15. Always create or update the machine-readable Feature Spec Pool queue plan at `docs/features/feature-pool-queue.json`. Code consumes this artifact to push Feature Specs into the Pool; do not rely on code parsing dependency prose from `README.md`.
+9. If the split includes Project Initialization / 项目初始化 as the first Feature Spec, embed a `.gitignore` creation or safe-update requirement in that Feature Spec's `requirements.md`, `design.md`, and `tasks.md`. The generated requirement must say: create `.gitignore` when missing; when it exists, append only missing local runtime artifact ignore rules; never overwrite user content.
+10. For each feature, define scope, non-scope, dependencies, acceptance, risks, and implementation tasks.
+11. **Structure tasks by user story phase**: organize tasks into phases that mirror the user story priority order—Phase 1: shared setup (no story yet), Phase 2: P1 story tasks, Phase 3: P2 story tasks, Phase 4: P3 story tasks, Phase N: polish and cross-cutting. Each story phase must have an independent test checkpoint.
+12. Create tasks that are independently reviewable, ordered by dependency, and tied to requirement IDs.
+13. Assign expected files, allowed scope, required skill, subagent type, verification command, and done criteria.
+14. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`.
+15. Always create or update the feature index table at `docs/features/README.md`. The index table MUST strictly use the following format: `| Feature ID | Status | Name | Milestone | Dependencies |`. A tree-structured dependency graph (树状依赖关系图) MUST be included to visualize the feature dependencies. This file is required by the downstream coding, testing, review, and PR generation skills.
+16. Always create or update the machine-readable Feature Spec Pool queue plan at `docs/features/feature-pool-queue.json`. Code consumes this artifact to push Feature Specs into the Pool; do not rely on code parsing dependency prose from `README.md`.
 
 ## Feature Slicing Rules
 
@@ -36,6 +37,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 - Put risky unknowns early when they affect architecture, data model, security, or external integrations.
 - Preserve traceability from feature to requirement to user story to design to task.
 - Mark blocked or ambiguous features with open questions instead of hiding uncertainty.
+- Project Initialization / 项目初始化 is a special foundation feature: when it is the first generated Feature Spec, it must include `.gitignore` creation or safe update as a concrete requirement, design constraint, task, and acceptance check for the target project.
 - UI-bearing feature tasks must include visible pages or routes, data-bound components, loading/empty/error states, user action controls, and browser-level verification such as Playwright or equivalent runtime checks.
 - API, ViewModel, schema, or unit-test tasks may support a UI-bearing feature, but they must not be the only completion tasks unless the feature explicitly says it is backend-only.
 - Each P1 story phase must be completable and demoed without any P2/P3 tasks being done. An implementation that stops after P1 must still be a valid, usable baseline.

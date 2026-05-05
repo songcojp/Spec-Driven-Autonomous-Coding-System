@@ -32,6 +32,7 @@ Before editing, follow the governance checklist in `docs/change-management.md` w
    - Non-functional quality, security, reliability, observability, or performance -> `NFR-*`.
    - Error, boundary, recovery, ambiguity, or exceptional path -> `EDGE-*`.
    - Project Initialization (项目初始化) -> `NFR-*` or foundational `REQ-*`, capturing scaffolding, frameworks, and environment setup.
+   - Project Initialization Feature Spec rule -> include `.gitignore` creation or safe update in the generated initialization Feature Spec instead of treating it as a one-off current-repository requirement.
 5. Update the PRD first when the new requirement changes product scope, user value, milestones, risks, data model, page surface, or non-goals. Keep the PRD concise and conclusion-first.
 6. Update the adjacent `requirements.md` next. Add a stable ID, source trace, priority, EARS statement, and testable acceptance checks.
 7. Run a consistency pass:

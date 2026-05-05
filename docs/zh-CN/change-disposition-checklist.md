@@ -49,6 +49,7 @@
 | CHG-025 | 自主执行下一 Feature 选择改为 Skill 推理，并修正非持续状态投影 | 用户指令：调整下一个 Feature 的选择逻辑，创建新的技能；CLI 执行结果中 approve/blocked 等非可持续状态要正确投射到 Feature 执行结果 | 已增强 PRD、requirements、HLD、skills、Feature Index、FEAT-004、FEAT-019、FEAT-021；已新增 `.agents/skills/feature-selection-skill/SKILL.md` | 已执行 FEAT-004 / FEAT-008 / FEAT-019 / FEAT-021 联合 patch：`feature-selection-skill` 负责 `select_next_feature` 推理，代码保留结构安全闸；`approval_needed`、`blocked`、`review_needed`、`failed` 和 contract validation failure 投影到 Feature `spec-state.json` / Execution Record / Workbench。 |
 | CHG-026 | 移除独立 Push Feature Pool 步骤并收拢到任务调度全流程 | 用户指令：彻底移除该步骤，在任务调度全流程中实现任务调度的全流程 | 已增强 PRD、requirements、HLD、Feature Index、FEAT-004、FEAT-013 和 VSCode/Product Console 流程 | 已执行 FEAT-004 / FEAT-013 / FEAT-019 / FEAT-021 patch：删除 `push_feature_spec_pool` public action 和 UI 步骤；项目级 `schedule_run` 与 `start_auto_run` 读取 Feature Pool Queue、调用 `feature-selection-skill`、通过安全闸后创建 `<executor>.run` Job 和 Execution Record。 |
 | CHG-028 | 执行层重构为 Execution Adapter Layer | 用户指令：重新设计适配层，针对现有功能设计 CLI 和 RPC 适配层，不再使用 Runner 概念，先定接口再迁移 Codex | 已增强 requirements、HLD、Feature Index、FEAT-008、FEAT-018 | 先完成设计：定义 `ExecutionAdapterConfigV1`、`ExecutionAdapterInvocationV1`、`ExecutionAdapterEventV1`、`ExecutionAdapterResultV1`；FEAT-008 作为 CLI Adapter 迁移来源，FEAT-018 作为 RPC Adapter / Codex RPC provider 迁移来源。 |
+| CHG-043 | Feature Spec 拆分规则补充 `.gitignore` 创建 | 用户指令：项目初始化作为第一个 Feature Spec，需要在该 Feature 中增加 git ignore 文件创建需求；用户澄清该规则不是针对当前项目，而是固化到 Spec 中 | 已增强 REQ-006、HLD、Feature Index、FEAT-002 requirements/design/tasks、`task-slicing-skill` 和 `requirement-intake-skill` | 作为 Spec 生成规则：当拆分结果包含项目初始化作为首个 Feature Spec 时，生成的 Feature Spec 必须包含 `.gitignore` 创建或安全更新要求。 |
 
 ## 人工处置顺序建议
 
@@ -84,6 +85,7 @@
 | CHG-007 | 已由 FEAT-010 实现覆盖；代码和测试已包含同一失败模式最多 3 次、2/4/8 分钟退避、失败指纹和禁止重复策略。 | FEAT-010 requirements/design/tasks 与 `tests/recovery.test.ts` 已覆盖；无需重新执行 feature spec。 | 无需执行 |
 | CHG-008 | 仅保留文档一致性；PRD、requirements 和 HLD 已明确性能阈值在 MVP 中作为基线记录，不作为阻塞验收门槛。 | 无需新增 Feature Spec；FEAT-013 继续记录看板加载/状态刷新基线。 | 无需执行 |
 | CHG-011 | 进入 FEAT-001 / FEAT-013 patch；阶段 1 由系统在创建或导入项目后自动完成初始化闭环。 | 已同步 PRD、REQ-063、HLD / Feature Spec design、Feature Index、FEAT-001 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
+| CHG-043 | 进入 FEAT-002 / task-slicing-skill patch；项目初始化类首个 Feature Spec 必须包含 `.gitignore` 创建或安全更新要求。 | 已同步 REQ-006、HLD、Feature Index、FEAT-002 requirements/design/tasks、`task-slicing-skill` 和 `requirement-intake-skill`；新增 FEAT-002 `TASK-014`。 | 需同步实现 |
 | CHG-012 | 进入 FEAT-002 / FEAT-013 patch；阶段 2 自动扫描 Spec Sources，扫描 HLD / Feature Spec 事实源但不生成 HLD 或拆分 Feature Spec。 | 已新增 REQ-064，并同步 PRD、HLD / Feature Spec design、Feature Index、FEAT-002 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
 | CHG-014 | 进入 FEAT-013 patch；阶段 2 将 Spec 扫描和上传合并为一个“Spec 扫描与上传”步骤，并在同一步骤内提供“扫描”和“上传”两个按钮。 | 已同步 PRD、REQ-064、HLD / Feature Spec design、FEAT-013 requirements/design/tasks、Product Console UI 和浏览器级测试。 | 已同步实现 |
 | CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `task-slicing-skill` / `codex-coding-skill` 技能契约。 | 需同步实现 |
@@ -105,6 +107,7 @@
 | 优先级 | Feature | 触发项 | 建议执行方式 | 说明 |
 |---|---|---|---|---|
 | P0 | FEAT-001 Project and Repository Foundation | ADD-001、ADD-005、CHG-001 | 执行 `codex-coding-skill` patch | 已完成 Feature 出现数据模型、项目宪章和多项目上下文 follow-up；需补 schema/API/tests。 |
+| P0 | FEAT-002 Spec Protocol Foundation | CHG-043 | 执行 `task-slicing-skill` / Spec 规则 patch | 固化项目初始化类首个 Feature Spec 必须包含 `.gitignore` 创建或安全更新要求；需补生成结果检查。 |
 | P1 | FEAT-004 Orchestration and State Machine | CHG-003 | 执行后续 `codex-coding-skill` patch | ADD-002 已完成；计划流水线强制阶段仍需后续处理。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 Scheduler Integration | CHG-015 | 已执行 patch | BullMQ + Redis 调度、scheduler job record、Execution Record、`cli.run` Worker 和 Console 队列状态已实现；`feature.select` / `feature.plan` 已由 CHG-018 废弃。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 Workspace-aware Codex Skill Bridge | CHG-016 | 已执行 patch | Console command → scheduler job → run → active CLI Adapter → Codex workspace → skill prompt → Evidence/status 已接通，并已完成单测与浏览器验证。 |

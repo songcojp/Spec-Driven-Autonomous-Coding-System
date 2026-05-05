@@ -13,3 +13,4 @@
 - [x] TASK-011: 将 Spec Source Scanner 结果接入 EARS 生成、Clarification Log 和 Requirement Checklist，确保阶段 2 不触发 HLD 生成、Feature Spec 拆分或规划流水线。
 - [x] TASK-012: 添加测试覆盖 Spec Sources 自动扫描、缺失/冲突标记、已有 HLD / Feature Spec 只读盘点，以及扫描结果作为需求录入事实输入。
 - [x] TASK-013: 定义并实现 `spec-state.json` 文件协议，覆盖读写、补丁合并、历史记录和 workspace 路径保护。
+- [ ] TASK-014: 更新 Feature Spec 拆分规则和 `task-slicing-skill`，确保项目初始化类首个 Feature Spec 自动包含 `.gitignore` 创建或安全更新的 requirements/design/tasks 内容，并补充生成结果检查。
