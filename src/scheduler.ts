@@ -117,6 +117,12 @@ export type SchedulerClient = {
   enqueueRpcRun?(payload: AppServerRunJobPayload): SchedulerEnqueueResult;
   enqueueAppServerRun?(payload: AppServerRunJobPayload): SchedulerEnqueueResult;
   enqueueNativeRun?(payload: NativeRunJobPayload): SchedulerEnqueueResult;
+  requeueExistingJob?(input: {
+    schedulerJobId: string;
+    bullmqJobId: string;
+    jobType: Exclude<SchedulerJobType, "native.run">;
+    payload: ExecutorRunJobPayload;
+  }): SchedulerEnqueueResult;
   health?: () => SchedulerHealth;
   close?: () => Promise<void>;
 };
@@ -171,6 +177,13 @@ export function createBullMqScheduler(dbPath: string, redisUrl: string): Schedul
         payload,
       });
     },
+    requeueExistingJob(input) {
+      const queueName = EXECUTION_ADAPTER_QUEUE;
+      void requeueBullMqJob(cliQueue, input)
+        .then(() => updateSchedulerJobRecord(dbPath, input.bullmqJobId, "queued"))
+        .catch((error) => markSchedulerJobFailed(dbPath, input.bullmqJobId, error));
+      return { schedulerJobId: input.schedulerJobId, bullmqJobId: input.bullmqJobId, queueName, jobType: input.jobType };
+    },
     health() {
       return connection.status === "ready"
         ? { status: "ready", redisUrl }
@@ -198,6 +211,15 @@ export function createUnavailableScheduler(dbPath: string, reason: string): Sche
     enqueueAppServerRun(payload) {
       return enqueue("rpc.run", EXECUTION_ADAPTER_QUEUE, payload);
     },
+    requeueExistingJob(input) {
+      updateSchedulerJobRecord(dbPath, input.bullmqJobId, "blocked", reason);
+      return {
+        schedulerJobId: input.schedulerJobId,
+        bullmqJobId: input.bullmqJobId,
+        queueName: EXECUTION_ADAPTER_QUEUE,
+        jobType: input.jobType,
+      };
+    },
     health() {
       return { status: "blocked", reason };
     },
@@ -221,6 +243,17 @@ export function createMemoryScheduler(dbPath: string): SchedulerClient & { jobs:
     },
     enqueueAppServerRun(payload) {
       return enqueue("rpc.run", EXECUTION_ADAPTER_QUEUE, payload);
+    },
+    requeueExistingJob(input) {
+      updateSchedulerJobRecord(dbPath, input.bullmqJobId, "queued");
+      const result = {
+        schedulerJobId: input.schedulerJobId,
+        bullmqJobId: input.bullmqJobId,
+        queueName: EXECUTION_ADAPTER_QUEUE,
+        jobType: input.jobType,
+      };
+      jobs.push(result);
+      return result;
     },
     health() {
       return { status: "ready" };
@@ -264,6 +297,27 @@ export function bullMqExecutionAdapterQueueName(dbPath: string): string {
   return `${BULLMQ_EXECUTION_ADAPTER_QUEUE}-${digest}`;
 }
 
+export async function requeueBullMqJob(
+  queue: Pick<Queue, "add" | "getJob">,
+  input: {
+    schedulerJobId: string;
+    bullmqJobId: string;
+    jobType: Exclude<SchedulerJobType, "native.run">;
+    payload: ExecutorRunJobPayload;
+  },
+): Promise<void> {
+  const existing = await queue.getJob(input.bullmqJobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === "completed" || state === "failed") {
+      await existing.remove();
+    } else {
+      return;
+    }
+  }
+  await queue.add(input.jobType, { ...input.payload, schedulerJobId: input.schedulerJobId }, { jobId: input.bullmqJobId, attempts: 1 });
+}
+
 export function listRecoverableSchedulerJobs(dbPath: string): RecoverableSchedulerJob[] {
   const transientErrors = [
     "Scheduler worker mode is off.",
@@ -302,9 +356,12 @@ export function listRecoverableSchedulerJobs(dbPath: string): RecoverableSchedul
 
 async function requeueRecoverableSchedulerJobs(dbPath: string, queue: Queue): Promise<void> {
   for (const job of listRecoverableSchedulerJobs(dbPath)) {
-    const existing = await queue.getJob(job.bullmqJobId);
-    if (existing) continue;
-    await queue.add(job.jobType, { ...job.payload, schedulerJobId: job.schedulerJobId }, { jobId: job.bullmqJobId, attempts: 1 });
+    await requeueBullMqJob(queue, {
+      schedulerJobId: job.schedulerJobId,
+      bullmqJobId: job.bullmqJobId,
+      jobType: job.jobType,
+      payload: job.payload as ExecutorRunJobPayload,
+    });
     updateSchedulerJobRecord(dbPath, job.bullmqJobId, "queued");
   }
 }

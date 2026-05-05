@@ -56,7 +56,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 
 - Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
 - The final assistant message must be only that JSON object. Do not return shorthand output with only `summary`, `status`, and `evidence`.
-- Echo `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `traceability.featureId`, `traceability.taskId`, and `traceability.requirementIds` exactly from the invocation contract. Add `traceability.changeIds` from source documents, or `[]` when none apply.
+- Echo `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `traceability.featureId`, and `traceability.requirementIds` exactly from the invocation contract. Add `traceability.changeIds` from source documents, or `[]` when none apply. Do not include `traceability.taskId` in the common Skill output contract.
 - Every `producedArtifacts[]` entry must include `path`, `kind`, `status`, `checksum`, and `summary`; use `null` for `checksum` or `summary` when unavailable.
 - `summary` must state the generated or updated Feature Specs, queue plan, dependencies, and verification plan readiness.
 - `result` must follow the specialized contract below.

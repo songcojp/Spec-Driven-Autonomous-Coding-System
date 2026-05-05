@@ -14,6 +14,7 @@ import {
   createMemoryScheduler,
   bullMqExecutionAdapterQueueName,
   listRecoverableSchedulerJobs,
+  requeueBullMqJob,
   runCodexAppServerRunJob,
   runCliRunJob,
   runRpcRunJob,
@@ -99,6 +100,46 @@ test("scheduler worker startup can recover transient queued jobs created while w
 
   assert.deepEqual(listRecoverableSchedulerJobs(dbPath).map((job) => [job.schedulerJobId, job.bullmqJobId, job.jobType, job.payload.operation]), [
     ["JOB-OFF", "BULL-OFF", "cli.run", "generate_ears"],
+  ]);
+});
+
+test("requeueBullMqJob removes completed job ids before replaying run-now work", async () => {
+  const calls: string[] = [];
+  const queue = {
+    async getJob(id: string) {
+      calls.push(`get:${id}`);
+      return {
+        async getState() {
+          calls.push("state:completed");
+          return "completed";
+        },
+        async remove() {
+          calls.push("remove");
+        },
+      };
+    },
+    async add(name: string, data: unknown, options: { jobId?: string }) {
+      calls.push(`add:${name}:${options.jobId}:${(data as { schedulerJobId?: string }).schedulerJobId}`);
+      return {};
+    },
+  };
+
+  await requeueBullMqJob(queue, {
+    schedulerJobId: "JOB-RUN-NOW",
+    bullmqJobId: "BULL-RUN-NOW",
+    jobType: "rpc.run",
+    payload: {
+      executionId: "RUN-RUN-NOW",
+      operation: "feature_execution",
+      projectId: "project-1",
+    },
+  });
+
+  assert.deepEqual(calls, [
+    "get:BULL-RUN-NOW",
+    "state:completed",
+    "remove",
+    "add:rpc.run:BULL-RUN-NOW:JOB-RUN-NOW",
   ]);
 });
 

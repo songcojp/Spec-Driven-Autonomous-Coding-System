@@ -613,14 +613,18 @@ function normalizeAdapterCheck(value: unknown): AdapterCheck | undefined {
   };
 }
 
-async function runControlledCommand(input: unknown, provider: SpecExplorerProvider): Promise<void> {
+async function runControlledCommand(input: unknown, provider: SpecExplorerProvider): Promise<Record<string, unknown> | undefined> {
   if (!isControlledCommandInput(input)) {
     await vscode.window.showErrorMessage("SpecDrive command input is invalid.");
-    return;
+    return undefined;
   }
   try {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const projectId = provider.currentView()?.project?.id;
+    const currentView = provider.currentView();
+    const projectId = currentView?.project?.id;
+    const shouldRunNowAfterSchedule = input.action === "schedule_run"
+      && currentView?.automation?.status === "running"
+      && !hasActiveQueueItem(currentView);
     const payload = {
       ...(input.payload ?? {}),
       ...(input.action === "register_project" && workspaceRoot ? {
@@ -644,9 +648,20 @@ async function runControlledCommand(input: unknown, provider: SpecExplorerProvid
       : "";
     await vscode.window.showInformationMessage(`SpecDrive command ${status}.${executionId}${blocked}`);
     await provider.refresh();
+    if (shouldRunNowAfterSchedule && response.status === "accepted") {
+      await runScheduledReceiptNow(response, provider, "Auto Run is enabled; run the scheduled Feature now.");
+    }
+    return response;
   } catch (error) {
     await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
+    return undefined;
   }
+}
+
+function hasActiveQueueItem(view: SpecDriveIdeView | undefined): boolean {
+  return Object.values(view?.queue.groups ?? {})
+    .flat()
+    .some((item) => ["queued", "running", "approval_needed"].includes(item.status));
 }
 
 async function registerCurrentProject(provider: SpecExplorerProvider): Promise<void> {
@@ -763,6 +778,31 @@ async function postQueueCommand(
   const status = typeof response.status === "string" ? response.status : "unknown";
   const executionId = typeof response.executionId === "string" ? ` execution=${response.executionId}` : "";
   await vscode.window.showInformationMessage(`SpecDrive queue ${queueAction} ${status}.${executionId}`);
+  await provider.refresh();
+}
+
+async function runScheduledReceiptNow(response: Record<string, unknown>, provider: SpecExplorerProvider, reason: string): Promise<void> {
+  const schedulerJobId = typeof response.schedulerJobId === "string" ? response.schedulerJobId : undefined;
+  const executionId = typeof response.executionId === "string" ? response.executionId : undefined;
+  const entityId = schedulerJobId ?? executionId;
+  if (!entityId) return;
+  const entityType: "job" | "run" = schedulerJobId ? "job" : "run";
+  const view = provider.currentView();
+  const body: IdeQueueCommandV1 = {
+    schemaVersion: 1,
+    ideCommandType: "queue_action",
+    projectId: view?.project?.id,
+    workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+    queueAction: "run_now",
+    entityType,
+    entityId,
+    requestedBy: "vscode-extension",
+    reason,
+  };
+  const runNow = await postIdeCommand(body);
+  const status = typeof runNow.status === "string" ? runNow.status : "unknown";
+  const runExecutionId = typeof runNow.executionId === "string" ? ` execution=${runNow.executionId}` : "";
+  await vscode.window.showInformationMessage(`SpecDrive queue run_now ${status}.${runExecutionId}`);
   await provider.refresh();
 }
 
@@ -1310,6 +1350,7 @@ async function scheduleFeatureSelection(message: Record<string, unknown>, provid
     ? message.executionPreference as Record<string, unknown>
     : undefined;
   const receipts: string[] = [];
+  const shouldRunNowAfterSchedule = view?.automation?.status === "running" && !hasActiveQueueItem(view);
   for (const featureId of schedulableFeatureIds) {
     const response = await postIdeCommand({
       action: "schedule_run",
@@ -1329,6 +1370,9 @@ async function scheduleFeatureSelection(message: Record<string, unknown>, provid
     const status = typeof response.status === "string" ? response.status : "unknown";
     const executionId = typeof response.executionId === "string" ? `:${response.executionId}` : "";
     receipts.push(`${featureId}=${status}${executionId}`);
+    if (shouldRunNowAfterSchedule && response.status === "accepted") {
+      await runScheduledReceiptNow(response, provider, `Auto Run is enabled; run ${featureId} now.`);
+    }
   }
   const skipped = skippedFeatureIds.length > 0 ? ` Skipped completed or terminal Feature Specs: ${skippedFeatureIds.join(", ")}.` : "";
   await vscode.window.showInformationMessage(`SpecDrive scheduled ${receipts.length} Feature Spec${receipts.length === 1 ? "" : "s"}: ${receipts.join(", ")}.${skipped}`);

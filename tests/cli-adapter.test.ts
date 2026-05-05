@@ -260,7 +260,7 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
       contractVersion: Record<string, unknown>;
       status: Record<string, unknown>;
       producedArtifacts: { items: { required: string[]; properties: { status: Record<string, unknown>; checksum: Record<string, unknown>; summary: Record<string, unknown> } } };
-      traceability: { required: string[]; properties: { featureId: Record<string, unknown>; taskId: Record<string, unknown> } };
+      traceability: { required: string[]; properties: { featureId: Record<string, unknown>; taskId?: Record<string, unknown> } };
       result: Record<string, unknown>;
     };
   };
@@ -273,8 +273,9 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
   });
   assert.deepEqual(schema.properties.producedArtifacts.items.properties.checksum, { type: ["string", "null"] });
   assert.deepEqual(schema.properties.producedArtifacts.items.properties.summary, { type: ["string", "null"] });
+  assert.deepEqual(schema.properties.traceability.required, ["featureId", "requirementIds", "changeIds"]);
   assert.deepEqual(schema.properties.traceability.properties.featureId, { type: ["string", "null"] });
-  assert.deepEqual(schema.properties.traceability.properties.taskId, { type: ["string", "null"] });
+  assert.equal(Object.prototype.hasOwnProperty.call(schema.properties.traceability.properties, "taskId"), false);
   assert.equal(schema.properties.result.type, "object");
   assert.equal(schema.properties.result.additionalProperties, false);
   assert.deepEqual(schema.properties.result.required, ["resultSummary", "details", "items", "openQuestions"]);
@@ -316,6 +317,16 @@ test("SkillOutputContract validation requires common fields but allows skill-spe
   });
   assert.equal(traceabilityMismatch.valid, false);
   assert.match(traceabilityMismatch.reasons.join("\n"), /traceability\.featureId mismatch/);
+
+  const absentTaskId = validateSkillOutputContract(
+    skillInvocationContract({ executionId: "RUN-FEATURE", featureId: "FEAT-008", taskId: undefined }),
+    {
+      ...valid,
+      executionId: "RUN-FEATURE",
+      traceability: { featureId: "FEAT-008", requirementIds: [], changeIds: [] },
+    },
+  );
+  assert.equal(absentTaskId.valid, true);
 
   const skillManagedChangeIds = validateSkillOutputContract(invocation, {
     ...valid,

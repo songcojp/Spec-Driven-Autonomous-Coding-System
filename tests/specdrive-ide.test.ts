@@ -671,6 +671,20 @@ test("SpecDrive IDE queue actions operate on schedule-only jobs", async () => {
     requestedBy: "vscode-extension",
     reason: "Run selected schedule-only job now.",
   }, { scheduler, now: new Date("2026-05-02T12:08:00.000Z") });
+  assert.equal(runNow.status, "accepted");
+  assert.equal(runNow.schedulerJobId, "JOB-SCHEDULE-ONLY");
+  assert.equal(runNow.schedulerJobId, scheduler.jobs[0].schedulerJobId);
+  const queuedPayload = JSON.parse(String(runSqlite(dbPath, [], [
+    { name: "job", sql: "SELECT payload_json FROM scheduler_job_records WHERE id = ?", params: [runNow.schedulerJobId] },
+  ]).queries.job[0].payload_json));
+  assert.equal(queuedPayload.context.featureId, "FEAT-016");
+  assert.equal(queuedPayload.context.taskId, "TASK-SCHEDULE-ONLY");
+  const runNowRows = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT id FROM scheduler_job_records ORDER BY id" },
+    { name: "executions", sql: "SELECT scheduler_job_id, status FROM execution_records WHERE id = ?", params: [runNow.executionId] },
+  ]).queries;
+  assert.deepEqual(runNowRows.jobs.map((row) => row.id), ["JOB-SCHEDULE-ONLY"]);
+  assert.deepEqual(runNowRows.executions.map((row) => [row.scheduler_job_id, row.status]), [["JOB-SCHEDULE-ONLY", "queued"]]);
   const cancel = await submitIdeQueueCommand(dbPath, {
     schemaVersion: 1,
     ideCommandType: "queue_action",
@@ -682,14 +696,6 @@ test("SpecDrive IDE queue actions operate on schedule-only jobs", async () => {
     requestedBy: "vscode-extension",
     reason: "Cancel selected schedule-only job.",
   }, { now: new Date("2026-05-02T12:09:00.000Z") });
-
-  assert.equal(runNow.status, "accepted");
-  assert.equal(runNow.schedulerJobId, scheduler.jobs[0].schedulerJobId);
-  const queuedPayload = JSON.parse(String(runSqlite(dbPath, [], [
-    { name: "job", sql: "SELECT payload_json FROM scheduler_job_records WHERE id = ?", params: [runNow.schedulerJobId] },
-  ]).queries.job[0].payload_json));
-  assert.equal(queuedPayload.context.featureId, "FEAT-016");
-  assert.equal(queuedPayload.context.taskId, "TASK-SCHEDULE-ONLY");
   assert.equal(cancel.status, "accepted");
   assert.equal(runSqlite(dbPath, [], [
     { name: "job", sql: "SELECT status FROM scheduler_job_records WHERE id = 'JOB-SCHEDULE-ONLY'" },

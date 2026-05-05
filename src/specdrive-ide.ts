@@ -8,7 +8,7 @@ import {
   type CodexAppServerAdapterConfig,
 } from "./codex-rpc-adapter.ts";
 import { submitConsoleCommand, type ConsoleCommandInput, type ConsoleCommandReceipt } from "./product-console.ts";
-import type { SchedulerClient } from "./scheduler.ts";
+import type { ExecutorRunJobPayload, SchedulerClient, SchedulerJobType } from "./scheduler.ts";
 import { runSqlite } from "./sqlite.ts";
 import {
   mergeFileSpecState,
@@ -598,6 +598,18 @@ export async function submitIdeQueueCommand(
     if (!target) {
       blockedReasons.push(`Execution or job not found for ${command.queueAction}: ${command.entityId}`);
       return base();
+    }
+    if (command.queueAction === "run_now") {
+      const receipt = requeueExistingQueueTarget(dbPath, target, command, acceptedAt, options.scheduler);
+      if (receipt.blockedReasons.length > 0) {
+        blockedReasons.push(...receipt.blockedReasons);
+        return base();
+      }
+      return {
+        ...base(),
+        schedulerJobId: receipt.schedulerJobId,
+        executionId: receipt.executionId,
+      };
     }
     const receipt = submitConsoleCommand(dbPath, queueScheduleCommand(command, acceptedAt, target), { scheduler: options.scheduler });
     return {
@@ -1533,6 +1545,7 @@ type QueueExecutionRow = {
   metadata: Record<string, unknown>;
   payload: Record<string, unknown>;
   status: string;
+  bullmqJobId?: string;
 };
 
 function findExecutionForQueueCommand(dbPath: string, command: IdeQueueCommandV1): QueueExecutionRow | undefined {
@@ -1543,6 +1556,7 @@ function findExecutionForQueueCommand(dbPath: string, command: IdeQueueCommandV1
         sql: `SELECT
             er.id AS execution_id,
             sj.id AS scheduler_job_id,
+            sj.bullmq_job_id,
             er.executor_type,
             er.operation,
             er.project_id,
@@ -1566,6 +1580,7 @@ function findExecutionForQueueCommand(dbPath: string, command: IdeQueueCommandV1
         sql: `SELECT
             er.id AS execution_id,
             er.scheduler_job_id,
+            sj.bullmq_job_id,
             er.executor_type,
             er.operation,
             er.project_id,
@@ -1590,6 +1605,7 @@ function findExecutionForQueueCommand(dbPath: string, command: IdeQueueCommandV1
   return {
     executionId: optionalString(row.execution_id),
     schedulerJobId: optionalString(row.scheduler_job_id),
+    bullmqJobId: optionalString(row.bullmq_job_id),
     jobType: optionalString(row.job_type),
     executorType: optionalString(row.executor_type) ?? "cli",
     operation: optionalString(row.operation) ?? optionalString(payload.operation) ?? optionalString(payload.requestedAction) ?? "feature_execution",
@@ -1602,6 +1618,111 @@ function findExecutionForQueueCommand(dbPath: string, command: IdeQueueCommandV1
     payload,
     status: optionalString(row.execution_status) ?? optionalString(row.job_status) ?? "unknown",
   };
+}
+
+function requeueExistingQueueTarget(
+  dbPath: string,
+  target: QueueExecutionRow,
+  command: IdeQueueCommandV1,
+  acceptedAt: string,
+  scheduler?: SchedulerClient,
+): { schedulerJobId?: string; executionId?: string; blockedReasons: string[] } {
+  if (target.status === "running") {
+    return { schedulerJobId: target.schedulerJobId, executionId: target.executionId, blockedReasons: [] };
+  }
+  if (!target.schedulerJobId || !target.bullmqJobId) {
+    return { blockedReasons: [`Run Now requires an existing scheduler job: ${command.entityId}`] };
+  }
+  if (!isReplayableSchedulerJobType(target.jobType)) {
+    return { blockedReasons: [`Run Now does not support scheduler job type: ${target.jobType ?? "unknown"}`] };
+  }
+  if (!scheduler?.requeueExistingJob) {
+    return { blockedReasons: ["Scheduler is required to run an existing queued job now."] };
+  }
+
+  const commandPayload = parseJsonObject(command.payload);
+  const payload = {
+    ...target.payload,
+    ...commandPayload,
+  };
+  const payloadContext = isRecord(payload.context) ? payload.context : parseJsonObject(optionalString(payload.context));
+  const executionId = target.executionId ?? optionalString(payload.executionId) ?? randomUUID();
+  const executionPreference = executionPreferenceFromQueueRow(target);
+  const projectId = command.projectId
+    ?? target.projectId
+    ?? optionalString(payload.projectId)
+    ?? optionalString(payloadContext.projectId);
+  const context = {
+    ...payloadContext,
+    ...target.context,
+    ...(command.workspaceRoot ? { workspaceRoot: command.workspaceRoot } : {}),
+    ...(executionPreference ? { executionPreference } : {}),
+    runNowReason: command.reason,
+    runNowAt: acceptedAt,
+  };
+  const runPayload: ExecutorRunJobPayload = {
+    ...payload,
+    executionId,
+    operation: optionalString(payload.operation) ?? target.operation,
+    projectId,
+    context,
+    requestedAction: optionalString(payload.requestedAction) ?? optionalString(context.skillPhase) ?? target.operation,
+    ...(executionPreference ? { executionPreference: executionPreference as ExecutorRunJobPayload["executionPreference"] } : {}),
+  };
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE scheduler_job_records SET status = 'queued', payload_json = ?, error = NULL, updated_at = ? WHERE id = ?",
+      params: [JSON.stringify(runPayload), acceptedAt, target.schedulerJobId],
+    },
+  ]);
+  if (!target.executionId) {
+    persistQueuedExecution(dbPath, {
+      executionId,
+      schedulerJobId: target.schedulerJobId,
+      executorType: executorTypeForSchedulerJob(target.jobType),
+      operation: runPayload.operation,
+      projectId,
+      context,
+      metadata: {
+        ...target.metadata,
+        runNowReason: command.reason,
+        runNowAt: acceptedAt,
+        scheduler: "bullmq",
+        jobType: target.jobType,
+      },
+      acceptedAt,
+      summary: "Run Now queued from VSCode IDE.",
+    });
+  } else {
+    runSqlite(dbPath, [
+      {
+        sql: "UPDATE execution_records SET status = 'queued', metadata_json = ?, updated_at = ? WHERE id = ?",
+        params: [
+          JSON.stringify({ ...target.metadata, runNowReason: command.reason, runNowAt: acceptedAt }),
+          acceptedAt,
+          target.executionId,
+        ],
+      },
+    ]);
+  }
+  scheduler.requeueExistingJob({
+    schedulerJobId: target.schedulerJobId,
+    bullmqJobId: target.bullmqJobId,
+    jobType: target.jobType,
+    payload: runPayload,
+  });
+  updateQueueTargetSpecState(dbPath, { ...target, executionId, payload: runPayload, context, status: "queued" }, "queued", acceptedAt, {
+    runNowReason: command.reason,
+  }, command.workspaceRoot);
+  return { schedulerJobId: target.schedulerJobId, executionId, blockedReasons: [] };
+}
+
+function isReplayableSchedulerJobType(value?: string): value is Exclude<SchedulerJobType, "native.run"> {
+  return value === "cli.run" || value === "rpc.run" || value === "codex.rpc.run" || value === "codex.app_server.run";
+}
+
+function executorTypeForSchedulerJob(jobType?: string): string {
+  return jobType === "rpc.run" || jobType === "codex.rpc.run" || jobType === "codex.app_server.run" ? "rpc" : "cli";
 }
 
 function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string, target: QueueExecutionRow): ConsoleCommandInput {
@@ -1687,6 +1808,7 @@ function persistQueuedExecution(dbPath: string, input: {
   context: Record<string, unknown>;
   metadata: Record<string, unknown>;
   acceptedAt: string;
+  summary?: string;
 }): void {
   runSqlite(dbPath, [
     {
@@ -1703,7 +1825,7 @@ function persistQueuedExecution(dbPath: string, input: {
         JSON.stringify(input.context),
         "queued",
         null,
-        "Retry queued from VSCode IDE.",
+        input.summary ?? "Retry queued from VSCode IDE.",
         JSON.stringify(input.metadata),
         input.acceptedAt,
         input.acceptedAt,

@@ -465,10 +465,9 @@ const DEFAULT_OUTPUT_SCHEMA = {
     traceability: {
       type: "object",
       additionalProperties: false,
-      required: ["featureId", "taskId", "requirementIds", "changeIds"],
+      required: ["featureId", "requirementIds", "changeIds"],
       properties: {
         featureId: { type: ["string", "null"] },
-        taskId: { type: ["string", "null"] },
         requirementIds: { type: "array", items: { type: "string" } },
         changeIds: { type: "array", items: { type: "string" } },
       },
@@ -936,7 +935,7 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- Return exactly one JSON object matching SkillOutputContractV1.",
     "- The JSON object must include contractVersion, executionId, skillSlug, requestedAction, status, summary, nextAction, producedArtifacts, traceability, and result.",
     "- Each producedArtifacts item must include path, kind, status, checksum, and summary; use null for checksum or summary when unknown.",
-    "- traceability must include featureId, taskId, requirementIds, and changeIds; use null for missing featureId/taskId and [] for missing arrays.",
+    "- traceability must include featureId, requirementIds, and changeIds; use null for missing featureId and [] for missing arrays.",
     "- The output contract must echo contractVersion, executionId, skillSlug, requestedAction, and invocation-owned traceability fields from the Skill Invocation Contract.",
     "- Do not expect changeIds in the Skill Invocation Contract. If change IDs apply, derive and maintain them from the skill's source documents and return them in output traceability.",
     "- When specState is present, treat it as the machine-readable Feature state. Return status and result fields that allow the scheduler to patch docs/features/<feature-id>/spec-state.json.",
@@ -1219,8 +1218,7 @@ export function validateSkillOutputContract(invocation: SkillInvocationContract 
   if (output.executionId !== invocation.executionId) reasons.push(`Skill output executionId mismatch: ${output.executionId}.`);
   if (output.skillSlug !== invocation.skillSlug) reasons.push(`Skill output skillSlug mismatch: ${output.skillSlug}.`);
   if (output.requestedAction !== invocation.requestedAction) reasons.push(`Skill output requestedAction mismatch: ${output.requestedAction}.`);
-  if (output.traceability.featureId !== invocation.traceability.featureId) reasons.push("Skill output traceability.featureId mismatch.");
-  if (output.traceability.taskId !== invocation.traceability.taskId) reasons.push("Skill output traceability.taskId mismatch.");
+  if (!sameOptionalString(output.traceability.featureId, invocation.traceability.featureId)) reasons.push("Skill output traceability.featureId mismatch.");
   if (!sameStringSet(output.traceability.requirementIds, invocation.traceability.requirementIds)) {
     reasons.push("Skill output traceability.requirementIds mismatch.");
   }
@@ -1232,6 +1230,10 @@ export function validateSkillOutputContract(invocation: SkillInvocationContract 
     }
   }
   return { valid: reasons.length === 0, reasons };
+}
+
+function sameOptionalString(left: string | undefined, right: string | undefined): boolean {
+  return (left ?? null) === (right ?? null);
 }
 
 function sameStringSet(left: string[], right: string[]): boolean {
