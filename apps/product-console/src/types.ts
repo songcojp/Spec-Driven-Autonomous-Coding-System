@@ -27,6 +27,7 @@ export type CommandAction =
   | "save_rpc_adapter_config"
   | "activate_rpc_adapter_config"
   | "disable_rpc_adapter_config"
+  | "save_project_execution_preference"
   | "generate_ui_spec"
   | "write_spec_evolution";
 
@@ -377,6 +378,13 @@ export type CliAdapterSummary = {
 };
 
 export type SystemSettingsModel = {
+  projectExecutionPreference?: {
+    projectId?: string;
+    active: { runMode: "cli" | "rpc"; adapterId: string; source: string };
+    cliAdapters: CliAdapterConfigModel[];
+    rpcAdapters: RpcAdapterConfigModel[];
+    validation: { valid: boolean; errors: string[] };
+  };
   cliAdapter: {
     active: CliAdapterConfigModel;
     draft?: CliAdapterConfigModel;

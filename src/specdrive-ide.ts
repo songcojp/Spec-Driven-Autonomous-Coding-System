@@ -63,6 +63,9 @@ export type SpecDriveIdeQueueItem = {
   featureId?: string;
   taskId?: string;
   adapter?: string;
+  runMode?: "cli" | "rpc";
+  adapterId?: string;
+  preferenceSource?: string;
   threadId?: string;
   turnId?: string;
   updatedAt?: string;
@@ -134,6 +137,11 @@ export type SpecDriveIdeView = {
     id: string;
     displayName: string;
     status: string;
+  };
+  executionPreferenceOptions?: {
+    active: { runMode: "cli" | "rpc"; adapterId?: string; source?: string };
+    cliAdapters: Array<{ id: string; displayName: string; status: string }>;
+    rpcAdapters: Array<{ id: string; displayName: string; status: string; provider?: string }>;
   };
   automation: SpecDriveIdeAutomationState;
   projectInitialization: {
@@ -305,6 +313,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
   const features = workspaceRoot ? buildFeatureNodes(dbPath, workspaceRoot, projectId) : [];
   const queue = buildQueueGroups(dbPath, projectId);
   const activeAdapter = readActiveAdapter(dbPath);
+  const executionPreferenceOptions = readExecutionPreferenceOptions(dbPath, projectId);
   const automation = buildAutomationState(dbPath, project, projectId);
   const projectInitialization = buildProjectInitialization(dbPath, { project, projectId, workspaceRoot });
   const missing = [
@@ -324,6 +333,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
       targetRepoPath: optionalString(project.target_repo_path),
     } : undefined,
     activeAdapter,
+    executionPreferenceOptions,
     automation,
     projectInitialization,
     documents,
@@ -338,6 +348,8 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
       "scheduler_job_records",
       "execution_records",
       "cli_adapter_configs",
+      "rpc_adapter_configs",
+      "project_execution_preferences",
     ],
     productConsole: {
       defaultUrl: "http://127.0.0.1:5173",
@@ -528,6 +540,7 @@ export async function submitIdeQueueCommand(
     const isRpcRetry = previous.jobType === "rpc.run"
       || previous.jobType === "codex.rpc.run"
       || previous.jobType === "codex.app_server.run"
+      || previous.executorType === "rpc"
       || previous.executorType === "codex.rpc"
       || previous.executorType === "codex.app_server";
     const job = isRpcRetry && (scheduler?.enqueueRpcRun || scheduler?.enqueueAppServerRun)
@@ -1517,12 +1530,31 @@ function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string, ta
   };
 }
 
+function executionPreferenceFromQueueRow(row: QueueExecutionRow): Record<string, unknown> | undefined {
+  const candidates = [
+    row.context.executionPreference,
+    row.metadata.executionPreference,
+    row.payload.executionPreference,
+  ];
+  for (const candidate of candidates) {
+    if (isRecord(candidate)) return candidate;
+  }
+  if (row.jobType === "rpc.run" || row.executorType === "rpc" || row.executorType === "codex.rpc" || row.executorType === "gemini.acp") {
+    const adapterId = optionalString(row.metadata.adapterId)
+      ?? optionalString(isRecord(row.metadata.adapterConfig) ? row.metadata.adapterConfig.id : undefined);
+    return adapterId ? { runMode: "rpc", adapterId, source: "job" } : undefined;
+  }
+  const adapterId = optionalString(row.metadata.adapterId);
+  return adapterId ? { runMode: "cli", adapterId, source: "job" } : undefined;
+}
+
 function retryPayload(previous: QueueExecutionRow, command: IdeQueueCommandV1, acceptedAt: string) {
   if (!previous.executionId) {
     throw new Error("Retry requires an execution record.");
   }
   const context = {
     ...previous.context,
+    executionPreference: executionPreferenceFromQueueRow(previous),
     previousExecutionId: previous.executionId,
     retryReason: command.reason,
     retriedAt: acceptedAt,
@@ -1532,6 +1564,7 @@ function retryPayload(previous: QueueExecutionRow, command: IdeQueueCommandV1, a
     operation: previous.operation,
     projectId: command.projectId ?? previous.projectId,
     context,
+    executionPreference: executionPreferenceFromQueueRow(previous),
     requestedAction: optionalString(previous.payload.requestedAction) ?? optionalString(previous.context.skillPhase) ?? previous.operation,
   };
 }
@@ -1670,6 +1703,7 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
           sj.status AS job_status,
           sj.updated_at AS job_updated_at,
           er.id AS execution_id,
+          er.executor_type,
           er.operation,
           er.status AS execution_status,
           er.summary,
@@ -1708,6 +1742,7 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
     const executionId = optionalString(row.execution_id);
     if (!executionId && isCompletedScheduleOnlyStatus(status)) continue;
     if (executionId && supersededExecutionIds.has(executionId)) continue;
+    const executionPreference = executionPreferenceFromQueueParts(context, metadata, payload, optionalString(row.job_type), optionalString(row.executor_type));
     const item: SpecDriveIdeQueueItem = {
       schedulerJobId: optionalString(row.scheduler_job_id),
       executionId,
@@ -1716,7 +1751,13 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
       jobType: optionalString(row.job_type),
       featureId: optionalString(context.featureId) ?? optionalString(payloadContext.featureId),
       taskId: optionalString(context.taskId) ?? optionalString(payloadContext.taskId),
-      adapter: optionalString(metadata.skillSlug) ?? optionalString(metadata.adapterId) ?? optionalString(payloadContext.skillSlug),
+      adapter: optionalString(metadata.skillSlug)
+        ?? optionalString(metadata.adapterId)
+        ?? optionalString(executionPreference?.adapterId)
+        ?? optionalString(payloadContext.skillSlug),
+      runMode: executionPreference?.runMode,
+      adapterId: executionPreference?.adapterId,
+      preferenceSource: executionPreference?.source,
       threadId: optionalString(metadata.threadId),
       turnId: optionalString(metadata.turnId),
       updatedAt: optionalString(row.execution_updated_at) ?? optionalString(row.job_updated_at),
@@ -1729,6 +1770,35 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
 
 function isCompletedScheduleOnlyStatus(status: string): boolean {
   return ["completed", "cancelled", "skipped"].includes(status);
+}
+
+function executionPreferenceFromQueueParts(
+  context: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  jobType?: string,
+  executorType?: string,
+): { runMode: "cli" | "rpc"; adapterId?: string; source?: string } | undefined {
+  for (const candidate of [context.executionPreference, metadata.executionPreference, payload.executionPreference]) {
+    if (isRecord(candidate)) {
+      return {
+        runMode: optionalString(candidate.runMode) === "rpc" ? "rpc" : "cli",
+        adapterId: optionalString(candidate.adapterId),
+        source: optionalString(candidate.source),
+      };
+    }
+  }
+  const adapterConfig = isRecord(metadata.adapterConfig) ? metadata.adapterConfig : {};
+  const adapterId = optionalString(metadata.adapterId) ?? optionalString(adapterConfig.id);
+  const runMode = jobType === "rpc.run"
+    || executorType === "rpc"
+    || executorType === "codex.rpc"
+    || executorType === "gemini.acp"
+    ? "rpc"
+    : jobType === "cli.run" || executorType === "cli"
+      ? "cli"
+      : undefined;
+  return runMode ? { runMode, adapterId, source: adapterId ? "record" : undefined } : undefined;
 }
 
 function buildDiagnostics(
@@ -1841,6 +1911,47 @@ function readActiveAdapter(dbPath: string): SpecDriveIdeView["activeAdapter"] {
     displayName: String(row.display_name),
     status: String(row.status),
   };
+}
+
+function readExecutionPreferenceOptions(dbPath: string, projectId?: string): SpecDriveIdeView["executionPreferenceOptions"] {
+  const result = runSqlite(dbPath, [], [
+    { name: "cli", sql: "SELECT id, display_name, status FROM cli_adapter_configs ORDER BY updated_at DESC" },
+    { name: "rpc", sql: "SELECT id, display_name, provider, status FROM rpc_adapter_configs ORDER BY updated_at DESC" },
+    ...(projectId ? [{ name: "preference", sql: "SELECT run_mode, adapter_id FROM project_execution_preferences WHERE project_id = ? LIMIT 1", params: [projectId] }] : []),
+  ]);
+  const cliAdapters = uniqueAdapterOptions([
+    { id: "codex-cli", display_name: "Codex CLI", status: "active" },
+    { id: "gemini-cli", display_name: "Google Gemini CLI", status: "draft" },
+    ...result.queries.cli,
+  ]);
+  const rpcAdapters = uniqueAdapterOptions([
+    { id: "codex-rpc-default", display_name: "Built-in Codex RPC", provider: "codex-rpc", status: "active" },
+    { id: "gemini-acp-default", display_name: "Built-in Gemini ACP", provider: "gemini-acp", status: "disabled" },
+    ...result.queries.rpc,
+  ]);
+  const row = result.queries.preference?.[0];
+  return {
+    active: row
+      ? { runMode: String(row.run_mode) === "rpc" ? "rpc" : "cli", adapterId: optionalString(row.adapter_id), source: "project" }
+      : { runMode: "cli", adapterId: cliAdapters[0]?.id, source: "default" },
+    cliAdapters,
+    rpcAdapters,
+  };
+}
+
+function uniqueAdapterOptions(rows: Record<string, unknown>[]): Array<{ id: string; displayName: string; status: string; provider?: string }> {
+  const byId = new Map<string, { id: string; displayName: string; status: string; provider?: string }>();
+  for (const row of rows) {
+    const id = optionalString(row.id);
+    if (!id || byId.has(id)) continue;
+    byId.set(id, {
+      id,
+      displayName: optionalString(row.display_name) ?? id,
+      status: optionalString(row.status) ?? "active",
+      provider: optionalString(row.provider),
+    });
+  }
+  return [...byId.values()];
 }
 
 function document(kind: SpecDriveIdeDocument["kind"], label: string, path: string, workspaceRoot: string): SpecDriveIdeDocument {

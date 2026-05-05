@@ -122,6 +122,77 @@ export function SettingsPage({
 
   return (
     <div className="space-y-4">
+      {data.settings.projectExecutionPreference ? (
+        <Panel className="overflow-hidden">
+          <div className="border-b border-line bg-white px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-[15px] font-semibold text-ink">Project Execution Defaults</h3>
+                <p className="mt-1 text-[13px] text-muted">Choose the default run mode and provider adapter for new project jobs.</p>
+              </div>
+              <Chip tone={data.settings.projectExecutionPreference.validation.valid ? "green" : "red"}>
+                {data.settings.projectExecutionPreference.validation.valid ? text.dryRunPassed : text.dryRunFailed}
+              </Chip>
+            </div>
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-0 max-xl:grid-cols-1">
+            <div className="min-w-0 p-4">
+              <div className="mb-3 text-[12px] font-semibold text-ink">CLI Providers</div>
+              <div className="mb-4 flex flex-wrap gap-2">
+                {data.settings.projectExecutionPreference.cliAdapters.map((adapter) => (
+                  <Button
+                    key={adapter.id}
+                    disabled={busy}
+                    onClick={() => onCommand("save_project_execution_preference", "settings", data.settings.projectExecutionPreference?.projectId ?? "project", {
+                      config: { projectId: data.settings.projectExecutionPreference?.projectId, runMode: "cli", adapterId: adapter.id },
+                    })}
+                  >
+                    <Settings size={14} />
+                    {adapter.displayName}
+                  </Button>
+                ))}
+              </div>
+              <div className="mb-3 text-[12px] font-semibold text-ink">RPC Providers</div>
+              <div className="flex flex-wrap gap-2">
+                {data.settings.projectExecutionPreference.rpcAdapters.map((adapter) => (
+                  <Button
+                    key={adapter.id}
+                    disabled={busy}
+                    onClick={() => onCommand("save_project_execution_preference", "settings", data.settings.projectExecutionPreference?.projectId ?? "project", {
+                      config: { projectId: data.settings.projectExecutionPreference?.projectId, runMode: "rpc", adapterId: adapter.id },
+                    })}
+                  >
+                    <Settings size={14} />
+                    {adapter.displayName}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
+              <div className="rounded-lg border border-line bg-white">
+                <SectionTitle
+                  title={text.activeAdapter}
+                  action={<Chip tone="green">{data.settings.projectExecutionPreference.active.source}</Chip>}
+                />
+                <div className="space-y-3 p-4">
+                  <FactList
+                    rows={[
+                      ["Project", data.settings.projectExecutionPreference.projectId ?? text.none],
+                      ["Run Mode", data.settings.projectExecutionPreference.active.runMode],
+                      ["Provider", data.settings.projectExecutionPreference.active.adapterId],
+                    ]}
+                  />
+                  {data.settings.projectExecutionPreference.validation.errors.map((error) => (
+                    <div key={error} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+                      {error}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </aside>
+          </div>
+        </Panel>
+      ) : null}
       <Panel className="overflow-hidden">
         <div className="border-b border-line bg-white px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">

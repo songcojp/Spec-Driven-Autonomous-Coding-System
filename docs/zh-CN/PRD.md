@@ -1158,6 +1158,7 @@ VSCode 插件能力包括：
 * 识别 `docs/<language>/PRD.md`、`requirements.md`、`hld.md`、`docs/features/README.md`、`feature-pool-queue.json` 和各 Feature `spec-state.json`。
 * 在 Activity Bar / Explorer 中展示 Spec Explorer，包括 PRD、EARS Requirements、HLD、Feature Specs、Task Queue、Execution Record 和最近 Codex 会话。
 * 在插件 Webview 中展示独立 Execution Workbench，默认聚焦 Job 队列、当前运行、下一步动作、阻塞原因、自动执行控制、审批待办和执行结果观察。
+* 在 System Settings 中按项目保存系统级执行默认值，包括 `cli` / `rpc` run mode 和对应 Execution Adapter provider；在 Execution Workbench 创建新 Job 前允许用户选择 Job 级 run mode 与 provider 覆盖项目默认。
 * 在 Feature Spec Webview 顶部提供 New Feature 弹出输入框；用户提交自然语言内容后，插件只提交受控需求输入，由模型判定进入需求新增流程或需求变更流程。
 * 刷新 Feature Spec Webview 时同时读取 `docs/features/README.md` 和 `docs/features/*` 目录，发现需求新增流程未同步 index 时补齐 Feature index 或展示同步阻塞原因。
 * 点击 Feature 后在详情面板解析对应 `tasks.md`，展示任务列表、任务状态、描述和验证命令。
@@ -1171,6 +1172,7 @@ VSCode 插件能力包括：
 * 插件不得直接写 `spec-state.json`、`execution_records` 或 `scheduler_job_records`。
 * 插件不得直接调用 Codex `turn/start`；Runner 是唯一连接 Codex RPC 并调用 thread/turn API 的组件。
 * 查询类动作可以直接读取文件或调用 query API；凡是落盘、调度、取消、重试、审批或修改配置的动作必须走受控命令。
+* Job 级执行偏好只影响新建 Job；已 queued Job 不在前端直接改写，retry 默认继承 previous execution 的 run mode 与 provider。
 * Execution Workbench 可以复用 shared contract、TypeScript 类型和 Control Plane query/command API；不得复用 Product Console 的页面、路由、导航、App Shell、组件实现或 ViewModel 作为插件 UI 的事实源。
 * 新需求没有目标 requirement id 时走 requirement intake；已有 requirement id 的修改走 spec evolution；源文本变化时返回 `stale_source` 并要求用户重新确认。
 

@@ -95,6 +95,7 @@ export type ConsoleCommandAction =
   | "save_rpc_adapter_config"
   | "activate_rpc_adapter_config"
   | "disable_rpc_adapter_config"
+  | "save_project_execution_preference"
   | "write_project_rule"
   | "write_spec_evolution"
   | "move_board_task"
@@ -137,6 +138,7 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "save_rpc_adapter_config",
   "activate_rpc_adapter_config",
   "disable_rpc_adapter_config",
+  "save_project_execution_preference",
   "write_project_rule",
   "write_spec_evolution",
   "move_board_task",
@@ -175,6 +177,14 @@ export type ConsoleCommandReceipt = {
   runIds?: string[];
   selectionDecisionId?: string;
   blockedReasons?: string[];
+};
+
+export type ExecutionRunMode = "cli" | "rpc";
+
+export type ExecutionPreferenceV1 = {
+  runMode: ExecutionRunMode;
+  adapterId: string;
+  source: "job" | "project" | "default";
 };
 
 export type DashboardQueryOptions = {
@@ -980,6 +990,13 @@ export type CliAdapterSummary = {
 };
 
 export type SystemSettingsViewModel = {
+  projectExecutionPreference?: {
+    projectId?: string;
+    active: ExecutionPreferenceV1;
+    cliAdapters: CliAdapterConfig[];
+    rpcAdapters: RpcAdapterConfig[];
+    validation: { valid: boolean; errors: string[] };
+  };
   cliAdapter: {
     active: CliAdapterConfig;
     draft?: CliAdapterConfig;
@@ -2270,7 +2287,15 @@ export function buildSystemSettingsView(dbPath: string): SystemSettingsViewModel
   const activeRpc = rpcAdapterFromRows(result.queries.rpcAdapters, "active") ?? DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
   const draftRpc = rpcAdapterFromRows(result.queries.rpcAdapters, "draft", false);
   const rpcProbe = latestRpcAdapterProbe(result.queries.rpcAdapters, draftRpc?.id ?? activeRpc.id);
+  const projectId = currentSettingsProjectId(dbPath);
+  const projectExecutionPreference = buildProjectExecutionPreferenceSettings(
+    dbPath,
+    projectId,
+    result.queries.adapters,
+    result.queries.rpcAdapters,
+  );
   return {
+    projectExecutionPreference,
     cliAdapter: {
       active,
       draft,
@@ -2294,8 +2319,58 @@ export function buildSystemSettingsView(dbPath: string): SystemSettingsViewModel
       { action: "save_rpc_adapter_config", entityType: "rpc_adapter" },
       { action: "activate_rpc_adapter_config", entityType: "rpc_adapter" },
       { action: "disable_rpc_adapter_config", entityType: "rpc_adapter" },
+      { action: "save_project_execution_preference", entityType: "settings" },
     ],
-    factSources: ["cli_adapter_configs", "rpc_adapter_configs", "audit_timeline_events"],
+    factSources: ["project_execution_preferences", "cli_adapter_configs", "rpc_adapter_configs", "audit_timeline_events"],
+  };
+}
+
+function currentSettingsProjectId(dbPath: string): string | undefined {
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "selection",
+      sql: "SELECT project_id FROM project_selection_context WHERE id = 1 LIMIT 1",
+    },
+    {
+      name: "project",
+      sql: "SELECT id FROM projects ORDER BY updated_at DESC, created_at DESC LIMIT 1",
+    },
+  ]);
+  return optionalString(result.queries.selection[0]?.project_id) ?? optionalString(result.queries.project[0]?.id);
+}
+
+function buildProjectExecutionPreferenceSettings(
+  dbPath: string,
+  projectId: string | undefined,
+  cliRows: Record<string, unknown>[],
+  rpcRows: Record<string, unknown>[],
+): NonNullable<SystemSettingsViewModel["projectExecutionPreference"]> {
+  const cliAdapters = uniqueCliAdapters(cliRows);
+  const rpcAdapters = uniqueRpcAdapters(rpcRows);
+  const activeCli = adapterFromRows(cliRows, "active") ?? DEFAULT_CLI_ADAPTER_CONFIG;
+  const result = projectId
+    ? runSqlite(dbPath, [], [
+      { name: "preference", sql: "SELECT * FROM project_execution_preferences WHERE project_id = ? LIMIT 1", params: [projectId] },
+    ])
+    : { queries: { preference: [] as Record<string, unknown>[] } };
+  const row = result.queries.preference[0];
+  const active: ExecutionPreferenceV1 = row
+    ? {
+        runMode: String(row.run_mode) === "rpc" ? "rpc" : "cli",
+        adapterId: String(row.adapter_id),
+        source: "project",
+      }
+    : {
+        runMode: "cli",
+        adapterId: activeCli.id,
+        source: "default",
+      };
+  return {
+    projectId,
+    active,
+    cliAdapters,
+    rpcAdapters,
+    validation: validateExecutionPreference(active, cliRows, rpcRows),
   };
 }
 
@@ -2620,6 +2695,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const boardResult = boardValidation.blockedReasons.length === 0 ? executeBoardCommand(dbPath, input, acceptedAt, scheduler) : undefined;
   const settingsValidation = executeCliAdapterCommand(dbPath, input, acceptedAt);
   const rpcSettingsValidation = executeRpcAdapterCommand(dbPath, input, acceptedAt);
+  const projectExecutionPreferenceValidation = executeProjectExecutionPreferenceCommand(dbPath, input, acceptedAt);
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt, scheduler);
   const autoRunResult = executeAutoRunCommand(dbPath, input, acceptedAt, scheduler);
@@ -2631,6 +2707,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     ...boardValidation.blockedReasons,
     ...(settingsValidation?.blockedReasons ?? []),
     ...(rpcSettingsValidation?.blockedReasons ?? []),
+    ...(projectExecutionPreferenceValidation?.blockedReasons ?? []),
     ...(scheduleResult?.blockedReasons ?? []),
     ...(autoRunResult?.blockedReasons ?? []),
     ...(boardResult?.blockedReasons ?? []),
@@ -2659,6 +2736,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
       boardResult,
       settingsValidation,
       rpcSettingsValidation,
+      projectExecutionPreferenceValidation,
       payload: input.payload ?? {},
     },
   });
@@ -2952,20 +3030,33 @@ function executeScheduleCommand(
     skillSlug,
     skillPhase: optionalString(payload.skillPhase) ?? operation,
   };
-  const job = scheduler.enqueueCliRun({
+  const preferenceResolution = resolveExecutionPreference(dbPath, projectId, payload);
+  if (preferenceResolution.blockedReasons.length > 0) {
+    return { triggerId: trigger.id, blockedReasons: preferenceResolution.blockedReasons };
+  }
+  const executionPreference = preferenceResolution.preference;
+  const runPayload = {
     executionId,
     operation,
     projectId,
-    context,
+    context: {
+      ...context,
+      executionPreference,
+    },
     requestedAction: optionalString(payload.requestedAction) ?? operation,
-  });
+    executionPreference,
+  };
+  const job = enqueueWithExecutionPreference(scheduler, runPayload, executionPreference);
+  if (!job) {
+    return { triggerId: trigger.id, blockedReasons: [`Scheduler does not support ${executionPreference.runMode}.run jobs.`] };
+  }
   persistExecutionRecord(dbPath, {
     executionId,
     schedulerJobId: job.schedulerJobId,
-    executorType: "cli",
+    executorType: executionPreference.runMode,
     operation,
     projectId,
-    context,
+    context: runPayload.context,
     status: "queued",
     acceptedAt,
   });
@@ -3125,6 +3216,58 @@ function executeAutoRunCommand(
     selectionBlockedReasons: selection.blockedReasons,
     automationEnabled: true,
   };
+}
+
+function resolveExecutionPreference(
+  dbPath: string,
+  projectId: string | undefined,
+  payload: Record<string, unknown>,
+): { preference: ExecutionPreferenceV1; blockedReasons: string[] } {
+  const cliRows = readCliAdapterRows(dbPath);
+  const rpcRows = readRpcAdapterRows(dbPath);
+  const payloadPreference = isRecord(payload.executionPreference) ? payload.executionPreference : undefined;
+  if (payloadPreference) {
+    const preference: ExecutionPreferenceV1 = {
+      runMode: optionalString(payloadPreference.runMode) === "rpc" ? "rpc" : "cli",
+      adapterId: optionalString(payloadPreference.adapterId) ?? "",
+      source: "job",
+    };
+    const validation = validateExecutionPreference(preference, cliRows, rpcRows);
+    return { preference, blockedReasons: validation.errors };
+  }
+  const row = projectId
+    ? runSqlite(dbPath, [], [
+      { name: "preference", sql: "SELECT run_mode, adapter_id FROM project_execution_preferences WHERE project_id = ? LIMIT 1", params: [projectId] },
+    ]).queries.preference[0]
+    : undefined;
+  if (row) {
+    const preference: ExecutionPreferenceV1 = {
+      runMode: String(row.run_mode) === "rpc" ? "rpc" : "cli",
+      adapterId: String(row.adapter_id),
+      source: "project",
+    };
+    const validation = validateExecutionPreference(preference, cliRows, rpcRows);
+    return { preference, blockedReasons: validation.errors };
+  }
+  const activeCli = adapterFromRows(cliRows, "active") ?? DEFAULT_CLI_ADAPTER_CONFIG;
+  const preference: ExecutionPreferenceV1 = {
+    runMode: "cli",
+    adapterId: activeCli.id,
+    source: "default",
+  };
+  const validation = validateExecutionPreference(preference, cliRows, rpcRows);
+  return { preference, blockedReasons: validation.errors };
+}
+
+function enqueueWithExecutionPreference(
+  scheduler: SchedulerClient,
+  payload: Parameters<SchedulerClient["enqueueCliRun"]>[0] & { executionPreference: ExecutionPreferenceV1 },
+  preference: ExecutionPreferenceV1,
+) {
+  if (preference.runMode === "rpc") {
+    return scheduler.enqueueRpcRun?.(payload);
+  }
+  return scheduler.enqueueCliRun(payload);
 }
 
 function enqueueNextFeatureExecutionFromQueue(
@@ -3288,19 +3431,32 @@ function enqueueNextFeatureExecutionFromQueue(
       dependencyFindings: selection.decision.dependencyFindings,
     } : undefined,
   };
-  const job = scheduler.enqueueCliRun({
+  const preferenceResolution = resolveExecutionPreference(dbPath, project.id, payload);
+  if (preferenceResolution.blockedReasons.length > 0) {
+    return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: preferenceResolution.blockedReasons };
+  }
+  const executionPreference = preferenceResolution.preference;
+  const runPayload = {
     executionId,
     operation: "feature_execution",
     projectId: project.id,
-    context,
-  });
+    context: {
+      ...context,
+      executionPreference,
+    },
+    executionPreference,
+  };
+  const job = enqueueWithExecutionPreference(scheduler, runPayload, executionPreference);
+  if (!job) {
+    return { featureIds, scheduleTriggerId: trigger.id, blockedReasons: [`Scheduler does not support ${executionPreference.runMode}.run jobs.`] };
+  }
   persistExecutionRecord(dbPath, {
     executionId,
     schedulerJobId: job.schedulerJobId,
-    executorType: "cli",
+    executorType: executionPreference.runMode,
     operation: "feature_execution",
     projectId: project.id,
-    context,
+    context: runPayload.context,
     status: "queued",
     acceptedAt,
   });
@@ -4113,6 +4269,51 @@ function executeRpcAdapterCommand(
   }
 
   return undefined;
+}
+
+function executeProjectExecutionPreferenceCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+): { blockedReasons: string[]; preference?: ExecutionPreferenceV1 } | undefined {
+  if (input.action !== "save_project_execution_preference") {
+    return undefined;
+  }
+  if (input.entityType !== "settings" && input.entityType !== "project") {
+    return { blockedReasons: ["Project execution preference can only be saved from settings or project scope."] };
+  }
+  const payload = isRecord(input.payload) ? input.payload : {};
+  const config = isRecord(payload.config) ? payload.config : payload;
+  const projectId = optionalString(config.projectId)
+    ?? optionalString(payload.projectId)
+    ?? (input.entityType === "project" ? input.entityId : undefined)
+    ?? currentSettingsProjectId(dbPath);
+  if (!projectId) {
+    return { blockedReasons: ["Project execution preference requires a projectId."] };
+  }
+  const preference: ExecutionPreferenceV1 = {
+    runMode: optionalString(config.runMode) === "rpc" ? "rpc" : "cli",
+    adapterId: optionalString(config.adapterId) ?? "",
+    source: "project",
+  };
+  const cliRows = readCliAdapterRows(dbPath);
+  const rpcRows = readRpcAdapterRows(dbPath);
+  const validation = validateExecutionPreference(preference, cliRows, rpcRows);
+  if (!validation.valid) {
+    return { blockedReasons: validation.errors, preference };
+  }
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO project_execution_preferences (project_id, run_mode, adapter_id, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(project_id) DO UPDATE SET
+          run_mode = excluded.run_mode,
+          adapter_id = excluded.adapter_id,
+          updated_at = excluded.updated_at`,
+      params: [projectId, preference.runMode, preference.adapterId, acceptedAt],
+    },
+  ]);
+  return { blockedReasons: [], preference };
 }
 
 function executeConsoleWriteCommand(dbPath: string, input: ConsoleCommandInput, acceptedAt: string): string | undefined {
@@ -5208,6 +5409,43 @@ function readRpcAdapterRows(dbPath: string): Record<string, unknown>[] {
   return runSqlite(dbPath, [], [
     { name: "adapters", sql: "SELECT * FROM rpc_adapter_configs ORDER BY updated_at DESC" },
   ]).queries.adapters;
+}
+
+function uniqueCliAdapters(rows: Record<string, unknown>[]): CliAdapterConfig[] {
+  const byId = new Map<string, CliAdapterConfig>();
+  for (const adapter of [DEFAULT_CLI_ADAPTER_CONFIG, GEMINI_CLI_ADAPTER_CONFIG, ...rows.map(cliAdapterFromRow)]) {
+    byId.set(adapter.id, adapter);
+  }
+  return [...byId.values()];
+}
+
+function uniqueRpcAdapters(rows: Record<string, unknown>[]): RpcAdapterConfig[] {
+  const byId = new Map<string, RpcAdapterConfig>();
+  for (const adapter of [DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG, DEFAULT_GEMINI_ACP_ADAPTER_CONFIG, ...rows.map(rpcAdapterFromRow)]) {
+    byId.set(adapter.id, adapter);
+  }
+  return [...byId.values()];
+}
+
+function validateExecutionPreference(
+  preference: Pick<ExecutionPreferenceV1, "runMode" | "adapterId">,
+  cliRows: Record<string, unknown>[],
+  rpcRows: Record<string, unknown>[],
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  if (preference.runMode !== "cli" && preference.runMode !== "rpc") errors.push("runMode must be cli or rpc");
+  if (!preference.adapterId) errors.push("adapterId is required");
+  if (preference.runMode === "cli") {
+    const adapter = uniqueCliAdapters(cliRows).find((entry) => entry.id === preference.adapterId);
+    if (!adapter) errors.push(`CLI adapter not found: ${preference.adapterId}`);
+    else if (adapter.status === "disabled" || adapter.status === "invalid") errors.push(`CLI adapter is not available: ${preference.adapterId}`);
+  }
+  if (preference.runMode === "rpc") {
+    const adapter = uniqueRpcAdapters(rpcRows).find((entry) => entry.id === preference.adapterId);
+    if (!adapter) errors.push(`RPC adapter not found: ${preference.adapterId}`);
+    else if (adapter.status === "disabled" || adapter.status === "invalid") errors.push(`RPC adapter is not available: ${preference.adapterId}`);
+  }
+  return { valid: errors.length === 0, errors };
 }
 
 function adapterFromRows(

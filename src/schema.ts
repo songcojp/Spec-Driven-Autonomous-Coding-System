@@ -7,7 +7,7 @@ export type Migration = {
   statements: string[];
 };
 
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 
 export const MIGRATIONS: Migration[] = [
   {
@@ -1158,6 +1158,18 @@ export const MIGRATIONS: Migration[] = [
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_target_repo_path_unique ON projects(target_repo_path) WHERE target_repo_path IS NOT NULL AND target_repo_path <> ''",
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_connections_project_unique ON repository_connections(project_id)",
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_repository_connections_local_path_unique ON repository_connections(local_path) WHERE local_path IS NOT NULL AND local_path <> ''",
+    ],
+  },
+  {
+    version: 29,
+    description: "Add project execution preferences",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS project_execution_preferences (
+        project_id TEXT PRIMARY KEY,
+        run_mode TEXT NOT NULL CHECK(run_mode IN ('cli', 'rpc')),
+        adapter_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
     ],
   },
 ];

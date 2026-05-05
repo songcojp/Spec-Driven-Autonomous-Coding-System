@@ -15,6 +15,7 @@ Feature 名称: IDE Workbench Webviews
 | 需求 ID | 描述 | 来源 |
 |---|---|---|
 | REQ-084 | 提供独立 VSCode IDE Webview 工作台 | VSCode 插件 PRD REQ-VSC-017 |
+| REQ-086 | 配置项目级与 Job 级执行偏好 | 用户指令“Feature Spec 支持多选并在 Schedule 时设置 adapter” |
 
 ## 变更记录
 
@@ -37,6 +38,7 @@ Feature 名称: IDE Workbench Webviews
 - CHG-040（2026-05-04）：用户反馈顶部按钮启用/禁用样式没有区别；禁用按钮必须使用明显不同的视觉样式，并且无 Job 选中时 Job 按钮必须显示为禁用状态。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-041（2026-05-04）：用户澄清 Auto Run 是启用/禁用自动执行的状态标记，不是当前队列运行状态；队列为空时也可以启用 Auto Run，启用后若队列无任务才从 Feature 中选择可执行项，选不到 Feature 不得导致开关切换失败。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-042（2026-05-05）：用户要求结构化 Skill 输出能充分说明技能执行情况并可在 UI 上展示；Execution Workbench 必须从纯 JSON 投影升级为摘要优先、分组展示，同时保留完整 `SkillOutputContractV1` JSON 审计视图。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-043（2026-05-05）：用户要求 VSCode Feature Spec Webview 支持 Feature 多选；选中后点击 Schedule 时必须可以设置 run mode 与 provider adapter，并为每个选中 Feature 创建携带同一组 Job 级执行偏好的调度 Job。影响 REQ-084、REQ-086 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -75,3 +77,4 @@ Feature 名称: IDE Workbench Webviews
 - [x] `Execution Workbench` 禁用按钮必须具备不同于可用按钮的视觉样式，包括禁用文字色、次级背景、降低透明度和不可点击光标；禁用按钮 hover 不得呈现为可用按钮。
 - [x] `Execution Workbench` 必须以摘要优先方式展示结构化 Skill 输出：状态、summary、nextAction、traceability chips、produced artifacts 表格、常见 result 分组和完整 JSON 审计视图。
 - [x] `Execution Workbench` 必须把未识别的 result 字段保留在 Additional Result JSON 中，不得丢弃。
+- [x] `Feature Spec` 必须支持多选 Feature；顶部 Schedule Selected 使用当前 run mode 与 provider adapter 为每个选中 Feature 创建独立 `schedule_run` / `feature_execution` Job，且单个 Feature 的 Schedule Current / 详情 Schedule 也必须携带完整调度 payload 与 Job 级执行偏好。

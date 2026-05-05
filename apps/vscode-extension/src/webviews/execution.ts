@@ -31,6 +31,7 @@ export function renderExecutionWorkbenchWebview(
   const executionDetail = detail && "metadata" in detail ? detail as SpecDriveIdeExecutionDetail : undefined;
   return renderWorkbenchPage("Execution Workbench", nonce, `
     <section class="toolbar">
+      ${executionPreferenceControls(view)}
       ${autoRunButton(view)}
       ${queueActionButton("Run Now", selectedItem, "run_now", ["ready", "queued"])}
       ${pauseResumeButton(selectedItem)}
@@ -71,6 +72,28 @@ export function renderExecutionWorkbenchWebview(
       </section>
     </main>
   `);
+}
+
+function executionPreferenceControls(view: SpecDriveIdeView | undefined): string {
+  const options = view?.executionPreferenceOptions;
+  if (!options) return "";
+  const activeMode = options.active.runMode ?? "cli";
+  const activeAdapter = options.active.adapterId ?? (activeMode === "rpc" ? options.rpcAdapters[0]?.id : options.cliAdapters[0]?.id) ?? "";
+  const adapters = [
+    ...options.cliAdapters.map((adapter) => ({ ...adapter, mode: "cli" as const })),
+    ...options.rpcAdapters.map((adapter) => ({ ...adapter, mode: "rpc" as const })),
+  ];
+  return `<label class="inline-field">Run Mode
+      <select id="job-run-mode" aria-label="Job run mode">
+        <option value="cli"${activeMode === "cli" ? " selected" : ""}>CLI</option>
+        <option value="rpc"${activeMode === "rpc" ? " selected" : ""}>RPC</option>
+      </select>
+    </label>
+    <label class="inline-field">Provider
+      <select id="job-adapter-id" aria-label="Job provider adapter">
+        ${adapters.map((adapter) => `<option value="${escapeAttr(adapter.id)}" data-run-mode="${adapter.mode}"${adapter.id === activeAdapter ? " selected" : ""}>${escapeHtml(`${adapter.mode.toUpperCase()}: ${adapter.displayName}`)}</option>`).join("")}
+      </select>
+    </label>`;
 }
 
 function renderBlockersAndApprovals(blockers: SpecDriveIdeQueueItem[], detail: SpecDriveIdeExecutionDetail | undefined): string {

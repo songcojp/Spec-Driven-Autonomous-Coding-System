@@ -21,6 +21,7 @@ export function renderSystemSettingsWebview(settings: SystemSettingsViewModel | 
     </section>
     ${settings ? `
       <main class="grid settings-grid">
+        ${renderExecutionPreferenceSection(settings.projectExecutionPreference)}
         ${renderAdapterSection("CLI Adapter", "cli", settings.cliAdapter)}
         ${renderAdapterSection("RPC Adapter", "rpc", settings.rpcAdapter)}
         <section class="panel span-12 settings-facts">
@@ -30,6 +31,52 @@ export function renderSystemSettingsWebview(settings: SystemSettingsViewModel | 
       </main>
     ` : emptyState("System settings are unavailable.")}
   `);
+}
+
+function renderExecutionPreferenceSection(section: SystemSettingsViewModel["projectExecutionPreference"]): string {
+  if (!section) {
+    return `<section class="panel span-12">
+      <div class="panel-title"><h2>Project Execution Defaults</h2><span class="muted">unavailable</span></div>
+      ${emptyState("Project execution defaults are unavailable from the current Control Plane response.")}
+    </section>`;
+  }
+  const editorId = "project-execution-preference-json";
+  const active = section.active ?? {};
+  const validation = section.validation ?? { valid: false, errors: ["Execution preference validation result is unavailable."] };
+  return `<section class="panel span-12">
+    <div class="panel-title">
+      <h2>Project Execution Defaults</h2>
+      <span class="${statusClass(validation.valid ? "passed" : "failed")}">${validation.valid ? "valid" : "invalid"}</span>
+    </div>
+    <div class="row"><span>Project</span><span><code>${escapeHtml(section.projectId ?? "none")}</code></span></div>
+    <div class="row"><span>Run Mode</span><span><code>${escapeHtml(String(active.runMode ?? "cli"))}</code></span></div>
+    <div class="row"><span>Provider Adapter</span><span><code>${escapeHtml(String(active.adapterId ?? "none"))}</code></span></div>
+    <h3>Provider Presets</h3>
+    <div class="toolbar">
+      ${section.cliAdapters.map((adapter) => executionPreferencePresetButton("CLI", editorId, section.projectId, "cli", adapter)).join("")}
+      ${section.rpcAdapters.map((adapter) => executionPreferencePresetButton("RPC", editorId, section.projectId, "rpc", adapter)).join("")}
+    </div>
+    <h3>Validation Errors</h3>
+    ${renderErrors(validation.errors)}
+    <h3>JSON Config</h3>
+    <textarea id="${editorId}" class="settings-editor" spellcheck="false" aria-label="Project execution preference JSON">${escapeHtml(JSON.stringify({
+      projectId: section.projectId,
+      runMode: active.runMode ?? "cli",
+      adapterId: active.adapterId,
+    }, null, 2))}</textarea>
+    <div class="toolbar">
+      ${settingsCommandButton("Save Default", "save_project_execution_preference", "settings", editorId)}
+    </div>
+  </section>`;
+}
+
+function executionPreferencePresetButton(label: string, editorId: string, projectId: string | undefined, runMode: "cli" | "rpc", adapter: Record<string, unknown>): string {
+  const adapterId = stringField(adapter, "id");
+  const displayName = stringField(adapter, "displayName") ?? adapterId ?? "Adapter";
+  return commandButton(`${label}: ${displayName}`, "loadSettingsPreset", {
+    editorId,
+    presetJson: JSON.stringify({ projectId, runMode, adapterId }, null, 2),
+  });
 }
 
 function renderAdapterSection(title: string, kind: AdapterKind, section: AdapterSettingsSection | undefined): string {

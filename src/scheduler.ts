@@ -14,6 +14,7 @@ import {
 import {
   buildSkillInvocationPrompt,
   DEFAULT_CLI_ADAPTER_CONFIG,
+  GEMINI_CLI_ADAPTER_CONFIG,
   evaluateRunnerSafety,
   isTrustedDirectWriteInvocation,
   normalizeCliAdapterConfig,
@@ -87,12 +88,21 @@ export type ExecutorJobContext = {
   [key: string]: unknown;
 };
 
+export type ExecutionRunMode = "cli" | "rpc";
+
+export type ExecutionPreferenceV1 = {
+  runMode: ExecutionRunMode;
+  adapterId: string;
+  source: "job" | "project" | "default";
+};
+
 export type ExecutorRunJobPayload = {
   operation: string;
   projectId?: string;
   executionId: string;
   context?: ExecutorJobContext;
   requestedAction?: string;
+  executionPreference?: ExecutionPreferenceV1;
   traceability?: {
     requirementIds?: string[];
   };
@@ -315,6 +325,7 @@ function workerOptions(connection: IORedis, lockDuration: number): WorkerOptions
 
 export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, runner?: CliCommandRunner): Promise<{ executionId: string; status: RunnerQueueStatus }> {
   const context = payload.context ?? {};
+  const executionPreference = executionPreferenceFromPayload(payload);
   const featureId = optionalString(context.featureId);
   const taskId = optionalString(context.taskId);
   const skillSlug = optionalString(context.skillSlug);
@@ -342,6 +353,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
           JSON.stringify({
             scheduler: "bullmq",
             jobType: "cli.run",
+            executionPreference,
             skillSlug,
             skillPhase,
             blockedReason: reason,
@@ -400,6 +412,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
         JSON.stringify({
           scheduler: "bullmq",
           jobType: "cli.run",
+          executionPreference,
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -453,7 +466,9 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
   const finalMetadata = {
     scheduler: "bullmq",
     jobType: "cli.run",
+    executionPreference,
     workspaceRoot: loaded.workspaceRoot,
+    adapterId: loaded.adapter.id,
     skillSlug: loaded.skillInvocation?.skillSlug,
     skillPhase: loaded.skillInvocation?.requestedAction,
     skillInvocationContract: loaded.skillInvocation,
@@ -487,6 +502,7 @@ export async function runCodexAppServerRunJob(
   transport?: CodexAppServerTransport,
 ): Promise<{ executionId: string; status: RunnerQueueStatus }> {
   const context = payload.context ?? {};
+  const executionPreference = executionPreferenceFromPayload(payload);
   const featureId = optionalString(context.featureId);
   const taskId = optionalString(context.taskId);
   const skillSlug = optionalString(context.skillSlug);
@@ -495,7 +511,7 @@ export async function runCodexAppServerRunJob(
   let adapterConfig: CodexAppServerAdapterConfig | undefined;
   try {
     loaded = loadRunnerTaskContext(dbPath, payload);
-    adapterConfig = loadAppServerAdapterConfig(dbPath);
+    adapterConfig = loadAppServerAdapterConfig(dbPath, executionPreference?.adapterId);
   } catch (error) {
     const reason = errorMessage(error);
     runSqlite(dbPath, [
@@ -517,6 +533,7 @@ export async function runCodexAppServerRunJob(
             scheduler: "bullmq",
             jobType: "rpc.run",
             provider: "codex-rpc",
+            executionPreference,
             skillSlug,
             skillPhase,
             blockedReason: reason,
@@ -574,6 +591,7 @@ export async function runCodexAppServerRunJob(
             scheduler: "bullmq",
             jobType: "rpc.run",
             provider: "codex-rpc",
+            executionPreference,
             workspaceRoot: loaded.workspaceRoot,
             safety,
             skillSlug: loaded.skillInvocation?.skillSlug,
@@ -611,6 +629,7 @@ export async function runCodexAppServerRunJob(
           scheduler: "bullmq",
           jobType: "rpc.run",
           provider: "codex-rpc",
+          executionPreference,
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -679,6 +698,7 @@ export async function runCodexAppServerRunJob(
           JSON.stringify({
             scheduler: "bullmq",
             jobType: "rpc.run",
+            executionPreference,
             workspaceRoot: loaded.workspaceRoot,
             skillSlug: loaded.skillInvocation?.skillSlug,
             skillPhase: loaded.skillInvocation?.requestedAction,
@@ -743,6 +763,7 @@ export async function runCodexAppServerRunJob(
         JSON.stringify({
           scheduler: "bullmq",
           jobType: "rpc.run",
+          executionPreference,
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -795,6 +816,7 @@ export async function runGeminiAcpRunJob(
   transport?: GeminiAcpTransport,
 ): Promise<{ executionId: string; status: RunnerQueueStatus }> {
   const context = payload.context ?? {};
+  const executionPreference = executionPreferenceFromPayload(payload);
   const featureId = optionalString(context.featureId);
   const taskId = optionalString(context.taskId);
   const skillSlug = optionalString(context.skillSlug);
@@ -803,7 +825,7 @@ export async function runGeminiAcpRunJob(
   let adapterConfig: GeminiAcpAdapterConfig | undefined;
   try {
     loaded = loadRunnerTaskContext(dbPath, payload);
-    adapterConfig = loadGeminiAcpAdapterConfig(dbPath);
+    adapterConfig = loadGeminiAcpAdapterConfig(dbPath, executionPreference?.adapterId);
   } catch (error) {
     const reason = errorMessage(error);
     runSqlite(dbPath, [
@@ -821,7 +843,7 @@ export async function runGeminiAcpRunJob(
           "blocked",
           new Date().toISOString(),
           reason,
-          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", skillSlug, skillPhase, blockedReason: reason }),
+          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", executionPreference, skillSlug, skillPhase, blockedReason: reason }),
         ],
       },
     ]);
@@ -871,7 +893,7 @@ export async function runGeminiAcpRunJob(
           "review_needed",
           now.toISOString(),
           safety.summary,
-          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", workspaceRoot: loaded.workspaceRoot, safety, skillSlug: loaded.skillInvocation?.skillSlug, skillPhase: loaded.skillInvocation?.requestedAction }),
+          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", executionPreference, workspaceRoot: loaded.workspaceRoot, safety, skillSlug: loaded.skillInvocation?.skillSlug, skillPhase: loaded.skillInvocation?.requestedAction }),
         ],
       },
     ]);
@@ -905,6 +927,7 @@ export async function runGeminiAcpRunJob(
           scheduler: "bullmq",
           jobType: "rpc.run",
           provider: "gemini-acp",
+          executionPreference,
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -969,6 +992,7 @@ export async function runGeminiAcpRunJob(
             scheduler: "bullmq",
             jobType: "rpc.run",
             provider: "gemini-acp",
+            executionPreference,
             workspaceRoot: loaded.workspaceRoot,
             skillSlug: loaded.skillInvocation?.skillSlug,
             skillPhase: loaded.skillInvocation?.requestedAction,
@@ -1029,6 +1053,7 @@ export async function runGeminiAcpRunJob(
           scheduler: "bullmq",
           jobType: "rpc.run",
           provider: "gemini-acp",
+          executionPreference,
           workspaceRoot: loaded.workspaceRoot,
           skillSlug: loaded.skillInvocation?.skillSlug,
           skillPhase: loaded.skillInvocation?.requestedAction,
@@ -1072,7 +1097,8 @@ export async function runRpcRunJob(
   appServerTransport?: CodexAppServerTransport,
   geminiAcpTransport?: GeminiAcpTransport,
 ): Promise<{ executionId: string; status: RunnerQueueStatus }> {
-  const provider = loadActiveRpcProvider(dbPath);
+  const preference = executionPreferenceFromPayload(payload);
+  const provider = loadActiveRpcProvider(dbPath, preference?.runMode === "rpc" ? preference.adapterId : undefined);
   if (provider === "gemini-acp") {
     return runGeminiAcpRunJob(dbPath, payload, geminiAcpTransport);
   }
@@ -1225,6 +1251,7 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
   skillInvocation?: SkillInvocationContract;
 } {
   const payloadContext = payload.context ?? {};
+  const executionPreference = executionPreferenceFromPayload(payload);
   const featureIdFromContext = optionalString(payloadContext.featureId);
   const taskIdFromContext = optionalString(payloadContext.taskId);
   const result = runSqlite(dbPath, [], [
@@ -1260,7 +1287,13 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
         FROM features WHERE id = ? LIMIT 1`,
       params: [featureIdFromContext ?? ""],
     },
-    { name: "adapter", sql: "SELECT * FROM cli_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    {
+      name: "adapter",
+      sql: executionPreference?.runMode === "cli" && executionPreference.adapterId
+        ? "SELECT * FROM cli_adapter_configs WHERE id = ? LIMIT 1"
+        : "SELECT * FROM cli_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1",
+      params: executionPreference?.runMode === "cli" && executionPreference.adapterId ? [executionPreference.adapterId] : [],
+    },
     { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM cli_adapter_configs" },
   ]);
   const row = result.queries.graphTask[0] ?? result.queries.task[0];
@@ -1279,10 +1312,17 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
   }
   const adapterRow = result.queries.adapter[0];
   const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
-  if (!adapterRow && adapterCount > 0) {
+  const selectedBuiltin = executionPreference?.runMode === "cli" ? builtinCliAdapter(executionPreference.adapterId) : undefined;
+  if (executionPreference?.runMode === "cli" && !adapterRow && !selectedBuiltin) {
+    throw new Error(`CLI adapter not found: ${executionPreference.adapterId}`);
+  }
+  if (!adapterRow && !selectedBuiltin && adapterCount > 0) {
     throw new Error("No active CLI adapter configured. Activate an adapter in System Settings before starting new runs.");
   }
-  const adapter = adapterFromRow(adapterRow);
+  const adapter = adapterRow ? adapterFromRow(adapterRow) : selectedBuiltin ?? adapterFromRow(adapterRow);
+  if (adapter.status === "disabled" || adapter.status === "invalid") {
+    throw new Error(`CLI adapter is not available: ${adapter.id}`);
+  }
   const featureId = featureIdFromContext ?? optionalString(row?.feature_id) ?? optionalString(featureRow?.id);
   const title = optionalString(row?.title) ?? optionalString(featureRow?.title) ?? `Project ${projectId}`;
   const description = optionalString(row?.description) ?? title;
@@ -1428,17 +1468,57 @@ function adapterFromRow(row?: Record<string, unknown>): CliAdapterConfig {
   });
 }
 
-function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig {
+function builtinCliAdapter(id?: string): CliAdapterConfig | undefined {
+  if (id === DEFAULT_CLI_ADAPTER_CONFIG.id) return DEFAULT_CLI_ADAPTER_CONFIG;
+  if (id === GEMINI_CLI_ADAPTER_CONFIG.id) return GEMINI_CLI_ADAPTER_CONFIG;
+  return undefined;
+}
+
+function executionPreferenceFromPayload(payload: ExecutorRunJobPayload): ExecutionPreferenceV1 | undefined {
+  const candidate = payload.executionPreference
+    ?? (typeof payload.context?.executionPreference === "object" && payload.context.executionPreference !== null
+      ? payload.context.executionPreference as ExecutionPreferenceV1
+      : undefined);
+  if (!candidate) return undefined;
+  return {
+    runMode: candidate.runMode === "rpc" ? "rpc" : "cli",
+    adapterId: optionalString(candidate.adapterId) ?? "",
+    source: candidate.source === "project" || candidate.source === "default" ? candidate.source : "job",
+  };
+}
+
+function loadAppServerAdapterConfig(dbPath: string, adapterId?: string): CodexAppServerAdapterConfig {
   const result = runSqlite(dbPath, [], [
-    { name: "adapter", sql: "SELECT * FROM codex_app_server_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
-    { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM codex_app_server_adapter_configs" },
+    {
+      name: "adapter",
+      sql: adapterId
+        ? "SELECT * FROM rpc_adapter_configs WHERE id = ? AND provider = 'codex-rpc' LIMIT 1"
+        : "SELECT * FROM rpc_adapter_configs WHERE provider = 'codex-rpc' AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+      params: adapterId ? [adapterId] : [],
+    },
+    { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM rpc_adapter_configs WHERE provider = 'codex-rpc'" },
+    {
+      name: "legacyAdapter",
+      sql: adapterId
+        ? "SELECT * FROM codex_app_server_adapter_configs WHERE id = ? LIMIT 1"
+        : "SELECT * FROM codex_app_server_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1",
+      params: adapterId ? [adapterId] : [],
+    },
+    { name: "legacyAdapterCount", sql: "SELECT COUNT(*) AS count FROM codex_app_server_adapter_configs" },
   ]);
-  const row = result.queries.adapter[0];
+  const row = result.queries.adapter[0] ?? result.queries.legacyAdapter[0];
   const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
-  if (!row && adapterCount > 0) {
+  const legacyAdapterCount = Number(result.queries.legacyAdapterCount[0]?.count ?? 0);
+  if (adapterId && !row && adapterId !== DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG.id) {
+    throw new Error(`Codex RPC adapter not found: ${adapterId}`);
+  }
+  if (!row && (adapterCount > 0 || legacyAdapterCount > 0)) {
     throw new Error("No active Codex RPC adapter configured. Activate an adapter in System Settings before starting Codex RPC runs.");
   }
   if (!row) return DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG;
+  if (String(row.status) === "disabled" || String(row.status) === "invalid") {
+    throw new Error(`Codex RPC adapter is not available: ${String(row.id)}`);
+  }
   return {
     id: String(row.id),
     displayName: String(row.display_name),
@@ -1452,13 +1532,24 @@ function loadAppServerAdapterConfig(dbPath: string): CodexAppServerAdapterConfig
   };
 }
 
-function loadActiveRpcProvider(dbPath: string): "codex-rpc" | "gemini-acp" {
+function loadActiveRpcProvider(dbPath: string, adapterId?: string): "codex-rpc" | "gemini-acp" {
   const result = runSqlite(dbPath, [], [
-    { name: "adapter", sql: "SELECT provider FROM rpc_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    {
+      name: "adapter",
+      sql: adapterId
+        ? "SELECT provider FROM rpc_adapter_configs WHERE id = ? LIMIT 1"
+        : "SELECT provider FROM rpc_adapter_configs WHERE status = 'active' ORDER BY updated_at DESC LIMIT 1",
+      params: adapterId ? [adapterId] : [],
+    },
     { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM rpc_adapter_configs" },
   ]);
   const row = result.queries.adapter[0];
   const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
+  if (adapterId && !row) {
+    if (adapterId === DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG.id) return "codex-rpc";
+    if (adapterId === DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.id) return "gemini-acp";
+    throw new Error(`RPC adapter not found: ${adapterId}`);
+  }
   if (!row && adapterCount > 0) {
     throw new Error("No active RPC adapter configured. Activate an RPC adapter in System Settings before starting RPC runs.");
   }
@@ -1466,17 +1557,29 @@ function loadActiveRpcProvider(dbPath: string): "codex-rpc" | "gemini-acp" {
   return provider === "gemini-acp" ? "gemini-acp" : "codex-rpc";
 }
 
-function loadGeminiAcpAdapterConfig(dbPath: string): GeminiAcpAdapterConfig {
+function loadGeminiAcpAdapterConfig(dbPath: string, adapterId?: string): GeminiAcpAdapterConfig {
   const result = runSqlite(dbPath, [], [
-    { name: "adapter", sql: "SELECT * FROM rpc_adapter_configs WHERE provider = 'gemini-acp' AND status = 'active' ORDER BY updated_at DESC LIMIT 1" },
+    {
+      name: "adapter",
+      sql: adapterId
+        ? "SELECT * FROM rpc_adapter_configs WHERE id = ? AND provider = 'gemini-acp' LIMIT 1"
+        : "SELECT * FROM rpc_adapter_configs WHERE provider = 'gemini-acp' AND status = 'active' ORDER BY updated_at DESC LIMIT 1",
+      params: adapterId ? [adapterId] : [],
+    },
     { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM rpc_adapter_configs WHERE provider = 'gemini-acp'" },
   ]);
   const row = result.queries.adapter[0];
   const adapterCount = Number(result.queries.adapterCount[0]?.count ?? 0);
+  if (adapterId && !row && adapterId !== DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.id) {
+    throw new Error(`Gemini ACP adapter not found: ${adapterId}`);
+  }
   if (!row && adapterCount > 0) {
     throw new Error("No active Gemini ACP adapter configured. Activate an adapter in System Settings before starting Gemini ACP runs.");
   }
   if (!row) return DEFAULT_GEMINI_ACP_ADAPTER_CONFIG;
+  if (String(row.status) === "disabled" || String(row.status) === "invalid") {
+    throw new Error(`Gemini ACP adapter is not available: ${String(row.id)}`);
+  }
   return {
     id: String(row.id),
     displayName: String(row.display_name),

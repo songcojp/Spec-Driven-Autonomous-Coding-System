@@ -534,6 +534,7 @@ async function fetchSystemSettings(): Promise<SystemSettingsViewModel> {
 function normalizeSystemSettingsViewModel(payload: unknown): SystemSettingsViewModel {
   const source = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
   return {
+    projectExecutionPreference: normalizeProjectExecutionPreferenceSettings(source.projectExecutionPreference),
     cliAdapter: normalizeAdapterSettingsSection(source.cliAdapter),
     rpcAdapter: normalizeAdapterSettingsSection(source.rpcAdapter),
     commands: Array.isArray(source.commands)
@@ -547,6 +548,22 @@ function normalizeSystemSettingsViewModel(payload: unknown): SystemSettingsViewM
     factSources: Array.isArray(source.factSources)
       ? source.factSources.filter((entry): entry is string => typeof entry === "string")
       : [],
+  };
+}
+
+function normalizeProjectExecutionPreferenceSettings(value: unknown): SystemSettingsViewModel["projectExecutionPreference"] {
+  const source = typeof value === "object" && value !== null ? value as Record<string, unknown> : {};
+  const active = typeof source.active === "object" && source.active !== null ? source.active as Record<string, unknown> : {};
+  const validation = typeof source.validation === "object" && source.validation !== null ? source.validation as Record<string, unknown> : {};
+  return {
+    projectId: typeof source.projectId === "string" ? source.projectId : undefined,
+    active,
+    cliAdapters: Array.isArray(source.cliAdapters) ? source.cliAdapters.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null) : [],
+    rpcAdapters: Array.isArray(source.rpcAdapters) ? source.rpcAdapters.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null) : [],
+    validation: {
+      valid: typeof validation.valid === "boolean" ? validation.valid : false,
+      errors: Array.isArray(validation.errors) ? validation.errors.filter((entry): entry is string => typeof entry === "string") : [],
+    },
   };
 }
 
@@ -1068,6 +1085,11 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
       await render();
       return;
     }
+    if (isWorkbenchMessage(message) && message.command === "scheduleFeatures") {
+      await scheduleFeatureSelection(message, provider);
+      await render();
+      return;
+    }
     await handleWorkbenchMessage(message, provider, render);
   });
   await render();
@@ -1119,7 +1141,9 @@ async function handleWorkbenchMessage(
       return;
     }
     if (message.command === "queue" && isQueueAction(message.action) && typeof message.entityId === "string") {
-      const payload = message.action === "reprioritize" ? await priorityPayload() : undefined;
+      const payload = message.action === "reprioritize"
+        ? await priorityPayload()
+        : typeof message.payload === "object" && message.payload !== null ? message.payload as Record<string, unknown> : undefined;
       if (message.action === "reprioritize" && !payload) return;
       await postQueueCommandForTarget(message.action, message.entityId, message.entityType === "job" ? "job" : "run", provider, {
         reason: typeof message.reason === "string" ? message.reason : `Run ${message.action} from VSCode Webview.`,
@@ -1191,6 +1215,51 @@ async function submitNewFeatureRequest(content: string, provider: SpecExplorerPr
     ? ` blocked=${response.blockedReasons.join("; ")}`
     : "";
   await vscode.window.showInformationMessage(`SpecDrive New Feature ${status}.${routed}${blocked}`);
+  await provider.refresh();
+}
+
+async function scheduleFeatureSelection(message: Record<string, unknown>, provider: SpecExplorerProvider): Promise<void> {
+  const view = provider.currentView();
+  const projectId = typeof message.projectId === "string" && message.projectId
+    ? message.projectId
+    : view?.project?.id;
+  if (!projectId) {
+    await vscode.window.showErrorMessage("SpecDrive Feature scheduling requires a recognized project.");
+    return;
+  }
+  const knownFeatureIds = new Set((view?.features ?? []).map((feature) => feature.id));
+  const featureIds = Array.isArray(message.featureIds)
+    ? message.featureIds.filter((entry): entry is string => typeof entry === "string" && knownFeatureIds.has(entry))
+    : [];
+  if (featureIds.length === 0) {
+    await vscode.window.showErrorMessage("Select at least one Feature Spec to schedule.");
+    return;
+  }
+  const executionPreference = typeof message.executionPreference === "object" && message.executionPreference !== null && !Array.isArray(message.executionPreference)
+    ? message.executionPreference as Record<string, unknown>
+    : undefined;
+  const receipts: string[] = [];
+  for (const featureId of featureIds) {
+    const response = await postIdeCommand({
+      action: "schedule_run",
+      entityType: "feature",
+      entityId: featureId,
+      requestedBy: "vscode-extension",
+      reason: `Schedule ${featureId} from Feature Spec Webview selection.`,
+      payload: {
+        projectId,
+        featureId,
+        mode: "manual",
+        operation: "feature_execution",
+        requestedAction: "feature_execution",
+        ...(executionPreference ? { executionPreference } : {}),
+      },
+    });
+    const status = typeof response.status === "string" ? response.status : "unknown";
+    const executionId = typeof response.executionId === "string" ? `:${response.executionId}` : "";
+    receipts.push(`${featureId}=${status}${executionId}`);
+  }
+  await vscode.window.showInformationMessage(`SpecDrive scheduled ${receipts.length} Feature Spec${receipts.length === 1 ? "" : "s"}: ${receipts.join(", ")}`);
   await provider.refresh();
 }
 

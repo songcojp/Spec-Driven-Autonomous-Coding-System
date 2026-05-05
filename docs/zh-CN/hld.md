@@ -511,6 +511,7 @@ Responsibilities:
 - 提供 Spec Explorer，展示 PRD、requirements、HLD、Feature Specs、Task Queue、Execution Record 和最近 Codex 会话。
 - 提供独立 Execution Workbench Webview，默认聚焦 Job 队列、自动执行控制、当前运行、阻塞/审批、Execution Record 和运行结果投影。
 - 提供独立 System Settings Webview，展示并管理 CLI Adapter 与 RPC Adapter active/draft/preset、校验结果、dry-run/probe 和 JSON 配置。
+- 提供项目级执行偏好设置，保存默认 run mode (`cli` / `rpc`) 与对应 Execution Adapter provider；Execution Workbench 在新建 Job 前可提交 Job 级执行偏好覆盖项目默认。
 - 提供 Feature Spec Webview 的 New Feature 受控输入、Feature index 与 Feature 文件夹同步刷新、Feature 详情 `tasks.md` 解析和任务状态展示。
 - 在 Spec 文档中提供 Hover、CodeLens、Comments 和 Diagnostics，支持行级/段落级澄清、需求新增、需求变更、EARS 生成、设计更新和 Feature 拆分意图。
 - 将所有有副作用的 IDE action 转换为 Control Plane command API 请求，接收 `IdeCommandReceiptV1` 并刷新 UI。
@@ -533,6 +534,7 @@ Boundary:
 - 查询类动作可以读取 workspace 文件或调用 query API；落盘、调度、取消、重试、审批和配置修改必须走受控命令。
 - Execution Workbench 不复用 Product Console 页面、路由、导航、App Shell、组件实现或 ViewModel；只允许复用 shared contract/type 和 Control Plane query/command API。
 - VSCode System Settings 与 Product Console System Settings 是两个 UI 入口，不得创建第二套配置状态；CLI/RPC Adapter 配置事实源仍为 Control Plane 持久层。
+- 执行偏好事实源为项目级 SQLite 配置与新建 Job payload；`cli` provider 必须解析到 `cli_adapter_configs`，`rpc` provider 必须解析到 `rpc_adapter_configs`。
 
 ## 8. Data Domains and Ownership
 

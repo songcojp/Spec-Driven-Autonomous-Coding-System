@@ -240,6 +240,26 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.doesNotMatch(extensionSource, /Block \/ In Process \/ Todo/);
 });
 
+test("VSCode Feature Spec Webview schedules selected Features with adapter preference", () => {
+  assert.match(extensionSource, /executionPreferenceControls\(view\)/);
+  assert.match(extensionSource, /commandButton\("Schedule Selected", "scheduleSelectedFeatures"/);
+  assert.match(extensionSource, /data-feature-select/);
+  assert.match(extensionSource, /const selectedFeatureIds = \(\) =>/);
+  assert.match(extensionSource, /payload\.command === "scheduleSelectedFeatures"/);
+  assert.match(extensionSource, /command: "scheduleFeatures"/);
+  assert.match(extensionSource, /executionPreference: selectedExecutionPreference\(\)/);
+  assert.match(extensionSource, /message\.command === "scheduleFeatures"/);
+  assert.match(extensionSource, /scheduleFeatureSelection\(message, provider\)/);
+  assert.match(extensionSource, /for \(const featureId of featureIds\)/);
+  assert.match(extensionSource, /action: "schedule_run"/);
+  assert.match(extensionSource, /mode: "manual"/);
+  assert.match(extensionSource, /operation: "feature_execution"/);
+  assert.match(extensionSource, /requestedAction: "feature_execution"/);
+  assert.match(extensionSource, /\.\.\.\(executionPreference \? \{ executionPreference \} : \{\}\)/);
+  assert.match(extensionSource, /payload\.action === "schedule_run" \|\| payload\.action === "start_auto_run"/);
+  assert.match(extensionSource, /scheduleRunPayload\(payload, executionPreference\)/);
+});
+
 test("VSCode Spec Workspace keeps global skill input at top and document actions inside lifecycle", () => {
   assert.match(extensionSource, /renderSpecWorkspaceWebview/);
   assert.match(extensionSource, /commandButton\("Spec Change", "openWorkbenchForm", \{ formMode: "specChange", intent: "requirement_change_or_intake" \}\)/);

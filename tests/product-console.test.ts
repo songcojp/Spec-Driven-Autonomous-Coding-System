@@ -959,6 +959,113 @@ test("system settings exposes CLI adapter config and governed activation", () =>
   assert.equal(runner.commands.some((command) => command.action === "activate_cli_adapter_config"), false);
 });
 
+test("system settings saves project execution preference with adapter provider validation", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+
+  const initial = buildSystemSettingsView(dbPath);
+  assert.equal(initial.projectExecutionPreference?.projectId, "project-1");
+  assert.equal(initial.projectExecutionPreference?.active.runMode, "cli");
+  assert.equal(initial.projectExecutionPreference?.active.adapterId, "codex-cli");
+  assert.equal(initial.commands.some((command) => command.action === "save_project_execution_preference"), true);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "save_project_execution_preference",
+    entityType: "settings",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Use RPC by default for this project.",
+    payload: { config: { projectId: "project-1", runMode: "rpc", adapterId: "codex-rpc-default" } },
+    now: stableDate,
+  });
+  const settings = buildSystemSettingsView(dbPath);
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(settings.projectExecutionPreference?.active.runMode, "rpc");
+  assert.equal(settings.projectExecutionPreference?.active.adapterId, "codex-rpc-default");
+
+  const invalid = submitConsoleCommand(dbPath, {
+    action: "save_project_execution_preference",
+    entityType: "settings",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Reject mismatched provider.",
+    payload: { config: { projectId: "project-1", runMode: "cli", adapterId: "codex-rpc-default" } },
+    now: stableDate,
+  });
+  assert.equal(invalid.status, "blocked");
+  assert.match(invalid.blockedReasons?.join("; ") ?? "", /CLI adapter not found/);
+});
+
+test("schedule_run chooses run mode and provider from job override before project default", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-exec-preference-"));
+  mkdirSync(join(projectPath, "docs", "features", "feat-001-provider"), { recursive: true });
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-provider", "requirements.md"), "# Feature Spec: FEAT-001 Provider\n", "utf8");
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-provider", "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-provider", "tasks.md"), "# Tasks\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "UPDATE features SET folder = 'feat-001-provider', status = 'ready' WHERE id = 'FEAT-013'" },
+    {
+      sql: `INSERT INTO project_execution_preferences (project_id, run_mode, adapter_id, updated_at)
+        VALUES ('project-1', 'rpc', 'codex-rpc-default', '2026-04-28T12:00:00.000Z')`,
+    },
+  ]);
+
+  const projectDefaultReceipt = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Run this Feature with the project RPC default.",
+    payload: {
+      projectId: "project-1",
+      featureId: "FEAT-013",
+      mode: "manual",
+    },
+    now: stableDate,
+  }, { scheduler });
+  const projectDefault = runSqlite(dbPath, [], [
+    { name: "job", sql: "SELECT job_type, payload_json FROM scheduler_job_records WHERE id = ?", params: [projectDefaultReceipt.schedulerJobId] },
+    { name: "execution", sql: "SELECT executor_type, context_json FROM execution_records WHERE id = ?", params: [projectDefaultReceipt.executionId] },
+  ]);
+  assert.equal(projectDefaultReceipt.status, "accepted");
+  assert.equal(projectDefault.queries.job[0].job_type, "rpc.run");
+  assert.equal(projectDefault.queries.execution[0].executor_type, "rpc");
+  assert.equal(JSON.parse(String(projectDefault.queries.job[0].payload_json)).executionPreference.adapterId, "codex-rpc-default");
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Run this Feature with a job-level CLI override.",
+    payload: {
+      projectId: "project-1",
+      featureId: "FEAT-013",
+      mode: "manual",
+      executionPreference: { runMode: "cli", adapterId: "gemini-cli", source: "job" },
+    },
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "job", sql: "SELECT job_type, payload_json FROM scheduler_job_records WHERE id = ?", params: [receipt.schedulerJobId] },
+    { name: "execution", sql: "SELECT executor_type, context_json FROM execution_records WHERE id = ?", params: [receipt.executionId] },
+  ]);
+  const payload = JSON.parse(String(result.queries.job[0].payload_json));
+  const context = JSON.parse(String(result.queries.execution[0].context_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(result.queries.job[0].job_type, "cli.run");
+  assert.equal(result.queries.execution[0].executor_type, "cli");
+  assert.equal(payload.executionPreference.adapterId, "gemini-cli");
+  assert.equal(context.executionPreference.source, "job");
+});
+
 test("console command gateway audits controlled writes without mutating worktrees", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);

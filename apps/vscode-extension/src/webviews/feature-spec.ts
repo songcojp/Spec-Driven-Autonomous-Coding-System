@@ -16,12 +16,15 @@ export function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, sel
   const features = view?.features ?? [];
   const selected = features.find((feature) => feature.id === selectedFeatureId) ?? preferredFeature(view);
   const groups = groupFeaturePanels(features);
+  const projectId = view?.project?.id;
   return renderWorkbenchPage("Feature Spec", nonce, `
     <section class="toolbar">
       <button class="view-toggle" data-command="toggleFeatureSpecView" data-view-mode="dependency" aria-pressed="false">Dependency Graph</button>
+      ${executionPreferenceControls(view)}
+      ${features.length > 0 ? commandButton("Schedule Selected", "scheduleSelectedFeatures", { projectId }) : ""}
       ${commandButton("New Feature", "openWorkbenchForm", { formMode: "newFeature" })}
       ${commandButton("Refresh", "refresh", {})}
-      ${selected ? commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: selected.id, reason: `Schedule ${selected.id} from Feature Spec Webview.` }) : ""}
+      ${selected ? scheduleFeatureButton("Schedule Current", selected, projectId, "Feature Spec Webview") : ""}
       ${selected && isClarificationNeededFeature(selected) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: selected.id }) : ""}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
@@ -31,7 +34,7 @@ export function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, sel
         ${groups.map((group) => renderFeaturePanel(group, selected?.id)).join("")}
       </section>
       <aside class="panel detail-panel">
-        ${selected ? renderFeatureDetail(selected) : emptyState("No Feature Specs discovered.")}
+        ${selected ? renderFeatureDetail(selected, projectId) : emptyState("No Feature Specs discovered.")}
       </aside>
     </main>
     <section id="dependency-graph-panel" class="panel dependency-panel hidden" data-view-panel="dependency">
@@ -111,17 +114,21 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, selected: boolean):
   const progress = taskCount > 0
     ? Math.round((doneTasks / taskCount) * 100)
     : feature.latestExecutionStatus === "completed" ? 100 : feature.latestExecutionStatus === "running" ? 70 : feature.status === "ready" ? 60 : 30;
-  return `<button class="feature-card ${selected ? "selected" : ""}" data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}" ${selected ? "aria-current=\"true\"" : ""}>
+  return `<article class="feature-card ${selected ? "selected" : ""}" ${selected ? "aria-current=\"true\"" : ""}>
     <header><strong>${escapeHtml(feature.id)}</strong><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></header>
     <div>${escapeHtml(feature.title)}</div>
     <div class="metric"><span>Task Progress</span><strong>${progress}%</strong><div class="bar"><span style="width:${progress}%"></span></div></div>
     <div class="metric"><span>Execution State</span><strong>${escapeHtml(feature.latestExecutionStatus ?? "Not Started")}</strong></div>
     <div class="metric"><span>Tasks</span><strong>${doneTasks}/${taskCount}</strong></div>
     <div class="metric"><span>Next Action</span><strong>${escapeHtml(feature.nextAction ?? "None")}</strong></div>
-  </button>`;
+    <div class="feature-card-actions">
+      <label class="feature-select"><input type="checkbox" data-feature-select="${escapeAttr(feature.id)}" ${selected ? "checked" : ""}> Select</label>
+      <button data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}">Open</button>
+    </div>
+  </article>`;
 }
 
-function renderFeatureDetail(feature: SpecDriveIdeFeatureNode): string {
+function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: string): string {
   return `<div class="panel-title"><h2>${escapeHtml(feature.id)}</h2><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></div>
     <h3>${escapeHtml(feature.title)}</h3>
     <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
@@ -137,7 +144,40 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode): string {
     ${feature.blockedReasons.length === 0 ? emptyState("No blockers.") : feature.blockedReasons.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")}
     <h3>Traceability</h3>
     <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>
-    <div class="toolbar">${commandButton("Schedule", "controlled", { action: "schedule_run", entityType: "feature", entityId: feature.id, reason: `Schedule ${feature.id} from Feature Detail.` })}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}</div>`;
+    <div class="toolbar">${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}</div>`;
+}
+
+function scheduleFeatureButton(label: string, feature: SpecDriveIdeFeatureNode, projectId: string | undefined, source: string): string {
+  return commandButton(label, "controlled", {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: feature.id,
+    projectId,
+    featureId: feature.id,
+    reason: `Schedule ${feature.id} from ${source}.`,
+  });
+}
+
+function executionPreferenceControls(view: SpecDriveIdeView | undefined): string {
+  const options = view?.executionPreferenceOptions;
+  if (!options) return "";
+  const activeMode = options.active.runMode ?? "cli";
+  const activeAdapter = options.active.adapterId ?? (activeMode === "rpc" ? options.rpcAdapters[0]?.id : options.cliAdapters[0]?.id) ?? "";
+  const adapters = [
+    ...options.cliAdapters.map((adapter) => ({ ...adapter, mode: "cli" as const })),
+    ...options.rpcAdapters.map((adapter) => ({ ...adapter, mode: "rpc" as const })),
+  ];
+  return `<label class="inline-field">Run Mode
+      <select id="job-run-mode" aria-label="Feature schedule run mode">
+        <option value="cli"${activeMode === "cli" ? " selected" : ""}>CLI</option>
+        <option value="rpc"${activeMode === "rpc" ? " selected" : ""}>RPC</option>
+      </select>
+    </label>
+    <label class="inline-field">Provider
+      <select id="job-adapter-id" aria-label="Feature schedule provider adapter">
+        ${adapters.map((adapter) => `<option value="${escapeAttr(adapter.id)}" data-run-mode="${adapter.mode}"${adapter.id === activeAdapter ? " selected" : ""}>${escapeHtml(`${adapter.mode.toUpperCase()}: ${adapter.displayName}`)}</option>`).join("")}
+      </select>
+    </label>`;
 }
 
 function renderFeatureTasks(feature: SpecDriveIdeFeatureNode): string {

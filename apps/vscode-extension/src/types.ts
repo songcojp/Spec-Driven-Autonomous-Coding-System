@@ -40,6 +40,9 @@ export type SpecDriveIdeQueueItem = {
   featureId?: string;
   taskId?: string;
   adapter?: string;
+  runMode?: "cli" | "rpc";
+  adapterId?: string;
+  preferenceSource?: string;
   threadId?: string;
   turnId?: string;
   updatedAt?: string;
@@ -96,6 +99,11 @@ export type SpecDriveIdeView = {
     id: string;
     displayName: string;
     status: string;
+  };
+  executionPreferenceOptions?: {
+    active: { runMode?: "cli" | "rpc"; adapterId?: string; source?: string };
+    cliAdapters: Array<{ id: string; displayName: string; status: string }>;
+    rpcAdapters: Array<{ id: string; displayName: string; status: string; provider?: string }>;
   };
   automation?: SpecDriveIdeAutomationState;
   projectInitialization?: {
@@ -159,6 +167,13 @@ export type AdapterSettingsSection = {
 };
 
 export type SystemSettingsViewModel = {
+  projectExecutionPreference?: {
+    projectId?: string;
+    active: Record<string, unknown>;
+    cliAdapters: Record<string, unknown>[];
+    rpcAdapters: Record<string, unknown>[];
+    validation: { valid: boolean; errors: string[] };
+  };
   cliAdapter?: AdapterSettingsSection;
   rpcAdapter?: AdapterSettingsSection;
   commands: Array<{ action: string; entityType: ControlledCommandInput["entityType"] }>;

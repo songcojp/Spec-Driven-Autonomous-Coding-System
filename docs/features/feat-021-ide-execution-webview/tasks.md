@@ -100,3 +100,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Execution Workbench 队列 Job 支持显式选中；顶部自动执行入口使用 Control Plane 自动执行状态投影显示 Start Auto Run / Pause Auto Run 两态；全局任务调度动作不依赖 Job 选择，其它 Job 操作默认禁用，只对选中 Job 可用，并按选中 Job 状态启用、禁用或切换双态按钮。Pause / Resume 合并为一个 Job 级双态入口；Job 操作必须支持 schedule-only Job 和已有 Execution Record 的 Run；禁用按钮必须具备明显不同的视觉样式。
 验证: `npm run ide:build` 验证 VSCode Webview 编译；`npm run ide:test` 覆盖选中任务、按钮状态规则、成功启动切换和队列为空/选不到 Feature 时仍启用 Auto Run。
+
+### T-021-20 Feature 多选调度与 adapter 选择
+状态: done
+描述: Feature Spec Webview 支持勾选多个 Feature，并在顶部提供 run mode 与 provider adapter 选择；点击 Schedule Selected 后通过 VSCode extension host 为每个选中 Feature 创建独立 `schedule_run`，每个 Job 都携带 `mode=manual`、`operation=feature_execution`、`projectId`、`featureId` 和 Job 级 `executionPreference`。单个 Feature 的 Schedule Current 和详情 Schedule 也使用同一组执行偏好。
+验证: `npm run ide:build` 验证 VSCode Webview 编译；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 控件、批量调度消息和 adapter payload。

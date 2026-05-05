@@ -7,7 +7,7 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
     *{box-sizing:border-box}body{margin:0;padding:14px 16px 18px;font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);line-height:1.45}
     h1{font-size:22px;margin:4px 0 12px;font-weight:650}h2{font-size:14px;margin:0;font-weight:650}h3{font-size:12px;margin:14px 0 6px;color:var(--muted);text-transform:uppercase}
     button{font:inherit;color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:1px solid var(--border);border-radius:4px;padding:6px 10px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover{background:var(--vscode-button-hoverBackground)}button:disabled,button:disabled:hover{color:var(--vscode-disabledForeground,var(--muted));background:var(--vscode-button-secondaryBackground,var(--vscode-input-background));border-color:var(--vscode-disabledForeground,var(--border));opacity:.55;cursor:not-allowed}
-    [hidden]{display:none!important}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.view-toggle{min-width:132px}.status-text{color:var(--muted);font-size:12px;min-height:18px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}.span-12{grid-column:span 12}
+    [hidden]{display:none!important}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.inline-field{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}.inline-field select{min-height:30px;max-width:220px;background:var(--vscode-dropdown-background,var(--vscode-input-background));color:var(--vscode-dropdown-foreground,var(--vscode-input-foreground));border:1px solid var(--border);border-radius:4px;padding:4px 7px}.view-toggle{min-width:132px}.status-text{color:var(--muted);font-size:12px;min-height:18px}.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}.span-3{grid-column:span 3}.span-4{grid-column:span 4}.span-5{grid-column:span 5}.span-8{grid-column:span 8}.span-12{grid-column:span 12}
     .panel{border:1px solid var(--border);background:var(--panel);border-radius:6px;padding:10px;min-width:0}.panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:8px}.panel-title h2{min-width:0;overflow-wrap:anywhere}.panel-title span,.muted{color:var(--muted)}
     .queue-group{margin:8px 0;border:1px solid var(--border);border-radius:5px;overflow:hidden}.queue-head{display:flex;justify-content:space-between;padding:6px 8px;background:var(--vscode-list-hoverBackground)}.queue-item,.row{display:grid;grid-template-columns:1.2fr .8fr .8fr auto;gap:8px;align-items:center;padding:6px 8px;border-top:1px solid var(--border);font-size:12px;min-width:0}.queue-item.selected{background:var(--vscode-list-activeSelectionBackground);box-shadow:inset 3px 0 0 var(--accent)}.row{grid-template-columns:minmax(0,1fr) minmax(0,max-content)}.row>*{min-width:0;overflow-wrap:anywhere}.row code{white-space:pre-wrap;overflow-wrap:anywhere}
     .badge{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:999px;padding:2px 7px;font-size:11px;max-width:100%;overflow-wrap:anywhere}.ok{color:var(--ok)}.warning,.warn{color:var(--warn)}.error,.bad{color:var(--bad)}.info,.draft{color:var(--accent)}
@@ -16,7 +16,7 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
     .stage-strip{display:grid;grid-template-columns:repeat(12,minmax(80px,1fr));gap:6px;margin-bottom:10px}.stage{background:transparent;color:var(--vscode-foreground);min-height:54px}.stage span{display:block;color:var(--accent)}.stage.active{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground)}.spec-stage-panel{width:100%;min-height:320px}
     .concept-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.concept-card{padding:0;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);overflow:hidden}.concept-card img{display:block;width:100%;height:96px;object-fit:cover;background:var(--vscode-editor-background);border-bottom:1px solid var(--border)}.concept-card span{display:block;padding:7px 8px;color:var(--muted);font-size:12px}.concept-modal{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.72);padding:18px}.concept-modal[hidden]{display:none!important}.concept-dialog{width:min(1100px,96vw);max-height:94vh;border:1px solid var(--border);border-radius:6px;background:var(--vscode-editor-background);overflow:hidden}.concept-dialog header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border)}.concept-dialog img{display:block;width:100%;max-height:calc(94vh - 54px);object-fit:contain;background:#000}
     .hidden{display:none!important}.workbench-form{margin-bottom:10px}.workbench-form textarea,.settings-editor{width:100%;max-width:100%;min-height:96px;resize:vertical;background:var(--vscode-input-background);color:var(--vscode-input-foreground);border:1px solid var(--border);border-radius:4px;padding:8px;font:inherit}.settings-editor{min-height:280px;font-family:var(--vscode-editor-font-family);font-size:12px}.settings-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr))}.settings-grid .span-6{grid-column:auto}.settings-grid .settings-facts{grid-column:1/-1}.workbench-form-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}.dependency-panel{margin-bottom:10px}.dependency-tree,.dependency-tree ul{list-style:none;margin:0;padding-left:18px}.dependency-tree{padding-left:0}.dependency-tree li{position:relative;margin:4px 0;padding-left:14px}.dependency-tree li::before{content:"";position:absolute;left:0;top:13px;width:9px;border-top:1px solid var(--border)}.dependency-tree ul{border-left:1px solid var(--border);margin-left:8px}.dependency-branch>summary{list-style:none;cursor:pointer}.dependency-branch>summary::-webkit-details-marker{display:none}.dependency-branch>summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted)}.dependency-branch[open]>summary::before{content:"-"}.dependency-leaf{margin-left:16px}.dependency-node{display:inline-flex;align-items:center;gap:7px;min-height:26px;border:1px solid var(--border);border-radius:5px;background:var(--vscode-editor-background);color:var(--vscode-foreground);padding:4px 7px}.dependency-node button{padding:2px 6px}.dependency-node.missing{color:var(--warn)}.dependency-node .muted{font-size:11px}
-    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:flex;flex-direction:column;gap:10px;min-width:0}.feature-panel{border:1px solid var(--border);border-radius:6px;background:var(--panel);min-width:0;overflow:hidden}.feature-panel summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;cursor:pointer;background:var(--vscode-list-hoverBackground);user-select:none;list-style:none}.feature-panel summary::-webkit-details-marker{display:none}.feature-panel summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted);font-weight:650}.feature-panel[open] summary::before{content:"-"}.feature-panel summary h2{display:flex;gap:8px;align-items:center;margin-right:auto}.feature-panel summary span{color:var(--muted);font-size:12px}.feature-panel-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),280px));justify-content:start;gap:8px;align-items:stretch;padding:9px;overflow:visible}.feature-panel-items .muted{padding:2px}.feature-card{width:100%;min-width:0;min-height:154px;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;padding:9px;position:relative}.feature-card.selected{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 65%,transparent)}.feature-card.selected::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
+    .feature-layout{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px}.feature-board{display:flex;flex-direction:column;gap:10px;min-width:0}.feature-panel{border:1px solid var(--border);border-radius:6px;background:var(--panel);min-width:0;overflow:hidden}.feature-panel summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;cursor:pointer;background:var(--vscode-list-hoverBackground);user-select:none;list-style:none}.feature-panel summary::-webkit-details-marker{display:none}.feature-panel summary::before{content:"+";display:inline-flex;width:16px;color:var(--muted);font-weight:650}.feature-panel[open] summary::before{content:"-"}.feature-panel summary h2{display:flex;gap:8px;align-items:center;margin-right:auto}.feature-panel summary span{color:var(--muted);font-size:12px}.feature-panel-items{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,220px),280px));justify-content:start;gap:8px;align-items:stretch;padding:9px;overflow:visible}.feature-panel-items .muted{padding:2px}.feature-card{width:100%;min-width:0;min-height:154px;text-align:left;background:var(--vscode-editor-background);color:var(--vscode-foreground);border:1px solid var(--border);border-radius:6px;padding:9px;position:relative}.feature-card.selected{border-color:var(--accent);background:var(--vscode-list-activeSelectionBackground);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 65%,transparent)}.feature-card.selected::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent)}.feature-card header{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.feature-card-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}.feature-select{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}.feature-select input{margin:0}.metric{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:12px;color:var(--muted)}.bar{grid-column:1/-1;height:5px;background:var(--vscode-progressBar-background,#334155);border-radius:999px;overflow:hidden}.bar span{display:block;height:100%;background:var(--accent)}.detail-panel{position:sticky;top:12px;height:calc(100vh - 32px);overflow:auto}.task-row{border:1px solid var(--border);border-radius:5px;padding:7px;margin:6px 0}.task-row>div{display:flex;justify-content:space-between;gap:8px}.task-row p{margin:6px 0;color:var(--muted)}.task-row code{display:block;white-space:pre-wrap;color:var(--accent);font-family:var(--vscode-editor-font-family);font-size:11px}
     @media (max-width:980px){.grid,.feature-layout{display:block}.panel,.feature-panel{margin-bottom:10px}.detail-panel{position:static;height:auto}.stage-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.feature-panel-items{grid-template-columns:repeat(auto-fill,minmax(min(100%,200px),260px))}}
   </style></head><body><h1>${escapeHtml(title)}</h1>${body}<div id="concept-modal" class="concept-modal" hidden><div class="concept-dialog" role="dialog" aria-modal="true" aria-labelledby="concept-modal-title"><header><strong id="concept-modal-title">UI Concept</strong><button data-command="closeConceptImage" aria-label="Close">Close</button></header><img id="concept-modal-image" alt=""></div></div><script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -49,6 +49,33 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
     const closeWorkbenchForm = () => {
       const form = document.getElementById("workbench-form");
       if (form) form.hidden = true;
+    };
+    const selectedExecutionPreference = () => {
+      const mode = document.getElementById("job-run-mode")?.value === "rpc" ? "rpc" : "cli";
+      const adapterSelect = document.getElementById("job-adapter-id");
+      const options = Array.from(adapterSelect?.options || []);
+      let selected = options.find((option) => option.selected && option.dataset.runMode === mode);
+      if (!selected) selected = options.find((option) => option.dataset.runMode === mode);
+      if (selected && adapterSelect) adapterSelect.value = selected.value;
+      return selected ? {runMode: mode, adapterId: selected.value, source: "job"} : undefined;
+    };
+    const scheduleRunPayload = (payload, executionPreference) => {
+      if (payload.action !== "schedule_run") return executionPreference ? {executionPreference} : undefined;
+      const result = {
+        mode: "manual",
+        operation: "feature_execution",
+        requestedAction: "feature_execution",
+      };
+      if (payload.projectId) result.projectId = payload.projectId;
+      if (payload.featureId || payload.entityType === "feature") result.featureId = payload.featureId || payload.entityId;
+      if (payload.taskId || payload.entityType === "task") result.taskId = payload.taskId || payload.entityId;
+      if (executionPreference) result.executionPreference = executionPreference;
+      return result;
+    };
+    const selectedFeatureIds = () => {
+      return Array.from(document.querySelectorAll("[data-feature-select]:checked"))
+        .map((entry) => entry.dataset.featureSelect)
+        .filter(Boolean);
     };
     document.addEventListener("click", (event) => {
       const target = event.target.closest("[data-command]");
@@ -151,7 +178,24 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
         target.textContent = expanded ? "Collapse All" : "Expand All";
         return;
       }
+      if (payload.command === "scheduleSelectedFeatures") {
+        const featureIds = selectedFeatureIds();
+        if (featureIds.length === 0) {
+          setWorkbenchStatus("Select at least one Feature Spec.");
+          return;
+        }
+        setWorkbenchStatus("Scheduling " + featureIds.length + " Feature Spec" + (featureIds.length === 1 ? "" : "s") + "...");
+        vscode.postMessage({
+          command: "scheduleFeatures",
+          featureIds,
+          projectId: payload.projectId,
+          executionPreference: selectedExecutionPreference(),
+        });
+        return;
+      }
       if (payload.command === "controlled") {
+        const executionPreference = selectedExecutionPreference();
+        if (payload.action === "schedule_run" || payload.action === "start_auto_run") payload.payload = scheduleRunPayload(payload, executionPreference);
         setWorkbenchStatus("Running command...");
         vscode.postMessage(payload);
         return;
@@ -167,6 +211,12 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
         if (editor) editor.value = target.dataset.presetJson || "";
         setWorkbenchStatus("Preset loaded into editor.");
         return;
+      }
+      if (payload.command === "queue") {
+        const executionPreference = selectedExecutionPreference();
+        if (executionPreference && (payload.action === "enqueue" || payload.action === "run_now")) {
+          payload.payload = {executionPreference};
+        }
       }
       vscode.postMessage(payload);
     });
@@ -295,6 +345,9 @@ export function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
       ["Feature", item.featureId],
       ["Task", item.taskId],
       ["Adapter", item.adapter],
+      ["Run Mode", item.runMode],
+      ["Provider", item.adapterId],
+      ["Preference", item.preferenceSource],
       ["Updated", item.updatedAt],
     ]
     : [
@@ -305,6 +358,9 @@ export function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
       ["Feature", item.featureId],
       ["Task", item.taskId],
       ["Adapter", item.adapter],
+      ["Run Mode", item.runMode],
+      ["Provider", item.adapterId],
+      ["Preference", item.preferenceSource],
       ["Updated", item.updatedAt],
     ];
   return `<ul>${fields
