@@ -687,7 +687,7 @@ export function isTrustedDirectWriteInvocation(invocation?: SkillInvocationContr
   if (!isSafeSkillSlug(invocation.skillSlug)) return false;
 
   const safeAllowedFiles = allowedFiles.filter(isSafeWorkspaceWritePath);
-  if (invocation.skillSlug === "codex-coding-skill") {
+  if (invocation.skillSlug === "feat-implement-skill") {
     return safeAllowedFiles.length > 0 && safeAllowedFiles.length === allowedFiles.length;
   }
 
@@ -906,7 +906,7 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
         "- In the task-slicing result, include features, queuePlan, dependencyGraph, userStoryMapping, verificationPlan, and openQuestions.",
       ]
     : [];
-  const featureCodingRules = contract.skillSlug === "codex-coding-skill" && contract.operation === "feature_execution" && !contract.traceability.taskId
+  const featureCodingRules = contract.skillSlug === "feat-implement-skill" && contract.operation === "feature_execution" && !contract.traceability.taskId
     ? [
         "- For feature_execution without taskId, treat the Feature Spec directory in sourcePaths as the implementation scope.",
         "- Read requirements.md, design.md, and tasks.md from that Feature Spec directory, then implement the concrete tasks described there.",

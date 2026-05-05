@@ -540,7 +540,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
     prompt: "Implement the bounded task.",
     files: ["src/index.ts", "tests/index.test.ts"],
     skillInvocation: skillInvocationContract({
-      skillSlug: "codex-coding-skill",
+      skillSlug: "feat-implement-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
       expectedArtifacts: [{ path: ".autobuild/reports/cli-adapter.json", kind: "json", required: true }],
@@ -555,7 +555,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
     policy: docsDirectWritePolicy,
     prompt: "Implement the task without file scope.",
     skillInvocation: skillInvocationContract({
-      skillSlug: "codex-coding-skill",
+      skillSlug: "feat-implement-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
       expectedArtifacts: [{ path: ".autobuild/reports/cli-adapter.json", kind: "json", required: true }],
@@ -625,7 +625,7 @@ test("feature-level coding prompt requires Feature Spec execution instead of rep
   const prompt = buildSkillInvocationPrompt(
     skillInvocationContract({
       operation: "feature_execution",
-      skillSlug: "codex-coding-skill",
+      skillSlug: "feat-implement-skill",
       requestedAction: "feature_execution",
       sourcePaths: [
         "docs/features/FEAT-001/requirements.md",

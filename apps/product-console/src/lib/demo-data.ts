@@ -449,7 +449,7 @@ const returnsPortalData: ConsoleProjectData = {
         summary: "Carrier label quote fixture wired and acceptance evidence recorded.",
         tokenUsage: { inputTokens: 18420, outputTokens: 2310, totalTokens: 20730 },
         inputContract: {
-          skillSlug: "codex-coding-skill",
+          skillSlug: "feat-implement-skill",
           skillPhase: "task_execution",
           required: ["featureId", "featureSpecPath", "workspaceRoot"],
           context: { featureId: "FEAT-204", featureSpecPath: "docs/features/feat-204-mobile-returns", workspaceRoot: "workspace/acme-returns-portal" },
@@ -470,14 +470,14 @@ const returnsPortalData: ConsoleProjectData = {
   runner: {
     summary: { onlineRunners: 1, runningTasks: 1, readyTasks: 1, blockedTasks: 2, successRate: 0.957, failureRate: 0.043 },
     schedulerJobs: [
-      { id: "JOB-709", bullmqJobId: "BULL-709", queueName: "specdrive:cli-runner", jobType: "cli.run", operation: "feature_execution", targetType: "execution", targetId: "RUN-709", status: "queued", attempts: 0, updatedAt: "2026-04-29T03:42:00.000Z", executionId: "RUN-709", runId: "RUN-709", taskId: "T-229", featureId: "FEAT-204", projectId: "project-1", workspaceRoot: "workspace/acme-returns-portal", context: { featureId: "FEAT-204", featureSpecPath: "docs/features/FEAT-204/tasks.md", taskId: "T-229", taskName: "Connect carrier label quote mock", workspaceRoot: "workspace/acme-returns-portal", skillSlug: "codex-coding-skill", skillPhase: "task_execution" }, skillOutput: {
+      { id: "JOB-709", bullmqJobId: "BULL-709", queueName: "specdrive:cli-runner", jobType: "cli.run", operation: "feature_execution", targetType: "execution", targetId: "RUN-709", status: "queued", attempts: 0, updatedAt: "2026-04-29T03:42:00.000Z", executionId: "RUN-709", runId: "RUN-709", taskId: "T-229", featureId: "FEAT-204", projectId: "project-1", workspaceRoot: "workspace/acme-returns-portal", context: { featureId: "FEAT-204", featureSpecPath: "docs/features/FEAT-204/tasks.md", taskId: "T-229", taskName: "Connect carrier label quote mock", workspaceRoot: "workspace/acme-returns-portal", skillSlug: "feat-implement-skill", skillPhase: "task_execution" }, skillOutput: {
         parseStatus: "found",
         stdoutLogPath: "workspace/acme-returns-portal/.autobuild/runs/RUN-709/stdout.log",
         status: "completed",
         summary: "Carrier label quote fixture wired and acceptance evidence recorded.",
         tokenUsage: { inputTokens: 18420, outputTokens: 2310, totalTokens: 20730 },
         inputContract: {
-          skillSlug: "codex-coding-skill",
+          skillSlug: "feat-implement-skill",
           skillPhase: "task_execution",
           required: ["featureId", "featureSpecPath", "workspaceRoot"],
           context: { featureId: "FEAT-204", featureSpecPath: "docs/features/feat-204-mobile-returns", workspaceRoot: "workspace/acme-returns-portal" },
@@ -506,7 +506,7 @@ const returnsPortalData: ConsoleProjectData = {
         featureId: "FEAT-204",
         projectId: "project-1",
         workspaceRoot: "workspace/acme-returns-portal",
-        context: { taskName: `Paginated task ${index}`, skillSlug: "codex-coding-skill", skillPhase: "task_execution" },
+        context: { taskName: `Paginated task ${index}`, skillSlug: "feat-implement-skill", skillPhase: "task_execution" },
       })),
     ],
     lanes: {
@@ -534,7 +534,7 @@ const returnsPortalData: ConsoleProjectData = {
         runId: "RUN-709",
         schedulerJobId: "JOB-709",
         workspaceRoot: "workspace/acme-returns-portal",
-        skillSlug: "codex-coding-skill",
+        skillSlug: "feat-implement-skill",
         skillPhase: "task_execution",
         status: "queued",
         resultSummary: "Codex skill invocation contract queued for workspace execution.",
@@ -545,7 +545,7 @@ const returnsPortalData: ConsoleProjectData = {
           summary: "Carrier label quote fixture wired and acceptance evidence recorded.",
           tokenUsage: { inputTokens: 18420, outputTokens: 2310, totalTokens: 20730 },
           inputContract: {
-            skillSlug: "codex-coding-skill",
+            skillSlug: "feat-implement-skill",
             skillPhase: "task_execution",
             required: ["featureId", "featureSpecPath", "workspaceRoot"],
             context: { featureId: "FEAT-204", featureSpecPath: "docs/features/feat-204-mobile-returns", workspaceRoot: "workspace/acme-returns-portal" },

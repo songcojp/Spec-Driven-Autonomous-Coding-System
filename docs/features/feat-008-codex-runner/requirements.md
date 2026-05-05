@@ -16,7 +16,7 @@
 - 编码 CLI 必须在目标项目 workspace 中启动，workspace root 来自当前项目 repository `local_path` 或 `target_repo_path`。
 - 通过 JSON + JSON Schema 管理 CLI Adapter 配置，隔离 executable、argument template、输出映射和 session resume 逻辑，并符合 HLD 7.8 的 `ExecutionAdapterConfigV1`。
 - 支持 CLI skill invocation contract，将 Spec/UI 操作转换为项目 workspace 内部 Skill prompt。
-- Feature 级 `feature_execution` 通过 `codex-coding-skill` 直接读取 Feature Spec 目录执行；CLI Adapter 不要求 `task_graph_tasks` / `tasks` 表存在。
+- Feature 级 `feature_execution` 通过 `feat-implement-skill` 直接读取 Feature Spec 目录执行；CLI Adapter 不要求 `task_graph_tasks` / `tasks` 表存在。
 - 根据开发阶段策略和任务上下文设置 sandbox mode、approval policy、model、profile、output schema、JSON event stream、workspace root 和 session resume。
 - 开发阶段默认使用 `danger-full-access` 和 `approval=never`，不触发编码 CLI 人工确认。
 - 默认不得使用 bypass approvals；敏感文件、危险命令和 forbidden files 仍由 Safety Gate 阻断。
@@ -41,7 +41,7 @@
 - CLI Adapter 不得绕过受控命令和 Scheduler 直接响应 UI 写操作；所有执行类入口必须有 Execution Record、job、audit 和 raw log 追踪。
 - CLI Adapter 必须在启动前校验 workspace root；项目路径缺失、不可读或缺少必要 `.agents/skills` / `AGENTS.md` 时进入 blocked。
 - `feature_execution` 的 `SkillInvocationContractV1` 必须包含 Feature Spec `requirements.md`、`design.md` 和 `tasks.md` 作为 `sourcePaths`；缺失完整 Feature Spec 目录时，新执行必须 blocked。
-- Feature 级 `codex-coding-skill` 不得只生成报告 JSON 或总结计划来满足执行；输出 contract 的 `producedArtifacts` 必须列出实际创建或更新的代码、测试、配置或文档文件。
+- Feature 级 `feat-implement-skill` 不得只生成报告 JSON 或总结计划来满足执行；输出 contract 的 `producedArtifacts` 必须列出实际创建或更新的代码、测试、配置或文档文件。
 - CLI skill invocation contract 必须使用 `SkillInvocationContractV1`，包含 `contractVersion`、`executionId`、`projectId`、`workspaceRoot`、`operation`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability`、`constraints` 和 `requestedAction`。
 - CLI skill invocation contract 必须携带当前 `specState`，供 Skill 明确读取 Feature 文件状态而不是查询数据库。
 - CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts`、`traceability` 和 `result`；调用端只校验通用字段和输入回显，`result` 作为灵活对象承载技能专用执行详情。

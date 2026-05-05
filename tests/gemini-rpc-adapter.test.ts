@@ -93,7 +93,7 @@ function skillInvocation(): SkillInvocationContract {
     projectId: "project-1",
     workspaceRoot: "/repo",
     operation: "feature_execution",
-    skillSlug: "codex-coding-skill",
+    skillSlug: "feat-implement-skill",
     sourcePaths: ["docs/features/feat-016/requirements.md"],
     expectedArtifacts: [],
     traceability: {
@@ -114,7 +114,7 @@ function skillOutput(): SkillOutputContract {
   return {
     contractVersion: "skill-contract/v1",
     executionId: "RUN-APP",
-    skillSlug: "codex-coding-skill",
+    skillSlug: "feat-implement-skill",
     requestedAction: "feature_execution",
     status: "completed",
     summary: "Implemented.",

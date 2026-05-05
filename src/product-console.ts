@@ -3005,7 +3005,7 @@ function executeScheduleCommand(
     };
   }
   const executionId = randomUUID();
-  const skillSlug = optionalString(payload.skillSlug) ?? (operation === "feature_execution" ? "codex-coding-skill" : undefined);
+  const skillSlug = optionalString(payload.skillSlug) ?? (operation === "feature_execution" ? "feat-implement-skill" : undefined);
   const projectId = trigger.projectId ?? optionalString(payload.projectId);
   const project = projectId ? getProject(dbPath, projectId) : undefined;
   const workspaceRoot = scheduleRunWorkspaceRoot(dbPath, projectId, project?.targetRepoPath);
@@ -3014,7 +3014,7 @@ function executeScheduleCommand(
   const specState = workspaceRoot && featureFolder && featureId
     ? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt))
     : undefined;
-  if (operation === "feature_execution" && skillSlug === "codex-coding-skill") {
+  if (operation === "feature_execution" && skillSlug === "feat-implement-skill") {
     const conflict = activeManualScheduleConflict(dbPath, {
       projectId,
       featureId,
@@ -3633,7 +3633,7 @@ function enqueueNextFeatureExecutionFromQueue(
     ],
     expectedArtifacts: [".autobuild/reports/feature-execution.json"],
     workspaceRoot: project.targetRepoPath,
-    skillSlug: "codex-coding-skill",
+    skillSlug: "feat-implement-skill",
     skillPhase: "feature_execution",
     selection: selection.decision ? {
       skillSlug: "feature-selection-skill",
@@ -4299,7 +4299,7 @@ function executeBoardCommand(
               featureId: task.featureId,
               taskId,
               taskName: task.name,
-              skillSlug: "codex-coding-skill",
+              skillSlug: "feat-implement-skill",
               skillPhase: "task_execution",
             }),
             "queued",
@@ -4316,7 +4316,7 @@ function executeBoardCommand(
           featureId: task.featureId,
           taskId,
           taskName: task.name,
-          skillSlug: "codex-coding-skill",
+          skillSlug: "feat-implement-skill",
           skillPhase: "task_execution",
         },
         requestedAction: "task_execution",
@@ -5247,7 +5247,7 @@ function schedulerJobName(
 }
 
 function schedulerOperationName(operation?: string, skillSlug?: string, skillPhase?: string): string | undefined {
-  if (skillSlug === "codex-coding-skill" || skillPhase === "task_execution") return "Execute task";
+  if (skillSlug === "feat-implement-skill" || skillPhase === "task_execution") return "Execute task";
   if (skillSlug === "create-project-hld" || operation === "generate_hld") return "Generate project HLD";
   if (skillSlug === "requirement-intake-skill" || operation === "intake_requirement") return "Intake requirement";
   if (skillSlug === "ambiguity-clarification-skill" || operation === "resolve_clarification") return "Resolve clarification";

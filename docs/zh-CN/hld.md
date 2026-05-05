@@ -718,7 +718,7 @@ flowchart TD
 | Feature Spec 拆分 | UI Specs 完成（或 HLD 完成）后触发 | **Skill** | HLD + UI Specs | Feature Spec 候选集（`docs/features/<feat-id>/`） | `task-slicing-skill`（Feature 级） |
 | 启动项目级任务调度 | `schedule_run(project)` 或 `start_auto_run` 触发 | **Code + Skill** | 已生成的 `docs/features/*` + Skill 产出的 `docs/features/feature-pool-queue.json` + Feature `spec-state.json` | SQLite Feature 候选记录 + BullMQ `<executor>.run` Job + Execution Record；Job payload 指向 Feature Spec 目录 | `feature-selection-skill` |
 | 需求质量检查 | Feature Spec 创建后 | **Skill** | Feature Spec requirements.md | 通过 → `ready`；歧义 → ClarificationLog + `draft` | `requirements-checklist-skill`、`ambiguity-clarification-skill` |
-| Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Execution Adapter / Memory）+ **CLI/RPC** | Job payload + Project Memory + Feature Spec `requirements.md` / `design.md` / `tasks.md` | 代码/测试/配置/文档变更、Execution Record、心跳、RawLog、Execution Result | `codex-coding-skill` |
+| Feature 执行 | `<executor>.run` Job Worker 消费 | **Code**（Execution Adapter / Memory）+ **CLI/RPC** | Job payload + Project Memory + Feature Spec `requirements.md` / `design.md` / `tasks.md` | 代码/测试/配置/文档变更、Execution Record、心跳、RawLog、Execution Result | `feat-implement-skill` |
 | Status 检查 | Execution Record 结束 | **Code**（确定性检查）+ **Skill**（Spec Alignment） | Execution Result | StatusCheckResult（Done / Review Needed / Failed / Blocked） | — |
 | Review / Recovery | Status 触发 | **Code**（状态）+ **Skill**（内容） | StatusCheckResult + execution result | ReviewItem / RecoveryTask | `review-report-skill`、`failure-recovery-skill` |
 | Feature 交付 | Feature Aggregator 判断 done | **Code**（PR / Delivery）+ **Skill**（内容） | execution result + Task 结果 | PR、Delivery Report、Spec Evolution 建议 | `pr-generation-skill`、`spec-evolution-skill` |

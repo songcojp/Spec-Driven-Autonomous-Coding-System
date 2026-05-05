@@ -1121,9 +1121,9 @@ function updateFeatureSpecFileState(input: {
   const effectiveSkillSlug = optionalString(input.context.skillSlug)
     ?? input.skillOutput?.skillSlug
     ?? (featureSpecPath && (input.context.skillPhase === "feature_execution" || input.context.operation === "feature_execution")
-      ? "codex-coding-skill"
+      ? "feat-implement-skill"
       : undefined);
-  if (!input.workspaceRoot || !input.featureId || effectiveSkillSlug !== "codex-coding-skill") return;
+  if (!input.workspaceRoot || !input.featureId || effectiveSkillSlug !== "feat-implement-skill") return;
   if (!featureSpecPath?.startsWith("docs/features/")) return;
   const featureFolder = featureSpecPath.slice("docs/features/".length);
   try {
@@ -1666,7 +1666,7 @@ function buildCliSkillInvocation(input: {
   approvalPolicy?: string;
 }): SkillInvocationContract {
   const context = input.payload.context ?? {};
-  const skillSlug = optionalString(context.skillSlug) ?? (input.taskId ? "codex-coding-skill" : "technical-context-skill");
+  const skillSlug = optionalString(context.skillSlug) ?? (input.taskId ? "feat-implement-skill" : "technical-context-skill");
   const requestedAction = input.payload.requestedAction ?? optionalString(context.skillPhase) ?? input.payload.operation;
   const contextSourcePaths = optionalStringArray(context.sourcePaths);
   const contextImagePaths = optionalStringArray(context.imagePaths);

@@ -97,7 +97,7 @@ function friendlyWork(job: RunnerSchedulerJob, invocation: { skillSlug?: string;
   const skillSlug = invocation?.skillSlug ?? stringifyContextValue(job.context?.skillSlug);
   const phase = invocation?.skillPhase ?? stringifyContextValue(job.context?.skillPhase);
   const operation = job.operation ?? phase;
-  if (skillSlug === "codex-coding-skill" || phase === "task_execution") return text.workTaskExecution;
+  if (skillSlug === "feat-implement-skill" || phase === "task_execution") return text.workTaskExecution;
   if (skillSlug === "create-project-hld" || operation === "generate_hld") return text.workGenerateHld;
   if (skillSlug === "pr-ears-requirement-decomposition-skill" || operation === "generate_ears") return text.workGenerateEars;
   if (skillSlug === "task-slicing-skill" || operation === "split_feature_specs") return text.workSplitFeatures;

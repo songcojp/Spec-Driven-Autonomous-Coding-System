@@ -36,7 +36,7 @@ test("Codex RPC request sequence initializes, starts a thread, and starts a sche
   assert.deepEqual(sequence.turn.params.outputSchema, { type: "object", additionalProperties: false });
   assert.deepEqual(sequence.turn.params.input, [
     { type: "text", text: "Run the skill." },
-    { type: "skill", name: "codex-coding-skill", path: ".agents/skills/codex-coding-skill/SKILL.md" },
+    { type: "skill", name: "feat-implement-skill", path: ".agents/skills/feat-implement-skill/SKILL.md" },
   ]);
 });
 
@@ -366,7 +366,7 @@ function skillInvocation(): SkillInvocationContract {
     projectId: "project-1",
     workspaceRoot: "/repo",
     operation: "feature_execution",
-    skillSlug: "codex-coding-skill",
+    skillSlug: "feat-implement-skill",
     sourcePaths: ["docs/features/feat-016/requirements.md"],
     expectedArtifacts: [],
     traceability: {
@@ -387,7 +387,7 @@ function skillOutput(): SkillOutputContract {
   return {
     contractVersion: "skill-contract/v1",
     executionId: "RUN-APP",
-    skillSlug: "codex-coding-skill",
+    skillSlug: "feat-implement-skill",
     requestedAction: "feature_execution",
     status: "completed",
     summary: "Implemented.",

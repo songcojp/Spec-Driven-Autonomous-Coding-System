@@ -570,7 +570,7 @@ test("SpecDrive IDE view scopes queue and latest executions to the current works
           executionId: "RUN-CURRENT-ONLY",
           operation: "feature_execution",
           projectId: "project-ide",
-          context: { featureId: "FEAT-016", taskId: "TASK-CURRENT", skillSlug: "codex-coding-skill" },
+          context: { featureId: "FEAT-016", taskId: "TASK-CURRENT", skillSlug: "feat-implement-skill" },
         }),
         "2026-05-02T12:02:00.000Z",
       ],
@@ -587,7 +587,7 @@ test("SpecDrive IDE view scopes queue and latest executions to the current works
   assert.equal(view.queue.groups.queued[0].schedulerJobId, "JOB-CURRENT-ONLY");
   assert.equal(view.queue.groups.queued[0].featureId, "FEAT-016");
   assert.equal(view.queue.groups.queued[0].taskId, "TASK-CURRENT");
-  assert.equal(view.queue.groups.queued[0].adapter, "codex-coding-skill");
+  assert.equal(view.queue.groups.queued[0].adapter, "feat-implement-skill");
   assert.equal(JSON.stringify(view.queue.groups).includes("RUN-OTHER"), false);
   assert.equal(JSON.stringify(view.queue.groups).includes("JOB-OTHER-ONLY"), false);
 });
@@ -652,7 +652,7 @@ test("SpecDrive IDE queue actions operate on schedule-only jobs", async () => {
           projectId: "project-ide",
           operation: "feature_execution",
           requestedAction: "feature_execution",
-          context: { projectId: "project-ide", featureId: "FEAT-016", taskId: "TASK-SCHEDULE-ONLY", skillSlug: "codex-coding-skill" },
+          context: { projectId: "project-ide", featureId: "FEAT-016", taskId: "TASK-SCHEDULE-ONLY", skillSlug: "feat-implement-skill" },
         }),
         "2026-05-02T12:07:00.000Z",
       ],
@@ -716,7 +716,7 @@ test("SpecDrive IDE queue actions can pause and cancel another job while a run i
           projectId: "project-ide",
           operation: "feature_execution",
           requestedAction: "feature_execution",
-          context: { projectId: "project-ide", featureId: "FEAT-016", taskId: "TASK-WAITING", skillSlug: "codex-coding-skill" },
+          context: { projectId: "project-ide", featureId: "FEAT-016", taskId: "TASK-WAITING", skillSlug: "feat-implement-skill" },
         }),
         "2026-05-02T12:10:00.000Z",
       ],
@@ -1291,7 +1291,7 @@ test("SpecDrive IDE execution detail includes projection logs, artifacts, contra
   assert.deepEqual(detail?.skillOutputContract, {
     contractVersion: "skill-contract/v1",
     executionId: "RUN-APPROVAL",
-    skillSlug: "codex-coding-skill",
+    skillSlug: "feat-implement-skill",
     requestedAction: "feature_execution",
     status: "completed",
     summary: "Approval requested.",
@@ -1562,7 +1562,7 @@ function seedRuntimeState(dbPath: string): void {
         "running",
         "2026-05-02T12:00:00.000Z",
         "Running IDE foundation.",
-        JSON.stringify({ threadId: "thread-1", turnId: "turn-1", skillSlug: "codex-coding-skill" }),
+        JSON.stringify({ threadId: "thread-1", turnId: "turn-1", skillSlug: "feat-implement-skill" }),
       ],
     },
   ]);
@@ -1620,7 +1620,7 @@ function seedApprovalRuntimeState(dbPath: string, workspaceRoot: string): void {
         JSON.stringify({
           threadId: "thread-approval",
           turnId: "turn-approval",
-          skillSlug: "codex-coding-skill",
+          skillSlug: "feat-implement-skill",
           rawLogRefs: [
             join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "cli-input.json"),
             join(workspaceRoot, ".autobuild", "runs", "RUN-APPROVAL", "stdout.log"),
@@ -1628,7 +1628,7 @@ function seedApprovalRuntimeState(dbPath: string, workspaceRoot: string): void {
           skillOutputContract: {
             contractVersion: "skill-contract/v1",
             executionId: "RUN-APPROVAL",
-            skillSlug: "codex-coding-skill",
+            skillSlug: "feat-implement-skill",
             requestedAction: "feature_execution",
             status: "completed",
             summary: "Approval requested.",

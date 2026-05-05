@@ -88,7 +88,7 @@
 | CHG-043 | 进入 FEAT-002 / task-slicing-skill patch；项目初始化类首个 Feature Spec 必须包含 `.gitignore` 创建或安全更新要求。 | 已同步 REQ-006、HLD、Feature Index、FEAT-002 requirements/design/tasks、`task-slicing-skill` 和 `requirement-intake-skill`；新增 FEAT-002 `TASK-014`。 | 需同步实现 |
 | CHG-012 | 进入 FEAT-002 / FEAT-013 patch；阶段 2 自动扫描 Spec Sources，扫描 HLD / Feature Spec 事实源但不生成 HLD 或拆分 Feature Spec。 | 已新增 REQ-064，并同步 PRD、HLD / Feature Spec design、Feature Index、FEAT-002 requirements/design/tasks 和 FEAT-013 requirements/design/tasks。 | 需同步实现 |
 | CHG-014 | 进入 FEAT-013 patch；阶段 2 将 Spec 扫描和上传合并为一个“Spec 扫描与上传”步骤，并在同一步骤内提供“扫描”和“上传”两个按钮。 | 已同步 PRD、REQ-064、HLD / Feature Spec design、FEAT-013 requirements/design/tasks、Product Console UI 和浏览器级测试。 | 已同步实现 |
-| CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `task-slicing-skill` / `codex-coding-skill` 技能契约。 | 需同步实现 |
+| CHG-009 | 重新打开 FEAT-013；当前 API/ViewModel 只能作为 Product Console 后端契约，不能替代用户可操作 UI。 | 已更新 FEAT-013 requirements/design/tasks、Feature Index 和 `task-slicing-skill` / `feat-implement-skill` 技能契约。 | 需同步实现 |
 | CHG-015 | 进入 FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 patch；调度需求由 BullMQ + Redis 承载，SQLite 继续作为业务事实和审计源。 | 已同步 PRD、requirements、HLD / Feature Spec design、Feature Index、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks、FEAT-013 requirements/tasks 和 FEAT-014 requirements/design；实现和测试已覆盖。 | 已同步实现 |
 | CHG-016 | 进入 FEAT-004 / FEAT-008 / FEAT-013 patch；Spec Workspace、Stage 3 planning 和 Task Board 运行动作必须转换为 CLI skill invocation contract，并通过 active CLI Adapter 在当前项目 workspace 中启动 Codex。 | 已同步 PRD、REQ-037、REQ-065、新增 REQ-068、HLD / Feature Spec design、FEAT-004 requirements/design/tasks、FEAT-008 requirements/design/tasks 和 FEAT-013 requirements/design/tasks；实现已覆盖 workspace root 校验、planning CLI run、Skill invocation prompt、UI 回执、单测和浏览器级验证。 | 已同步实现 |
 | CHG-017 | 在 `src/scheduler.ts` `loadRunnerTaskContext` 补充 adapter 数龐查询：若表有记录但无 active row，抛出阶断错误；若表为空，回退到 DEFAULT_CLI_ADAPTER_CONFIG。在 SettingsPage 添加禁用按鈕，调用 `disable_cli_adapter_config` 受控命令。新增 CLI Adapter 校验、normalize 和阶断单测。 | 已同步 FEAT-008 tasks.md（TASK-009–012 全部 ☑）、FEAT-013 tasks.md（TASK-029–032 ☑）、Feature Index（FEAT-008 done，ADD-006 follow-up 更新）；全部 298 项测试通过。 | 已同步实现 |
@@ -106,17 +106,17 @@
 
 | 优先级 | Feature | 触发项 | 建议执行方式 | 说明 |
 |---|---|---|---|---|
-| P0 | FEAT-001 Project and Repository Foundation | ADD-001、ADD-005、CHG-001 | 执行 `codex-coding-skill` patch | 已完成 Feature 出现数据模型、项目宪章和多项目上下文 follow-up；需补 schema/API/tests。 |
+| P0 | FEAT-001 Project and Repository Foundation | ADD-001、ADD-005、CHG-001 | 执行 `feat-implement-skill` patch | 已完成 Feature 出现数据模型、项目宪章和多项目上下文 follow-up；需补 schema/API/tests。 |
 | P0 | FEAT-002 Spec Protocol Foundation | CHG-043 | 执行 `task-slicing-skill` / Spec 规则 patch | 固化项目初始化类首个 Feature Spec 必须包含 `.gitignore` 创建或安全更新要求；需补生成结果检查。 |
-| P1 | FEAT-004 Orchestration and State Machine | CHG-003 | 执行后续 `codex-coding-skill` patch | ADD-002 已完成；计划流水线强制阶段仍需后续处理。 |
+| P1 | FEAT-004 Orchestration and State Machine | CHG-003 | 执行后续 `feat-implement-skill` patch | ADD-002 已完成；计划流水线强制阶段仍需后续处理。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 / FEAT-014 Scheduler Integration | CHG-015 | 已执行 patch | BullMQ + Redis 调度、scheduler job record、Execution Record、`cli.run` Worker 和 Console 队列状态已实现；`feature.select` / `feature.plan` 已由 CHG-018 废弃。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 Workspace-aware Codex Skill Bridge | CHG-016 | 已执行 patch | Console command → scheduler job → run → active CLI Adapter → Codex workspace → skill prompt → Evidence/status 已接通，并已完成单测与浏览器验证。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-013 Feature Spec Directory Execution | CHG-019 | 已执行 patch | Feature 级 `schedule_run` 直接使用完整 Feature Spec 目录入队 `feature_execution`；缺失 `requirements.md` / `design.md` / `tasks.md` 时 blocked；编码 prompt 明确禁止 evidence-only completion。 |
 | P1 | FEAT-004 / FEAT-008 / FEAT-019 / FEAT-021 Feature Selection Skill and Non-Continuous State Projection | CHG-025 | 已执行 patch | `feature-selection-skill` 返回 `select_next_feature` 决策，Control Plane 校验后创建 `<executor>.run` Job；approval pending、blocked、review_needed、failed 和 contract validation failure 投影到 Feature `spec-state.json` 与 Workbench 队列视图。 |
 | P1 | FEAT-004 / FEAT-013 / FEAT-019 / FEAT-021 Remove Push Feature Pool Step | CHG-026 | 已执行 patch | `push_feature_spec_pool` 不再是 public action 或 UI 步骤；项目级 `schedule_run` / `start_auto_run` 完成 Feature 选择、候选同步、Job 创建和 Execution Record 创建。 |
 | P1 | FEAT-008 Codex Runner / FEAT-013 System Settings | CHG-017 | 已执行 patch | FEAT-008 全部 16 项任务完成，FEAT-008 标记为 done；FEAT-013 TASK-029–032 完成（System Settings 框架、CLI 配置页、JSON 编辑器、受控命令 disable）；298 项单测全部通过。 |
-| P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `codex-coding-skill` patch | 并行写入和测试资源隔离属于执行安全边界。 |
-| P2 | FEAT-013 Product Console | ADD-003、ADD-005、CHG-005、CHG-009 | 执行 `codex-coding-skill` patch | 必须交付真实浏览器 UI、页面路由、组件系统、项目切换入口和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |
+| P1 | FEAT-007 Workspace Isolation | CHG-002、CHG-004 | 执行 `feat-implement-skill` patch | 并行写入和测试资源隔离属于执行安全边界。 |
+| P2 | FEAT-013 Product Console | ADD-003、ADD-005、CHG-005、CHG-009 | 执行 `feat-implement-skill` patch | 必须交付真实浏览器 UI、页面路由、组件系统、项目切换入口和浏览器级验收；现有 API/ViewModel 不足以标记完成。 |
 | P2 | FEAT-016 至 FEAT-020 SpecDrive IDE | ADD-007、CHG-021、CHG-022 | 先执行 FEAT-016 文档/只读入口，再逐步执行 FEAT-017、FEAT-018、FEAT-019、FEAT-020 | VSCode IDE 入口和 Codex RPC Adapter 是新增 M8 能力；本次仅完成文档变更，后续按 Feature Spec 执行。 |
 | P1 | FEAT-021 IDE Execution Webview | CHG-023、CHG-024 | 已执行 patch | VSCode 插件独立 Webview 已补充 New Feature 需求输入、Feature index/目录同步刷新和 `tasks.md` 详情解析，并保持 Product Console UI 边界隔离。 |
 | - | FEAT-010 Failure Recovery | CHG-007 | 不执行 | 已实现且测试覆盖。 |

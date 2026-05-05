@@ -518,7 +518,7 @@ THE SYSTEM SHALL 将受控命令转换为 CLI skill invocation contract，并通
 
 验收：
 - [ ] invocation contract 至少包含 `projectId`、`workspaceRoot`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability` 和 `requestedAction`。
-- [ ] Stage 2 需求录入操作映射到需求扫描、需求拆解、需求新增或质量检查相关 Skill；Stage 3 planning 操作映射到 planning Skill pipeline；Task Board 运行操作映射到 `codex-coding-skill`。
+- [ ] Stage 2 需求录入操作映射到需求扫描、需求拆解、需求新增或质量检查相关 Skill；Stage 3 planning 操作映射到 planning Skill pipeline；Task Board 运行操作映射到 `feat-implement-skill`。
 - [ ] 平台只持久化 Run、scheduler job、执行结果、Status、Review 和 Audit，不恢复平台级 Skill Registry、Skill Center、Skill schema 校验或 SkillRun 表。
 - [ ] Execution Console 和 Spec Workspace 能展示 scheduler job、run id、workspace、skill phase、blocked reason 和最近执行结果。
 

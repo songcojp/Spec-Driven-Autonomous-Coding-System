@@ -135,12 +135,12 @@ test("cli.run executes mocked CLI runner and persists runner artifacts", async (
   assert.equal(resultWithSpy.status, "completed");
   assert.equal(calls[0].cwd, root);
   assert.match(calls[0].args.join("\n"), /Skill Invocation Contract/);
-  assert.match(calls[0].args.join("\n"), /codex-coding-skill/);
+  assert.match(calls[0].args.join("\n"), /feat-implement-skill/);
   assert.match(calls[0].args.join("\n"), /Workspace Context Bundle/);
   assert.match(calls[0].args.join("\n"), /### AGENTS.md/);
   assert.match(calls[0].args.join("\n"), /# Test workspace/);
-  assert.match(calls[0].args.join("\n"), /### \.agents\/skills\/codex-coding-skill\/SKILL.md/);
-  assert.match(calls[0].args.join("\n"), /# Codex coding skill/);
+  assert.match(calls[0].args.join("\n"), /### \.agents\/skills\/feat-implement-skill\/SKILL.md/);
+  assert.match(calls[0].args.join("\n"), /# Feat implement skill/);
   assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
   assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
   assert.equal(rows.runs[0].status, "completed");
@@ -432,7 +432,7 @@ test("codex.rpc.run executes mocked app-server transport and persists runner art
         output: {
           contractVersion: "skill-contract/v1",
           executionId: "RUN-APP-SERVER",
-          skillSlug: "codex-coding-skill",
+          skillSlug: "feat-implement-skill",
           requestedAction: "feature_execution",
           status: "completed",
           summary: "App server completed.",
@@ -566,7 +566,7 @@ test("codex.rpc.run projects approval pending to Feature spec-state", async () =
     context: {
       ...payload.context,
       featureSpecPath: "docs/features/feat-cli",
-      skillSlug: "codex-coding-skill",
+      skillSlug: "feat-implement-skill",
     },
   }, transport);
   const rows = runSqlite(dbPath, [], [
@@ -705,7 +705,7 @@ test("codex.rpc.run fails when SkillOutputContractV1 validation fails", async ()
         output: {
           contractVersion: "skill-contract/v1",
           executionId: "WRONG-RUN",
-          skillSlug: "codex-coding-skill",
+          skillSlug: "feat-implement-skill",
           requestedAction: "feature_execution",
           status: "completed",
           summary: "Bad contract.",
@@ -792,7 +792,7 @@ function skillOutputEvent(executionId: string, overrides: {
   const output = {
     contractVersion: "skill-contract/v1",
     executionId,
-    skillSlug: overrides.skillSlug ?? "codex-coding-skill",
+    skillSlug: overrides.skillSlug ?? "feat-implement-skill",
     requestedAction: overrides.requestedAction ?? "feature_execution",
     status: "completed",
     summary: "Skill completed.",
@@ -813,7 +813,7 @@ function skillOutputObject(executionId: string): Record<string, unknown> {
   return {
     contractVersion: "skill-contract/v1",
     executionId,
-    skillSlug: "codex-coding-skill",
+    skillSlug: "feat-implement-skill",
     requestedAction: "feature_execution",
     status: "completed",
     summary: "Skill completed.",
@@ -830,7 +830,7 @@ function skillOutputObject(executionId: string): Record<string, unknown> {
 }
 
 function prepareSkillWorkspace(root: string): void {
-  mkdirSync(join(root, ".agents", "skills", "codex-coding-skill"), { recursive: true });
+  mkdirSync(join(root, ".agents", "skills", "feat-implement-skill"), { recursive: true });
   writeFileSync(join(root, "AGENTS.md"), "# Test workspace\n");
-  writeFileSync(join(root, ".agents", "skills", "codex-coding-skill", "SKILL.md"), "# Codex coding skill\n");
+  writeFileSync(join(root, ".agents", "skills", "feat-implement-skill", "SKILL.md"), "# Feat implement skill\n");
 }

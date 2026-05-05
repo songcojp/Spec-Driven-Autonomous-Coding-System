@@ -10,4 +10,4 @@
 - [x] TASK-008: 添加冲突分类、并行阻断、合并前检查和清理安全测试。
 - [x] TASK-009: 将并行写入策略固化为可执行判定：只读可并行、不同文件可并行、同文件或同分支写入默认串行、高风险任务单 Agent。
 - [x] TASK-010: 为集成测试和端到端测试记录可审计的测试资源隔离边界，覆盖 Evidence Pack、workspace schema 和测试运行器输入。
-- [x] TASK-011: 明确写入型 Feature 执行使用高权限 Runner sandbox，由 `codex-coding-skill` 创建、验证和清理 Git worktree；Control Plane 不接管 worktree 创建或删除。
+- [x] TASK-011: 明确写入型 Feature 执行需要隔离时由 Workspace Manager / 调度入口创建、验证和清理 Git worktree；`feat-implement-skill` 只在传入的 `workspaceRoot` 中执行，不创建 sibling worktree。

@@ -22,7 +22,7 @@ Spec Evolution:
 - ADD-007：用户确认采用 `docs/ui/task-scheduler-console-concept.png` 作为 Runner / Scheduler UI 实现基线。Runner Console 必须展示调度流水线、BullMQ queue、任务队列表格、scheduler job inspector、workspace、heartbeat、blocked reason、Evidence 摘要和受控命令回执。
 - ADD-008：用户要求任务调度中心管理队列任务，支持按条件筛选、查看任务详情、以可读描述呈现任务意图，且页面功能必须接入真实前后端数据，不得使用 demo 或 mock 数据作为完成证据。
 - CHG-017：任务调度中心重构为执行 Job 队列视图。Job 与 Feature 解耦，Feature/Task/Project 只作为 payload context；`runs` 领域词替换为 Execution Record / 执行记录；旧 `feature.select -> feature.plan -> cli.run` 流水线废弃。
-- CHG-019：用户确认 Feature 编码执行不再依赖 `task_graph_tasks` / `tasks`；`codex-coding-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md` 并执行。Product Console 的 Feature 级调度只需校验完整 Feature Spec 目录和 workspace，不要求 Task Board 任务表存在。
+- CHG-019：用户确认 Feature 编码执行不再依赖 `task_graph_tasks` / `tasks`；`feat-implement-skill` 直接读取 Feature Spec 目录中的 `requirements.md`、`design.md`、`tasks.md` 并执行。Product Console 的 Feature 级调度只需校验完整 Feature Spec 目录和 workspace，不要求 Task Board 任务表存在。
 
 ## Scope
 
