@@ -1377,6 +1377,10 @@ test("spec workspace builds Feature Spec List from docs features packages", () =
       sql: `INSERT INTO features (id, project_id, title, status, folder, primary_requirements_json)
         VALUES ('FEAT-INTAKE-001', 'project-1', 'FEAT-INTAKE-001', 'draft', 'feat-intake-001', '[]')`,
     },
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, folder, primary_requirements_json)
+        VALUES ('FEAT-001', 'project-1', 'Ticket Capture', 'draft', 'feat-001-ticket-capture', '[]')`,
+    },
   ]);
 
   const workspace = buildSpecWorkspaceView(dbPath, undefined, "project-1");
@@ -1384,6 +1388,7 @@ test("spec workspace builds Feature Spec List from docs features packages", () =
   assert.deepEqual(workspace.features.map((feature) => feature.id), ["FEAT-001"]);
   assert.equal(workspace.features[0].title, "Ticket Capture");
   assert.equal(workspace.features[0].folder, "feat-001-ticket-capture");
+  assert.equal(workspace.features[0].status, "ready");
   assert.deepEqual(workspace.features[0].primaryRequirements, ["REQ-001", "REQ-LOT-002"]);
   assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
 });

@@ -402,6 +402,27 @@ test("SpecDrive IDE view uses Feature index as identity source and projects task
   assert.equal(feature?.tasks[1].status, "todo");
 });
 
+test("SpecDrive IDE view promotes draft index status when task slices are complete", () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/README.md"), [
+    "# Feature Spec Index",
+    "",
+    "| Feature ID | Feature | Folder | Status | Primary Requirements | Suggested Milestone | Dependencies |",
+    "|---|---|---|---|---|---|---|",
+    "| FEAT-016 | SpecDrive IDE Foundation | `feat-016-specdrive-ide-foundation` | draft | REQ-074、REQ-075 | M8 | FEAT-013 |",
+    "",
+  ].join("\n"));
+  rmSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+
+  assert.equal(feature?.status, "ready");
+});
+
 test("parseFeatureTasksMarkdown supports checkbox and status block task formats", () => {
   const tasks = parseFeatureTasksMarkdown([
     "- [x] TASK-001: Completed checkbox task",

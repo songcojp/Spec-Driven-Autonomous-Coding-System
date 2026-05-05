@@ -1208,6 +1208,12 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         tasks: [],
         blockedReasons: [`Feature index references missing folder: docs/features/${folder}`],
       };
+      const documents = [
+        document("feature-requirements", "requirements.md", `docs/features/${folder}/requirements.md`, workspaceRoot),
+        document("feature-design", "design.md", `docs/features/${folder}/design.md`, workspaceRoot),
+        document("feature-tasks", "tasks.md", `docs/features/${folder}/tasks.md`, workspaceRoot),
+        document("spec-state", "spec-state.json", `docs/features/${folder}/spec-state.json`, workspaceRoot),
+      ];
       const syncBlockedReasons = [
         ...baseBlockedReasons,
         ...(indexed ? [] : [`Feature index is missing an entry for ${featureId} (${folder}).`]),
@@ -1218,7 +1224,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         id: featureId,
         folder,
         title: optionalString(state.title) ?? indexEntry?.title ?? titleFromFolder(folder),
-        status: optionalString(state.status) ?? indexEntry?.status ?? "unknown",
+        status: resolveFeatureNodeStatus(optionalString(state.status), indexEntry?.status, documents, taskProjection),
         priority: optionalString(queueEntry?.priority),
         dependencies: stringArray(state.dependencies).length > 0
           ? stringArray(state.dependencies)
@@ -1232,14 +1238,35 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         indexStatus: indexed ? folderExists ? "indexed" : "missing_folder" : "missing_from_index",
         tasks: taskProjection.tasks,
         taskParseBlockedReasons: taskProjection.blockedReasons,
-        documents: [
-          document("feature-requirements", "requirements.md", `docs/features/${folder}/requirements.md`, workspaceRoot),
-          document("feature-design", "design.md", `docs/features/${folder}/design.md`, workspaceRoot),
-          document("feature-tasks", "tasks.md", `docs/features/${folder}/tasks.md`, workspaceRoot),
-          document("spec-state", "spec-state.json", `docs/features/${folder}/spec-state.json`, workspaceRoot),
-        ],
+        documents,
       };
     });
+}
+
+function resolveFeatureNodeStatus(
+  stateStatus: string | undefined,
+  indexStatus: string | undefined,
+  documents: SpecDriveIdeDocument[],
+  taskProjection: { tasks: SpecDriveIdeTaskProjection[]; blockedReasons: string[] },
+): string {
+  if (stateStatus) return stateStatus;
+  const docsStatus = featureNodeStatusFromDocuments(documents, taskProjection);
+  if (!indexStatus) return docsStatus;
+  if (indexStatus === "draft" && docsStatus !== "draft") return docsStatus;
+  if (indexStatus === "planning" && docsStatus === "ready") return docsStatus;
+  return indexStatus;
+}
+
+function featureNodeStatusFromDocuments(
+  documents: SpecDriveIdeDocument[],
+  taskProjection: { tasks: SpecDriveIdeTaskProjection[]; blockedReasons: string[] },
+): string {
+  const exists = (kind: SpecDriveIdeDocument["kind"]) => documents.some((entry) => entry.kind === kind && entry.exists);
+  if (exists("feature-requirements") && exists("feature-design") && exists("feature-tasks") && taskProjection.blockedReasons.length === 0) {
+    return "ready";
+  }
+  if (exists("feature-requirements") && exists("feature-design")) return "planning";
+  return "draft";
 }
 
 function readFeatureQueuePlan(workspaceRoot: string): FeatureQueuePlan {

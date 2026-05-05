@@ -432,7 +432,7 @@ function listFeatureSpecsFromDocs(
         id,
         title: featureTitleFromRequirements(requirementsContent, id, folder) ?? dbFeature?.title ?? humanizeFeatureFolder(folder),
         folder,
-        status: fileState?.status ?? dbFeature?.status ?? featureStatusFromDocs(projectPath, folder),
+        status: fileState?.status ?? resolveFeatureStatusFromDocsAndRuntime(projectPath, folder, dbFeature?.status),
         primaryRequirements: dbFeature?.primaryRequirements?.length
           ? dbFeature.primaryRequirements
           : requirementIdsFromText(requirementsContent),
@@ -546,6 +546,18 @@ function featureStatusFromDocs(projectPath: string, folder: string): string {
   if (existsSync(join(featureDir, "tasks.md"))) return "ready";
   if (existsSync(join(featureDir, "design.md"))) return "planning";
   return "draft";
+}
+
+function resolveFeatureStatusFromDocsAndRuntime(
+  projectPath: string,
+  folder: string,
+  dbStatus?: string,
+): string {
+  const docsStatus = featureStatusFromDocs(projectPath, folder);
+  if (!dbStatus) return docsStatus;
+  if (dbStatus === "draft" && docsStatus !== "draft") return docsStatus;
+  if (dbStatus === "planning" && docsStatus === "ready") return docsStatus;
+  return dbStatus;
 }
 
 function normalizeFeaturePoolPriority(value: unknown, fallback: number): number {
