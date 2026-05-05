@@ -473,7 +473,98 @@ const DEFAULT_OUTPUT_SCHEMA = {
         changeIds: { type: "array", items: { type: "string" } },
       },
     },
-    result: { type: "object", additionalProperties: true },
+    result: {
+      type: "object",
+      additionalProperties: false,
+      required: ["resultSummary", "details", "items", "openQuestions"],
+      properties: {
+        resultSummary: { type: ["string", "null"] },
+        details: { type: ["string", "null"] },
+        items: { type: "array", items: { type: "string" } },
+        openQuestions: { type: "array", items: { type: "string" } },
+      },
+    },
+  },
+};
+const TASK_SLICING_RESULT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["features", "queuePlan", "dependencyGraph", "userStoryMapping", "verificationPlan", "openQuestions"],
+  properties: {
+    features: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "name", "status", "milestone", "dependencies", "primaryRequirements"],
+        properties: {
+          id: { type: "string" },
+          name: { type: "string" },
+          status: { type: "string" },
+          milestone: { type: "string" },
+          dependencies: { type: "array", items: { type: "string" } },
+          primaryRequirements: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+    queuePlan: {
+      type: "object",
+      additionalProperties: false,
+      required: ["path", "runnableOrder", "blockedEntries", "summary"],
+      properties: {
+        path: { type: "string" },
+        runnableOrder: { type: "array", items: { type: "string" } },
+        blockedEntries: { type: "array", items: { type: "string" } },
+        summary: { type: ["string", "null"] },
+      },
+    },
+    dependencyGraph: {
+      type: "object",
+      additionalProperties: false,
+      required: ["relationships", "missingDependencies"],
+      properties: {
+        relationships: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["from", "to", "type"],
+            properties: {
+              from: { type: "string" },
+              to: { type: "string" },
+              type: { type: "string" },
+            },
+          },
+        },
+        missingDependencies: { type: "array", items: { type: "string" } },
+      },
+    },
+    userStoryMapping: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["userStoryId", "featureId", "taskCheckpoints"],
+        properties: {
+          userStoryId: { type: "string" },
+          featureId: { type: "string" },
+          taskCheckpoints: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+    verificationPlan: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["scope", "checks"],
+        properties: {
+          scope: { type: "string" },
+          checks: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
+    openQuestions: { type: "array", items: { type: "string" } },
   },
 };
 const FORBIDDEN_FILE_PATTERNS = [
@@ -865,7 +956,8 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
   const now = input.now ?? new Date();
   const adapterConfig = input.adapterConfig ?? DEFAULT_CLI_ADAPTER_CONFIG;
   const shouldCleanupOutputSchema = !input.outputSchemaPath;
-  const outputSchemaPath = input.outputSchemaPath ?? writeOutputSchema(input.policy);
+  const outputSchema = outputSchemaForSkillInvocation(input.policy.outputSchema, input.skillInvocation);
+  const outputSchemaPath = input.outputSchemaPath ?? writeOutputSchema(input.policy, outputSchema);
   const rendered = renderCliAdapterCommand({
     config: adapterConfig,
     policy: input.policy,
@@ -2075,10 +2167,20 @@ function isMaterializedSpecArtifact(artifact: string): boolean {
   return artifact.startsWith("docs/") && !artifact.includes("<") && !artifact.startsWith("/");
 }
 
-function writeOutputSchema(policy: RunnerPolicy): string {
+function outputSchemaForSkillInvocation(schema: Record<string, unknown>, invocation: SkillInvocationContract | undefined): Record<string, unknown> {
+  if (invocation?.skillSlug !== "task-slicing-skill") return schema;
+  const cloned = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+  const properties = cloned.properties;
+  if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+    (properties as Record<string, unknown>).result = TASK_SLICING_RESULT_SCHEMA;
+  }
+  return cloned;
+}
+
+function writeOutputSchema(policy: RunnerPolicy, outputSchema: Record<string, unknown> = policy.outputSchema): string {
   const directory = mkdtempSync(join(tmpdir(), "specdrive-codex-schema-"));
   const path = join(directory, `${policy.runId}.schema.json`);
-  writeFileSync(path, JSON.stringify(policy.outputSchema, null, 2));
+  writeFileSync(path, JSON.stringify(outputSchema, null, 2));
   return path;
 }
 

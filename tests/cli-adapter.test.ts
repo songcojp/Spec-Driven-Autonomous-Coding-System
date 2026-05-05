@@ -103,11 +103,6 @@ function skillOutputEvent(overrides: Partial<{
 function assertStrictSchemaObjects(schema: unknown, path = "$"): void {
   if (!schema || typeof schema !== "object" || Array.isArray(schema)) return;
   const record = schema as Record<string, unknown>;
-  if (path === "$.properties.result") {
-    assert.equal(record.type, "object", `${path} should remain an object`);
-    assert.equal(record.additionalProperties, true, `${path} should allow skill-specific result fields`);
-    return;
-  }
   if (record.type === "object") {
     assert.equal(record.additionalProperties, false, `${path} should reject additional properties`);
     const properties = record.properties && typeof record.properties === "object" && !Array.isArray(record.properties)
@@ -280,7 +275,9 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
   assert.deepEqual(schema.properties.producedArtifacts.items.properties.summary, { type: ["string", "null"] });
   assert.deepEqual(schema.properties.traceability.properties.featureId, { type: ["string", "null"] });
   assert.deepEqual(schema.properties.traceability.properties.taskId, { type: ["string", "null"] });
-  assert.deepEqual(schema.properties.result, { type: "object", additionalProperties: true });
+  assert.equal(schema.properties.result.type, "object");
+  assert.equal(schema.properties.result.additionalProperties, false);
+  assert.deepEqual(schema.properties.result.required, ["resultSummary", "details", "items", "openQuestions"]);
   assertStrictSchemaObjects(policy.outputSchema);
 });
 
@@ -667,6 +664,43 @@ test("task-slicing prompt requires the full SkillOutputContract result", () => {
   assert.match(prompt, /not shorthand JSON with only summary\/status\/evidence/);
   assert.match(prompt, /features, queuePlan, dependencyGraph, userStoryMapping, verificationPlan, and openQuestions/);
   assert.match(prompt, /Each producedArtifacts item must include path, kind, status, checksum, and summary/);
+});
+
+test("task-slicing runs receive a strict specialized result output schema", async () => {
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-TASK-SCHEMA",
+    risk: "low",
+    workspaceRoot: makeWorkspacePath(),
+    now: stableDate,
+  });
+  let schema: Record<string, unknown> | undefined;
+
+  await runCliAdapter({
+    policy,
+    prompt: "Split Feature Specs",
+    skillInvocation: skillInvocationContract({
+      executionId: "RUN-TASK-SCHEMA",
+      operation: "split_feature_specs",
+      skillSlug: "task-slicing-skill",
+      requestedAction: "split_feature_specs",
+      sourcePaths: ["docs/zh-CN/PRD.md", "docs/zh-CN/requirements.md", "docs/zh-CN/hld.md"],
+      expectedArtifacts: [
+        { path: "docs/features/README.md", kind: "markdown", required: false },
+        { path: "docs/features/feature-pool-queue.json", kind: "json", required: false },
+      ],
+    }),
+    runner: (_command, args) => {
+      const schemaFlagIndex = args.indexOf("--output-schema");
+      schema = JSON.parse(readFileSync(args[schemaFlagIndex + 1], "utf8")) as Record<string, unknown>;
+      return { status: 0, stdout: skillOutputEvent({ executionId: "RUN-TASK-SCHEMA", skillSlug: "task-slicing-skill", requestedAction: "split_feature_specs" }), stderr: "" };
+    },
+  });
+
+  const properties = schema?.properties as Record<string, unknown>;
+  const result = properties.result as Record<string, unknown>;
+  assert.equal(result.additionalProperties, false);
+  assert.deepEqual(result.required, ["features", "queuePlan", "dependencyGraph", "userStoryMapping", "verificationPlan", "openQuestions"]);
+  assertStrictSchemaObjects(schema);
 });
 
 test("clarification skill prompt treats operator input as an answer to apply", () => {

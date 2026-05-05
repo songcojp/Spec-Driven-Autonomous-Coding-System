@@ -104,18 +104,45 @@ This is the design-named entry point for Feature Spec decomposition and task gra
     "changeIds": []
   },
   "result": {
-    "features": [],
+    "features": [
+      {
+        "id": "FEAT-001",
+        "name": "<feature name>",
+        "status": "planned",
+        "milestone": "<milestone>",
+        "dependencies": [],
+        "primaryRequirements": []
+      }
+    ],
     "queuePlan": {
       "path": "docs/features/feature-pool-queue.json",
       "runnableOrder": [],
-      "blockedEntries": []
+      "blockedEntries": [],
+      "summary": "Feature Spec Pool queue plan is ready."
     },
     "dependencyGraph": {
-      "relationships": [],
+      "relationships": [
+        {
+          "from": "FEAT-001",
+          "to": "FEAT-002",
+          "type": "depends_on"
+        }
+      ],
       "missingDependencies": []
     },
-    "userStoryMapping": [],
-    "verificationPlan": [],
+    "userStoryMapping": [
+      {
+        "userStoryId": "US-001",
+        "featureId": "FEAT-001",
+        "taskCheckpoints": []
+      }
+    ],
+    "verificationPlan": [
+      {
+        "scope": "FEAT-001",
+        "checks": []
+      }
+    ],
     "openQuestions": []
   }
 }
