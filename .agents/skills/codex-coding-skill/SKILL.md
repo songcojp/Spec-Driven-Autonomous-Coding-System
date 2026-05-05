@@ -8,15 +8,14 @@ description: "Implement bounded coding tasks through Codex. Use when a scheduled
 Use this skill for implementation tasks after planning and scheduling. The skill owns
 the feature implementation lane from an isolated implementation worktree through
 scoped commit and GitHub pull request handoff. Local repository mutations use `git`
-only where `gh` has no equivalent, such as `git worktree`, local branch inspection,
-staging, and commit creation. GitHub-facing delivery operations use `gh`, including
-push setup when available, PR creation, PR checks, PR merge, and remote branch
-cleanup.
+where needed for worktree creation/removal, local branch inspection, staging, and
+commit creation. GitHub-facing delivery operations use `gh`, including push setup
+when available, PR creation, PR checks, PR merge, and remote branch cleanup.
 
-The scheduler/runtime may start the skill in the source checkout. It must not create
-the implementation worktree on the skill's behalf. Treat the invocation
-`workspaceRoot` as the source checkout unless it is already verified as an isolated
-worktree.
+The scheduler/runtime should start this skill with a sandbox that can access the
+target repository Git metadata and external worktree paths, such as
+`danger-full-access` in trusted local development. Treat invocation `workspaceRoot`
+as the source checkout unless it is already verified as an isolated worktree.
 
 ## Workflow
 

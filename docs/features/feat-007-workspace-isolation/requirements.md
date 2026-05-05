@@ -12,6 +12,7 @@
 
 - 为并行 Feature、任务或任务组创建独立 Git worktree 和隔离分支。
 - 记录 worktree 路径、分支名、base commit、目标分支、关联 Feature/Task、Runner 和清理状态。
+- 写入型 Feature 执行必须使用允许 Git 元数据和外部 worktree 路径访问的高权限 sandbox，使实现技能可以执行 `git worktree add/remove`。
 - 判断同文件、锁文件、数据库 schema、公共配置和共享运行时资源是否必须串行。
 - 合并前执行冲突检测、Spec Alignment Check 和必要测试。
 - 支持回滚自动修改和失败任务重放所需的 workspace 边界。
@@ -29,6 +30,7 @@
 ## Requirements
 
 - 任意并行写入都必须追踪到独立 worktree、分支、任务标识和合并目标。
+- `codex-coding-skill` 负责在高权限 sandbox 中创建或验证隔离 worktree，并在交付后按 clean/dirty 状态安全清理；创建或清理失败必须返回 blocked 或 review_needed 并保留诊断原因。
 - 只读 Subagent 可以并行；不同文件的 Coding Agent 可以并行；同一文件、同一分支写任务默认串行；高风险任务必须由单 Agent 执行。
 - 互相影响文件或依赖的 Feature 不得并行 implementing。
 - 合并前必须执行冲突检测、Spec Alignment Check 和必要测试。
@@ -39,6 +41,7 @@
 ## Acceptance Criteria
 
 - [ ] worktree 记录包含路径、分支、base commit、目标分支、Feature/Task、Runner 和清理状态。
+- [ ] 写入型 Runner 使用高权限 sandbox，技能能够创建、验证和清理隔离 worktree，并在失败时输出可审计 blocked reason。
 - [ ] 同文件、高冲突目录、schema、锁文件或公共配置默认串行。
 - [ ] 集成测试和端到端测试使用可审计的测试环境隔离记录。
 - [ ] 合并前检查可以阻止冲突或未通过测试的变更。

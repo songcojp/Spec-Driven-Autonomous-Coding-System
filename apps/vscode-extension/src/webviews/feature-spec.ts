@@ -31,7 +31,6 @@ export function renderFeatureSpecWebview(
       ${commandButton("New Feature", "openWorkbenchForm", { formMode: "newFeature" })}
       ${commandButton("Refresh", "refresh", {})}
       ${selected && isClarificationNeededFeature(selected) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: selected.id }) : ""}
-      ${selected && isReviewNeededFeature(selected) ? approveFeatureReviewButton("Pass", selected, projectId, "Feature Spec Webview") : ""}
       ${autoRefreshSwitch(autoRefreshEnabled)}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
