@@ -811,6 +811,8 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
         "- For split_feature_specs, decompose PRD, EARS requirements, and HLD into implementation-ready Feature Spec package directories.",
         "- Do not treat .autobuild/specs/FEAT-INTAKE-*.json as a Feature Spec package; it is only an intake artifact.",
         "- Write Feature Spec packages under docs/features/<feature-id>/ with requirements.md, design.md, tasks.md, and update docs/features/README.md.",
+        "- The final response must be the full SkillOutputContractV1 object, not shorthand JSON with only summary/status/evidence.",
+        "- In the task-slicing result, include features, queuePlan, dependencyGraph, userStoryMapping, verificationPlan, and openQuestions.",
       ]
     : [];
   const featureCodingRules = contract.skillSlug === "codex-coding-skill" && contract.operation === "feature_execution" && !contract.traceability.taskId
@@ -841,6 +843,9 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- Treat AGENTS.md and the referenced source paths as governing context.",
     "- If the prompt includes a Workspace Context Bundle, use it as already-read workspace context; do not block solely because shell-based file reads fail.",
     "- Return exactly one JSON object matching SkillOutputContractV1.",
+    "- The JSON object must include contractVersion, executionId, skillSlug, requestedAction, status, summary, nextAction, producedArtifacts, traceability, and result.",
+    "- Each producedArtifacts item must include path, kind, status, checksum, and summary; use null for checksum or summary when unknown.",
+    "- traceability must include featureId, taskId, requirementIds, and changeIds; use null for missing featureId/taskId and [] for missing arrays.",
     "- The output contract must echo contractVersion, executionId, skillSlug, requestedAction, and invocation-owned traceability fields from the Skill Invocation Contract.",
     "- Do not expect changeIds in the Skill Invocation Contract. If change IDs apply, derive and maintain them from the skill's source documents and return them in output traceability.",
     "- When specState is present, treat it as the machine-readable Feature state. Return status and result fields that allow the scheduler to patch docs/features/<feature-id>/spec-state.json.",

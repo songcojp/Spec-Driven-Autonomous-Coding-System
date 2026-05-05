@@ -648,6 +648,27 @@ test("feature-level coding prompt requires Feature Spec execution instead of rep
   assert.match(prompt, /actual code, test, config, or documentation files/);
 });
 
+test("task-slicing prompt requires the full SkillOutputContract result", () => {
+  const prompt = buildSkillInvocationPrompt(
+    skillInvocationContract({
+      operation: "split_feature_specs",
+      skillSlug: "task-slicing-skill",
+      requestedAction: "split_feature_specs",
+      sourcePaths: ["docs/zh-CN/PRD.md", "docs/zh-CN/requirements.md", "docs/zh-CN/hld.md"],
+      expectedArtifacts: [
+        { path: "docs/features/README.md", kind: "markdown", required: true },
+        { path: "docs/features/feature-pool-queue.json", kind: "json", required: true },
+      ],
+    }),
+    "Context",
+  );
+
+  assert.match(prompt, /full SkillOutputContractV1 object/);
+  assert.match(prompt, /not shorthand JSON with only summary\/status\/evidence/);
+  assert.match(prompt, /features, queuePlan, dependencyGraph, userStoryMapping, verificationPlan, and openQuestions/);
+  assert.match(prompt, /Each producedArtifacts item must include path, kind, status, checksum, and summary/);
+});
+
 test("clarification skill prompt treats operator input as an answer to apply", () => {
   const prompt = buildSkillInvocationPrompt(
     skillInvocationContract({

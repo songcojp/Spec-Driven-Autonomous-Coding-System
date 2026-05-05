@@ -18,3 +18,33 @@ The common contract is optimized for the Execution Workbench display:
 Do not add extra top-level fields. Put command output, verification details, decisions, blockers, coverage, and execution results in `summary`, `producedArtifacts[].summary`, `nextAction`, or `result`.
 
 Use `status = "completed"` when the skill produced a valid decision or artifact, even if the decision is "none" or "no change". Use `status = "blocked"` for missing inputs or unresolved required decisions, `status = "review_needed"` when a human or risk review must resolve the next step, and `status = "failed"` for execution errors that prevented a valid skill result.
+
+Do not return shorthand JSON such as `{"summary": "...", "status": "...", "evidence": [...]}`. The final response must be the complete contract object below, with invocation-owned fields echoed exactly:
+
+```json
+{
+  "contractVersion": "skill-contract/v1",
+  "executionId": "<echo invocation.executionId>",
+  "skillSlug": "<echo invocation.skillSlug>",
+  "requestedAction": "<echo invocation.requestedAction>",
+  "status": "completed",
+  "summary": "<concise outcome summary>",
+  "nextAction": null,
+  "producedArtifacts": [
+    {
+      "path": "<relative/path>",
+      "kind": "markdown",
+      "status": "updated",
+      "checksum": null,
+      "summary": "<artifact-specific summary>"
+    }
+  ],
+  "traceability": {
+    "featureId": null,
+    "taskId": null,
+    "requirementIds": [],
+    "changeIds": []
+  },
+  "result": {}
+}
+```

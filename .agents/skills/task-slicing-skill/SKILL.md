@@ -53,6 +53,9 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 ## Output Contract
 
 - Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
+- The final assistant message must be only that JSON object. Do not return shorthand output with only `summary`, `status`, and `evidence`.
+- Echo `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `traceability.featureId`, `traceability.taskId`, and `traceability.requirementIds` exactly from the invocation contract. Add `traceability.changeIds` from source documents, or `[]` when none apply.
+- Every `producedArtifacts[]` entry must include `path`, `kind`, `status`, `checksum`, and `summary`; use `null` for `checksum` or `summary` when unavailable.
 - `summary` must state the generated or updated Feature Specs, queue plan, dependencies, and verification plan readiness.
 - `result` must follow the specialized contract below.
 
@@ -66,6 +69,57 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 - `userStoryMapping`: mapping from `US-*` to Feature/task checkpoints.
 - `verificationPlan`: commands or acceptance checks per feature/story phase.
 - `openQuestions`: unsliced or blocked scope questions.
+
+## Minimal Valid Final JSON Shape
+
+```json
+{
+  "contractVersion": "skill-contract/v1",
+  "executionId": "<echo invocation.executionId>",
+  "skillSlug": "task-slicing-skill",
+  "requestedAction": "<echo invocation.requestedAction>",
+  "status": "completed",
+  "summary": "Generated or updated Feature Specs, docs/features/README.md, docs/features/feature-pool-queue.json, dependency graph, and verification plan.",
+  "nextAction": null,
+  "producedArtifacts": [
+    {
+      "path": "docs/features/README.md",
+      "kind": "markdown",
+      "status": "updated",
+      "checksum": null,
+      "summary": "Feature index table and dependency graph updated."
+    },
+    {
+      "path": "docs/features/feature-pool-queue.json",
+      "kind": "json",
+      "status": "updated",
+      "checksum": null,
+      "summary": "Feature Spec Pool queue plan updated."
+    }
+  ],
+  "traceability": {
+    "featureId": null,
+    "taskId": null,
+    "requirementIds": [],
+    "changeIds": []
+  },
+  "result": {
+    "features": [],
+    "queuePlan": {
+      "path": "docs/features/feature-pool-queue.json",
+      "runnableOrder": [],
+      "blockedEntries": []
+    },
+    "dependencyGraph": {
+      "relationships": [],
+      "missingDependencies": []
+    },
+    "userStoryMapping": [],
+    "verificationPlan": [],
+    "openQuestions": []
+  }
+}
+```
 
 ## Failure Routing
 
