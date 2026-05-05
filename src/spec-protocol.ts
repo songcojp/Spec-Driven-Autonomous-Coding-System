@@ -17,6 +17,16 @@ export type FileSpecLifecycleStatus =
   | "failed"
   | "skipped"
   | "delivered";
+export type FileSpecExecutionStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "approval_needed"
+  | "cancelled"
+  | "blocked"
+  | "completed"
+  | "failed"
+  | "skipped";
 export type ClarificationStatus = "open" | "answered" | "closed";
 export type ChecklistStatus = "passed" | "failed";
 export type SpecVersionBump = "MAJOR" | "MINOR" | "PATCH";
@@ -145,6 +155,7 @@ export type FileSpecState = {
   schemaVersion: 1;
   featureId: string;
   status: FileSpecLifecycleStatus;
+  executionStatus?: FileSpecExecutionStatus;
   updatedAt: string;
   currentJob?: {
     schedulerJobId?: string;
@@ -166,6 +177,7 @@ export type FileSpecState = {
   history: Array<{
     at: string;
     status: FileSpecLifecycleStatus;
+    executionStatus?: FileSpecExecutionStatus;
     summary: string;
     source: string;
     schedulerJobId?: string;
@@ -748,12 +760,14 @@ export function mergeFileSpecState(
 ): FileSpecState {
   const updatedAt = (input.now ?? new Date()).toISOString();
   const status = patch.status ?? current.status;
+  const executionStatus = patch.executionStatus ?? current.executionStatus;
   return {
     ...current,
     ...patch,
     schemaVersion: 1,
     featureId: current.featureId,
     status,
+    executionStatus,
     updatedAt,
     blockedReasons: patch.blockedReasons ?? current.blockedReasons,
     dependencies: patch.dependencies ?? current.dependencies,
@@ -762,6 +776,7 @@ export function mergeFileSpecState(
       {
         at: updatedAt,
         status,
+        executionStatus,
         summary: input.summary ?? patch.lastResult?.summary ?? status,
         source: input.source,
         schedulerJobId: input.schedulerJobId,
@@ -779,8 +794,10 @@ export function skillOutputToSpecStatePatch(output: {
   producedArtifacts: Array<{ path: string; kind: string; status: string; summary?: string }>;
 }): FileSpecStatePatch {
   const status: FileSpecLifecycleStatus = output.status === "completed" ? "completed" : output.status;
+  const executionStatus: FileSpecExecutionStatus | undefined = output.status === "review_needed" ? undefined : output.status;
   return {
     status,
+    executionStatus,
     blockedReasons: output.status === "blocked" || output.status === "failed" ? [output.summary] : [],
     nextAction: output.nextAction ?? (output.status === "completed"
       ? "Run status checks and prepare review."
@@ -815,6 +832,7 @@ function createDefaultFileSpecState(featureId: string, now: Date): FileSpecState
     schemaVersion: 1,
     featureId,
     status: "ready",
+    executionStatus: undefined,
     updatedAt,
     blockedReasons: [],
     dependencies: [],
@@ -829,6 +847,7 @@ function normalizeFileSpecState(parsed: Partial<FileSpecState>, featureId: strin
     schemaVersion: 1,
     featureId: typeof parsed.featureId === "string" && parsed.featureId ? parsed.featureId : featureId,
     status: isFileSpecLifecycleStatus(parsed.status) ? parsed.status : fallback.status,
+    executionStatus: isFileSpecExecutionStatus(parsed.executionStatus) ? parsed.executionStatus : undefined,
     updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : fallback.updatedAt,
     currentJob: parsed.currentJob && typeof parsed.currentJob === "object" ? parsed.currentJob : undefined,
     blockedReasons: Array.isArray(parsed.blockedReasons) ? parsed.blockedReasons.filter((item): item is string => typeof item === "string") : [],
@@ -854,6 +873,20 @@ function isFileSpecLifecycleStatus(value: unknown): value is FileSpecLifecycleSt
     "failed",
     "skipped",
     "delivered",
+  ].includes(value);
+}
+
+function isFileSpecExecutionStatus(value: unknown): value is FileSpecExecutionStatus {
+  return typeof value === "string" && [
+    "queued",
+    "running",
+    "paused",
+    "approval_needed",
+    "blocked",
+    "cancelled",
+    "completed",
+    "failed",
+    "skipped",
   ].includes(value);
 }
 

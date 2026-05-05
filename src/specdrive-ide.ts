@@ -14,6 +14,7 @@ import {
   mergeFileSpecState,
   readFileSpecState,
   writeFileSpecState,
+  type FileSpecExecutionStatus,
   type FileSpecLifecycleStatus,
 } from "./spec-protocol.ts";
 
@@ -1746,7 +1747,8 @@ function updateQueueTargetSpecState(
   workspaceRoot?: string,
 ): void {
   const fileStatus = queueStatusToFileSpecStatus(status);
-  if (!fileStatus) return;
+  const executionStatus = queueStatusToFileSpecExecutionStatus(status);
+  if (!fileStatus && !executionStatus) return;
   const root = workspaceRoot
     ?? optionalString(target.context.workspaceRoot)
     ?? optionalString(target.payload.workspaceRoot)
@@ -1761,7 +1763,8 @@ function updateQueueTargetSpecState(
     const current = readFileSpecState(root, folder, featureId, new Date(acceptedAt));
     const summary = queueStatusSpecStateSummary(status, metadataPatch);
     writeFileSpecState(root, folder, mergeFileSpecState(current, {
-      status: fileStatus,
+      status: fileStatus ?? current.status,
+      executionStatus,
       blockedReasons: fileStatus === "blocked" || fileStatus === "failed" ? [summary] : [],
       currentJob: {
         ...current.currentJob,
@@ -1797,6 +1800,19 @@ function queueStatusToFileSpecStatus(status: string): FileSpecLifecycleStatus | 
   if (status === "queued" || status === "running" || status === "paused" || status === "cancelled" || status === "skipped") return status;
   if (status === "approval_needed") return "approval_needed";
   if (status === "blocked" || status === "failed" || status === "completed") return status;
+  return undefined;
+}
+
+function queueStatusToFileSpecExecutionStatus(status: string): FileSpecExecutionStatus | undefined {
+  if (status === "queued"
+    || status === "running"
+    || status === "paused"
+    || status === "approval_needed"
+    || status === "blocked"
+    || status === "cancelled"
+    || status === "completed"
+    || status === "failed"
+    || status === "skipped") return status;
   return undefined;
 }
 

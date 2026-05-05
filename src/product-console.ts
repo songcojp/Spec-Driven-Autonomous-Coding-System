@@ -715,6 +715,7 @@ function deterministicFeaturePoolSelection(input: FeaturePoolSelectionInput): Fe
     if (input.skipFeatureIds.includes(entry.id)) {
       writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
         status: "skipped",
+        executionStatus: "skipped",
         blockedReasons: [],
         nextAction: "Skipped by operator; scheduler can select the next ready Feature.",
       }, {
@@ -733,6 +734,7 @@ function deterministicFeaturePoolSelection(input: FeaturePoolSelectionInput): Fe
       blockedReasons.push(reason);
       writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
         status: "blocked",
+        executionStatus: "blocked",
         dependencies: entry.dependencies,
         blockedReasons: [reason],
         nextAction: "Wait for dependency completion or skip to the next Feature.",
@@ -746,6 +748,7 @@ function deterministicFeaturePoolSelection(input: FeaturePoolSelectionInput): Fe
       blockedReasons.push(reason);
       writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
         status: "blocked",
+        executionStatus: "blocked",
         dependencies: entry.dependencies,
         blockedReasons: [reason],
         nextAction: "Complete the Feature Spec documents, then resume this Feature.",
@@ -838,6 +841,7 @@ function validateFeatureSelectionDecision(input: FeaturePoolSelectionInput, deci
   if (blockedReasons.length > 0) {
     writeFileSpecState(input.projectPath, feature.folder, mergeFileSpecState(state, {
       status: "blocked",
+      executionStatus: "blocked",
       dependencies: entry.dependencies,
       blockedReasons,
       nextAction: "Feature selection skill chose this Feature, but code safety checks blocked execution.",
@@ -3033,6 +3037,7 @@ function executeScheduleCommand(
       if (workspaceRoot && featureFolder && featureId) {
         writeFileSpecState(workspaceRoot, featureFolder, mergeFileSpecState(specState ?? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt)), {
           status: "blocked",
+          executionStatus: "blocked",
           blockedReasons: readiness,
           nextAction: "Complete the Feature Spec documents, then resume this Feature.",
         }, { now: new Date(acceptedAt), source: "schedule_run", summary: readiness.join(" ") }));
@@ -3085,6 +3090,7 @@ function executeScheduleCommand(
   if (workspaceRoot && featureFolder && featureId) {
     writeFileSpecState(workspaceRoot, featureFolder, mergeFileSpecState(specState ?? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt)), {
       status: "queued",
+      executionStatus: "queued",
       blockedReasons: [],
       currentJob: {
         schedulerJobId: job.schedulerJobId,
@@ -3400,6 +3406,7 @@ function executeFeatureReviewCommand(
     };
   const nextState = mergeFileSpecState(current, {
     status: "completed",
+    executionStatus: "completed",
     blockedReasons: [],
     lastResult,
     nextAction: "Feature review passed; ready for downstream dependency selection or delivery.",
@@ -3668,6 +3675,7 @@ function enqueueNextFeatureExecutionFromQueue(
   });
   writeFileSpecState(project.targetRepoPath, selectedFolder, mergeFileSpecState(specState, {
     status: "queued",
+    executionStatus: "queued",
     blockedReasons: [],
     currentJob: {
       schedulerJobId: job.schedulerJobId,

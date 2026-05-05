@@ -16,7 +16,7 @@ SpecDrive AutoBuild 是一个面向软件团队的长时间自主编程系统。
 
 2026-05-01 调度队列重构：Scheduler 采用 `Feature Pool Queue -> <executor>.run Job -> Execution Record -> 执行结果`。`feature-pool-queue.json` 是 Feature 队列规划来源；平台不再创建 `feature.select` / `feature.plan`，不再维护平台 TaskGraph 表，也不再使用 `feature_planning` 阶段。Job 仅包含执行层字段，Feature/Task/Project 进入 payload context。Execution Record / 执行记录是 heartbeat、logs、session 和 execution result 的执行实例锚点；旧 Feature Scheduler、TaskGraph 和 Feature Plan 设计仅作为历史废弃说明保留。
 
-2026-05-02 Spec 状态文件化：Spec / Feature 流程状态以当前项目 workspace 内文件为准。`docs/features/feature-pool-queue.json` 保存全局 Feature 队列，`docs/features/<feature-id>/spec-state.json` 保存单 Feature 的机器可读状态、依赖、blocked reason、当前 Job、最近 Skill 输出和下一步动作。SQLite 不再作为 Spec 状态主事实源，只保存 Scheduler Job、Execution Record、heartbeat、logs、adapter config、command receipt、执行结果 和轻量活动记录。
+2026-05-02 Spec 状态文件化：Spec / Feature 流程状态以当前项目 workspace 内文件为准。`docs/features/feature-pool-queue.json` 保存全局 Feature 队列，`docs/features/<feature-id>/spec-state.json` 保存单 Feature 的机器可读状态、执行状态、依赖、blocked reason、当前 Job、最近 Skill 输出和下一步动作。SQLite 不再作为 Spec 状态主事实源，只保存 Scheduler Job、Execution Record、heartbeat、logs、adapter config、command receipt、执行结果 和轻量活动记录。
 
 2026-05-02 VSCode IDE 入口：新增 VSCode SpecDrive Extension 作为 IDE 原生日常入口。插件只负责工作区识别、Spec Explorer、Hover、CodeLens、Comments、Diagnostics、状态面板、受控命令提交和状态订阅；不直接写运行事实源，不直接调用 Codex turn API。Codex RPC 作为 RPC Adapter 与 CLI Adapter 并存，负责 `thread/start`、`thread/resume`、`turn/start`、`turn/interrupt`、approval response、事件流 raw logs 和 Execution Record 投影。
 

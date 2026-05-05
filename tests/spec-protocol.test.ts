@@ -239,6 +239,7 @@ test("file spec state reads, merges, writes, and blocks path escapes", () => {
   const initial = readFileSpecState(root, "feat-001-demo", "FEAT-001", stableDate);
   const merged = mergeFileSpecState(initial, {
     status: "blocked",
+    executionStatus: "blocked",
     blockedReasons: ["Missing tasks.md"],
     nextAction: "Complete tasks.md, then resume.",
   }, {
@@ -254,7 +255,9 @@ test("file spec state reads, merges, writes, and blocks path escapes", () => {
   assert.equal(specStateRelativePath("feat-001-demo"), relativePath);
   assert.equal(existsSync(join(root, relativePath)), true);
   assert.equal(reread.status, "blocked");
+  assert.equal(reread.executionStatus, "blocked");
   assert.deepEqual(reread.blockedReasons, ["Missing tasks.md"]);
+  assert.equal(reread.history.at(-1)?.executionStatus, "blocked");
   assert.equal(reread.history.at(-1)?.executionId, "RUN-1");
   assert.throws(() => specStateRelativePath("../outside"), /inside docs\/features/);
 });

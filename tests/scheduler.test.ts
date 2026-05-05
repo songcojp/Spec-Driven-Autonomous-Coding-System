@@ -580,6 +580,7 @@ test("codex.rpc.run projects approval pending to Feature spec-state", async () =
   assert.match(String(rows[0].summary), /waiting for approval/i);
   assert.equal(metadata.approvalState, "pending");
   assert.equal(state.status, "approval_needed");
+  assert.equal(state.executionStatus, "approval_needed");
   assert.match(state.nextAction, /approval/i);
 });
 
@@ -621,6 +622,7 @@ test("codex.rpc.run writes completed Feature execution to spec-state file", asyn
 
   assert.equal(result.status, "completed");
   assert.equal(state.status, "completed");
+  assert.equal(state.executionStatus, "completed");
   assert.equal(state.currentJob.executionId, "RUN-COMPLETED-STATE");
   assert.equal(state.lastResult.status, "completed");
   assert.equal(state.lastResult.summary, "Skill completed.");

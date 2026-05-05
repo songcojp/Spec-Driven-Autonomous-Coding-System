@@ -348,6 +348,7 @@ VSCode 启动插件
 - `cancel` 对 queued Job 只更新 Job 状态；对 running Job 必须通过 Runner 调用 `turn/interrupt`。
 - `retry` 必须保留上一条 execution id、失败原因和新 execution id 的关系。
 - `reprioritize` 只改变调度顺序，不修改 Feature 文档内容。
+- Feature `spec-state.json.status` 表示 Feature 当前可见流程状态，`spec-state.json.executionStatus` 表示最近一次执行状态；pause、resume、cancel、skip、approval 和 retry 等队列动作必须同步更新 Execution Record、Scheduler Job、Feature `status` 和 `executionStatus`，避免把执行态变化丢失在队列视图或 Feature 视图任一侧。
 
 ### 7.7 Runner 与 Codex RPC 执行流程
 

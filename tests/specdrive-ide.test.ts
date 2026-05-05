@@ -750,12 +750,14 @@ test("SpecDrive IDE queue actions can pause and cancel another job while a run i
 
   assert.equal(pause.status, "accepted");
   assert.equal(pausedState.status, "paused");
+  assert.equal(pausedState.executionStatus, "paused");
   assert.equal(pausedState.currentJob?.schedulerJobId, "JOB-WAITING");
   assert.equal(pausedView.features.find((entry) => entry.id === "FEAT-016")?.status, "paused");
   assert.equal(cancel.status, "accepted");
   const cancelledState = readFileSpecState(workspaceRoot, "feat-016-specdrive-ide-foundation", "FEAT-016");
   const cancelledView = buildSpecDriveIdeView(dbPath, { workspaceRoot });
   assert.equal(cancelledState.status, "cancelled");
+  assert.equal(cancelledState.executionStatus, "cancelled");
   assert.equal(cancelledState.lastResult?.status, "cancelled");
   assert.equal(cancelledState.currentJob?.completedAt, "2026-05-02T12:12:00.000Z");
   assert.equal(cancelledState.history.at(-1)?.source, "ide.queue_action");

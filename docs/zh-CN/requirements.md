@@ -393,7 +393,7 @@ THE SYSTEM SHALL 读取 `feature-pool-queue.json` 中已经规划好的 Feature 
 - [ ] Project Scheduler 不依赖 Project Memory 中的静态候选队列作为真实调度来源。
 - [ ] `feature-selection-skill` 的 `result` 至少返回 `decision`、`featureId`、`reason`、`blockedReasons`、`dependencyFindings`、`resumeRequiredFeatures` 和 `skippedFeatures`。
 - [ ] 代码必须拒绝选择技能返回的非法 Feature、缺失三件套 Feature、依赖未完成 Feature、未显式 resume 的 blocked/failed/review_needed/approval_needed Feature，以及同项目已有 active `feature_execution` 时的选择。
-- [ ] Spec/Feature 流程状态以 `docs/features/<feature-id>/spec-state.json` 为机器可读事实源，数据库只保存运行时执行事实。
+- [ ] Spec/Feature 流程状态以 `docs/features/<feature-id>/spec-state.json` 为机器可读事实源，数据库只保存运行时执行事实；Feature 状态使用 `status`，最近执行状态使用 `executionStatus`，队列状态动作必须同步两者与 Execution Record。
 - [ ] 项目级 `schedule_run` 和 `start_auto_run` 只创建 `<executor>.run` Job 并返回 `scheduleTriggerId`、`schedulerJobId` 和 `executionId`；独立 `push_feature_spec_pool` public action 不再存在。
 - [ ] 项目级调度支持 blocked Feature 的显式 resume 和操作者 skip to next；缺失三件套、依赖未完成或未恢复的 blocked Feature 不得进入执行队列。
 - [ ] Job 顶层不得包含 Feature/Task/Project 属性；这些业务上下文只能写入 payload `context`。

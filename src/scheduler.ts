@@ -1143,6 +1143,7 @@ function updateFeatureSpecFileState(input: {
         };
     writeFileSpecState(input.workspaceRoot, featureFolder, mergeFileSpecState(current, {
       ...patch,
+      executionStatus: runnerStatusToFileSpecExecutionStatus(input.status) ?? patch.executionStatus,
       currentJob: {
         schedulerJobId: input.schedulerJobId,
         executionId: input.executionId,
@@ -1169,6 +1170,16 @@ function runnerStatusToFileSpecStatus(status: RunnerQueueStatus) {
   if (status === "failed") return "failed";
   if (status === "running") return "running";
   return "queued";
+}
+
+function runnerStatusToFileSpecExecutionStatus(status: RunnerQueueStatus) {
+  if (status === "completed") return "completed";
+  if (status === "approval_needed") return "approval_needed";
+  if (status === "blocked") return "blocked";
+  if (status === "failed") return "failed";
+  if (status === "running") return "running";
+  if (status === "queued") return "queued";
+  return undefined;
 }
 
 export function createQueuedJobRecord(dbPath: string, input: {
