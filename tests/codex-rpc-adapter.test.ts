@@ -105,6 +105,40 @@ test("Codex RPC adapter result maps event projection to runner result", () => {
   assert.equal(result.executionAdapterResult?.providerSession.turnId, "turn-1");
 });
 
+test("Codex RPC adapter extracts the final Skill output from streamed assistant text", () => {
+  const progress = {
+    ...skillOutput(),
+    summary: "Progress update.",
+    result: { resultSummary: "in_progress", details: "Still working.", items: [], openQuestions: [] },
+  };
+  const final = {
+    ...skillOutput(),
+    summary: "Feature completed.",
+    result: { resultSummary: "done", details: "All tasks complete.", items: ["T001"], openQuestions: [] },
+  };
+  const result = buildCodexAppServerAdapterResult({
+    runId: "RUN-APP",
+    workspaceRoot: "/repo",
+    events: [
+      { type: "thread/started", id: "thread-1" },
+      { type: "turn/started", id: "turn-1", threadId: "thread-1" },
+      { type: "item/agentMessage/delta", delta: JSON.stringify(progress) },
+      { type: "item/agentMessage/delta", delta: JSON.stringify(final).slice(0, 120) },
+      { type: "item/agentMessage/delta", delta: JSON.stringify(final).slice(120) },
+      { type: "turn/completed", status: "completed" },
+    ],
+    policy: runnerPolicy(),
+    startedAt: "2026-05-02T12:00:00.000Z",
+    completedAt: "2026-05-02T12:01:00.000Z",
+    skillInvocation: skillInvocation(),
+  });
+
+  assert.equal(result.session.exitCode, 0);
+  assert.equal(result.result.contractValidation.valid, true);
+  assert.equal(result.result.skillOutput?.summary, "Feature completed.");
+  assert.equal(result.executionAdapterResult?.summary, "Feature completed.");
+});
+
 test("Codex RPC config exposes unified RPC adapter config", () => {
   const config = codexAppServerConfigToExecutionAdapterConfig(DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG);
 

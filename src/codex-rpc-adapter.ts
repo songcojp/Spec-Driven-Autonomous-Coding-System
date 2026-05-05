@@ -418,7 +418,7 @@ export function projectCodexAppServerEvents(events: CliJsonEvent[]): CodexAppSer
         ?? optionalString(turn?.status);
       status = terminalStatus === "failed" ? "failed" : "completed";
       error = optionalString(event.error) ?? optionalString((event.result as Record<string, unknown> | undefined)?.error);
-      skillOutput = extractSkillOutput(event) ?? skillOutput;
+      skillOutput = extractSkillOutput(event) ?? extractSkillOutputFromText(assistantMessage) ?? skillOutput;
     }
     if (type === "error") {
       status = "failed";
@@ -545,6 +545,59 @@ function extractSkillOutput(event: CliJsonEvent): SkillOutputContract | undefine
     }
   }
   return undefined;
+}
+
+function extractSkillOutputFromText(text: string): SkillOutputContract | undefined {
+  for (const candidate of candidateJsonObjects(text).reverse()) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (isSkillOutput(parsed)) return parsed;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
+function candidateJsonObjects(text: string): string[] {
+  const candidates: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        candidates.push(text.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return candidates;
 }
 
 function isSkillOutput(value: unknown): value is SkillOutputContract {
