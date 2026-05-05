@@ -12,7 +12,7 @@ Use this skill after technical context collection and before architecture planni
 1. Start from project HLD decisions and existing repository conventions.
 2. Identify the decision that must be made for the current feature only.
 3. Compare viable options against requirements, risk, effort, compatibility, security, testability, and delivery constraints.
-4. Choose the conservative option that best matches the project unless evidence supports a different path.
+4. Choose the conservative option that best matches the project unless source references support a different path.
 5. Record rationale, rejected alternatives, and residual risks.
 
 ## Output

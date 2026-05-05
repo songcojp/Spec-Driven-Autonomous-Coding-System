@@ -28,7 +28,7 @@ This is the design-named PRD-to-EARS conversion entry point.
 8. Surface gaps as open questions instead of inventing product intent.
 9. Write only the EARS requirements output directly to the requested file using normal file-edit/write tools. If the user does not specify a target, create or update `docs/zh-CN/requirements.md` for project-level Chinese PRD intake, or `requirements.md` near the explicitly selected non-Chinese PRD / relevant feature spec folder.
 10. Do not split product scope into Feature Specs, create `docs/features/<feature-id>/` packages, update `docs/features/README.md`, or push anything into the Feature Spec Pool. Feature splitting belongs to `task-slicing-skill`.
-11. Treat `ARTIFACT: <relative-path>` evidence as a last-resort fallback only when direct file writes fail; do not use ARTIFACT evidence as the normal output path.
+11. Treat `ARTIFACT: <relative-path>` fallback content as a last-resort only when direct file writes fail; do not use ARTIFACT output as the normal path.
 
 ## EARS Patterns
 
@@ -59,7 +59,7 @@ THE SYSTEM SHALL [safe handling, error message, rollback, retry, or blocked acti
 - Traceability matrix (requirement → PRD section → user story).
 - Open questions for unresolved product intent.
 - No Feature Spec package, task graph, or Feature Spec index output.
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, `evidence`, and `traceability` matching the invocation contract.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
 
 ## Quality Bar
 

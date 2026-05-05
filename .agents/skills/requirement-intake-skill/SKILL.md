@@ -15,7 +15,7 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
 | Adding a brand-new user story, capability, or constraint | ✅ | |
 | Review finding adds a missing edge case not covered by any `EDGE-*` | ✅ | |
 | Implementation discovered behavior that was never specified | ✅ | |
-| **Existing** `REQ-*`/`NFR-*`/`EDGE-*` is inaccurate, incomplete, or contradicted by evidence | | ✅ |
+| **Existing** `REQ-*`/`NFR-*`/`EDGE-*` is inaccurate, incomplete, or contradicted by source material | | ✅ |
 | Acceptance criteria of an existing requirement must change | | ✅ |
 | Existing requirement must be deprecated or superseded | | ✅ |
 | Wording clarification on an existing requirement with no scope change | | ✅ |
@@ -25,7 +25,7 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
 ## Workflow
 
 1. Locate the active source lane. If the user does not provide paths, prefer `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md` in this repo.
-2. Classify the source: user request, PRD change, review finding, test result, delivery report, or implementation evidence.
+2. Classify the source: user request, PRD change, review finding, test result, delivery report, or implementation result.
 3. Determine whether the intake is a new requirement, a change to an existing requirement, or a clarification. Use `spec-evolution-skill` for changes to existing requirements.
 4. Classify the new requirement:
    - Functional behavior -> `REQ-*`.

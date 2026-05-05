@@ -9,7 +9,7 @@ Use this skill as the readiness gate for requirements.
 
 ## Workflow
 
-1. Confirm every requirement is atomic, observable, testable, and traceable to PRD or approved source evidence.
+1. Confirm every requirement is atomic, observable, testable, and traceable to PRD or approved source references.
 2. Check that acceptance criteria can become tests without interpretation.
 3. Verify error, empty, duplicate, permission, timeout, recovery, and concurrency paths where relevant.
 4. Confirm open questions are either resolved or explicitly block readiness.

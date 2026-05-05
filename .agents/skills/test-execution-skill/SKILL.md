@@ -5,7 +5,7 @@ description: "Run and analyze tests for SpecDrive tasks or features. Use when ta
 
 # Test Execution Skill
 
-Use this skill to produce trustworthy verification evidence.
+Use this skill to produce trustworthy verification summaries.
 
 ## Workflow
 
@@ -13,17 +13,17 @@ Use this skill to produce trustworthy verification evidence.
 2. Select the narrowest command that proves the changed behavior; broaden only when risk requires it.
 3. Run tests from the correct worktree and runtime environment.
 4. Classify failures as product mismatch, implementation bug, environment issue, flaky test, missing fixture, or spec gap.
-5. Attach command, exit status, and concise output summary to evidence.
+5. Attach command, exit status, and concise output summary to the result.
 
 ## Output
 
 - Commands run and results.
 - Failure classification.
-- Evidence suitable for Status Checker.
+- Status Checker summary.
 - Recommended next action.
 
 ## Failure Routing
 
 - Use `failure-recovery-skill` for recoverable implementation or test failures.
 - Use `blocked` for missing environment or unavailable external dependency.
-- Use `risk_review_needed` when evidence is insufficient for a high-risk change.
+- Use `risk_review_needed` when verification is insufficient for a high-risk change.

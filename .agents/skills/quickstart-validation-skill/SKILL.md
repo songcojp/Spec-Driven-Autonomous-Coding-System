@@ -5,7 +5,7 @@ description: "Validate that a planned feature can be started and tested before t
 
 # Quickstart Validation Skill
 
-Use this skill as the pre-task-slicing feasibility gate. Its purpose is to confirm the implementation path is **startable**, **testable**, and **constitution-compliant** before task slicing commits to a task graph. It does not produce a spec artifact—it produces a go/no-go decision with evidence.
+Use this skill as the pre-task-slicing feasibility gate. Its purpose is to confirm the implementation path is **startable**, **testable**, and **constitution-compliant** before task slicing commits to a task graph. It does not produce a spec artifact—it produces a go/no-go decision with a verification summary.
 
 ## Workflow
 

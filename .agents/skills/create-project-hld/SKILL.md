@@ -20,7 +20,7 @@ Read the available project-level sources:
 ## Workflow
 
 1. Identify the product scope, phase boundaries, and current requirement set.
-2. Confirm the technology stack from repository evidence. Repository facts and explicit PRD constraints take precedence. If the project has UI and no existing stack is determined from sources, default to the React-family stack that fits the primary application type; do not mark the frontend stack as `TBD` or defer it to implementation when this default can satisfy the product shape. If a non-UI or backend/runtime decision cannot be made from sources, mark it as `TBD` with the exact missing decision.
+2. Confirm the technology stack from repository facts. Repository facts and explicit PRD constraints take precedence. If the project has UI and no existing stack is determined from sources, default to the React-family stack that fits the primary application type; do not mark the frontend stack as `TBD` or defer it to implementation when this default can satisfy the product shape. If a non-UI or backend/runtime decision cannot be made from sources, mark it as `TBD` with the exact missing decision.
 3. Preserve project-level architecture boundaries: subsystems, data domains, integration strategy, workflows, security, observability, deployment, testing strategy, and feature decomposition guidance.
 4. Keep feature-specific implementation details out of the project HLD. Route feature API fields, component internals, and task-level details to feature specs instead.
 5. Reconcile stale `design.md` content only when it is consistent with PRD, requirements, and the current HLD direction.
@@ -44,7 +44,7 @@ Read the available project-level sources:
    - Users, external systems, runtime boundaries, trust boundaries, and major dependencies.
 6. Technology Stack
    - First, determine the primary application type (e.g., Mobile, Web, CLI, Backend).
-   - Let your judgment determine the most appropriate architecture pattern and technology stack tailored to that specific type, while using React-family frontend stacks as the default when no stronger repository or product evidence overrides them.
+   - Let your judgment determine the most appropriate architecture pattern and technology stack tailored to that specific type, while using React-family frontend stacks as the default when no stronger repository or product facts override them.
    - Use this default React-family mapping:
      - Web application, admin console, or Product Console: `React + Next.js` or `Vite React`; prefer `Vite React` for state-dense local workbenches and prefer `Next.js` when SSR, file-based routing, content publishing, or SEO is a core requirement.
      - Mobile application: `React Native + Expo`.
@@ -54,7 +54,7 @@ Read the available project-level sources:
    - If the repository already has a different host framework, record that existing stack, explain why it overrides the React-family default, and describe the acceptance impact.
    - Define concrete stack decisions based on your architectural judgment.
    - Include the Project Initialization strategy (项目初始化设计), specifying scaffolding tools, base frameworks, directory structure, and environment setup commands.
-   - Do not write "implementation layer decides" when repository or PRD evidence is enough to choose. If evidence is missing, write `TBD` with the missing decision.
+   - Do not write "implementation layer decides" when repository facts or PRD constraints are enough to choose. If information is missing, write `TBD` with the missing decision.
 7. Architecture Overview
    - Describe the major layers/components based on the chosen application type and how they interact.
    - Include a concise diagram when useful.
@@ -70,7 +70,7 @@ Read the available project-level sources:
 12. Security, Privacy, and Governance
    - Trust model, permissions, safe defaults, sensitive data handling, auditability, and policy enforcement.
 13. Observability and Operability
-   - Logs, metrics, evidence, status checks, health checks, recovery, and operational diagnostics.
+   - Logs, metrics, status summaries, status checks, health checks, recovery, and operational diagnostics.
 14. Deployment and Runtime Topology
    - Local/dev/runtime process layout, storage locations, queue/process ownership, environment dependencies, and release boundaries.
 15. Testing and Quality Strategy
@@ -102,7 +102,7 @@ Use these patterns when the source documents support them. They are reusable HLD
 - Observability and Operability should identify the measurements that prove the architecture works, such as processing latency, provider choice, retry counts, failure reasons, external-source freshness, status changes, and notification outcomes.
 - Deployment and Runtime Topology should include release strategy, adapter/provider replacement boundaries, offline/online expectations, and current-versus-later rollout boundaries.
 - Testing and Quality Strategy should tie key risks to verification: validation rules, state transitions, provider failures, retry behavior, privacy boundaries, performance baselines, and manual confirmation flows.
-- Feature Spec Decomposition Guidance should propose implementation priority based on dependency order. Prefer a general order of foundation/setup, intake/input, validation/normalization, persistence/state, orchestration/integration, UI/notification, then advanced management or analysis surfaces; adapt this order to the product and repository evidence.
+- Feature Spec Decomposition Guidance should propose implementation priority based on dependency order. Prefer a general order of foundation/setup, intake/input, validation/normalization, persistence/state, orchestration/integration, UI/notification, then advanced management or analysis surfaces; adapt this order to the product and repository facts.
 - Risks, Tradeoffs, and Open Questions should pair each risk with a mitigation, such as configurable templates/rules, provider fallback, exponential backoff, cached last-known-good data, local-first privacy, or clock/source reconciliation.
 
 ## Quality Bar
@@ -121,7 +121,40 @@ Use these patterns when the source documents support them. They are reusable HLD
 ## Output
 
 - `docs/zh-CN/hld.md` project-level HLD, including the primary page/surface inventory when applicable.
-- Evidence summary listing input files, technology-stack decisions, required-structure coverage, requirement coverage, and unresolved architecture questions.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
+- The `summary` field must briefly state whether the HLD was created, regenerated, blocked, or routed for review, and must name the primary HLD artifact path.
+- The `summary` or `producedArtifacts[].summary` should mention input files, technology-stack decisions, required-structure coverage, requirement coverage, and unresolved architecture questions when relevant.
+
+## Example Skill Invocation Contract
+
+```json
+{
+  "contractVersion": "skill-contract/v1",
+  "executionId": "EXEC-001",
+  "projectId": "my-project",
+  "workspaceRoot": "/workspace/my-project",
+  "operation": "generate_hld",
+  "skillSlug": "create-project-hld",
+  "sourcePaths": [
+    "docs/PRD.md",
+    "docs/requirements.md",
+    "docs/hld.md",
+    "docs/features/README.md"
+  ],
+  "expectedArtifacts": [
+    { "path": "docs/hld.md", "kind": "markdown", "required": true }
+  ],
+  "traceability": {
+    "requirementIds": ["REQ-001"],
+    "changeIds": []
+  },
+  "constraints": {
+    "allowedFiles": [],
+    "risk": "medium"
+  },
+  "requestedAction": "generate_hld"
+}
+```
 
 ## Failure Routing
 

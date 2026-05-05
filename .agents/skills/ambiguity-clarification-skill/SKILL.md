@@ -13,11 +13,11 @@ Use this skill to resolve uncertainty through structured dialogue instead of gue
 - Implementation cannot begin safely without a user decision on a multi-path choice.
 - A review finding exposed an ambiguous requirement that must be resolved before re-implementation.
 
-Do **not** use this skill merely to document uncertainty that was already known—use it when a blocker must be actively resolved by interacting with the user or by reasoning from available evidence.
+Do **not** use this skill merely to document uncertainty that was already known—use it when a blocker must be actively resolved by interacting with the user or by reasoning from available context.
 
 ## Workflow
 
-1. Read the active PRD, requirements, feature spec, design, tasks, and latest evidence.
+1. Read the active PRD, requirements, feature spec, design, tasks, and latest verification or source context.
 2. Identify ambiguity type:
    - **Product intent**: goal, scope, user value, priority, non-goal boundary.
    - **Acceptance criteria**: untestable condition, missing Given/When/Then scenario, immeasurable success metric.

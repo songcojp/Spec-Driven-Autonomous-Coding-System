@@ -1,6 +1,6 @@
 ---
 name: pr-generation-skill
-description: "Prepare commits, push branches, and create pull requests for SpecDrive delivery. Use when a completed feature or task needs a clean commit, PR description, evidence summary, and delivery traceability."
+description: "Prepare commits, push branches, and create pull requests for SpecDrive delivery. Use when a completed feature or task needs a clean commit, PR description, verification summary, and delivery traceability."
 ---
 
 # PR Generation Skill
@@ -13,13 +13,13 @@ Use this skill after implementation, tests, and review have passed.
 2. Stage only files that belong to the feature or task; preserve unrelated user changes.
 3. Use a Conventional Commit message with a narrow scope and traceability when practical.
 4. Push the feature branch to the configured remote.
-5. Create a PR with summary, requirement/feature traceability, verification evidence, risks, and follow-up items.
+5. Create a PR with summary, requirement/feature traceability, verification summary, risks, and follow-up items.
 6. Do not include unrelated user changes.
 
 ## Output
 
 - Commit hash.
-- Branch and PR URL or creation failure evidence.
+- Branch and PR URL or creation failure summary.
 - Verification summary.
 - Delivery notes.
 

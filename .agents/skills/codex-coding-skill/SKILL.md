@@ -13,15 +13,16 @@ Use this skill for implementation tasks after planning and scheduling.
 2. Inspect current files before editing and preserve unrelated user changes.
 3. Implement the smallest change that satisfies the task and local patterns.
 4. Add or update focused tests when behavior, contracts, state, or user-visible UI changes.
-5. Run targeted verification and capture command evidence.
+5. Run targeted verification and capture command results.
 6. Report any deviations, blockers, or required spec evolution.
 
 ## Output
 
 - Code changes within scope.
-- Test or verification evidence.
+- Test or verification summary.
 - Residual risks and follow-up notes.
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, `evidence`, and `traceability` matching the invocation contract.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
+- Put verification command results in `summary`, `producedArtifacts[].summary`, or `result` fields; do not add extra top-level output fields.
 
 ## Failure Routing
 

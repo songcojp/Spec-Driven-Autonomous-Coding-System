@@ -10,17 +10,17 @@ Use this skill for recoverable failures only. Respect retry limits, failure fing
 ## Workflow
 
 1. Read the recovery task input: failure type, failed command, summary, related files, fingerprint, historical attempts, forbidden retry items, and max retries.
-2. Classify the likely root cause from evidence before editing.
+2. Classify the likely root cause from available context before editing.
 3. Choose a recovery action: retry, auto-fix, alternate command, narrow rollback, spec clarification, or manual review.
 4. Do not repeat a forbidden strategy for the same fingerprint.
 5. If auto-fixing, keep edits inside the proposed file scope and run the verification command.
-6. Record the outcome, evidence, and whether retry budget remains.
+6. Record the outcome, verification summary, and whether retry budget remains.
 
 ## Output
 
 - Recovery classification and action.
 - Files changed or command retried.
-- Verification evidence.
+- Verification summary.
 - Updated failure fingerprint notes.
 
 ## Failure Routing

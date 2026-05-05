@@ -17,7 +17,7 @@ Use this skill for bounded read-only exploration.
 
 ## Output
 
-- Evidence-backed repository facts.
+- Source-backed repository facts.
 - Relevant paths and commands.
 - Existing conventions to reuse.
 - Unknowns or risks.

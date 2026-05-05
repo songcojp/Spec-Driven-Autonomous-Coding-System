@@ -1,6 +1,6 @@
 ---
 name: data-model-skill
-description: "Design or validate feature-level data model changes. Use when planning involves persistence, schema migration, state records, view models, events, evidence, audit, or data ownership."
+description: "Design or validate feature-level data model changes. Use when planning involves persistence, schema migration, state records, view models, events, verification summaries, audit, or data ownership."
 ---
 
 # Data Model Skill
@@ -20,7 +20,7 @@ Use this skill in planning when a feature reads, writes, migrates, or presents d
 - Entity and field changes.
 - Migration and compatibility plan.
 - Validation and lifecycle rules.
-- Test and evidence requirements.
+- Test and verification-summary requirements.
 
 ## Failure Routing
 

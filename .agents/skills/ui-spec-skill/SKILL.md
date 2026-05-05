@@ -9,7 +9,7 @@ Use this skill to produce a structured UI Spec document and major-page concept i
 
 ## Generation Contract
 
-The concept images are outputs, not required inputs. Generate text-based SVG concept images so the CLI runner can write them directly to workspace artifacts and audit them through evidence.
+The concept images are outputs, not required inputs. Generate text-based SVG concept images so the CLI runner can write them directly to workspace artifacts and audit them through artifact summaries.
 
 ## Inputs
 
@@ -39,8 +39,8 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
 - `docs/features/<featureId>/ui-spec.md` — structured UI Spec document
 - `docs/ui/ui-spec.md` — project-level structured UI Spec document when no feature is selected
 - `docs/ui/concepts/<page-id>.svg` — generated major-page concept images
-- Evidence summary listing generated pages, generated concept image paths, and REQ coverage
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, `evidence`, and `traceability` matching the invocation contract.
+- Summary listing generated pages, generated concept image paths, and REQ coverage
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
 
 ## Example Skill Invocation Contract
 
