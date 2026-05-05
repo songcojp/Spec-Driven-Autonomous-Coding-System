@@ -1,5 +1,6 @@
 import type { QueueAction, SpecDriveIdeExecutionDetail, SpecDriveIdeQueueItem, SpecDriveIdeView } from "../types";
 import {
+  autoRefreshSwitch,
   commandButton,
   compactJsonBlock,
   emptyState,
@@ -22,6 +23,7 @@ export function renderExecutionWorkbenchWebview(
   view: SpecDriveIdeView | undefined,
   detail: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem | undefined,
   selectedKey?: string,
+  autoRefreshEnabled = false,
 ): string {
   const nonce = webviewNonce();
   const queue = view ? allQueueItems(view) : [];
@@ -34,6 +36,7 @@ export function renderExecutionWorkbenchWebview(
       ${executionPreferenceControls(view)}
       ${autoRunButton(view)}
       ${commandButton("Refresh", "refresh", {})}
+      ${autoRefreshSwitch(autoRefreshEnabled)}
     </section>
     <div id="workbench-status" class="status-text" role="status" aria-live="polite">${escapeHtml(selectedItem ? `Selected job: ${selectedItem.executionId ?? selectedItem.schedulerJobId ?? "unknown"} · ${selectedItem.status}` : "Select a job to enable job actions.")}</div>
     <main class="execution-layout">
@@ -348,6 +351,10 @@ export function currentExecutionItem(view: SpecDriveIdeView): SpecDriveIdeQueueI
     ?? items.find((item) => item.status === "approval_needed")
     ?? items.find((item) => item.status === "queued")
     ?? items[0];
+}
+
+export function runningExecutionItem(view: SpecDriveIdeView): SpecDriveIdeQueueItem | undefined {
+  return allQueueItems(view).find((item) => item.status === "running");
 }
 
 export function executionItemByKey(view: SpecDriveIdeView | undefined, selectedKey: string | undefined): SpecDriveIdeQueueItem | undefined {

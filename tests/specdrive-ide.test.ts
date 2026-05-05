@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
+import { readFileSpecState } from "../src/spec-protocol.ts";
 import {
   buildSpecDriveIdeExecutionDetail,
   buildSpecDriveIdeView,
@@ -1043,6 +1044,56 @@ test("SpecDrive IDE clarification requests enqueue ambiguity clarification skill
   assert.equal(payload.context.clarificationText, "Clarify whether the review gate should block scheduling.");
   assert.equal(payload.context.featureId, "FEAT-016");
   assert.equal(payload.context.targetRequirementId, "REQ-074");
+});
+
+test("SpecDrive IDE pass review command marks review-needed Feature completed", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "review_needed",
+    updatedAt: "2026-05-02T12:00:00.000Z",
+    blockedReasons: [],
+    dependencies: ["FEAT-013"],
+    lastResult: {
+      status: "review_needed",
+      summary: "Implementation needs operator review.",
+      producedArtifacts: [],
+      completedAt: "2026-05-02T12:00:00.000Z",
+    },
+    nextAction: "Review Skill output and resolve the open decision.",
+    history: [],
+  }));
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, priority, folder, primary_requirements_json)
+        VALUES ('FEAT-016', 'project-ide', 'SpecDrive IDE Foundation', 'review_needed', 10, 'feat-016-specdrive-ide-foundation', '["REQ-074"]')`,
+    },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "mark_feature_complete",
+    entityType: "feature",
+    entityId: "FEAT-016",
+    requestedBy: "vscode-extension",
+    reason: "Approve FEAT-016 review from Feature Spec Webview.",
+    payload: { projectId: "project-ide" },
+    now: new Date("2026-05-02T12:15:00.000Z"),
+  });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.featureId, "FEAT-016");
+  const state = readFileSpecState(workspaceRoot, "feat-016-specdrive-ide-foundation", "FEAT-016");
+  assert.equal(state.status, "completed");
+  assert.equal(state.lastResult?.status, "completed");
+  assert.equal(state.history.at(-1)?.source, "feature-review");
+  const row = runSqlite(dbPath, [], [
+    { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-016'" },
+  ]).queries.feature[0];
+  assert.equal(row.status, "completed");
 });
 
 test("SpecDrive IDE queue actions retry failed executions and preserve previous execution linkage", async () => {

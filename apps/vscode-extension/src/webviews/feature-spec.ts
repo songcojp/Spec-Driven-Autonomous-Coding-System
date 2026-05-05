@@ -1,5 +1,6 @@
 import type { SpecDriveIdeFeatureNode, SpecDriveIdeView } from "../types";
 import {
+  autoRefreshSwitch,
   commandButton,
   documentList,
   emptyState,
@@ -11,7 +12,11 @@ import {
   webviewNonce,
 } from "./shared";
 
-export function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, selectedFeatureId: string | undefined): string {
+export function renderFeatureSpecWebview(
+  view: SpecDriveIdeView | undefined,
+  selectedFeatureId: string | undefined,
+  autoRefreshEnabled = false,
+): string {
   const nonce = webviewNonce();
   const features = view?.features ?? [];
   const selected = features.find((feature) => feature.id === selectedFeatureId) ?? preferredFeature(view);
@@ -22,10 +27,12 @@ export function renderFeatureSpecWebview(view: SpecDriveIdeView | undefined, sel
       <button class="view-toggle" data-command="toggleFeatureSpecView" data-view-mode="dependency" aria-pressed="false">Dependency Graph</button>
       ${executionPreferenceControls(view)}
       ${features.length > 0 ? commandButton("Schedule Selected", "scheduleSelectedFeatures", { projectId }) : ""}
+      ${selected ? scheduleFeatureButton("Schedule Current", selected, projectId, "Feature Spec Webview") : ""}
       ${commandButton("New Feature", "openWorkbenchForm", { formMode: "newFeature" })}
       ${commandButton("Refresh", "refresh", {})}
-      ${selected ? scheduleFeatureButton("Schedule Current", selected, projectId, "Feature Spec Webview") : ""}
       ${selected && isClarificationNeededFeature(selected) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: selected.id }) : ""}
+      ${selected && isReviewNeededFeature(selected) ? approveFeatureReviewButton("Pass", selected, projectId, "Feature Spec Webview") : ""}
+      ${autoRefreshSwitch(autoRefreshEnabled)}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
     ${renderWorkbenchInputForm()}
@@ -123,13 +130,13 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, current: boolean): 
     <div class="metric"><span>Next Action</span><strong>${escapeHtml(feature.nextAction ?? "None")}</strong></div>
     <div class="feature-card-actions">
       <label class="feature-select"><input type="checkbox" data-feature-select="${escapeAttr(feature.id)}"> Select</label>
-      <button data-command="selectFeature" data-feature-id="${escapeAttr(feature.id)}">Open</button>
     </div>
   </article>`;
 }
 
 function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: string): string {
-  return `<div class="panel-title"><h2>${escapeHtml(feature.id)}</h2><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></div>
+  const actions = `${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}${isReviewNeededFeature(feature) ? approveFeatureReviewButton("Pass", feature, projectId, "Feature Detail") : ""}`;
+  return `<div class="panel-title selected-title"><div><h2>${escapeHtml(feature.id)}</h2><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></div><div class="title-actions">${actions}</div></div>
     <h3>${escapeHtml(feature.title)}</h3>
     <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
     <div class="row"><span>Latest Run</span><strong>${escapeHtml(feature.latestExecutionId ?? "-")}</strong></div>
@@ -143,8 +150,7 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: strin
     <h3>Blockers</h3>
     ${feature.blockedReasons.length === 0 ? emptyState("No blockers.") : feature.blockedReasons.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")}
     <h3>Traceability</h3>
-    <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>
-    <div class="toolbar">${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}</div>`;
+    <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>`;
 }
 
 function scheduleFeatureButton(label: string, feature: SpecDriveIdeFeatureNode, projectId: string | undefined, source: string): string {
@@ -155,6 +161,17 @@ function scheduleFeatureButton(label: string, feature: SpecDriveIdeFeatureNode, 
     projectId,
     featureId: feature.id,
     reason: `Schedule ${feature.id} from ${source}.`,
+  });
+}
+
+function approveFeatureReviewButton(label: string, feature: SpecDriveIdeFeatureNode, projectId: string | undefined, source: string): string {
+  return commandButton(label, "controlled", {
+    action: "mark_feature_complete",
+    entityType: "feature",
+    entityId: feature.id,
+    projectId,
+    featureId: feature.id,
+    reason: `Approve ${feature.id} review from ${source}.`,
   });
 }
 

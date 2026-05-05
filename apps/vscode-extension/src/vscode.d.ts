@@ -171,6 +171,7 @@ declare module "vscode" {
 
   export interface WebviewPanel extends Disposable {
     webview: Webview;
+    onDidDispose: Event<void>;
   }
 
   export interface TreeDataProvider<T> {

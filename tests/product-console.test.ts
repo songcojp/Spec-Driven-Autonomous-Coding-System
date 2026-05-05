@@ -1007,6 +1007,8 @@ test("schedule_run chooses run mode and provider from job override before projec
   writeFileSync(join(projectPath, "docs", "features", "feat-001-provider", "design.md"), "# Design\n", "utf8");
   writeFileSync(join(projectPath, "docs", "features", "feat-001-provider", "tasks.md"), "# Tasks\n", "utf8");
   runSqlite(dbPath, [
+    { sql: "DELETE FROM execution_records" },
+    { sql: "DELETE FROM scheduler_job_records" },
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
     { sql: "UPDATE features SET folder = 'feat-001-provider', status = 'ready' WHERE id = 'FEAT-013'" },
@@ -1037,6 +1039,19 @@ test("schedule_run chooses run mode and provider from job override before projec
   assert.equal(projectDefault.queries.job[0].job_type, "rpc.run");
   assert.equal(projectDefault.queries.execution[0].executor_type, "rpc");
   assert.equal(JSON.parse(String(projectDefault.queries.job[0].payload_json)).executionPreference.adapterId, "codex-rpc-default");
+  runSqlite(dbPath, [
+    { sql: "UPDATE execution_records SET status = 'completed', completed_at = ? WHERE id = ?", params: [stableDate.toISOString(), projectDefaultReceipt.executionId] },
+    { sql: "UPDATE scheduler_job_records SET status = 'completed' WHERE id = ?", params: [projectDefaultReceipt.schedulerJobId] },
+  ]);
+  writeFileSync(join(projectPath, "docs", "features", "feat-001-provider", "spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-013",
+    status: "ready",
+    updatedAt: stableDate.toISOString(),
+    blockedReasons: [],
+    dependencies: [],
+    history: [],
+  }));
 
   const receipt = submitConsoleCommand(dbPath, {
     action: "schedule_run",
@@ -2181,7 +2196,11 @@ test("console schedule command records scheduler triggers without bypassing boun
   writeFileSync(join(featureDir, "design.md"), "# Design\n", "utf8");
   writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n", "utf8");
   runSqlite(dbPath, [{ sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] }]);
-  runSqlite(dbPath, [{ sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" }]);
+  runSqlite(dbPath, [
+    { sql: "DELETE FROM execution_records" },
+    { sql: "DELETE FROM scheduler_job_records" },
+    { sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" },
+  ]);
 
   const receipt = submitConsoleCommand(dbPath, {
     action: "schedule_run",
@@ -2276,6 +2295,8 @@ test("console schedule command blocks feature execution when Feature Spec direct
   const projectPath = mkdtempSync(join(tmpdir(), "feature-execution-missing-"));
   mkdirSync(join(projectPath, "docs", "features", "feat-013-product-console"), { recursive: true });
   runSqlite(dbPath, [
+    { sql: "DELETE FROM execution_records" },
+    { sql: "DELETE FROM scheduler_job_records" },
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" },
   ]);
@@ -2299,6 +2320,52 @@ test("console schedule command blocks feature execution when Feature Spec direct
   assert.deepEqual(result.queries.jobs, []);
 });
 
+test("console schedule command blocks duplicate active manual Feature execution", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "feature-execution-active-"));
+  const featureDir = join(projectPath, "docs", "features", "feat-013-product-console");
+  mkdirSync(featureDir, { recursive: true });
+  writeFileSync(join(featureDir, "requirements.md"), "# Requirements\n", "utf8");
+  writeFileSync(join(featureDir, "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "DELETE FROM execution_records" },
+    { sql: "DELETE FROM scheduler_job_records" },
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE features SET status = 'ready' WHERE id = 'FEAT-013'" },
+  ]);
+
+  const first = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Schedule feature execution.",
+    payload: { projectId: "project-1", mode: "manual" },
+    now: stableDate,
+  }, { scheduler });
+  const duplicate = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-013",
+    requestedBy: "operator",
+    reason: "Do not duplicate feature execution.",
+    payload: { projectId: "project-1", mode: "manual" },
+    now: stableDate,
+  }, { scheduler });
+  const rows = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT id FROM scheduler_job_records" },
+  ]);
+
+  assert.equal(first.status, "accepted");
+  assert.equal(duplicate.status, "blocked");
+  assert.match(duplicate.blockedReasons?.join("\n") ?? "", /already queued|active execution/);
+  assert.equal(duplicate.schedulerJobId, undefined);
+  assert.equal(rows.queries.jobs.length, 1);
+});
+
 test("console schedule command blocks completed Feature execution", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -2316,6 +2383,8 @@ test("console schedule command blocks completed Feature execution", () => {
     blockedReasons: [],
   }));
   runSqlite(dbPath, [
+    { sql: "DELETE FROM execution_records" },
+    { sql: "DELETE FROM scheduler_job_records" },
     { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
     { sql: "UPDATE features SET status = 'done' WHERE id = 'FEAT-013'" },
   ]);

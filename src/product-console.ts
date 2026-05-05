@@ -79,6 +79,7 @@ export type ConsoleCommandAction =
   | "start_auto_run"
   | "pause_runner"
   | "resume_runner"
+  | "mark_feature_complete"
   | "approve_review"
   | "reject_review"
   | "request_review_changes"
@@ -122,6 +123,7 @@ const CONSOLE_COMMAND_ACTIONS = new Set<ConsoleCommandAction>([
   "start_auto_run",
   "pause_runner",
   "resume_runner",
+  "mark_feature_complete",
   "approve_review",
   "reject_review",
   "request_review_changes",
@@ -2699,6 +2701,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
   const approvalRecord = executeReviewCommand(dbPath, input, acceptedAt);
   const scheduleResult = executeScheduleCommand(dbPath, input, acceptedAt, scheduler);
   const autoRunResult = executeAutoRunCommand(dbPath, input, acceptedAt, scheduler);
+  const featureReviewResult = executeFeatureReviewCommand(dbPath, input, acceptedAt);
   const writeArtifactId = executeConsoleWriteCommand(dbPath, input, acceptedAt);
   const projectInitializationResult = executeProjectInitializationCommand(dbPath, input);
   const specIntakeResult = executeSpecIntakeCommand(dbPath, input, acceptedAt);
@@ -2710,6 +2713,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     ...(projectExecutionPreferenceValidation?.blockedReasons ?? []),
     ...(scheduleResult?.blockedReasons ?? []),
     ...(autoRunResult?.blockedReasons ?? []),
+    ...(featureReviewResult?.blockedReasons ?? []),
     ...(boardResult?.blockedReasons ?? []),
     ...(projectInitializationResult?.blockedReasons ?? []),
     ...(specIntakeResult?.blockedReasons ?? []),
@@ -2728,6 +2732,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
       projectInitialization: projectInitializationResult,
       specIntake: specIntakeResult,
       specSkill: specSkillResult,
+      featureReview: featureReviewResult,
       autoRun: autoRunResult,
       scheduleTriggerId: scheduleResult?.triggerId,
       schedulerJobId: scheduleResult?.schedulerJobId ?? autoRunResult?.schedulerJobId,
@@ -2750,7 +2755,7 @@ export function submitConsoleCommand(dbPath: string, input: ConsoleCommandInput,
     auditEventId,
     acceptedAt,
     approvalRecordId: approvalRecord?.id,
-    featureId: optionalString(specIntakeResult?.featureId),
+    featureId: optionalString(specIntakeResult?.featureId) ?? optionalString(featureReviewResult?.featureId),
     scheduleTriggerId: scheduleResult?.triggerId ?? autoRunResult?.scheduleTriggerId,
     schedulerJobId: scheduleResult?.schedulerJobId ?? specSkillResult?.schedulerJobId ?? autoRunResult?.schedulerJobId,
     schedulerJobIds: boardResult?.schedulerJobIds,
@@ -3006,6 +3011,20 @@ function executeScheduleCommand(
     ? readFileSpecState(workspaceRoot, featureFolder, featureId, new Date(acceptedAt))
     : undefined;
   if (operation === "feature_execution" && skillSlug === "codex-coding-skill") {
+    const conflict = activeManualScheduleConflict(dbPath, {
+      projectId,
+      featureId,
+      taskId,
+      operation,
+      specStateStatus: specState?.status,
+      specStateExecutionId: specState?.currentJob?.executionId,
+      specStateSchedulerJobId: specState?.currentJob?.schedulerJobId,
+      sourceExecutionId: optionalString(payload.sourceExecutionId),
+      sourceSchedulerJobId: optionalString(payload.sourceSchedulerJobId),
+    });
+    if (conflict.length > 0) {
+      return { triggerId: trigger.id, blockedReasons: conflict };
+    }
     if (isCompletedFeatureExecutionTarget(dbPath, projectId, featureId, specState?.status)) {
       return { triggerId: trigger.id, blockedReasons: [`${featureId ?? input.entityId} is already completed and cannot be scheduled again.`] };
     }
@@ -3083,6 +3102,88 @@ function executeScheduleCommand(
     }));
   }
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId };
+}
+
+function activeManualScheduleConflict(
+  dbPath: string,
+  input: {
+    projectId?: string;
+    featureId?: string;
+    taskId?: string;
+    operation: string;
+    specStateStatus?: string;
+    specStateExecutionId?: string;
+    specStateSchedulerJobId?: string;
+    sourceExecutionId?: string;
+    sourceSchedulerJobId?: string;
+  },
+): string[] {
+  const activeSpecState = normalizeScheduleStatus(input.specStateStatus);
+  const sameSpecStateJob = Boolean(
+    (input.sourceExecutionId && input.sourceExecutionId === input.specStateExecutionId)
+    || (input.sourceSchedulerJobId && input.sourceSchedulerJobId === input.specStateSchedulerJobId),
+  );
+  if (!sameSpecStateJob && (activeSpecState === "queued" || activeSpecState === "running" || activeSpecState === "approval needed")) {
+    const id = input.specStateExecutionId ?? input.specStateSchedulerJobId;
+    return [`${input.taskId ?? input.featureId ?? "Target"} is already ${activeSpecState}${id ? ` (${id})` : ""}; cancel, finish, or retry the active run before scheduling again.`];
+  }
+  if (!input.projectId || (!input.featureId && !input.taskId)) return [];
+  const activeStatuses = ["queued", "running", "approval_needed"];
+  const executionRows = runSqlite(dbPath, [], [
+    {
+      name: "executions",
+      sql: `SELECT id, status, context_json
+        FROM execution_records
+        WHERE project_id = ?
+          AND operation = ?
+          AND status IN ('queued', 'running', 'approval_needed')
+        ORDER BY COALESCE(updated_at, started_at, created_at) DESC`,
+      params: [input.projectId, input.operation],
+    },
+  ]).queries.executions;
+  for (const row of executionRows) {
+    if (input.sourceExecutionId && String(row.id) === input.sourceExecutionId) continue;
+    const context = parseJsonObject(row.context_json);
+    if (scheduleTargetMatches(input, optionalString(context.featureId), optionalString(context.taskId))) {
+      return [`${input.taskId ?? input.featureId} already has active execution ${String(row.id)} with status ${String(row.status)}. Cancel, finish, or retry it before scheduling again.`];
+    }
+  }
+
+  const jobRows = runSqlite(dbPath, [], [
+    {
+      name: "jobs",
+      sql: `SELECT sj.id, sj.status, sj.payload_json
+        FROM scheduler_job_records sj
+        LEFT JOIN execution_records er ON er.scheduler_job_id = sj.id
+        WHERE sj.status IN ('queued', 'running', 'approval_needed')
+          AND er.id IS NULL
+        ORDER BY COALESCE(sj.updated_at, sj.created_at) DESC`,
+    },
+  ]).queries.jobs;
+  for (const row of jobRows) {
+    if (input.sourceSchedulerJobId && String(row.id) === input.sourceSchedulerJobId) continue;
+    if (!activeStatuses.includes(String(row.status))) continue;
+    const payload = parseJsonObject(row.payload_json);
+    const payloadContext = parseJsonObject(payload.context);
+    const projectId = optionalString(payload.projectId) ?? optionalString(payloadContext.projectId);
+    const operation = optionalString(payload.operation) ?? optionalString(payload.requestedAction) ?? optionalString(payloadContext.operation) ?? input.operation;
+    if (projectId !== input.projectId || operation !== input.operation) continue;
+    const featureId = optionalString(payload.featureId) ?? optionalString(payloadContext.featureId);
+    const taskId = optionalString(payload.taskId) ?? optionalString(payloadContext.taskId);
+    if (scheduleTargetMatches(input, featureId, taskId)) {
+      return [`${input.taskId ?? input.featureId} already has active scheduler job ${String(row.id)} with status ${String(row.status)}. Cancel, finish, or retry it before scheduling again.`];
+    }
+  }
+  return [];
+}
+
+function scheduleTargetMatches(input: { featureId?: string; taskId?: string }, activeFeatureId?: string, activeTaskId?: string): boolean {
+  if (input.taskId) return activeTaskId === input.taskId || (!activeTaskId && activeFeatureId === input.featureId);
+  return Boolean(input.featureId && activeFeatureId === input.featureId);
+}
+
+function normalizeScheduleStatus(status: string | undefined): string {
+  return (status ?? "").toLowerCase().replaceAll("_", " ").replaceAll("-", " ").trim();
 }
 
 function isCompletedFeatureExecutionTarget(
@@ -3242,6 +3343,82 @@ function executeAutoRunCommand(
     selectionBlockedReasons: selection.blockedReasons,
     automationEnabled: true,
   };
+}
+
+function executeFeatureReviewCommand(
+  dbPath: string,
+  input: ConsoleCommandInput,
+  acceptedAt: string,
+): ({ blockedReasons: string[]; featureId?: string; specStatePath?: string } & Record<string, unknown>) | undefined {
+  if (input.action !== "mark_feature_complete") {
+    return undefined;
+  }
+  if (input.entityType !== "feature") {
+    return { blockedReasons: ["Feature review completion requires a feature entity."] };
+  }
+  const payload = parseJsonObject(input.payload);
+  const featureId = input.entityId.toUpperCase();
+  const projectId = optionalString(payload.projectId);
+  const project = projectId ? getProject(dbPath, projectId) : undefined;
+  const workspaceRoot = scheduleRunWorkspaceRoot(dbPath, projectId, project?.targetRepoPath);
+  if (!workspaceRoot) {
+    return { blockedReasons: ["Feature review completion requires a project workspace root."], featureId };
+  }
+  const featureSpecPath = featureSpecPathForScheduleRun(dbPath, workspaceRoot, featureId);
+  const featureFolder = featureSpecPath?.replace(/^docs\/features\//, "");
+  if (!featureFolder) {
+    return { blockedReasons: [`Feature Spec directory not found for ${featureId}.`], featureId };
+  }
+  const now = new Date(acceptedAt);
+  const current = readFileSpecState(workspaceRoot, featureFolder, featureId, now);
+  if (current.status !== "review_needed") {
+    return {
+      blockedReasons: [`${featureId} is ${current.status}; only review_needed Features can be passed from Review.`],
+      featureId,
+      specStatePath: specStateRelativePath(featureFolder),
+    };
+  }
+  const summary = optionalString(payload.summary) ?? "Operator passed Review Needed Feature; status marked completed.";
+  const lastResult = current.lastResult
+    ? {
+      ...current.lastResult,
+      status: "completed" as const,
+      summary: current.lastResult.summary,
+      completedAt: acceptedAt,
+    }
+    : {
+      status: "completed" as const,
+      summary,
+      producedArtifacts: [],
+      completedAt: acceptedAt,
+    };
+  const nextState = mergeFileSpecState(current, {
+    status: "completed",
+    blockedReasons: [],
+    lastResult,
+    nextAction: "Feature review passed; ready for downstream dependency selection or delivery.",
+    currentJob: current.currentJob ? { ...current.currentJob, completedAt: current.currentJob.completedAt ?? acceptedAt } : undefined,
+  }, {
+    now,
+    source: "feature-review",
+    summary,
+    schedulerJobId: current.currentJob?.schedulerJobId,
+    executionId: current.currentJob?.executionId,
+  });
+  const specStatePath = writeFileSpecState(workspaceRoot, featureFolder, nextState);
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE features SET status = ?, updated_at = ? WHERE id = ? AND (? IS NULL OR project_id = ?)",
+      params: ["completed", acceptedAt, featureId, projectId ?? null, projectId ?? null],
+    },
+    {
+      sql: `UPDATE review_items
+        SET status = 'approved', updated_at = ?
+        WHERE feature_id = ? AND status IN ('review_needed', 'changes_requested', 'rejected')`,
+      params: [acceptedAt, featureId],
+    },
+  ]);
+  return { blockedReasons: [], featureId, specStatePath, status: "completed" };
 }
 
 function resolveExecutionPreference(

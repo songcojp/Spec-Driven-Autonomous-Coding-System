@@ -21,13 +21,14 @@ import type {
   SystemSettingsViewModel,
   UiConceptImage,
 } from "./types";
-import { currentExecutionItem, executionItemByKey, renderExecutionWebview, renderExecutionWorkbenchWebview } from "./webviews/execution";
+import { currentExecutionItem, executionItemByKey, renderExecutionWebview, renderExecutionWorkbenchWebview, runningExecutionItem } from "./webviews/execution";
 import { preferredFeature, preferredFeatureReviewSource, renderFeatureSpecWebview } from "./webviews/feature-spec";
 import { preferredWorkspaceRequestSource, renderSpecWorkspaceWebview } from "./webviews/spec-workspace";
 import { renderSystemSettingsWebview } from "./webviews/system-settings";
 
 let controlPlaneManager: BundledControlPlaneManager | undefined;
 let startupSpecWorkspaceOpened = false;
+const WEBVIEW_AUTO_REFRESH_INTERVAL_MS = 60_000;
 
 export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection("specdrive");
@@ -626,6 +627,7 @@ async function runControlledCommand(input: unknown, provider: SpecExplorerProvid
         workspaceRoot,
         projectName: provider.currentView()?.project?.name ?? workspaceName(workspaceRoot),
       } : {}),
+      ...(projectId ? { projectId } : {}),
       ...((input.action === "pause_runner" || input.action === "resume_runner") && projectId ? {
         projectId,
       } : {}),
@@ -1007,18 +1009,48 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
     retainContextWhenHidden: true,
   });
   let selectedQueueKey: string | undefined;
+  let autoRefreshEnabled = false;
+  let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  let rendering = false;
   const render = async (): Promise<void> => {
-    await provider.refresh();
-    const view = provider.currentView();
-    const selected = executionItemByKey(view, selectedQueueKey);
-    if (selectedQueueKey && !selected) selectedQueueKey = undefined;
-    const current = selected ?? (view ? currentExecutionItem(view) : undefined);
-    const detail = current ? await fetchExecutionDetail(current) : undefined;
-    panel.webview.html = renderExecutionWorkbenchWebview(view, detail, selectedQueueKey);
+    if (rendering) return;
+    rendering = true;
+    try {
+      await provider.refresh();
+      const view = provider.currentView();
+      if (autoRefreshEnabled && view) {
+        selectedQueueKey = queueItemKeyForWorkbench(runningExecutionItem(view)) ?? selectedQueueKey;
+      }
+      const selected = executionItemByKey(view, selectedQueueKey);
+      if (selectedQueueKey && !selected) selectedQueueKey = undefined;
+      const current = selected ?? (view ? currentExecutionItem(view) : undefined);
+      const detail = current ? await fetchExecutionDetail(current) : undefined;
+      panel.webview.html = renderExecutionWorkbenchWebview(view, detail, selectedQueueKey, autoRefreshEnabled);
+    } finally {
+      rendering = false;
+    }
   };
+  const stopAutoRefresh = (): void => {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = undefined;
+  };
+  const startAutoRefresh = (): void => {
+    stopAutoRefresh();
+    autoRefreshTimer = setInterval(() => {
+      void render();
+    }, WEBVIEW_AUTO_REFRESH_INTERVAL_MS);
+  };
+  panel.onDidDispose(stopAutoRefresh);
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "selectQueueItem" && typeof message.entityId === "string") {
       selectedQueueKey = `${message.entityType === "job" ? "job" : "run"}:${message.entityId}`;
+      await render();
+      return;
+    }
+    if (isWorkbenchMessage(message) && message.command === "toggleAutoRefresh") {
+      autoRefreshEnabled = !autoRefreshEnabled;
+      if (autoRefreshEnabled) startAutoRefresh();
+      else stopAutoRefresh();
       await render();
       return;
     }
@@ -1054,20 +1086,46 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
   await render();
 }
 
+function queueItemKeyForWorkbench(item: SpecDriveIdeQueueItem | undefined): string | undefined {
+  const entityId = item?.executionId ?? item?.schedulerJobId;
+  if (!entityId) return undefined;
+  return `${item?.executionId ? "run" : "job"}:${entityId}`;
+}
+
 async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): Promise<void> {
   const panel = vscode.window.createWebviewPanel("specdriveFeatureSpec", "Feature Spec", vscode.ViewColumn.Active, {
     enableScripts: true,
     retainContextWhenHidden: true,
   });
   let selectedFeatureId = isFeatureItem(item) ? item.feature.id : undefined;
+  let autoRefreshEnabled = false;
+  let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  let rendering = false;
   const render = async (): Promise<void> => {
-    await provider.refresh();
-    const view = provider.currentView();
-    if (!selectedFeatureId || !view?.features.some((feature) => feature.id === selectedFeatureId)) {
-      selectedFeatureId = preferredFeature(view)?.id;
+    if (rendering) return;
+    rendering = true;
+    try {
+      await provider.refresh();
+      const view = provider.currentView();
+      if (!selectedFeatureId || !view?.features.some((feature) => feature.id === selectedFeatureId)) {
+        selectedFeatureId = preferredFeature(view)?.id;
+      }
+      panel.webview.html = renderFeatureSpecWebview(view, selectedFeatureId, autoRefreshEnabled);
+    } finally {
+      rendering = false;
     }
-    panel.webview.html = renderFeatureSpecWebview(view, selectedFeatureId);
   };
+  const stopAutoRefresh = (): void => {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = undefined;
+  };
+  const startAutoRefresh = (): void => {
+    stopAutoRefresh();
+    autoRefreshTimer = setInterval(() => {
+      void render();
+    }, WEBVIEW_AUTO_REFRESH_INTERVAL_MS);
+  };
+  panel.onDidDispose(stopAutoRefresh);
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "selectFeature" && typeof message.featureId === "string") {
       selectedFeatureId = message.featureId;
@@ -1087,6 +1145,13 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
     }
     if (isWorkbenchMessage(message) && message.command === "scheduleFeatures") {
       await scheduleFeatureSelection(message, provider);
+      await render();
+      return;
+    }
+    if (isWorkbenchMessage(message) && message.command === "toggleAutoRefresh") {
+      autoRefreshEnabled = !autoRefreshEnabled;
+      if (autoRefreshEnabled) startAutoRefresh();
+      else stopAutoRefresh();
       await render();
       return;
     }

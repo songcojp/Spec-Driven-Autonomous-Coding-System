@@ -1625,6 +1625,8 @@ function queueScheduleCommand(command: IdeQueueCommandV1, acceptedAt: string, ta
       requestedAction: optionalString(payload.requestedAction) ?? target.operation,
       workspaceRoot: command.workspaceRoot ?? optionalString(payload.workspaceRoot),
       ideQueueAction: command.queueAction,
+      sourceSchedulerJobId: target.schedulerJobId ?? command.entityId,
+      sourceExecutionId: target.executionId,
     },
     now: new Date(acceptedAt),
   };
