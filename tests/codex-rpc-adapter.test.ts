@@ -27,6 +27,7 @@ test("Codex RPC request sequence initializes, starts a thread, and starts a sche
   });
 
   assert.equal(sequence.initialize.method, "initialize");
+  assert.deepEqual(sequence.initialize.params.capabilities, { experimentalApi: true });
   assert.equal(sequence.initialized.method, "initialized");
   assert.equal(sequence.thread.method, "thread/start");
   assert.deepEqual(sequence.thread.params, { cwd: "/repo" });
@@ -184,6 +185,8 @@ test("Codex RPC session runs initialize, thread, turn, and collects terminal eve
   });
 
   assert.deepEqual(calls.map((call) => call.method), ["initialize", "initialized", "thread/start", "turn/start"]);
+  assert.deepEqual(calls[0].params?.capabilities, { experimentalApi: true });
+  assert.equal((calls[2].params as { experimentalRawEvents?: boolean }).experimentalRawEvents, true);
   assert.equal((calls[3].params as { threadId?: string }).threadId, "thread-created");
   assert.equal(result.session.sessionId, "thread-created");
   assert.equal(result.rawLog.stdout, "working");

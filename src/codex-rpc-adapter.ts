@@ -269,6 +269,9 @@ export function buildCodexAppServerRequestSequence(input: CodexAppServerRequestS
       method: "initialize",
       params: {
         clientInfo: input.clientInfo ?? { name: "SpecDrive AutoBuild", version: "0.1.0" },
+        capabilities: {
+          experimentalApi: true,
+        },
       },
     },
     initialized: {
@@ -303,6 +306,9 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
   const startedAt = input.startedAt ?? (input.now ?? new Date()).toISOString();
   await input.transport.request("initialize", {
     clientInfo: { name: "SpecDrive AutoBuild", version: "0.1.0" },
+    capabilities: {
+      experimentalApi: true,
+    },
   });
   await input.transport.notify("initialized", {});
 
