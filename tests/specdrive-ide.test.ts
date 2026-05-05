@@ -528,6 +528,86 @@ test("SpecDrive IDE keeps completed Feature projection after later cancelled sch
   assert.equal(feature?.latestExecutionStatus, "completed");
 });
 
+test("SpecDrive IDE completed Feature prefers completed execution across mixed timestamp formats", () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "completed",
+    updatedAt: "2026-05-05T18:21:42.576Z",
+    blockedReasons: [],
+    dependencies: [],
+    nextAction: "Feature complete.",
+    history: [],
+  }));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-COMPLETED-MIXED', 'bull-completed-mixed', 'specdrive:execution-adapter', 'cli.run', 'completed', '{}', '2026-05-05 18:21:42')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, updated_at, summary, metadata_json)
+        VALUES ('RUN-COMPLETED-MIXED', 'JOB-COMPLETED-MIXED', 'codex.cli', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05 18:21:00', '2026-05-05 18:21:42', '2026-05-05 18:21:42', 'Completed with SQLite timestamp format.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-016" })],
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-CANCELLED-ISO', 'bull-cancelled-iso', 'specdrive:execution-adapter', 'rpc.run', 'cancelled', '{}', '2026-05-05T18:10:49.943Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, updated_at, summary, metadata_json)
+        VALUES ('RUN-CANCELLED-ISO', 'JOB-CANCELLED-ISO', 'codex.rpc', 'feature_execution', 'project-ide', ?, 'cancelled', '2026-05-05T18:10:00.000Z', '2026-05-05T18:10:49.943Z', '2026-05-05T18:10:49.943Z', 'Cancelled older duplicate.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-016" })],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+
+  assert.equal(feature?.status, "completed");
+  assert.equal(feature?.latestExecutionId, "RUN-COMPLETED-MIXED");
+  assert.equal(feature?.latestExecutionStatus, "completed");
+});
+
+test("SpecDrive IDE ready Feature does not project stale completed execution as current", () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "ready",
+    currentJob: null,
+    updatedAt: "2026-05-05T18:16:06.781Z",
+    blockedReasons: [],
+    dependencies: [],
+    nextAction: "Ready for scheduler selection.",
+    history: [],
+  }));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-OLD-COMPLETED', 'bull-old-completed', 'specdrive:execution-adapter', 'cli.run', 'completed', '{}', '2026-05-05T18:09:03.307Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, updated_at, summary, metadata_json)
+        VALUES ('RUN-OLD-COMPLETED', 'JOB-OLD-COMPLETED', 'codex.cli', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05T18:00:00.000Z', '2026-05-05T18:09:03.307Z', '2026-05-05T18:09:03.307Z', 'Previously completed before operator reset.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-016" })],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+
+  assert.equal(feature?.status, "ready");
+  assert.equal(feature?.latestExecutionId, undefined);
+  assert.equal(feature?.latestExecutionStatus, undefined);
+});
+
 test("parseFeatureTasksMarkdown supports checkbox and status block task formats", () => {
   const tasks = parseFeatureTasksMarkdown([
     "- [x] TASK-001: Completed checkbox task",

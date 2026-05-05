@@ -1340,13 +1340,20 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
       ];
       const status = resolveFeatureNodeStatus(optionalString(state.status), indexEntry?.status, documents, taskProjection);
       const stateCurrentJob = isRecord(state.currentJob) ? state.currentJob : undefined;
+      const executionClearedBySpecState = Object.prototype.hasOwnProperty.call(state, "currentJob") && state.currentJob === null;
       const stateExecutionId = optionalString(stateCurrentJob?.executionId);
+      const completedFeature = isCompletedFeatureStatus(status);
+      const latestExecutionForProjection = completedFeature
+        ? latestExecution?.latestCompleted ?? latestExecution?.latest
+        : executionClearedBySpecState && latestExecution?.latest?.status === "completed"
+          ? undefined
+          : latestExecution?.latest;
       const latestExecutionStatus = isCompletedFeatureStatus(status)
         ? "completed"
-        : latestExecution?.status;
-      const latestExecutionId = isCompletedFeatureStatus(status)
-        ? stateExecutionId ?? latestExecution?.executionId
-        : latestExecution?.executionId;
+        : latestExecutionForProjection?.status;
+      const latestExecutionId = completedFeature
+        ? stateExecutionId ?? latestExecutionForProjection?.executionId
+        : latestExecutionForProjection?.executionId;
       return {
         id: featureId,
         folder,
@@ -1512,24 +1519,34 @@ export function parseFeatureTasksMarkdown(content: string): SpecDriveIdeTaskProj
   return tasks;
 }
 
-function readLatestExecutionsByFeature(dbPath: string, projectId?: string): Map<string, { executionId: string; status: string }> {
+function readLatestExecutionsByFeature(
+  dbPath: string,
+  projectId?: string,
+): Map<string, { latest?: { executionId: string; status: string }; latestCompleted?: { executionId: string; status: string } }> {
   const result = runSqlite(dbPath, [], [
     {
       name: "executions",
       sql: `SELECT id, status, context_json
         FROM execution_records
         ${projectId ? "WHERE project_id = ?" : ""}
-        ORDER BY COALESCE(started_at, created_at) DESC`,
+        ORDER BY unixepoch(replace(substr(COALESCE(updated_at, completed_at, started_at, created_at), 1, 19), 'T', ' ')) DESC, rowid DESC`,
       params: projectId ? [projectId] : [],
     },
   ]);
-  const latest = new Map<string, { executionId: string; status: string }>();
+  const latest = new Map<string, { latest?: { executionId: string; status: string }; latestCompleted?: { executionId: string; status: string } }>();
   for (const row of result.queries.executions) {
     const context = parseJsonObject(optionalString(row.context_json));
     const featureId = optionalString(context.featureId);
-    if (featureId && !latest.has(featureId)) {
-      latest.set(featureId, { executionId: String(row.id), status: String(row.status) });
+    if (!featureId) continue;
+    const existing = latest.get(featureId) ?? {};
+    const execution = { executionId: String(row.id), status: String(row.status) };
+    if (!existing.latest) {
+      existing.latest = execution;
     }
+    if (!existing.latestCompleted && String(row.status) === "completed") {
+      existing.latestCompleted = execution;
+    }
+    latest.set(featureId, existing);
   }
   return latest;
 }

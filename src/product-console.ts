@@ -3557,7 +3557,7 @@ function resolveFeatureCompletionExecutionTarget(
       sql: `SELECT id, scheduler_job_id, context_json, metadata_json
         FROM execution_records
         WHERE operation = 'feature_execution' ${input.projectId ? "AND project_id = ?" : ""}
-        ORDER BY COALESCE(updated_at, completed_at, started_at, created_at) DESC, rowid DESC`,
+        ORDER BY unixepoch(replace(substr(COALESCE(updated_at, completed_at, started_at, created_at), 1, 19), 'T', ' ')) DESC, rowid DESC`,
       params: input.projectId ? [input.projectId] : [],
     },
   ]);
