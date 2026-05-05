@@ -40,7 +40,7 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
 - `docs/ui/ui-spec.md` — project-level structured UI Spec document when no feature is selected
 - `docs/ui/concepts/<page-id>.svg` — generated major-page concept images
 - Summary listing generated pages, generated concept image paths, and REQ coverage
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability`; echo invocation-owned traceability fields and manage any `changeIds` from the source documents.
 
 ## Output Contract
 

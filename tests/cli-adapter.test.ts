@@ -48,7 +48,7 @@ function skillInvocationContract(overrides: Partial<{
   featureId: string;
   taskId: string;
   requirementIds: string[];
-  changeIds: string[];
+  changeIds?: string[];
   requestedAction: string;
 }> = {}) {
   return {
@@ -65,7 +65,7 @@ function skillInvocationContract(overrides: Partial<{
       featureId: overrides.featureId,
       taskId: overrides.taskId,
       requirementIds: overrides.requirementIds ?? [],
-      changeIds: overrides.changeIds ?? ["CHG-016"],
+      ...(overrides.changeIds ? { changeIds: overrides.changeIds } : {}),
     },
     constraints: {
       allowedFiles: [],
@@ -319,6 +319,12 @@ test("SkillOutputContract validation requires common fields but allows skill-spe
   });
   assert.equal(traceabilityMismatch.valid, false);
   assert.match(traceabilityMismatch.reasons.join("\n"), /traceability\.featureId mismatch/);
+
+  const skillManagedChangeIds = validateSkillOutputContract(invocation, {
+    ...valid,
+    traceability: { ...valid.traceability, changeIds: ["CHG-SKILL-MANAGED"] },
+  });
+  assert.equal(skillManagedChangeIds.valid, true);
 
   const missingArtifact = validateSkillOutputContract(invocation, { ...valid, producedArtifacts: [] });
   assert.equal(missingArtifact.valid, false);

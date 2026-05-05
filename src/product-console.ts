@@ -3366,7 +3366,6 @@ function executeSpecSkillCommand(
     requestedAction: input.action,
     traceability: {
       requirementIds: optionalStringArray(payload.requirementIds),
-      changeIds: input.action === "generate_hld" ? [] : ["CHG-016"],
     },
   });
   persistExecutionRecord(dbPath, {

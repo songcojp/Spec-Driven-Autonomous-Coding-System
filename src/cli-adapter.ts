@@ -292,7 +292,7 @@ export type SkillTraceabilityContract = {
   featureId?: string;
   taskId?: string;
   requirementIds: string[];
-  changeIds: string[];
+  changeIds?: string[];
 };
 
 export type SkillInvocationConstraints = {
@@ -841,7 +841,8 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
     "- Treat AGENTS.md and the referenced source paths as governing context.",
     "- If the prompt includes a Workspace Context Bundle, use it as already-read workspace context; do not block solely because shell-based file reads fail.",
     "- Return exactly one JSON object matching SkillOutputContractV1.",
-    "- The output contract must echo contractVersion, executionId, skillSlug, requestedAction, and traceability from the Skill Invocation Contract.",
+    "- The output contract must echo contractVersion, executionId, skillSlug, requestedAction, and invocation-owned traceability fields from the Skill Invocation Contract.",
+    "- Do not expect changeIds in the Skill Invocation Contract. If change IDs apply, derive and maintain them from the skill's source documents and return them in output traceability.",
     "- When specState is present, treat it as the machine-readable Feature state. Return status and result fields that allow the scheduler to patch docs/features/<feature-id>/spec-state.json.",
     "- Produce the expected artifacts and list every produced or intentionally unchanged artifact in producedArtifacts.",
     "- Prefer writing expected artifacts directly to the workspace paths named in the contract.",
@@ -1079,8 +1080,8 @@ function parseTraceabilityContract(value: unknown): SkillTraceabilityContract | 
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   const requirementIds = Array.isArray(record.requirementIds) ? record.requirementIds.filter((item): item is string => typeof item === "string") : undefined;
-  const changeIds = Array.isArray(record.changeIds) ? record.changeIds.filter((item): item is string => typeof item === "string") : undefined;
-  if (!requirementIds || !changeIds) return undefined;
+  const changeIds = Array.isArray(record.changeIds) ? record.changeIds.filter((item): item is string => typeof item === "string") : [];
+  if (!requirementIds) return undefined;
   return {
     featureId: typeof record.featureId === "string" ? record.featureId : undefined,
     taskId: typeof record.taskId === "string" ? record.taskId : undefined,
@@ -1125,9 +1126,6 @@ export function validateSkillOutputContract(invocation: SkillInvocationContract 
   if (output.traceability.taskId !== invocation.traceability.taskId) reasons.push("Skill output traceability.taskId mismatch.");
   if (!sameStringSet(output.traceability.requirementIds, invocation.traceability.requirementIds)) {
     reasons.push("Skill output traceability.requirementIds mismatch.");
-  }
-  if (!sameStringSet(output.traceability.changeIds, invocation.traceability.changeIds)) {
-    reasons.push("Skill output traceability.changeIds mismatch.");
   }
   for (const artifact of invocation.expectedArtifacts.filter((entry) => entry.required && isMaterializedSpecArtifact(entry.path))) {
     const produced = output.producedArtifacts.find((entry) => entry.path === artifact.path && entry.status !== "missing" && entry.status !== "skipped");

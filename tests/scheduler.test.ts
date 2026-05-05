@@ -169,6 +169,7 @@ test("cli.run passes clarification operator input into the skill invocation prom
       executionId: "RUN-CLARIFICATION",
       operation: "resolve_clarification",
       requestedAction: "resolve_clarification",
+      traceability: { requirementIds: [] },
       context: {
         sourcePaths: ["docs/zh-CN/requirements.md"],
         expectedArtifacts: ["docs/zh-CN/requirements.md"],
@@ -215,6 +216,7 @@ test("cli.run uses danger-full-access for trusted direct-write runs with bounded
       executionId: "RUN-EARS-DIRECT",
       operation: "generate_ears",
       requestedAction: "generate_ears",
+      traceability: { requirementIds: [] },
       context: {
         skillSlug: "pr-ears-requirement-decomposition-skill",
         skillPhase: "generate_ears",
@@ -274,6 +276,33 @@ test("cli.run uses development sandbox defaults when allowed file scope is missi
   assert.equal(result.status, "completed");
   assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
   assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
+});
+
+test("cli.run does not include change ids in the skill invocation contract", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+
+  const result = await runCliRunJob(
+    dbPath,
+    {
+      ...cliRunPayload("RUN-NO-CHANGE-ID"),
+      traceability: { requirementIds: [] },
+    },
+    () => ({
+      status: 0,
+      stdout: `{"type":"session","session_id":"SESSION-NO-CHANGE-ID"}\n${skillOutputEvent("RUN-NO-CHANGE-ID", { changeIds: [] })}`,
+      stderr: "",
+    }),
+  );
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT metadata_json FROM execution_records WHERE id = 'RUN-NO-CHANGE-ID'" },
+  ]).queries.run;
+  const metadata = JSON.parse(String(rows[0].metadata_json));
+
+  assert.equal(result.status, "completed");
+  assert.equal(Object.prototype.hasOwnProperty.call(metadata.skillInvocationContract.traceability, "changeIds"), false);
 });
 
 test("cli.run blocks when target project workspace is missing or lacks workspace skills", async () => {
@@ -700,6 +729,7 @@ function cliRunPayload(executionId: string) {
     projectId: "project-1",
     executionId,
     operation: "feature_execution",
+    traceability: { requirementIds: [] },
     context: {
       featureId: "FEAT-CLI",
       taskId: "TASK-CLI",
@@ -712,6 +742,7 @@ function skillOutputEvent(executionId: string, overrides: {
   skillSlug?: string;
   requestedAction?: string;
   producedArtifacts?: Array<{ path: string; kind: string; status: string }>;
+  changeIds?: string[];
 } = {}): string {
   const output = {
     contractVersion: "skill-contract/v1",
@@ -726,7 +757,7 @@ function skillOutputEvent(executionId: string, overrides: {
       featureId: overrides.skillSlug ? undefined : "FEAT-CLI",
       taskId: overrides.skillSlug ? undefined : "TASK-CLI",
       requirementIds: [],
-      changeIds: ["CHG-016"],
+      changeIds: overrides.changeIds ?? ["CHG-016"],
     },
     result: {},
   };

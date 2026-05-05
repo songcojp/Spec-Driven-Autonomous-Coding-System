@@ -95,7 +95,6 @@ export type ExecutorRunJobPayload = {
   requestedAction?: string;
   traceability?: {
     requirementIds?: string[];
-    changeIds?: string[];
   };
 };
 
@@ -1586,7 +1585,6 @@ function buildCliSkillInvocation(input: {
       featureId: input.featureId,
       taskId: input.taskId,
       requirementIds: input.payload.traceability?.requirementIds ?? input.requirementIds ?? [],
-      changeIds: input.payload.traceability?.changeIds ?? ["CHG-016"],
     },
     constraints: {
       allowedFiles: input.allowedFiles,

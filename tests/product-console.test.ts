@@ -1281,11 +1281,16 @@ test("spec workspace records EARS generation as a CLI skill run instead of direc
     payload: { sourcePath: "docs/zh-CN/PRD.md" },
     now: new Date("2026-04-28T12:03:00.000Z"),
   }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "jobs", sql: "SELECT payload_json FROM scheduler_job_records WHERE job_type = 'cli.run' ORDER BY rowid DESC LIMIT 1" },
+  ]);
+  const payload = JSON.parse(String(result.queries.jobs[0].payload_json));
   const workspace = buildSpecWorkspaceView(dbPath, undefined, "project-1");
   const runner = buildRunnerConsoleView(dbPath, new Date("2026-04-28T12:03:01.000Z"), "project-1");
 
   assert.equal(receipt.status, "accepted");
   assert.equal(receipt.featureId, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload.traceability, "changeIds"), false);
   const skillInvocation = runner.skillInvocations.find((entry) => entry.runId === receipt.executionId);
   assert.equal(skillInvocation?.skillSlug, "pr-ears-requirement-decomposition-skill");
   assert.equal(workspace.features.some((feature) => feature.id.startsWith("FEAT-INTAKE-")), false);
@@ -1319,7 +1324,7 @@ test("generate HLD dispatches the project HLD skill and writes hld.md", () => {
   assert.equal(payload.requestedAction, "generate_hld");
   assert.deepEqual(payload.context.expectedArtifacts, ["docs/hld.md"]);
   assert.equal(payload.context.expectedArtifacts.includes("docs/design.md"), false);
-  assert.deepEqual(payload.traceability.changeIds, []);
+  assert.equal(Object.prototype.hasOwnProperty.call(payload.traceability, "changeIds"), false);
   assert.equal(JSON.parse(String(result.queries.executions[0].context_json)).featureId, undefined);
   assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "create-project-hld");
   assert.equal(runner.schedulerJobs.find((job) => job.executionId === receipt.executionId)?.name, "Generate project HLD");
