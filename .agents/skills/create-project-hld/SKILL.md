@@ -11,11 +11,13 @@ Use this skill to create or regenerate the project-level High Level Design. This
 
 Read the available project-level sources:
 
-1. `docs/zh-CN/PRD.md`
-2. `docs/zh-CN/requirements.md`
-3. `docs/zh-CN/hld.md` when it already exists
+1. `docs/PRD.md`
+2. `docs/requirements.md`
+3. `docs/hld.md` when it already exists
 4. `docs/features/README.md` when feature boundaries already exist
 5. Repository facts needed to confirm technology stack and runtime boundaries
+
+Use localized project-level sources such as `docs/en/*`, `docs/zh-CN/*`, or `docs/ja/*` only when the project explicitly declares multilingual documentation or the invocation provides localized source paths.
 
 ## Workflow
 
@@ -24,7 +26,7 @@ Read the available project-level sources:
 3. Preserve project-level architecture boundaries: subsystems, data domains, integration strategy, workflows, security, observability, deployment, testing strategy, and feature decomposition guidance.
 4. Keep feature-specific implementation details out of the project HLD. Route feature API fields, component internals, and task-level details to feature specs instead.
 5. Reconcile stale `design.md` content only when it is consistent with PRD, requirements, and the current HLD direction.
-6. Write the output to `docs/zh-CN/hld.md` unless the invocation explicitly provides another HLD path.
+6. Write the output to `docs/hld.md` unless the invocation explicitly provides another HLD path or localized lane.
 7. When creating a new HLD, initialize the document header with a document version such as `版本：V1.0`; do not invent or copy a `CHG-*` change identifier as the initial document identity. Use `CHG-*` only when the invocation explicitly includes a real spec-evolution change ID for an existing change.
 
 ## Required HLD Structure
@@ -120,7 +122,7 @@ Use these patterns when the source documents support them. They are reusable HLD
 
 ## Output
 
-- `docs/zh-CN/hld.md` project-level HLD, including the primary page/surface inventory when applicable.
+- `docs/hld.md` project-level HLD, including the primary page/surface inventory when applicable. Use `docs/<language>/hld.md` only for explicitly multilingual projects or localized invocations.
 - Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability` matching the invocation contract.
 - The `summary` field must briefly state whether the HLD was created, regenerated, blocked, or routed for review, and must name the primary HLD artifact path.
 - The `summary` or `producedArtifacts[].summary` should mention input files, technology-stack decisions, required-structure coverage, requirement coverage, and unresolved architecture questions when relevant.

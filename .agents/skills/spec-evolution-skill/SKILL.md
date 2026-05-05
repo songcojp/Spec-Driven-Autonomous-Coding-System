@@ -5,7 +5,7 @@ description: "Manage requirement changes and spec evolution caused by user decis
 
 # Spec Evolution Skill
 
-Before editing, follow the governance checklist in `docs/zh-CN/change-management.md` when it exists. This skill is the design-named entry point for source-driven requirement and spec changes.
+Before editing, follow the governance checklist in `docs/change-management.md` when it exists; for explicitly multilingual projects, use the localized checklist matching the active lane, such as `docs/zh-CN/change-management.md`. This skill is the design-named entry point for source-driven requirement and spec changes.
 
 ## When to Use This Skill vs. `requirement-intake-skill`
 
@@ -24,7 +24,7 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
 
 ## Workflow
 
-1. Identify the changed requirement and its current source of truth. If no path is given, inspect `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md`.
+1. Identify the changed requirement and its current source of truth. If no path is given, inspect root project docs first: `docs/PRD.md`, `docs/requirements.md`, `docs/hld.md`, `docs/design.md`, and `docs/features/README.md`. Use localized lanes such as `docs/en/*`, `docs/zh-CN/*`, or `docs/ja/*` only when the project explicitly declares multilingual documentation or the invocation provides localized paths.
 2. Identify the source reference: implementation result, test failure, review finding, delivery report, approval decision, repository fact, or user instruction.
 3. Classify the change:
    - `MAJOR`: product goal, core boundary, architecture direction, delivery model, or compatibility contract changes.

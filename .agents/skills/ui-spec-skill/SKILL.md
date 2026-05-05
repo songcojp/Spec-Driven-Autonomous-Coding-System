@@ -21,7 +21,7 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
 
 ## Workflow
 
-1. Read the project PRD (`docs/zh-CN/PRD.md`), EARS requirements (`docs/zh-CN/requirements.md`), HLD (`docs/zh-CN/hld.md`), and feature index (`docs/features/README.md`) to understand product scope, primary pages, requirements, and architecture boundaries.
+1. Read the project PRD (`docs/PRD.md`), EARS requirements (`docs/requirements.md`), HLD (`docs/hld.md`), and feature index (`docs/features/README.md`) to understand product scope, primary pages, requirements, and architecture boundaries. Use localized sources such as `docs/en/*`, `docs/zh-CN/*`, or `docs/ja/*` only when the project explicitly declares multilingual documentation or the invocation provides localized source paths.
 2. Derive the major page inventory from PRD user flows, requirements, HLD page list, and feature ownership. Do not invent pages that have no requirement or HLD support.
 3. Produce the UI Spec document covering:
    - **Page inventory**: list of all pages/views with purpose, route, and owning feature
@@ -53,9 +53,9 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
   "operation": "generate_ui_spec",
   "skillSlug": "ui-spec-skill",
   "sourcePaths": [
-    "docs/zh-CN/PRD.md",
-    "docs/zh-CN/requirements.md",
-    "docs/zh-CN/hld.md",
+    "docs/PRD.md",
+    "docs/requirements.md",
+    "docs/hld.md",
     "docs/features/README.md"
   ],
   "expectedArtifacts": [

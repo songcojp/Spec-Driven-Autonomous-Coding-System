@@ -9,7 +9,7 @@ This is the design-named PRD-to-EARS conversion entry point.
 
 ## Workflow
 
-1. Locate the source PRD, product request, PR/RP, or feature brief. If no path is given, prefer the active localized lane first: `docs/zh-CN/PRD.md`, then `docs/en/PRD.md`, `docs/ja/PRD.md`, and only then legacy root files such as `docs/PRD.md`.
+1. Locate the source PRD, product request, PR/RP, or feature brief. If no path is given, prefer root project docs first: `docs/PRD.md`, then `docs/requirements.md` when the PRD has already been decomposed. Only use localized lanes such as `docs/en/PRD.md`, `docs/zh-CN/PRD.md`, or `docs/ja/PRD.md` when the project explicitly declares multilingual documentation (for example `docs/README.md` lists languages/default language) or the invocation provides a localized source path.
 2. Preserve the source language unless the user asks for another language.
 3. Extract product goals, non-goals, actors, user stories, functional requirements, non-functional requirements, risks, constraints, and unresolved questions. Ensure Project Initialization (项目初始化) is extracted as a distinct baseline requirement.
 4. **Extract and prioritize user stories** before converting to EARS statements:
@@ -26,7 +26,7 @@ This is the design-named PRD-to-EARS conversion entry point.
 6. Keep each requirement atomic, observable, testable, and free of implementation choices unless the source states a hard constraint.
 7. Add traceability back to PRD sections or source bullets when possible.
 8. Surface gaps as open questions instead of inventing product intent.
-9. Write only the EARS requirements output directly to the requested file using normal file-edit/write tools. If the user does not specify a target, create or update `docs/zh-CN/requirements.md` for project-level Chinese PRD intake, or `requirements.md` near the explicitly selected non-Chinese PRD / relevant feature spec folder.
+9. Write only the EARS requirements output directly to the requested file using normal file-edit/write tools. If the user does not specify a target, create or update `docs/requirements.md`. Write to a localized `docs/<language>/requirements.md` only when the project explicitly declares multilingual documentation or the invocation explicitly requests that localized lane.
 10. Do not split product scope into Feature Specs, create `docs/features/<feature-id>/` packages, update `docs/features/README.md`, or push anything into the Feature Spec Pool. Feature splitting belongs to `task-slicing-skill`.
 11. Treat `ARTIFACT: <relative-path>` fallback content as a last-resort only when direct file writes fail; do not use ARTIFACT output as the normal path.
 

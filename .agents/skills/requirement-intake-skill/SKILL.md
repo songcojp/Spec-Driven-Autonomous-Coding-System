@@ -5,7 +5,7 @@ description: "Intake and add new product requirements into the SpecDrive documen
 
 # Requirement Intake Skill
 
-Before editing, follow the governance checklist in `docs/zh-CN/change-management.md` when it exists. This skill is the design-named requirement intake entry point and owns new requirement propagation.
+Before editing, follow the governance checklist in `docs/change-management.md` when it exists; for explicitly multilingual projects, use the localized checklist matching the active lane, such as `docs/zh-CN/change-management.md`. This skill is the design-named requirement intake entry point and owns new requirement propagation.
 
 ## When to Use This Skill vs. `spec-evolution-skill`
 
@@ -24,7 +24,7 @@ Before editing, follow the governance checklist in `docs/zh-CN/change-management
 
 ## Workflow
 
-1. Locate the active source lane. If the user does not provide paths, prefer `docs/zh-CN/PRD.md`, `docs/zh-CN/requirements.md`, `docs/zh-CN/hld.md`, `docs/zh-CN/design.md`, and `docs/features/README.md` in this repo.
+1. Locate the active source lane. If the user does not provide paths, prefer root project docs: `docs/PRD.md`, `docs/requirements.md`, `docs/hld.md`, `docs/design.md`, and `docs/features/README.md`. Use localized lanes such as `docs/en/*`, `docs/zh-CN/*`, or `docs/ja/*` only when the project explicitly declares multilingual documentation or the invocation provides localized paths.
 2. Classify the source: user request, PRD change, review finding, test result, delivery report, or implementation result.
 3. Determine whether the intake is a new requirement, a change to an existing requirement, or a clarification. Use `spec-evolution-skill` for changes to existing requirements.
 4. Classify the new requirement:
