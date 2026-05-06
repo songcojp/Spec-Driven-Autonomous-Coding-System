@@ -56,8 +56,8 @@ export const BULLMQ_EXECUTION_ADAPTER_QUEUE = "specdrive-execution-adapter";
 export const CLI_RUNNER_QUEUE = EXECUTION_ADAPTER_QUEUE;
 export const BULLMQ_CLI_RUNNER_QUEUE = BULLMQ_EXECUTION_ADAPTER_QUEUE;
 export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
-const MAX_CONTEXT_FILE_BYTES = 120_000;
-const MAX_CONTEXT_BUNDLE_BYTES = 360_000;
+const MAX_CONTEXT_INLINE_FILE_BYTES = 4_096;
+const MAX_CONTEXT_INLINE_BUNDLE_BYTES = 12_000;
 
 export type SchedulerJobType = "cli.run" | "rpc.run" | "codex.rpc.run" | "codex.app_server.run" | "native.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "approval_needed" | "blocked" | "failed";
@@ -1447,13 +1447,13 @@ function buildWorkspaceContextBundle(workspaceRoot: string, contract: SkillInvoc
   ]);
   const sections: string[] = [
     "Workspace Context Bundle:",
-    "The scheduler pre-read these workspace-local files before invoking the CLI. If shell commands fail in the child runner, use this bundle as governing workspace context and still produce the expected artifacts.",
+    "The scheduler pre-checked these workspace-local files before invoking the CLI. Read the referenced files from the workspace when full content is needed; only small files are inlined here to keep provider prompts compact.",
   ];
-  let remainingBytes = MAX_CONTEXT_BUNDLE_BYTES;
+  let remainingBytes = MAX_CONTEXT_INLINE_BUNDLE_BYTES;
 
   for (const requestedPath of requestedPaths) {
     if (remainingBytes <= 0) {
-      sections.push("\n[context-truncated]\nThe context bundle byte limit was reached.");
+      sections.push("\n[context-inline-truncated]\nThe inline context byte limit was reached. Continue by reading the remaining referenced files from the workspace.");
       break;
     }
     const safePath = safeWorkspaceRelativePath(requestedPath);
@@ -1476,12 +1476,16 @@ function buildWorkspaceContextBundle(workspaceRoot: string, contract: SkillInvoc
       sections.push(`\n### ${safePath}\n[omitted: not a file]`);
       continue;
     }
-    const maxBytes = Math.min(MAX_CONTEXT_FILE_BYTES, remainingBytes);
+    if (stat.size > MAX_CONTEXT_INLINE_FILE_BYTES) {
+      sections.push(`\n### ${safePath}\n[available in workspace; ${stat.size} bytes; not inlined]`);
+      continue;
+    }
+    const maxBytes = Math.min(MAX_CONTEXT_INLINE_FILE_BYTES, remainingBytes);
     const content = readFileSync(absolutePath);
     const clipped = content.subarray(0, maxBytes);
     remainingBytes -= clipped.length;
-    const suffix = content.length > clipped.length ? "\n[truncated]" : "";
-    sections.push(`\n### ${safePath}\n\`\`\`markdown\n${clipped.toString("utf8")}${suffix}\n\`\`\``);
+    const suffix = content.length > clipped.length ? "\n[truncated; read file from workspace for full content]" : "";
+    sections.push(`\n### ${safePath}\n[${content.length} bytes]\n\`\`\`markdown\n${clipped.toString("utf8")}${suffix}\n\`\`\``);
   }
 
   return sections.join("\n");

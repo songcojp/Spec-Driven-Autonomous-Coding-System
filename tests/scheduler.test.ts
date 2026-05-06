@@ -192,6 +192,35 @@ test("cli.run executes mocked CLI runner and persists runner artifacts", async (
   assert.equal(rows.statusChecks.length, 0);
 });
 
+test("cli.run keeps large source documents out of the provider prompt", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-compact-prompt-"));
+  prepareSkillWorkspace(root);
+  mkdirSync(join(root, "docs", "features", "FEAT-CLI"), { recursive: true });
+  const largeRequirements = `# Requirements\n\n${"REQ: keep prompt compact.\n".repeat(400)}`;
+  writeFileSync(join(root, "docs", "features", "FEAT-CLI", "requirements.md"), largeRequirements);
+  writeFileSync(join(root, "docs", "features", "FEAT-CLI", "design.md"), "# Design\n");
+  writeFileSync(join(root, "docs", "features", "FEAT-CLI", "tasks.md"), "# Tasks\n");
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+  const calls: Array<{ args: string[] }> = [];
+
+  const result = await runCliRunJob(dbPath, cliRunPayload("RUN-COMPACT-PROMPT"), (_command, args) => {
+    calls.push({ args });
+    return {
+      status: 0,
+      stdout: `{"type":"session","session_id":"SESSION-COMPACT"}\n${skillOutputEvent("RUN-COMPACT-PROMPT")}`,
+      stderr: "",
+    };
+  });
+
+  const prompt = calls[0].args.join("\n");
+  assert.equal(result.status, "completed");
+  assert.match(prompt, /docs\/features\/FEAT-CLI\/requirements\.md/);
+  assert.match(prompt, /not inlined/);
+  assert.doesNotMatch(prompt, /REQ: keep prompt compact\./);
+  assert.equal(prompt.length < 20_000, true);
+});
+
 test("cli.run passes clarification operator input into the skill invocation prompt", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-clarification-run-"));
   prepareSkillWorkspace(root);
