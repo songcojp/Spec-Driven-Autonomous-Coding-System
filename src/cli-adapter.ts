@@ -934,7 +934,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
   const now = input.now ?? new Date();
   const adapterConfig = input.adapterConfig ?? DEFAULT_CLI_ADAPTER_CONFIG;
   const shouldCleanupOutputSchema = !input.outputSchemaPath;
-  const outputSchema = outputSchemaForSkillInvocation(input.policy.outputSchema, input.skillInvocation);
+  const outputSchema = outputSchemaForExecutionInvocation(input.policy.outputSchema, input.executionInvocation);
   const outputSchemaPath = input.outputSchemaPath ?? writeOutputSchema(input.policy, outputSchema);
   const rendered = renderCliAdapterCommand({
     config: adapterConfig,
@@ -952,7 +952,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
     args: rendered.args,
     outputSchemaPath,
     imagePaths: input.imagePaths,
-    skillInvocation: input.skillInvocation,
+    executionInvocation: input.executionInvocation,
     createdAt: now.toISOString(),
   });
   try {
@@ -985,7 +985,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
         status: "failed",
         exitCode: null,
         eventCount: 0,
-        skillInvocation: input.skillInvocation,
+        executionInvocation: input.executionInvocation,
         logFiles,
         error: error instanceof Error ? error.message : String(error),
         completedAt: new Date().toISOString(),
@@ -1021,7 +1021,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       createdAt: completedAt,
     };
     const skillOutput = extractSkillOutputContract(events, adapterConfig.outputMapping.responseTextPaths);
-    const contractValidation = validateSkillOutputContract(input.skillInvocation, skillOutput);
+    const contractValidation = validateSkillOutputContract(input.executionInvocation, skillOutput);
     const usage = extractUsage(events);
     writeCliOutputLog(logFiles, {
       status: result.status,
@@ -1044,7 +1044,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       sessionId,
       eventCount: redactedEvents.length,
       usage,
-      skillInvocation: input.skillInvocation,
+      executionInvocation: input.executionInvocation,
       skillOutput,
       contractValidation,
       producedArtifacts: skillOutput?.producedArtifacts ?? [],
@@ -1062,7 +1062,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       stdout: rawLog.stdout,
       stderr: rawLog.stderr,
       testEnvironmentIsolation: input.policy.testEnvironmentIsolation,
-      skillInvocation: input.skillInvocation,
+      executionInvocation: input.executionInvocation,
       skillOutput,
       contractValidation,
       logFiles,
@@ -1093,7 +1093,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       summary: skillOutput?.summary ?? `CLI adapter ${adapterConfig.id} exit=${result.status ?? "unknown"}.`,
       skillOutput,
       producedArtifacts: skillOutput?.producedArtifacts ?? [],
-      traceability: skillOutput?.traceability ?? input.skillInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
+      traceability: skillOutput?.traceability ?? input.executionInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
       nextAction: skillOutput?.nextAction,
       rawLogRefs: [logFiles.input, logFiles.output, logFiles.stdout, logFiles.stderr, logFiles.report],
       error: rawLog.stderr || undefined,
@@ -1274,7 +1274,7 @@ export async function processRunnerQueueItem(
     featureId: input.featureId,
     imagePaths: input.skillInvocation?.imagePaths,
     adapterConfig: input.adapterConfig,
-    skillInvocation: input.skillInvocation,
+    executionInvocation: input.executionInvocation,
     runner,
     onHeartbeat,
   });
@@ -1693,7 +1693,7 @@ function writeCliInputLog(input: {
           heartbeatIntervalSeconds: input.policy.heartbeatIntervalSeconds,
           commandTimeoutMs: input.policy.commandTimeoutMs,
         },
-        skillInvocation: input.skillInvocation,
+        executionInvocation: input.executionInvocation,
         createdAt: input.createdAt,
       },
       null,
@@ -1786,7 +1786,7 @@ export function writeRunReport(
           sessionId: input.sessionId,
           eventCount: input.eventCount ?? 0,
           usage: input.usage,
-          skillInvocation: input.skillInvocation,
+          executionInvocation: input.executionInvocation,
           skillOutput: input.skillOutput,
           contractValidation: input.contractValidation,
           producedArtifacts: input.producedArtifacts ?? input.skillOutput?.producedArtifacts ?? [],
@@ -2008,7 +2008,7 @@ export function buildExecutionResultInput(input: RunnerExecutionResultInput): {
       eventTypes: input.events.map((event) => event.type).filter(Boolean),
       stdout: input.stdout,
       stderr: input.stderr,
-      skillInvocation: input.skillInvocation,
+      executionInvocation: input.executionInvocation,
       skillOutput: input.skillOutput,
       contractValidation: input.contractValidation,
       producedArtifacts: input.skillOutput?.producedArtifacts ?? [],
