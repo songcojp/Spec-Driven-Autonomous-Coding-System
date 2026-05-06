@@ -177,9 +177,21 @@ test("VSCode Execution Workbench renders execution result sections from durable 
 
 test("VSCode Webview disabled buttons are visually distinct", () => {
   assert.match(extensionSource, /button:disabled,button:disabled:hover/);
+  assert.match(extensionSource, /workbench-button is-disabled/);
   assert.match(extensionSource, /cursor:not-allowed/);
   assert.match(extensionSource, /opacity:\.55/);
   assert.match(extensionSource, /vscode-disabledForeground/);
+});
+
+test("VSCode Webview buttons use shared inline SVG icons", () => {
+  assert.match(webviewSource, /function buttonIcon\(name: string\): string/);
+  assert.match(webviewSource, /aria-hidden="true"><svg viewBox="0 0 24 24"/);
+  assert.match(webviewSource, /class="button-label"/);
+  assert.match(webviewSource, /iconForButton\(label, command, data\)/);
+  assert.match(webviewSource, /buttonContent\("Dependency Graph", "branch"\)/);
+  assert.match(webviewSource, /buttonContent\("Close", "x"\)/);
+  assert.match(webviewSource, /commandButton\("Open", "openDocument"/);
+  assert.match(webviewSource, /buttonIcon\("warning"\)/);
 });
 
 test("VSCode Spec Explorer title actions are ordered by workflow", () => {
@@ -261,7 +273,7 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /data-command="toggleFeatureSpecView" data-view-mode="dependency"/);
   assert.match(extensionSource, /const mode = target\.dataset\.viewMode === "dependency" \? "dependency" : "list"/);
   assert.match(extensionSource, /target\.dataset\.viewMode = mode === "dependency" \? "list" : "dependency"/);
-  assert.match(extensionSource, /target\.textContent = mode === "dependency" \? "Feature List" : "Dependency Graph"/);
+  assert.match(extensionSource, /setButtonLabel\(target, mode === "dependency" \? "Feature List" : "Dependency Graph"\)/);
   assert.doesNotMatch(extensionSource, /data-command="setFeatureSpecView"/);
   assert.match(extensionSource, /\.hidden\{display:none!important\}/);
   assert.match(extensionSource, /id="workbench-status" class="status-text" role="status" aria-live="polite"/);
@@ -281,12 +293,13 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /data-view-panel="dependency"/);
   assert.match(extensionSource, /data-command="toggleDependencyGraphBranches" data-expanded="true"/);
   assert.match(extensionSource, /#dependency-graph-panel \.dependency-branch/);
-  assert.match(extensionSource, /target\.textContent = expanded \? "Collapse All" : "Expand All"/);
+  assert.match(extensionSource, /setButtonLabel\(target, expanded \? "Collapse All" : "Expand All"\)/);
   assert.match(extensionSource, /class="dependency-branch"\$\{open\}/);
   assert.match(extensionSource, /const open = depth < 2/);
   assert.match(extensionSource, /\.feature-panel summary::before\{content:"\+"/);
   assert.match(extensionSource, /\.feature-panel\[open\] summary::before\{content:"-"\}/);
-  assert.match(extensionSource, /\.feature-card\.current\{background:var\(--vscode-list-activeSelectionBackground\);box-shadow:inset 4px 0 0 var\(--accent\)\}/);
+  assert.match(extensionSource, /\.feature-card\.current\{background:linear-gradient/);
+  assert.match(extensionSource, /box-shadow:inset 4px 0 0 var\(--accent\)/);
   assert.match(extensionSource, /\.feature-card\.selected\{border-color:var\(--accent\);box-shadow:0 0 0 2px/);
   assert.match(extensionSource, /\.feature-card\.current\.selected\{box-shadow:inset 4px 0 0 var\(--accent\),0 0 0 2px/);
   assert.match(extensionSource, /data-feature-card="\$\{escapeAttr\(feature\.id\)\}"/);

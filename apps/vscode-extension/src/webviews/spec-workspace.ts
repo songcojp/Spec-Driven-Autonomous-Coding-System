@@ -1,5 +1,6 @@
 import type { SpecDriveIdeDiagnostic, SpecDriveIdeDocument, SpecDriveIdeView, UiConceptImage } from "../types";
 import {
+  buttonIcon,
   commandButton,
   documentList,
   emptyState,
@@ -31,11 +32,11 @@ export function renderSpecWorkspaceWebview(
     <section class="stage-strip">
       ${stages.map((stage) => `
         <button class="stage ${stage.active ? "active" : ""}" data-command="selectSpecStage" data-stage-id="${escapeAttr(stage.id)}" aria-pressed="${stage.active ? "true" : "false"}">
-          <span>${escapeHtml(stage.index)} · ${escapeHtml(stage.status)}</span>${escapeHtml(stage.label)}
+          ${buttonIcon(stageIcon(stage.id))}<span>${escapeHtml(stage.index)} · ${escapeHtml(stage.status)}</span>${escapeHtml(stage.label)}
         </button>
       `).join("")}
       <button class="stage" data-command="showDiagnostics" aria-pressed="false">
-        <span>4 · ${view?.diagnostics.length ?? 0} active</span>Diagnostics & Blockers
+        ${buttonIcon("warning")}<span>4 · ${view?.diagnostics.length ?? 0} active</span>Diagnostics & Blockers
       </button>
     </section>
     <main class="grid">
@@ -58,6 +59,12 @@ type SpecLifecycleStage = {
   steps: Array<{ label: string; status: string }>;
   actions: Array<{ label: string; action: string; reason: string }>;
 };
+
+function stageIcon(stageId: SpecLifecycleStage["id"]): string {
+  if (stageId === "project-init") return "settings";
+  if (stageId === "requirement-intake") return "message";
+  return "branch";
+}
 
 function specLifecycleStages(view: SpecDriveIdeView | undefined): SpecLifecycleStage[] {
   const docs = new Set((view?.documents ?? []).filter((document) => document.exists).map((document) => document.kind));

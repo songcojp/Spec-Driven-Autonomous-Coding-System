@@ -1,7 +1,9 @@
 import type { SpecDriveIdeDocument, SpecDriveIdeFeatureNode, SpecDriveIdeTokenConsumption, SpecDriveIdeView } from "../types";
 import {
   autoRefreshSwitch,
+  buttonContent,
   commandButton,
+  disabledButtonHtml,
   emptyState,
   escapeAttr,
   escapeHtml,
@@ -24,7 +26,7 @@ export function renderFeatureSpecWebview(
   const projectId = view?.project?.id;
   return renderWorkbenchPage("Feature Spec", nonce, `
     <section class="toolbar">
-      <button class="view-toggle" data-command="toggleFeatureSpecView" data-view-mode="dependency" aria-pressed="false">Dependency Graph</button>
+      <button class="workbench-button button-secondary view-toggle" data-command="toggleFeatureSpecView" data-view-mode="dependency" aria-pressed="false">${buttonContent("Dependency Graph", "branch")}</button>
       ${executionPreferenceControls(view)}
       ${features.length > 0 ? commandButton("Schedule Selected", "scheduleSelectedFeatures", { projectId }) : ""}
       ${selected ? scheduleFeatureButton("Schedule Current", selected, projectId, "Feature Spec Webview") : ""}
@@ -43,7 +45,7 @@ export function renderFeatureSpecWebview(
       </aside>
     </main>
     <section id="dependency-graph-panel" class="panel dependency-panel hidden" data-view-panel="dependency">
-      <div class="panel-title"><h2>Dependency Graph</h2><span>${features.length} Feature Specs</span><button class="dependency-toggle" data-command="toggleDependencyGraphBranches" data-expanded="true">Collapse All</button></div>
+      <div class="panel-title"><h2>Dependency Graph</h2><span>${features.length} Feature Specs</span><button class="workbench-button button-secondary dependency-toggle" data-command="toggleDependencyGraphBranches" data-expanded="true">${buttonContent("Collapse All", "branch")}</button></div>
       ${renderDependencyGraph(features)}
     </section>
   `);
@@ -219,7 +221,7 @@ function renderFeatureArtifacts(documents: SpecDriveIdeDocument[]): string {
     return `<div class="artifact-row">
       <strong>${escapeHtml(fileName)}</strong>
       <span class="${document.exists ? "ok" : "bad"}">${escapeHtml(state)}</span>
-      <button data-command="openDocument" data-path="${escapeAttr(document.path)}"${document.exists ? "" : " disabled"}>Open</button>
+      ${document.exists ? commandButton("Open", "openDocument", { path: document.path }, { icon: "external", variant: "button-open" }) : disabledButtonHtml("Open", "Document is missing.", "external")}
     </div>`;
   }).join("")}</div>`;
 }

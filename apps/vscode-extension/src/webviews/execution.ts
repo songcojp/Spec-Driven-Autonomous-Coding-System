@@ -3,6 +3,7 @@ import {
   autoRefreshSwitch,
   commandButton,
   compactJsonBlock,
+  disabledButtonHtml,
   emptyState,
   escapeAttr,
   escapeHtml,
@@ -316,7 +317,7 @@ function pauseResumeButton(item: SpecDriveIdeQueueItem | undefined): string {
 }
 
 function disabledButton(label: string, title: string): string {
-  return `<button disabled title="${escapeAttr(title)}">${escapeHtml(label)}</button>`;
+  return disabledButtonHtml(label, title);
 }
 
 export function renderExecutionWebview(item: SpecDriveIdeExecutionDetail | SpecDriveIdeQueueItem): string {
