@@ -322,6 +322,7 @@ type FeatureQueueEntry = {
 
 type FeatureQueuePlan = {
   features?: FeatureQueueEntry[];
+  queue?: FeatureQueueEntry[];
 };
 
 type FeatureIndexEntry = {
@@ -331,7 +332,6 @@ type FeatureIndexEntry = {
   status?: string;
   primaryRequirements?: string[];
   milestone?: string;
-  dependencies?: string[];
 };
 
 export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIdeViewOptions = {}): SpecDriveIdeView {
@@ -1306,8 +1306,8 @@ function buildProjectInitialization(
 function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: string): SpecDriveIdeFeatureNode[] {
   const featureRoot = join(workspaceRoot, "docs/features");
   if (!existsSync(featureRoot)) return [];
-  const queuePlan = readFeatureQueuePlan(workspaceRoot);
-  const queueById = new Map((queuePlan.features ?? []).map((entry) => [entry.id, entry]));
+  const queueEntries = readFeatureQueueEntries(workspaceRoot);
+  const queueById = new Map(queueEntries.map((entry) => [entry.id, entry]));
   const indexEntries = readFeatureIndex(workspaceRoot);
   const indexById = new Map(indexEntries.map((entry) => [entry.id, entry]));
   const folders = new Set(readdirSync(featureRoot)
@@ -1365,11 +1365,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         title: optionalString(state.title) ?? indexEntry?.title ?? titleFromFolder(folder),
         status,
         priority: optionalString(queueEntry?.priority),
-        dependencies: stringArray(state.dependencies).length > 0
-          ? stringArray(state.dependencies)
-          : indexEntry?.dependencies?.length
-            ? indexEntry.dependencies
-            : stringArray(queueEntry?.dependencies),
+        dependencies: stringArray(queueEntry?.dependencies),
         blockedReasons: syncBlockedReasons,
         nextAction: optionalString(state.nextAction),
         latestExecutionId,
@@ -1415,8 +1411,21 @@ function featureNodeStatusFromDocuments(
   return "draft";
 }
 
-function readFeatureQueuePlan(workspaceRoot: string): FeatureQueuePlan {
-  return readJson(join(workspaceRoot, "docs/features/feature-pool-queue.json")) as FeatureQueuePlan;
+function readFeatureQueueEntries(workspaceRoot: string): FeatureQueueEntry[] {
+  const queuePlan = readJson(join(workspaceRoot, "docs/features/feature-pool-queue.json")) as FeatureQueuePlan;
+  const rawEntries = arrayValue(queuePlan.features).length > 0 ? arrayValue(queuePlan.features) : arrayValue(queuePlan.queue);
+  return rawEntries
+    .map((entry) => {
+      const record = isRecord(entry) ? entry : {};
+      const id = optionalString(record.id)?.toUpperCase();
+      if (!id) return undefined;
+      return {
+        id,
+        priority: optionalString(record.priority),
+        dependencies: stringArray(record.dependencies).map((dependency) => dependency.toUpperCase()),
+      };
+    })
+    .filter((entry): entry is FeatureQueueEntry => entry !== undefined);
 }
 
 function readFeatureIndex(workspaceRoot: string): FeatureIndexEntry[] {
@@ -1443,7 +1452,6 @@ function readFeatureIndex(workspaceRoot: string): FeatureIndexEntry[] {
     const requirementsColumn = columnByHeader(columns, header, "primary requirements");
     const milestoneColumn = columnByHeader(columns, header, "suggested milestone")
       ?? columnByHeader(columns, header, "milestone");
-    const dependenciesColumn = columnByHeader(columns, header, "dependencies");
     const folder = folderColumn?.match(/`([^`]+)`/)?.[1] ?? folderColumn;
     entries.push({
       id,
@@ -1452,7 +1460,6 @@ function readFeatureIndex(workspaceRoot: string): FeatureIndexEntry[] {
       status: statusColumn && statusColumn !== "-" ? statusColumn : undefined,
       primaryRequirements: splitChineseList(requirementsColumn),
       milestone: milestoneColumn && milestoneColumn !== "-" ? milestoneColumn : undefined,
-      dependencies: splitChineseList(dependenciesColumn),
     });
   }
   return entries;

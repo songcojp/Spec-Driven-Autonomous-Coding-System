@@ -60,6 +60,40 @@ test("SpecDrive IDE view recognizes workspace specs, features, queue state, and 
   assert.equal(view.factSources.includes("execution_records"), true);
 });
 
+test("SpecDrive IDE feature dependencies come from feature-pool-queue.json", () => {
+  const workspaceRoot = makeWorkspace();
+  writeFileSync(join(workspaceRoot, "docs/features/README.md"), [
+    "# Feature Spec Index",
+    "",
+    "| Feature ID | Feature | Folder | Status | Primary Requirements | Suggested Milestone | Dependencies |",
+    "|---|---|---|---|---|---|---|",
+    "| FEAT-016 | SpecDrive IDE Foundation | `feat-016-specdrive-ide-foundation` | ready | REQ-074、REQ-075 | M8 | FEAT-999 |",
+    "",
+  ].join("\n"));
+  writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
+    schemaVersion: 1,
+    featureId: "FEAT-016",
+    status: "ready",
+    blockedReasons: [],
+    dependencies: ["FEAT-888"],
+    nextAction: "Implement IDE foundation.",
+  }));
+  writeFileSync(join(workspaceRoot, "docs/features/feature-pool-queue.json"), JSON.stringify({
+    schemaVersion: 1,
+    features: [
+      { id: "FEAT-016", priority: "P1", dependencies: ["FEAT-013"] },
+    ],
+  }));
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+
+  assert.deepEqual(feature?.dependencies, ["FEAT-013"]);
+});
+
 test("SpecDrive IDE prefers root docs over localized specs unless multilingual is explicit", () => {
   const workspaceRoot = makeWorkspace();
   mkdirSync(join(workspaceRoot, "docs", "zh-CN"), { recursive: true });
