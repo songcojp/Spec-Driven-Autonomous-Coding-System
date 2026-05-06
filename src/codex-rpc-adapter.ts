@@ -100,6 +100,10 @@ export const DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG: CodexAppServerAdapterConfi
   transport: "stdio",
   endpoint: "stdio://",
   requestTimeoutMs: 120_000,
+  defaults: {
+    model: "gpt-5.5",
+    costRates: {},
+  },
   status: "active",
 };
 

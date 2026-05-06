@@ -74,6 +74,10 @@ export const DEFAULT_GEMINI_ACP_ADAPTER_CONFIG: GeminiAcpAdapterConfig = {
   transport: "stdio",
   endpoint: "stdio://",
   requestTimeoutMs: 120_000,
+  defaults: {
+    model: "gemini-3-pro-preview",
+    costRates: {},
+  },
   status: "disabled",
 };
 

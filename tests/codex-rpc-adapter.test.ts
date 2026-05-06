@@ -14,7 +14,7 @@ import {
   type CodexAppServerTransport,
   type JsonRpcStdioProcess,
 } from "../src/codex-rpc-adapter.ts";
-import { rpcAdapterConfigToExecutionAdapterConfig } from "../src/rpc-adapter.ts";
+import { rpcAdapterConfigToExecutionAdapterConfig, validateRpcAdapterConfig } from "../src/rpc-adapter.ts";
 import type { RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/cli-adapter.ts";
 
 test("Codex RPC request sequence initializes, starts a thread, and starts a schema-bound turn", () => {
@@ -52,6 +52,37 @@ test("Codex RPC request sequence resumes an existing thread", () => {
   assert.equal(sequence.thread.method, "thread/resume");
   assert.deepEqual(sequence.thread.params, { threadId: "thread-1", cwd: "/repo" });
   assert.equal(sequence.turn.params.threadId, "thread-1");
+});
+
+test("RPC adapter config carries pricing defaults and rejects invalid rates", () => {
+  const config = rpcAdapterConfigToExecutionAdapterConfig({
+    config: {
+      ...DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
+      defaults: {
+        model: "gpt-5.5",
+        costRates: {
+          "gpt-5.5": { inputUsdPer1M: 1, outputUsdPer1M: 10 },
+        },
+      },
+    },
+    provider: "codex-rpc",
+  });
+  assert.deepEqual(config.defaults.costRates, {
+    "gpt-5.5": { inputUsdPer1M: 1, outputUsdPer1M: 10 },
+  });
+
+  const invalid = validateRpcAdapterConfig({
+    ...DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
+    defaults: {
+      model: "gpt-5.5",
+      costRates: {
+        "gpt-5.5": { inputUsdPer1M: -1, outputUsdPer1M: Number.NaN },
+      },
+    },
+  });
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.errors.some((error) => error.includes("inputUsdPer1M")));
+  assert.ok(invalid.errors.some((error) => error.includes("outputUsdPer1M")));
 });
 
 test("Codex RPC event projection extracts ids, streams, approvals, diffs, and Skill output", () => {

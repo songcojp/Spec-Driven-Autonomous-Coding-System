@@ -37,8 +37,12 @@ import {
   type RunnerApprovalPolicy,
   type RunnerQueueStatus,
   type RunnerSandboxMode,
-  type TokenCostRate,
 } from "./cli-adapter.ts";
+import {
+  calculateTokenCost,
+  normalizeCostRates,
+  type AdapterPricingDefaults,
+} from "./adapter-pricing.ts";
 import {
   createUnavailableScheduler,
   type SchedulerClient,
@@ -384,6 +388,7 @@ export type TokenConsumptionViewModel = {
   costUsd: number;
   currency: string;
   pricingStatus: string;
+  pricing: Record<string, unknown>;
   sourcePath: string;
   recordedAt: string;
 };
@@ -5634,7 +5639,7 @@ export function ensureTokenConsumptionRecords(dbPath: string, projectId?: string
   const result = runSqlite(dbPath, [], [
     {
       name: "executions",
-      sql: `SELECT er.id, er.scheduler_job_id, er.operation, er.project_id, er.context_json, er.metadata_json,
+      sql: `SELECT er.id, er.scheduler_job_id, er.executor_type, er.operation, er.project_id, er.context_json, er.metadata_json,
           json_extract(er.context_json, '$.featureId') AS feature_id,
           json_extract(er.context_json, '$.taskId') AS task_id,
           rp.model AS policy_model
@@ -5656,8 +5661,18 @@ export function ensureTokenConsumptionRecords(dbPath: string, projectId?: string
       params: projectParams,
     },
     { name: "adapters", sql: "SELECT * FROM cli_adapter_configs ORDER BY updated_at DESC" },
+    { name: "rpcAdapters", sql: "SELECT * FROM rpc_adapter_configs ORDER BY updated_at DESC" },
+    {
+      name: "existingTokenRecords",
+      sql: `SELECT run_id FROM token_consumption_records ${projectId ? "WHERE project_id = ?" : ""}`,
+      params: projectParams,
+    },
   ]);
   const activeAdapter = adapterFromRows(result.queries.adapters, "active");
+  const activeRpcAdapter = rpcAdapterFromRows(result.queries.rpcAdapters, "active", false);
+  const adaptersById = new Map(result.queries.adapters.map((row) => [String(row.id), cliAdapterFromRow(row)] as const));
+  const rpcAdaptersById = new Map(result.queries.rpcAdapters.map((row) => [String(row.id), rpcAdapterFromRow(row)] as const));
+  const existingTokenRunIds = new Set(result.queries.existingTokenRecords.map((row) => String(row.run_id)));
   const workspaceRootByProject = new Map(
     result.queries.projects
       .map((row) => [String(row.id), optionalString(row.local_path) ?? optionalString(row.target_repo_path)] as const)
@@ -5666,6 +5681,7 @@ export function ensureTokenConsumptionRecords(dbPath: string, projectId?: string
 
   for (const execution of result.queries.executions) {
     const runId = String(execution.id);
+    if (existingTokenRunIds.has(runId)) continue;
     const context = parseJsonObject(execution.context_json);
     const metadata = parseJsonObject(execution.metadata_json);
     const project = optionalString(execution.project_id);
@@ -5682,11 +5698,25 @@ export function ensureTokenConsumptionRecords(dbPath: string, projectId?: string
     if (!usage) continue;
     const normalized = normalizeTokenUsage(usage);
     if (normalized.totalTokens <= 0) continue;
+    const pricingAdapter = adapterForExecutionPricing(execution, {
+      cliAdaptersById: adaptersById,
+      rpcAdaptersById,
+      activeCliAdapter: activeAdapter,
+      activeRpcAdapter,
+    });
     const model = optionalString(execution.policy_model)
       ?? optionalString(metadata.model)
       ?? optionalString(context.model)
-      ?? activeAdapter?.defaults.model;
-    const pricing = calculateTokenCost(normalized, model, activeAdapter?.defaults.costRates ?? {});
+      ?? pricingAdapter?.defaults?.model;
+    const pricing = calculateTokenCost({
+      usage: normalized,
+      model,
+      costRates: pricingAdapter?.defaults?.costRates ?? {},
+      pricingSource: {
+        adapterId: pricingAdapter?.adapterId,
+        adapterKind: pricingAdapter?.adapterKind,
+      },
+    });
     runSqlite(dbPath, [
       {
         sql: `INSERT INTO token_consumption_records (
@@ -5694,24 +5724,7 @@ export function ensureTokenConsumptionRecords(dbPath: string, projectId?: string
             input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens,
             cost_usd, currency, pricing_status, usage_json, pricing_json, source_path
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(run_id) DO UPDATE SET
-            scheduler_job_id = excluded.scheduler_job_id,
-            project_id = excluded.project_id,
-            feature_id = excluded.feature_id,
-            task_id = excluded.task_id,
-            operation = excluded.operation,
-            model = excluded.model,
-            input_tokens = excluded.input_tokens,
-            cached_input_tokens = excluded.cached_input_tokens,
-            output_tokens = excluded.output_tokens,
-            reasoning_output_tokens = excluded.reasoning_output_tokens,
-            total_tokens = excluded.total_tokens,
-            cost_usd = excluded.cost_usd,
-            currency = excluded.currency,
-            pricing_status = excluded.pricing_status,
-            usage_json = excluded.usage_json,
-            pricing_json = excluded.pricing_json,
-            source_path = excluded.source_path`,
+          ON CONFLICT(run_id) DO NOTHING`,
         params: [
           randomUUID(),
           runId,
@@ -5738,6 +5751,65 @@ export function ensureTokenConsumptionRecords(dbPath: string, projectId?: string
   }
 }
 
+type ExecutionPricingAdapter = {
+  adapterId?: string;
+  adapterKind?: "cli" | "rpc";
+  defaults?: AdapterPricingDefaults;
+};
+
+function adapterForExecutionPricing(
+  execution: Record<string, unknown>,
+  input: {
+    cliAdaptersById: Map<string, CliAdapterConfig>;
+    rpcAdaptersById: Map<string, RpcAdapterConfig>;
+    activeCliAdapter: CliAdapterConfig | undefined;
+    activeRpcAdapter: RpcAdapterConfig | undefined;
+  },
+): ExecutionPricingAdapter | undefined {
+  const context = parseJsonObject(execution.context_json);
+  const metadata = parseJsonObject(execution.metadata_json);
+  const metadataPreference = parseJsonObject(metadata.executionPreference);
+  const contextPreference = parseJsonObject(context.executionPreference);
+  const adapterId = optionalString(metadata.adapterId)
+    ?? optionalString(metadataPreference.adapterId)
+    ?? optionalString(context.adapterId)
+    ?? optionalString(contextPreference.adapterId);
+  const adapterKind = adapterKindFromExecution(execution, metadataPreference, contextPreference);
+  if (adapterId) {
+    if (adapterKind === "rpc") {
+      const adapter = input.rpcAdaptersById.get(adapterId);
+      return { adapterId, adapterKind: "rpc", defaults: adapter?.defaults };
+    }
+    if (adapterKind === "cli") {
+      const adapter = input.cliAdaptersById.get(adapterId);
+      return { adapterId, adapterKind: "cli", defaults: adapter?.defaults };
+    }
+    const cliAdapter = input.cliAdaptersById.get(adapterId);
+    if (cliAdapter) return { adapterId, adapterKind: "cli", defaults: cliAdapter.defaults };
+    const rpcAdapter = input.rpcAdaptersById.get(adapterId);
+    if (rpcAdapter) return { adapterId, adapterKind: "rpc", defaults: rpcAdapter.defaults };
+    return { adapterId, adapterKind: undefined };
+  }
+  if (adapterKind === "rpc") {
+    return { adapterId: input.activeRpcAdapter?.id, adapterKind: "rpc", defaults: input.activeRpcAdapter?.defaults };
+  }
+  return { adapterId: input.activeCliAdapter?.id, adapterKind: "cli", defaults: input.activeCliAdapter?.defaults };
+}
+
+function adapterKindFromExecution(
+  execution: Record<string, unknown>,
+  metadataPreference: Record<string, unknown>,
+  contextPreference: Record<string, unknown>,
+): "cli" | "rpc" | undefined {
+  const runMode = optionalString(metadataPreference.runMode) ?? optionalString(contextPreference.runMode);
+  if (runMode === "cli" || runMode === "rpc") return runMode;
+  const executorType = optionalString(execution.executor_type)?.toLowerCase();
+  if (!executorType) return undefined;
+  if (executorType.includes("rpc")) return "rpc";
+  if (executorType.includes("cli")) return "cli";
+  return undefined;
+}
+
 function readCliOutputTokenUsage(cliOutputPath: string): { path: string; usage?: unknown } {
   if (!existsSync(cliOutputPath)) {
     return { path: cliOutputPath };
@@ -5750,7 +5822,7 @@ function readCliOutputTokenUsage(cliOutputPath: string): { path: string; usage?:
   }
 }
 
-function normalizeTokenUsage(value: unknown): Omit<TokenConsumptionViewModel, "runId" | "model" | "costUsd" | "currency" | "pricingStatus" | "sourcePath" | "recordedAt"> {
+function normalizeTokenUsage(value: unknown): Omit<TokenConsumptionViewModel, "runId" | "model" | "costUsd" | "currency" | "pricingStatus" | "pricing" | "sourcePath" | "recordedAt"> {
   const record = parseJsonObject(value);
   const inputTokens = nonNegativeInteger(record.inputTokens ?? record.input_tokens ?? record.promptTokens ?? record.prompt_tokens);
   const cachedInputTokens = nonNegativeInteger(record.cachedInputTokens ?? record.cached_input_tokens ?? record.cacheReadInputTokens ?? record.cache_read_input_tokens);
@@ -5764,26 +5836,6 @@ function normalizeTokenUsage(value: unknown): Omit<TokenConsumptionViewModel, "r
     reasoningOutputTokens,
     totalTokens: explicitTotal > 0 ? explicitTotal : inputTokens + outputTokens + reasoningOutputTokens,
   };
-}
-
-function calculateTokenCost(
-  usage: ReturnType<typeof normalizeTokenUsage>,
-  model: string | undefined,
-  costRates: Record<string, TokenCostRate>,
-): { costUsd: number; pricingStatus: "priced" | "missing_rate"; pricingSnapshot: Record<string, unknown> } {
-  const rate = model ? costRates[model] : undefined;
-  if (!rate) {
-    return { costUsd: 0, pricingStatus: "missing_rate", pricingSnapshot: { model, reason: "missing_rate" } };
-  }
-  const cachedInputTokens = Math.min(usage.cachedInputTokens, usage.inputTokens);
-  const billableInputTokens = Math.max(usage.inputTokens - cachedInputTokens, 0);
-  const costUsd = (
-    billableInputTokens * rate.inputUsdPer1M
-    + cachedInputTokens * (rate.cachedInputUsdPer1M ?? rate.inputUsdPer1M)
-    + usage.outputTokens * rate.outputUsdPer1M
-    + usage.reasoningOutputTokens * (rate.reasoningOutputUsdPer1M ?? rate.outputUsdPer1M)
-  ) / 1_000_000;
-  return { costUsd, pricingStatus: "priced", pricingSnapshot: { model, ...rate } };
 }
 
 function tokenConsumptionByRunId(rows: Record<string, unknown>[]): Map<string, TokenConsumptionViewModel> {
@@ -5803,6 +5855,7 @@ function tokenConsumptionFromRow(row: Record<string, unknown>): TokenConsumption
     costUsd: Number(row.cost_usd ?? 0),
     currency: String(row.currency ?? "USD"),
     pricingStatus: String(row.pricing_status),
+    pricing: parseJsonObject(row.pricing_json),
     sourcePath: String(row.source_path ?? ""),
     recordedAt: String(row.recorded_at ?? ""),
   };
@@ -5936,6 +5989,7 @@ function rpcAdapterFromRow(row: Record<string, unknown>): RpcAdapterConfig {
     transport: row.transport,
     endpoint: row.endpoint,
     requestTimeoutMs: row.request_timeout_ms,
+    defaults: parseJsonObject(row.defaults_json),
     status: row.status,
     updatedAt: row.updated_at,
   });
@@ -5961,6 +6015,8 @@ function normalizeRpcAdapterConfig(input: Record<string, unknown> | Partial<RpcA
     ? input.transport
     : "stdio";
   const status = input.status === "disabled" ? "disabled" : "active";
+  const inputDefaults = isRecord(input.defaults) ? input.defaults : {};
+  const baseDefaults = base.defaults ?? {};
   return {
     ...base,
     id: optionalString(input.id) ?? base.id,
@@ -5971,6 +6027,10 @@ function normalizeRpcAdapterConfig(input: Record<string, unknown> | Partial<RpcA
     transport,
     endpoint: optionalString(input.endpoint) ?? base.endpoint,
     requestTimeoutMs: Number(input.requestTimeoutMs ?? input.request_timeout_ms ?? base.requestTimeoutMs),
+    defaults: {
+      model: optionalString(inputDefaults.model) ?? baseDefaults.model,
+      costRates: normalizeCostRates(inputDefaults.costRates ?? inputDefaults.cost_rates ?? baseDefaults.costRates),
+    },
     status,
     updatedAt: optionalString(input.updatedAt) ?? optionalString(input.updated_at) ?? new Date().toISOString(),
   };
@@ -6078,8 +6138,10 @@ function persistRpcAdapterConfig(
           { path: "executable", label: "Executable", type: "text" },
           { path: "args", label: "Arguments", type: "list" },
           { path: "transport", label: "Transport", type: "select" },
+          { path: "defaults.model", label: "Default model", type: "text" },
+          { path: "defaults.costRates", label: "Token cost rates", type: "object" },
         ] }),
-        JSON.stringify({}),
+        JSON.stringify(config.defaults ?? {}),
         config.status,
         probe ? (probe.valid ? "passed" : "failed") : null,
         JSON.stringify(probe?.errors ?? []),

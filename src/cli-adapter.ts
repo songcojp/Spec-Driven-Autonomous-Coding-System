@@ -33,15 +33,22 @@ import {
   type StatusDecision,
 } from "./status-checker.ts";
 import type {
+  ExecutionAdapterInvocationV1,
   ExecutionAdapterConfigV1,
   ExecutionAdapterProviderSessionV1,
   ExecutionAdapterResultV1,
 } from "./execution-adapter-contracts.ts";
+import {
+  normalizeCostRates,
+  validateCostRates,
+  type TokenCostRate,
+} from "./adapter-pricing.ts";
 import { DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
 import { GEMINI_CLI_ADAPTER_CONFIG, geminiApprovalMode } from "./gemini-cli-adapter.ts";
 
 export { CODEX_CLI_ADAPTER_CONFIG, DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
 export { GEMINI_CLI_ADAPTER_CONFIG } from "./gemini-cli-adapter.ts";
+export type { TokenCostRate } from "./adapter-pricing.ts";
 
 export type RunnerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type RunnerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never" | "bypass";
@@ -108,13 +115,6 @@ export type CliJsonEvent = {
 
 export type CliAdapterStatus = "draft" | "active" | "disabled" | "invalid";
 
-export type TokenCostRate = {
-  inputUsdPer1M: number;
-  cachedInputUsdPer1M?: number;
-  outputUsdPer1M: number;
-  reasoningOutputUsdPer1M?: number;
-};
-
 export type CliAdapterConfig = {
   id: string;
   displayName: string;
@@ -165,7 +165,7 @@ export type RunnerExecutionResultInput = {
   stdout: string;
   stderr: string;
   testEnvironmentIsolation?: TestRunnerIsolationInput;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
   skillOutput?: SkillOutputContract;
   contractValidation?: SkillContractValidationResult;
   logFiles?: CliInvocationLogFiles;
@@ -203,7 +203,7 @@ export type SafetyGateInput = {
   files?: string[];
   commands?: string[];
   taskText?: string;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
 };
 
 export type SafetyGateResult = {
@@ -231,7 +231,7 @@ export type CliAdapterInput = {
   outputSchemaPath?: string;
   imagePaths?: string[];
   adapterConfig?: CliAdapterConfig;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
   runner?: CliCommandRunner;
   asyncRunner?: AsyncCliCommandRunner;
   onHeartbeat?: () => void;
@@ -257,24 +257,7 @@ export type RunnerQueueItem = {
   statusCheck?: RunnerStatusCheckInput;
   adapterConfig?: CliAdapterConfig;
   recoveryDispatcher?: (dispatch: RecoveryDispatch) => void | Promise<void>;
-  skillInvocation?: SkillInvocationContract;
-};
-
-export type SkillInvocationContract = {
-  contractVersion: "skill-contract/v1";
-  executionId: string;
-  projectId: string;
-  workspaceRoot: string;
-  operation: string;
-  skillSlug: string;
-  sourcePaths: string[];
-  imagePaths?: string[];
-  expectedArtifacts: SkillArtifactContract[];
-  specState?: Record<string, unknown>;
-  operatorInput?: SkillOperatorInputContract;
-  traceability: SkillTraceabilityContract;
-  constraints: SkillInvocationConstraints;
-  requestedAction: string;
+  executionInvocation?: ExecutionAdapterInvocationV1;
 };
 
 export type SkillOperatorInputContract = {
@@ -661,7 +644,7 @@ export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
     }
   }
 
-  const safetyText = [input.taskText, input.prompt ? stripWorkspaceContextBundle(input.prompt) : undefined].filter(Boolean).join("\n");
+  const safetyText = [input.taskText, input.prompt].filter(Boolean).join("\n");
   if (safetyText && DANGEROUS_COMMAND_PATTERNS.some((pattern) => pattern.test(safetyText))) {
     reasons.push("prompt or task text includes a dangerous command and requires review");
   }
@@ -678,27 +661,22 @@ export function evaluateRunnerSafety(input: SafetyGateInput): SafetyGateResult {
   };
 }
 
-export function isTrustedDocsDirectWriteInvocation(invocation?: SkillInvocationContract): boolean {
+export function isTrustedDocsDirectWriteInvocation(invocation?: ExecutionAdapterInvocationV1): boolean {
   return isTrustedDirectWriteInvocation(invocation);
 }
 
-export function isTrustedDirectWriteInvocation(invocation?: SkillInvocationContract, allowedFiles: string[] = []): boolean {
+export function isTrustedDirectWriteInvocation(invocation?: ExecutionAdapterInvocationV1, allowedFiles: string[] = []): boolean {
   if (!invocation) return false;
-  if (!isSafeSkillSlug(invocation.skillSlug)) return false;
+  const instruction = invocation.skillInstruction;
+  if (!isSafeSkillSlug(instruction.skillSlug)) return false;
 
   const safeAllowedFiles = allowedFiles.filter(isSafeWorkspaceWritePath);
-  if (invocation.skillSlug === "feat-implement-skill") {
+  if (instruction.skillSlug === "feat-implement-skill") {
     return safeAllowedFiles.length > 0 && safeAllowedFiles.length === allowedFiles.length;
   }
 
-  const safeArtifacts = invocation.expectedArtifacts.map((artifact) => artifact.path).filter(isSafeExpectedArtifactPath);
-  return safeArtifacts.length > 0 && safeArtifacts.length === invocation.expectedArtifacts.length;
-}
-
-function stripWorkspaceContextBundle(prompt: string): string {
-  const marker = "Workspace Context Bundle:";
-  const index = prompt.indexOf(marker);
-  return index >= 0 ? prompt.slice(0, index) : prompt;
+  const safeArtifacts = instruction.expectedArtifacts.map((artifact) => artifact.path).filter(isSafeExpectedArtifactPath);
+  return safeArtifacts.length > 0 && safeArtifacts.length === instruction.expectedArtifacts.length;
 }
 
 export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Record<string, unknown>): CliAdapterConfig {
@@ -766,17 +744,7 @@ export function validateCliAdapterConfig(config: CliAdapterConfig): CliAdapterVa
   if (!config.outputMapping.sessionIdPath.trim()) errors.push("outputMapping.sessionIdPath is required");
   if (config.defaults.approval === "bypass") errors.push("default approval may not bypass approvals");
   if (!normalizeReasoningEffort(config.defaults.reasoningEffort)) errors.push("default reasoning effort must be low, medium, high, or xhigh");
-  for (const [model, rate] of Object.entries(config.defaults.costRates ?? {})) {
-    if (!model.trim()) errors.push("costRates model key is required");
-    if (!isNonNegativeNumber(rate.inputUsdPer1M)) errors.push(`costRates.${model}.inputUsdPer1M must be a non-negative number`);
-    if (rate.cachedInputUsdPer1M !== undefined && !isNonNegativeNumber(rate.cachedInputUsdPer1M)) {
-      errors.push(`costRates.${model}.cachedInputUsdPer1M must be a non-negative number`);
-    }
-    if (!isNonNegativeNumber(rate.outputUsdPer1M)) errors.push(`costRates.${model}.outputUsdPer1M must be a non-negative number`);
-    if (rate.reasoningOutputUsdPer1M !== undefined && !isNonNegativeNumber(rate.reasoningOutputUsdPer1M)) {
-      errors.push(`costRates.${model}.reasoningOutputUsdPer1M must be a non-negative number`);
-    }
-  }
+  errors.push(...validateCostRates(config.defaults.costRates));
   return { valid: errors.length === 0, errors };
 }
 
@@ -2300,37 +2268,6 @@ function stringArray(value: unknown, fallback: string[]): string[] {
   }
   const strings = value.filter((entry): entry is string => typeof entry === "string");
   return strings.length > 0 ? strings : fallback;
-}
-
-function normalizeCostRates(value: unknown): Record<string, TokenCostRate> {
-  if (!isRecord(value)) return {};
-  const normalized: Record<string, TokenCostRate> = {};
-  for (const [model, rawRate] of Object.entries(value)) {
-    if (!model.trim() || !isRecord(rawRate)) continue;
-    const inputUsdPer1M = numberValue(rawRate.inputUsdPer1M ?? rawRate.input_usd_per_1m);
-    const outputUsdPer1M = numberValue(rawRate.outputUsdPer1M ?? rawRate.output_usd_per_1m);
-    const cachedInputUsdPer1M = optionalNumberValue(rawRate.cachedInputUsdPer1M ?? rawRate.cached_input_usd_per_1m);
-    const reasoningOutputUsdPer1M = optionalNumberValue(rawRate.reasoningOutputUsdPer1M ?? rawRate.reasoning_output_usd_per_1m);
-    normalized[model] = {
-      inputUsdPer1M,
-      outputUsdPer1M,
-      ...(cachedInputUsdPer1M === undefined ? {} : { cachedInputUsdPer1M }),
-      ...(reasoningOutputUsdPer1M === undefined ? {} : { reasoningOutputUsdPer1M }),
-    };
-  }
-  return normalized;
-}
-
-function numberValue(value: unknown): number {
-  return typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;
-}
-
-function optionalNumberValue(value: unknown): number | undefined {
-  return value === undefined || value === null || value === "" ? undefined : numberValue(value);
-}
-
-function isNonNegativeNumber(value: unknown): boolean {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

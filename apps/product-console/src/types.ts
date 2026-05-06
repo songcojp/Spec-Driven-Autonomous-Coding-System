@@ -182,6 +182,7 @@ export type SkillOutputModel = {
     costUsd: number;
     currency: string;
     pricingStatus: string;
+    pricing?: Record<string, unknown>;
     sourcePath: string;
     recordedAt: string;
   };
@@ -361,6 +362,7 @@ export type RpcAdapterConfigModel = {
   transport: string;
   endpoint?: string;
   requestTimeoutMs: number;
+  defaults?: Record<string, unknown>;
   status: string;
   updatedAt?: string;
 };

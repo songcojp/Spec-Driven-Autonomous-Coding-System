@@ -14,6 +14,7 @@ import {
   buildRunnerConsoleView,
   buildSpecWorkspaceView,
   buildSystemSettingsView,
+  ensureTokenConsumptionRecords,
   submitConsoleCommand,
 } from "../src/product-console.ts";
 import { seedDemoProject } from "../src/demo-seed.ts";
@@ -888,6 +889,118 @@ test("runner and spec workspace record token consumption from cli-output.json", 
   ]);
   const invalid = buildRunnerConsoleView(dbPath, stableDate, "project-1").schedulerJobs.find((job) => job.id === "JOB-INVALID")?.skillOutput;
   assert.equal(invalid?.parseStatus, "invalid");
+});
+
+test("token cost calculation uses execution adapter rates without repricing history", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const projectPath = mkdtempSync(join(tmpdir(), "adapter-rate-"));
+  for (const runId of ["RUN-CLI-PRICED", "RUN-RPC-PRICED", "RUN-MISSING-RATE", "RUN-EXISTING-PRICE"]) {
+    const runDir = join(projectPath, ".autobuild", "runs", runId);
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "cli-output.json"), JSON.stringify({
+      usage: { input_tokens: 1000000, cached_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0 },
+    }));
+  }
+
+  const activeDefaults = {
+    model: "shared-model",
+    reasoningEffort: "medium",
+    sandbox: "danger-full-access",
+    approval: "never",
+    costRates: { "shared-model": { inputUsdPer1M: 100, outputUsdPer1M: 100 } },
+  };
+  const cliExecutionDefaults = {
+    ...activeDefaults,
+    costRates: { "shared-model": { inputUsdPer1M: 1, outputUsdPer1M: 1 } },
+  };
+  const rpcExecutionDefaults = {
+    model: "rpc-model",
+    costRates: { "rpc-model": { inputUsdPer1M: 3, outputUsdPer1M: 3 } },
+  };
+
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ? WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    {
+      sql: `INSERT INTO cli_adapter_configs (
+          id, display_name, schema_version, executable, argument_template_json, resume_argument_template_json,
+          config_schema_json, form_schema_json, defaults_json, environment_allowlist_json, output_mapping_json, status, updated_at
+        ) VALUES (
+          'codex-cli', 'Codex CLI', 2, 'codex', '["{{prompt}}","{{output_schema}}"]', '[]',
+          '{}', '{}', ?, '[]', '{"eventStream":"json","outputSchema":"skill-output.schema.json","sessionIdPath":"session_id"}', 'active', '2026-04-28T12:00:00.000Z'
+        )
+        ON CONFLICT(id) DO UPDATE SET defaults_json = excluded.defaults_json, status = excluded.status, updated_at = excluded.updated_at`,
+      params: [JSON.stringify(activeDefaults)],
+    },
+    {
+      sql: `INSERT INTO cli_adapter_configs (
+          id, display_name, schema_version, executable, argument_template_json, resume_argument_template_json,
+          config_schema_json, form_schema_json, defaults_json, environment_allowlist_json, output_mapping_json, status, updated_at
+        ) VALUES (
+          'cheap-cli', 'Cheap CLI', 2, 'cheap', '["{{prompt}}","{{output_schema}}"]', '[]',
+          '{}', '{}', ?, '[]', '{"eventStream":"json","outputSchema":"skill-output.schema.json","sessionIdPath":"session_id"}', 'draft', '2026-04-28T12:01:00.000Z'
+        )`,
+      params: [JSON.stringify(cliExecutionDefaults)],
+    },
+    {
+      sql: `INSERT INTO rpc_adapter_configs (
+          id, display_name, provider, schema_version, executable, args_json, transport, endpoint,
+          request_timeout_ms, config_schema_json, form_schema_json, defaults_json, status, updated_at
+        ) VALUES (
+          'rpc-priced', 'Priced RPC', 'codex-rpc', 1, 'codex', '["app-server"]', 'stdio', 'stdio://',
+          120000, '{}', '{}', ?, 'active', '2026-04-28T12:01:00.000Z'
+        )`,
+      params: [JSON.stringify(rpcExecutionDefaults)],
+    },
+    {
+      sql: `INSERT INTO execution_records (id, executor_type, operation, project_id, context_json, status, started_at, completed_at, metadata_json)
+        VALUES
+          ('RUN-CLI-PRICED', 'cli', 'split_feature_specs', 'project-1', '{}', 'completed', '2026-04-28T12:03:00.000Z', '2026-04-28T12:04:00.000Z', ?),
+          ('RUN-RPC-PRICED', 'codex.rpc', 'generate_hld', 'project-1', '{}', 'completed', '2026-04-28T12:03:00.000Z', '2026-04-28T12:04:00.000Z', ?),
+          ('RUN-MISSING-RATE', 'cli', 'generate_ui_spec', 'project-1', '{}', 'completed', '2026-04-28T12:03:00.000Z', '2026-04-28T12:04:00.000Z', ?),
+          ('RUN-EXISTING-PRICE', 'cli', 'generate_ui_spec', 'project-1', '{}', 'completed', '2026-04-28T12:03:00.000Z', '2026-04-28T12:04:00.000Z', ?)`,
+      params: [
+        JSON.stringify({ workspaceRoot: projectPath, executionPreference: { runMode: "cli", adapterId: "cheap-cli" }, model: "shared-model" }),
+        JSON.stringify({ workspaceRoot: projectPath, executionPreference: { runMode: "rpc", adapterId: "rpc-priced" }, model: "rpc-model" }),
+        JSON.stringify({ workspaceRoot: projectPath, executionPreference: { runMode: "cli", adapterId: "cheap-cli" }, model: "missing-model" }),
+        JSON.stringify({ workspaceRoot: projectPath, executionPreference: { runMode: "cli", adapterId: "cheap-cli" }, model: "shared-model" }),
+      ],
+    },
+    {
+      sql: `INSERT INTO token_consumption_records (
+          id, run_id, project_id, model, input_tokens, output_tokens, total_tokens,
+          cost_usd, currency, pricing_status, usage_json, pricing_json, source_path
+        ) VALUES (
+          'TCR-EXISTING', 'RUN-EXISTING-PRICE', 'project-1', 'shared-model', 1000000, 0, 1000000,
+          7, 'USD', 'priced', '{}', '{"adapterId":"old-cli","adapterKind":"cli"}', 'old-source'
+        )`,
+    },
+  ]);
+
+  ensureTokenConsumptionRecords(dbPath, "project-1");
+  const records = runSqlite(dbPath, [], [
+    {
+      name: "tokens",
+      sql: "SELECT run_id, cost_usd, pricing_status, pricing_json FROM token_consumption_records WHERE run_id IN ('RUN-CLI-PRICED','RUN-RPC-PRICED','RUN-MISSING-RATE','RUN-EXISTING-PRICE') ORDER BY run_id",
+    },
+  ]).queries.tokens;
+  const byRun = new Map(records.map((row) => [String(row.run_id), row]));
+
+  assert.equal(byRun.get("RUN-CLI-PRICED")?.cost_usd, 1);
+  assert.deepEqual(JSON.parse(String(byRun.get("RUN-CLI-PRICED")?.pricing_json)), {
+    adapterId: "cheap-cli",
+    adapterKind: "cli",
+    model: "shared-model",
+    rate: { inputUsdPer1M: 1, outputUsdPer1M: 1 },
+  });
+  assert.equal(byRun.get("RUN-RPC-PRICED")?.cost_usd, 3);
+  assert.equal(JSON.parse(String(byRun.get("RUN-RPC-PRICED")?.pricing_json)).adapterKind, "rpc");
+  assert.equal(byRun.get("RUN-MISSING-RATE")?.cost_usd, 0);
+  assert.equal(byRun.get("RUN-MISSING-RATE")?.pricing_status, "missing_rate");
+  assert.equal(JSON.parse(String(byRun.get("RUN-MISSING-RATE")?.pricing_json)).adapterId, "cheap-cli");
+  assert.equal(byRun.get("RUN-EXISTING-PRICE")?.cost_usd, 7);
+  assert.equal(JSON.parse(String(byRun.get("RUN-EXISTING-PRICE")?.pricing_json)).adapterId, "old-cli");
 });
 
 test("system settings exposes CLI adapter config and governed activation", () => {

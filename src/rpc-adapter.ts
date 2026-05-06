@@ -1,4 +1,8 @@
 import type { CliJsonEvent } from "./cli-adapter.ts";
+import {
+  validateCostRates,
+  type AdapterPricingDefaults,
+} from "./adapter-pricing.ts";
 import type { ExecutionAdapterConfigV1 } from "./execution-adapter-contracts.ts";
 
 export type JsonRpcRequest = {
@@ -30,6 +34,7 @@ export type RpcAdapterConfig = {
   transport: "stdio" | "unix" | "http" | "jsonrpc" | "websocket";
   endpoint?: string;
   requestTimeoutMs: number;
+  defaults?: AdapterPricingDefaults;
   status: "active" | "disabled";
   updatedAt?: string;
 };
@@ -60,7 +65,7 @@ export function rpcAdapterConfigToExecutionAdapterConfig(input: {
     schemaVersion: 1,
     transport: input.config.transport,
     capabilities: input.capabilities ?? ["json-rpc", "event-stream", "skill-output-contract"],
-    defaults: {},
+    defaults: input.config.defaults ?? {},
     inputMapping: {
       executable: input.config.executable,
       args: input.config.args,
@@ -87,6 +92,7 @@ export function validateRpcAdapterConfig(config: RpcAdapterConfig): RpcAdapterVa
   if ((config.transport === "http" || config.transport === "jsonrpc" || config.transport === "websocket") && !config.endpoint?.trim()) {
     errors.push("endpoint is required for network transports");
   }
+  errors.push(...validateCostRates(config.defaults?.costRates));
   return { valid: errors.length === 0, errors };
 }
 
