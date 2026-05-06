@@ -54,8 +54,14 @@ test("VSCode debug entry rebuilds artifacts and clears stale backend", () => {
   assert.match(vscodeDebugScript, /esbuild src\/index\.ts/);
   assert.match(vscodeDebugScript, /outfile="\$\{EXTENSION_DIR\}\/server\/index\.cjs"/);
   assert.match(vscodeDebugScript, /BACKEND_PORT="\$\{AUTOBUILD_PORT:-43117\}"/);
+  assert.match(vscodeDebugScript, /USER_DATA_DIR="\$\{AUTOBUILD_VSCODE_USER_DATA_DIR:-\$\{ROOT_DIR\}\/\.autobuild\/vscode-extension-host-user-data\}"/);
+  assert.match(vscodeDebugScript, /EXTENSIONS_DIR="\$\{AUTOBUILD_VSCODE_EXTENSIONS_DIR:-\$\{ROOT_DIR\}\/\.autobuild\/vscode-extension-host-extensions\}"/);
   assert.match(vscodeDebugScript, /lsof -t -i:"\$\{BACKEND_PORT\}"/);
+  assert.match(vscodeDebugScript, /--user-data-dir="\$\{USER_DATA_DIR\}"/);
+  assert.match(vscodeDebugScript, /--extensions-dir="\$\{EXTENSIONS_DIR\}"/);
   assert.match(vscodeDebugScript, /--extensionDevelopmentPath="\$\{EXTENSION_DIR\}"/);
+  assert.match(readFileSync(".vscode/launch.json", "utf8"), /--user-data-dir=\$\{workspaceFolder\}\/\.autobuild\/vscode-extension-host-user-data/);
+  assert.match(readFileSync(".vscode/launch.json", "utf8"), /--extensions-dir=\$\{workspaceFolder\}\/\.autobuild\/vscode-extension-host-extensions/);
 });
 
 test("VSCode IDE Webviews expose independent workbench commands", () => {

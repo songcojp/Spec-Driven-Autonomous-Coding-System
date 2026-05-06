@@ -408,7 +408,7 @@ export function cliAdapterConfigToExecutionAdapterConfig(config: CliAdapterConfi
     updatedAt: config.updatedAt,
   };
 }
-const DEFAULT_OUTPUT_SCHEMA = {
+export const DEFAULT_OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
@@ -864,7 +864,7 @@ export function validateWorkspaceRoot(workspaceRoot: string | undefined): Worksp
   return { valid: blockedReasons.length === 0, workspaceRoot: trimmed, blockedReasons };
 }
 
-export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvocationV1, context: string): string {
+export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvocationV1, _context = ""): string {
   const instruction = invocation.skillInstruction;
   const taskSlicingRules = instruction.skillSlug === "task-slicing-skill"
     ? [
@@ -924,9 +924,6 @@ export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvoc
     ...taskSlicingRules,
     ...featureCodingRules,
     ...clarificationRules,
-    "",
-    "Context:",
-    context,
   ].join("\n");
 }
 

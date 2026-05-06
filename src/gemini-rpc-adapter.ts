@@ -8,10 +8,10 @@ import type {
   CliJsonEvent,
   RawExecutionLog,
   RunnerPolicy,
-  SkillInvocationContract,
   SkillOutputContract,
 } from "./cli-adapter.ts";
 import type {
+  ExecutionAdapterInvocationV1,
   ExecutionAdapterProviderSessionV1,
   ExecutionAdapterResultV1,
 } from "./execution-adapter-contracts.ts";
@@ -48,7 +48,7 @@ export type GeminiAcpSessionInput = {
   policy: RunnerPolicy;
   transport: GeminiAcpTransport;
   commandArgs?: string[];
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
   sessionId?: string;
   startedAt?: string;
   now?: Date;
@@ -62,7 +62,7 @@ export type GeminiAcpAdapterResultInput = {
   commandArgs?: string[];
   startedAt: string;
   completedAt: string;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
 };
 
 export const DEFAULT_GEMINI_ACP_ADAPTER_CONFIG: GeminiAcpAdapterConfig = {
@@ -256,14 +256,14 @@ export async function runGeminiAcpSession(input: GeminiAcpSessionInput): Promise
     commandArgs: input.commandArgs,
     startedAt,
     completedAt,
-    skillInvocation: input.skillInvocation,
+    executionInvocation: input.executionInvocation,
   });
 }
 
 export function buildGeminiAcpAdapterResult(input: GeminiAcpAdapterResultInput): CliAdapterResult {
   const projection = projectGeminiAcpEvents(input.events);
-  const contractValidation = validateSkillOutputContract(input.skillInvocation, projection.skillOutput);
-  const failedContract = input.skillInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
+  const contractValidation = validateSkillOutputContract(input.executionInvocation, projection.skillOutput);
+  const failedContract = input.executionInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
   const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
   const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
   const commandArgs = input.commandArgs ?? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.args;
@@ -304,20 +304,19 @@ export function buildGeminiAcpAdapterResult(input: GeminiAcpAdapterResultInput):
     summary: projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Gemini ACP is waiting for permission." : `Gemini ACP exit=${exitCode}.`),
     skillOutput: projection.skillOutput,
     producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
-    traceability: projection.skillOutput?.traceability ?? input.skillInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
+    traceability: projection.skillOutput?.traceability ?? input.executionInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
     nextAction: projection.skillOutput?.nextAction,
     rawLogRefs: [rawLog.id],
     error: stderr || undefined,
   };
   const reportPath = writeRunReport(input.workspaceRoot, input.runId, {
     runId: input.runId,
-    taskId: input.skillInvocation?.traceability.taskId,
-    featureId: input.skillInvocation?.traceability.featureId,
+    featureId: input.executionInvocation?.featureId ?? input.executionInvocation?.traceability.featureId,
     status: executionAdapterResult.status === "cancelled" ? "blocked" : executionAdapterResult.status,
     exitCode,
     sessionId: projection.sessionId,
     eventCount: input.events.length,
-    skillInvocation: input.skillInvocation,
+    executionInvocation: input.executionInvocation,
     skillOutput: projection.skillOutput,
     contractValidation,
     producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
@@ -340,14 +339,13 @@ export function buildGeminiAcpAdapterResult(input: GeminiAcpAdapterResultInput):
     rawLog,
     result: {
       runId: input.runId,
-      taskId: input.skillInvocation?.traceability.taskId,
-      featureId: input.skillInvocation?.traceability.featureId,
+      featureId: input.executionInvocation?.featureId ?? input.executionInvocation?.traceability.featureId,
       sessionId: projection.sessionId,
       exitCode,
       events: input.events,
       stdout: projection.assistantMessage,
       stderr,
-      skillInvocation: input.skillInvocation,
+      executionInvocation: input.executionInvocation,
       skillOutput: projection.skillOutput,
       contractValidation,
     },

@@ -28,7 +28,7 @@
 
 ## Spec => Skill Contract
 
-所有由 Spec Workspace、Feature Pool 或 Runner 调起的项目级 Skill 均使用 `SkillInvocationContractV1` 作为输入。输入必须包含 `workspaceRoot`、`featureId` 或项目上下文、`sourcePaths`、`expectedArtifacts`、当前 `specState`、traceability、constraints 和 requested action。Skill 不应从数据库推断 Spec 状态。
+所有由 Spec Workspace、Feature Pool 或 Runner 调起的项目级 Skill 均通过 `ExecutionAdapterInvocationV1.skillInstruction` 接收任务指令。Adapter 输入必须包含 `workspaceRoot`、Feature 级上下文、当前 `specState`、traceability、constraints、输出 schema，以及 `skillInstruction` 中的 `skillSlug`、`requestedAction`、`sourcePaths`、`expectedArtifacts` 和可选操作员输入。Skill 不应从数据库推断 Spec 状态。
 
 Skill 输出必须使用 `SkillOutputContractV1`，包含 `status`、`summary`、`nextAction`、`producedArtifacts`、traceability 和 result。Runner 校验输出后将状态投影回 `docs/features/<feature-id>/spec-state.json`，同时把执行事实保存在 Execution Record、runner heartbeats 和 raw logs 中。通用输出 Contract 的机器真源在调用端 schema；项目级 Skill 文档只补充本技能 `result` 的专用字段语义，供 Execution Workbench 分组展示执行详情。
 

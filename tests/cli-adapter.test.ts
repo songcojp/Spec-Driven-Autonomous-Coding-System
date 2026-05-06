@@ -7,7 +7,7 @@ import { initializeSchema, listTables, MIGRATIONS } from "../src/schema.ts";
 import { runSqlite } from "../src/sqlite.ts";
 import {
   buildExecutionResultInput,
-  buildSkillInvocationPrompt,
+  buildExecutionInvocationPrompt,
   buildRunnerConsoleSnapshot,
   cliAdapterConfigToExecutionAdapterConfig,
   DEFAULT_CLI_ADAPTER_CONFIG,
@@ -27,12 +27,13 @@ import {
   validateCliAdapterConfig,
   validateSkillOutputContract,
 } from "../src/cli-adapter.ts";
+import type { ExecutionAdapterInvocationV1 } from "../src/execution-adapter-contracts.ts";
 import { listStatusCheckResults } from "../src/status-checker.ts";
 import { handleRecoveryResult, persistRecoveryResultHandling } from "../src/recovery.ts";
 
 const stableDate = new Date("2026-04-28T12:00:00.000Z");
 
-function skillInvocationContract(overrides: Partial<{
+function executionInvocation(overrides: Partial<{
   executionId: string;
   projectId: string;
   workspaceRoot: string;
@@ -50,20 +51,18 @@ function skillInvocationContract(overrides: Partial<{
   requirementIds: string[];
   changeIds?: string[];
   requestedAction: string;
-}> = {}) {
+}> = {}): ExecutionAdapterInvocationV1 {
+  const featureId = overrides.featureId;
   return {
-    contractVersion: "skill-contract/v1" as const,
+    contractVersion: "execution-adapter/v1" as const,
     executionId: overrides.executionId ?? "RUN-SKILL",
     projectId: overrides.projectId ?? "project-1",
     workspaceRoot: overrides.workspaceRoot ?? "/workspace/project",
     operation: overrides.operation ?? overrides.requestedAction ?? "generate_ears",
-    skillSlug: overrides.skillSlug ?? "pr-ears-requirement-decomposition-skill",
-    sourcePaths: overrides.sourcePaths ?? ["docs/PRD.md"],
-    expectedArtifacts: overrides.expectedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", required: true }],
-    operatorInput: overrides.operatorInput,
+    featureId,
+    specState: {},
     traceability: {
-      featureId: overrides.featureId,
-      taskId: overrides.taskId,
+      featureId,
       requirementIds: overrides.requirementIds ?? [],
       ...(overrides.changeIds ? { changeIds: overrides.changeIds } : {}),
     },
@@ -71,7 +70,14 @@ function skillInvocationContract(overrides: Partial<{
       allowedFiles: [],
       risk: "low" as const,
     },
-    requestedAction: overrides.requestedAction ?? "generate_ears",
+    outputSchema: {},
+    skillInstruction: {
+      skillSlug: overrides.skillSlug ?? "pr-ears-requirement-decomposition-skill",
+      requestedAction: overrides.requestedAction ?? "generate_ears",
+      sourcePaths: overrides.sourcePaths ?? ["docs/PRD.md"],
+      expectedArtifacts: overrides.expectedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", required: true }],
+      operatorInput: overrides.operatorInput,
+    },
   };
 }
 
@@ -283,7 +289,7 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
 });
 
 test("SkillOutputContract validation requires common fields but allows skill-specific result fields", () => {
-  const invocation = skillInvocationContract({ executionId: "RUN-VALIDATE", featureId: "FEAT-008", taskId: "TASK-001" });
+  const invocation = executionInvocation({ executionId: "RUN-VALIDATE", featureId: "FEAT-008", taskId: "TASK-001" });
   const valid = {
     contractVersion: "skill-contract/v1",
     executionId: "RUN-VALIDATE",
@@ -319,7 +325,7 @@ test("SkillOutputContract validation requires common fields but allows skill-spe
   assert.match(traceabilityMismatch.reasons.join("\n"), /traceability\.featureId mismatch/);
 
   const absentTaskId = validateSkillOutputContract(
-    skillInvocationContract({ executionId: "RUN-FEATURE", featureId: "FEAT-008", taskId: undefined }),
+    executionInvocation({ executionId: "RUN-FEATURE", featureId: "FEAT-008", taskId: undefined }),
     {
       ...valid,
       executionId: "RUN-FEATURE",
@@ -541,7 +547,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   const docsDirectWrite = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Generate EARS requirements.",
-    skillInvocation: skillInvocationContract(),
+    executionInvocation: executionInvocation(),
   });
   assert.equal(docsDirectWrite.allowed, true);
   assert.equal(docsDirectWrite.reviewNeeded, false);
@@ -550,7 +556,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
     policy: docsDirectWritePolicy,
     prompt: "Implement the bounded task.",
     files: ["src/index.ts", "tests/index.test.ts"],
-    skillInvocation: skillInvocationContract({
+    executionInvocation: executionInvocation({
       skillSlug: "feat-implement-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
@@ -565,7 +571,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   const unboundedCodingDirectWrite = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Implement the task without file scope.",
-    skillInvocation: skillInvocationContract({
+    executionInvocation: executionInvocation({
       skillSlug: "feat-implement-skill",
       operation: "task_execution",
       sourcePaths: ["docs/features/FEAT-001/tasks.md"],
@@ -580,7 +586,7 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   const unsafeArtifactDirectWrite = evaluateRunnerSafety({
     policy: docsDirectWritePolicy,
     prompt: "Generate a risky artifact.",
-    skillInvocation: skillInvocationContract({
+    executionInvocation: executionInvocation({
       skillSlug: "technical-context-skill",
       expectedArtifacts: [{ path: "../outside.md", kind: "markdown", required: true }],
       requestedAction: "feature_planning",
@@ -597,32 +603,37 @@ test("safety gate blocks dangerous files, commands, high-risk text, and permissi
   assert.equal(unscopedDanger.reviewNeeded, false);
 });
 
-test("safety gate ignores high-risk words inside bundled source context", () => {
+test("execution invocation prompt does not inline workspace context bundles", () => {
   const policy = resolveRunnerPolicy({
     runId: "RUN-SOURCE-CONTEXT",
     risk: "medium",
     workspaceRoot: "/workspace/project",
     now: stableDate,
   });
-
-  const result = evaluateRunnerSafety({
-    policy,
-    prompt: [
-      "Execute this SpecDrive CLI skill invocation.",
-      "Workspace Context Bundle:",
+  const prompt = buildExecutionInvocationPrompt(
+    executionInvocation(),
+    [
+      ["Workspace", "Context", "Bundle:"].join(" "),
       "### docs/PRD.md",
       "MVP 不接入支付，不处理 auth token，不做 permission system.",
     ].join("\n"),
+  );
+
+  const result = evaluateRunnerSafety({
+    policy,
+    prompt,
     taskText: "Generate EARS requirements from PRD.",
   });
 
+  assert.doesNotMatch(prompt, /Workspace Context/);
+  assert.doesNotMatch(prompt, /auth token/);
   assert.equal(result.allowed, true);
   assert.equal(result.reviewNeeded, false);
 });
 
 test("skill invocation prompt asks child CLI to write docs artifacts directly", () => {
-  const prompt = buildSkillInvocationPrompt(
-    skillInvocationContract(),
+  const prompt = buildExecutionInvocationPrompt(
+    executionInvocation(),
     "Context",
   );
 
@@ -633,8 +644,8 @@ test("skill invocation prompt asks child CLI to write docs artifacts directly", 
 });
 
 test("feature-level coding prompt requires Feature Spec execution instead of report-only completion", () => {
-  const prompt = buildSkillInvocationPrompt(
-    skillInvocationContract({
+  const prompt = buildExecutionInvocationPrompt(
+    executionInvocation({
       operation: "feature_execution",
       skillSlug: "feat-implement-skill",
       requestedAction: "feature_execution",
@@ -657,8 +668,8 @@ test("feature-level coding prompt requires Feature Spec execution instead of rep
 });
 
 test("task-slicing prompt requires the full SkillOutputContract result", () => {
-  const prompt = buildSkillInvocationPrompt(
-    skillInvocationContract({
+  const prompt = buildExecutionInvocationPrompt(
+    executionInvocation({
       operation: "split_feature_specs",
       skillSlug: "task-slicing-skill",
       requestedAction: "split_feature_specs",
@@ -689,7 +700,7 @@ test("task-slicing runs receive a strict specialized result output schema", asyn
   await runCliAdapter({
     policy,
     prompt: "Split Feature Specs",
-    skillInvocation: skillInvocationContract({
+    executionInvocation: executionInvocation({
       executionId: "RUN-TASK-SCHEMA",
       operation: "split_feature_specs",
       skillSlug: "task-slicing-skill",
@@ -715,8 +726,8 @@ test("task-slicing runs receive a strict specialized result output schema", asyn
 });
 
 test("clarification skill prompt treats operator input as an answer to apply", () => {
-  const prompt = buildSkillInvocationPrompt(
-    skillInvocationContract({
+  const prompt = buildExecutionInvocationPrompt(
+    executionInvocation({
       operation: "resolve_clarification",
       skillSlug: "ambiguity-clarification-skill",
       requestedAction: "resolve_clarification",
@@ -852,7 +863,7 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
     model: "gemini-3-pro-preview",
     now: stableDate,
   });
-  const invocation = skillInvocationContract({
+  const invocation = executionInvocation({
     executionId: "RUN-GEMINI",
     workspaceRoot,
     expectedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", required: false }],
@@ -873,9 +884,9 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
   const result = await runCliAdapter({
     policy,
     adapterConfig: GEMINI_CLI_ADAPTER_CONFIG,
-    prompt: buildSkillInvocationPrompt(invocation, "Context"),
+    prompt: buildExecutionInvocationPrompt(invocation, "Context"),
     outputSchemaPath: "/tmp/runner-output.schema.json",
-    skillInvocation: invocation,
+    executionInvocation: invocation,
     now: stableDate,
     runner: (command, args, cwd) => {
       assert.equal(command, "gemini");
@@ -911,7 +922,7 @@ test("Gemini CLI adapter routes successful runs with missing SkillOutputContract
     model: "gemini-3-pro-preview",
     now: stableDate,
   });
-  const invocation = skillInvocationContract({
+  const invocation = executionInvocation({
     executionId: "RUN-GEMINI-MISSING",
     workspaceRoot,
     expectedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", required: false }],
@@ -920,9 +931,9 @@ test("Gemini CLI adapter routes successful runs with missing SkillOutputContract
   const result = await processRunnerQueueItem({
     runId: "RUN-GEMINI-MISSING",
     policy,
-    prompt: buildSkillInvocationPrompt(invocation, "Context"),
+    prompt: buildExecutionInvocationPrompt(invocation, "Context"),
     adapterConfig: GEMINI_CLI_ADAPTER_CONFIG,
-    skillInvocation: invocation,
+    executionInvocation: invocation,
   }, () => ({
     status: 0,
     stdout: JSON.stringify({ type: "result", response: "Done, but not JSON." }),
@@ -1099,7 +1110,7 @@ test("runner queue worker routes blocked work to review and executes allowed wor
       runId: "RUN-006A",
       prompt: "Generate requirements",
       policy: missingArtifactPolicy,
-      skillInvocation: skillInvocationContract({ executionId: "RUN-006A", workspaceRoot: missingArtifactRoot }),
+      executionInvocation: executionInvocation({ executionId: "RUN-006A", workspaceRoot: missingArtifactRoot }),
     },
     () => ({ status: 0, stdout: skillOutputEvent({ executionId: "RUN-006A", producedArtifacts: [] }), stderr: "" }),
   );

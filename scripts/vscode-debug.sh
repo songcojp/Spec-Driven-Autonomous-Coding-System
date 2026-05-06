@@ -6,6 +6,8 @@ EXTENSION_DIR="${ROOT_DIR}/apps/vscode-extension"
 WORKSPACE_DIR="${1:-${VSCODE_DEBUG_WORKSPACE:-${ROOT_DIR}}}"
 CODE_BIN="${CODE_BIN:-code}"
 BACKEND_PORT="${AUTOBUILD_PORT:-43117}"
+USER_DATA_DIR="${AUTOBUILD_VSCODE_USER_DATA_DIR:-${ROOT_DIR}/.autobuild/vscode-extension-host-user-data}"
+EXTENSIONS_DIR="${AUTOBUILD_VSCODE_EXTENSIONS_DIR:-${ROOT_DIR}/.autobuild/vscode-extension-host-extensions}"
 
 cd "${ROOT_DIR}"
 
@@ -13,6 +15,8 @@ if [ ! -f "${EXTENSION_DIR}/package.json" ]; then
   echo "VSCode extension package.json was not found at ${EXTENSION_DIR}/package.json" >&2
   exit 1
 fi
+
+mkdir -p "${USER_DATA_DIR}" "${EXTENSIONS_DIR}"
 
 echo "Building SpecDrive IDE extension..."
 npm run ide:build
@@ -45,4 +49,9 @@ if command -v lsof >/dev/null 2>&1; then
 fi
 
 echo "Opening VSCode Extension Development Host for ${WORKSPACE_DIR}..."
-"${CODE_BIN}" --new-window --extensionDevelopmentPath="${EXTENSION_DIR}" "${WORKSPACE_DIR}"
+"${CODE_BIN}" \
+  --new-window \
+  --user-data-dir="${USER_DATA_DIR}" \
+  --extensions-dir="${EXTENSIONS_DIR}" \
+  --extensionDevelopmentPath="${EXTENSION_DIR}" \
+  "${WORKSPACE_DIR}"

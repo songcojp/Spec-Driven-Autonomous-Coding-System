@@ -15,7 +15,8 @@ import {
   type JsonRpcStdioProcess,
 } from "../src/codex-rpc-adapter.ts";
 import { rpcAdapterConfigToExecutionAdapterConfig, validateRpcAdapterConfig } from "../src/rpc-adapter.ts";
-import type { RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/cli-adapter.ts";
+import type { RunnerPolicy, SkillOutputContract } from "../src/cli-adapter.ts";
+import type { ExecutionAdapterInvocationV1 } from "../src/execution-adapter-contracts.ts";
 
 test("Codex RPC request sequence initializes, starts a thread, and starts a schema-bound turn", () => {
   const sequence = buildCodexAppServerRequestSequence({
@@ -23,7 +24,7 @@ test("Codex RPC request sequence initializes, starts a thread, and starts a sche
     workspaceRoot: "/repo",
     prompt: "Run the skill.",
     outputSchema: { type: "object", additionalProperties: false },
-    skillInvocation: skillInvocation(),
+    executionInvocation: executionInvocation(),
   });
 
   assert.equal(sequence.initialize.method, "initialize");
@@ -120,7 +121,7 @@ test("Codex RPC adapter result maps event projection to runner result", () => {
     policy: runnerPolicy(),
     startedAt: "2026-05-02T12:00:00.000Z",
     completedAt: "2026-05-02T12:01:00.000Z",
-    skillInvocation: skillInvocation(),
+    executionInvocation: executionInvocation(),
   });
 
   assert.equal(result.session.sessionId, "thread-1");
@@ -161,7 +162,7 @@ test("Codex RPC adapter extracts the final Skill output from streamed assistant 
     policy: runnerPolicy(),
     startedAt: "2026-05-02T12:00:00.000Z",
     completedAt: "2026-05-02T12:01:00.000Z",
-    skillInvocation: skillInvocation(),
+    executionInvocation: executionInvocation(),
   });
 
   assert.equal(result.session.exitCode, 0);
@@ -244,7 +245,7 @@ test("Codex RPC session runs initialize, thread, turn, and collects terminal eve
     prompt: "Run.",
     policy: runnerPolicy(),
     transport,
-    skillInvocation: skillInvocation(),
+    executionInvocation: executionInvocation(),
     startedAt: "2026-05-02T12:00:00.000Z",
     now: new Date("2026-05-02T12:01:00.000Z"),
   });
@@ -390,19 +391,16 @@ test("Codex RPC stdio transport rejects JSON-RPC errors", async () => {
   transport.close?.();
 });
 
-function skillInvocation(): SkillInvocationContract {
+function executionInvocation(): ExecutionAdapterInvocationV1 {
   return {
-    contractVersion: "skill-contract/v1",
+    contractVersion: "execution-adapter/v1",
     executionId: "RUN-APP",
     projectId: "project-1",
     workspaceRoot: "/repo",
     operation: "feature_execution",
-    skillSlug: "feat-implement-skill",
-    sourcePaths: ["docs/features/feat-016/requirements.md"],
-    expectedArtifacts: [],
+    featureId: "FEAT-016",
     traceability: {
       featureId: "FEAT-016",
-      taskId: "TASK-001",
       requirementIds: ["REQ-VSC-010"],
       changeIds: [],
     },
@@ -410,7 +408,13 @@ function skillInvocation(): SkillInvocationContract {
       allowedFiles: ["src/**"],
       risk: "medium",
     },
-    requestedAction: "feature_execution",
+    outputSchema: {},
+    skillInstruction: {
+      skillSlug: "feat-implement-skill",
+      requestedAction: "feature_execution",
+      sourcePaths: ["docs/features/feat-016/requirements.md"],
+      expectedArtifacts: [],
+    },
   };
 }
 
@@ -426,7 +430,6 @@ function skillOutput(): SkillOutputContract {
     producedArtifacts: [],
     traceability: {
       featureId: "FEAT-016",
-      taskId: "TASK-001",
       requirementIds: ["REQ-VSC-010"],
       changeIds: [],
     },

@@ -7,7 +7,8 @@ import {
   runGeminiAcpSession,
   type GeminiAcpTransport,
 } from "../src/gemini-rpc-adapter.ts";
-import type { CliJsonEvent, RunnerPolicy, SkillInvocationContract, SkillOutputContract } from "../src/cli-adapter.ts";
+import type { CliJsonEvent, RunnerPolicy, SkillOutputContract } from "../src/cli-adapter.ts";
+import type { ExecutionAdapterInvocationV1 } from "../src/execution-adapter-contracts.ts";
 
 test("Gemini ACP config exposes unified RPC adapter config", () => {
   const config = geminiAcpConfigToExecutionAdapterConfig(DEFAULT_GEMINI_ACP_ADAPTER_CONFIG);
@@ -30,7 +31,7 @@ test("Gemini ACP session initializes, starts a session, prompts, and projects Sk
     prompt: "Run the skill.",
     policy: runnerPolicy(),
     transport,
-    skillInvocation: skillInvocation(),
+    executionInvocation: executionInvocation(),
     startedAt: "2026-05-02T12:00:00.000Z",
     now: new Date("2026-05-02T12:00:01.000Z"),
   });
@@ -57,7 +58,7 @@ test("Gemini ACP permission request projects approval_needed", async () => {
     prompt: "Run the skill.",
     policy: runnerPolicy(),
     transport,
-    skillInvocation: skillInvocation(),
+    executionInvocation: executionInvocation(),
     startedAt: "2026-05-02T12:00:00.000Z",
     now: new Date("2026-05-02T12:00:01.000Z"),
   });
@@ -78,7 +79,7 @@ test("Gemini ACP adapter result maps protocol errors to failed result", () => {
     policy: runnerPolicy(),
     startedAt: "2026-05-02T12:00:00.000Z",
     completedAt: "2026-05-02T12:00:01.000Z",
-    skillInvocation: skillInvocation(),
+    executionInvocation: executionInvocation(),
   });
 
   assert.equal(result.session.exitCode, 1);
@@ -86,19 +87,16 @@ test("Gemini ACP adapter result maps protocol errors to failed result", () => {
   assert.match(result.rawLog.stderr, /Rate limit/);
 });
 
-function skillInvocation(): SkillInvocationContract {
+function executionInvocation(): ExecutionAdapterInvocationV1 {
   return {
-    contractVersion: "skill-contract/v1",
+    contractVersion: "execution-adapter/v1",
     executionId: "RUN-APP",
     projectId: "project-1",
     workspaceRoot: "/repo",
     operation: "feature_execution",
-    skillSlug: "feat-implement-skill",
-    sourcePaths: ["docs/features/feat-016/requirements.md"],
-    expectedArtifacts: [],
+    featureId: "FEAT-016",
     traceability: {
       featureId: "FEAT-016",
-      taskId: "TASK-001",
       requirementIds: ["REQ-VSC-010"],
       changeIds: [],
     },
@@ -106,7 +104,13 @@ function skillInvocation(): SkillInvocationContract {
       allowedFiles: ["src/**"],
       risk: "medium",
     },
-    requestedAction: "feature_execution",
+    outputSchema: {},
+    skillInstruction: {
+      skillSlug: "feat-implement-skill",
+      requestedAction: "feature_execution",
+      sourcePaths: ["docs/features/feat-016/requirements.md"],
+      expectedArtifacts: [],
+    },
   };
 }
 
@@ -122,7 +126,6 @@ function skillOutput(): SkillOutputContract {
     producedArtifacts: [],
     traceability: {
       featureId: "FEAT-016",
-      taskId: "TASK-001",
       requirementIds: ["REQ-VSC-010"],
       changeIds: [],
     },

@@ -8,10 +8,10 @@ import type {
   CliJsonEvent,
   RawExecutionLog,
   RunnerPolicy,
-  SkillInvocationContract,
   SkillOutputContract,
 } from "./cli-adapter.ts";
 import type {
+  ExecutionAdapterInvocationV1,
   ExecutionAdapterProviderSessionV1,
   ExecutionAdapterResultV1,
 } from "./execution-adapter-contracts.ts";
@@ -29,7 +29,7 @@ export type CodexAppServerRequestSequenceInput = {
   workspaceRoot: string;
   prompt: string;
   outputSchema: Record<string, unknown>;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
   threadId?: string;
   clientInfo?: {
     name: string;
@@ -64,7 +64,7 @@ export type CodexAppServerAdapterResultInput = {
   policy: RunnerPolicy;
   startedAt: string;
   completedAt: string;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
 };
 
 export type CodexAppServerTransport = RpcAdapterTransport;
@@ -75,7 +75,7 @@ export type CodexAppServerSessionInput = {
   prompt: string;
   policy: RunnerPolicy;
   transport: CodexAppServerTransport;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
   threadId?: string;
   startedAt?: string;
   now?: Date;
@@ -258,11 +258,11 @@ export function buildCodexAppServerRequestSequence(input: CodexAppServerRequestS
   const threadParams = input.threadId
     ? { threadId: input.threadId, cwd: input.workspaceRoot }
     : { cwd: input.workspaceRoot };
-  const skillInput = input.skillInvocation
+  const skillInput = input.executionInvocation
     ? [{
         type: "skill",
-        name: input.skillInvocation.skillSlug,
-        path: `.agents/skills/${input.skillInvocation.skillSlug}/SKILL.md`,
+        name: input.executionInvocation.skillInstruction.skillSlug,
+        path: `.agents/skills/${input.executionInvocation.skillInstruction.skillSlug}/SKILL.md`,
       }]
     : [];
 
@@ -338,10 +338,10 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
     cwd: input.workspaceRoot,
     input: [
       { type: "text", text: input.prompt },
-      ...(input.skillInvocation ? [{
+      ...(input.executionInvocation ? [{
         type: "skill",
-        name: input.skillInvocation.skillSlug,
-        path: `.agents/skills/${input.skillInvocation.skillSlug}/SKILL.md`,
+        name: input.executionInvocation.skillInstruction.skillSlug,
+        path: `.agents/skills/${input.executionInvocation.skillInstruction.skillSlug}/SKILL.md`,
       }] : []),
     ],
     outputSchema: input.policy.outputSchema,
@@ -368,7 +368,7 @@ export async function runCodexAppServerSession(input: CodexAppServerSessionInput
     policy: input.policy,
     startedAt,
     completedAt,
-    skillInvocation: input.skillInvocation,
+    executionInvocation: input.executionInvocation,
   });
 }
 
@@ -448,8 +448,8 @@ export function projectCodexAppServerEvents(events: CliJsonEvent[]): CodexAppSer
 
 export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterResultInput): CliAdapterResult {
   const projection = projectCodexAppServerEvents(input.events);
-  const contractValidation = validateSkillOutputContract(input.skillInvocation, projection.skillOutput);
-  const failedContract = input.skillInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
+  const contractValidation = validateSkillOutputContract(input.executionInvocation, projection.skillOutput);
+  const failedContract = input.executionInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
   const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
   const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
   const providerSession: ExecutionAdapterProviderSessionV1 = {
@@ -493,20 +493,19 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
     summary: projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Codex RPC is waiting for approval." : `Codex RPC exit=${exitCode}.`),
     skillOutput: projection.skillOutput,
     producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
-    traceability: projection.skillOutput?.traceability ?? input.skillInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
+    traceability: projection.skillOutput?.traceability ?? input.executionInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
     nextAction: projection.skillOutput?.nextAction,
     rawLogRefs: [rawLog.id],
     error: stderr || undefined,
   };
   const reportPath = writeRunReport(input.workspaceRoot, input.runId, {
     runId: input.runId,
-    taskId: input.skillInvocation?.traceability.taskId,
-    featureId: input.skillInvocation?.traceability.featureId,
+    featureId: input.executionInvocation?.featureId ?? input.executionInvocation?.traceability.featureId,
     status: executionAdapterResult.status === "cancelled" ? "blocked" : executionAdapterResult.status,
     exitCode,
     sessionId: projection.threadId,
     eventCount: input.events.length,
-    skillInvocation: input.skillInvocation,
+    executionInvocation: input.executionInvocation,
     skillOutput: projection.skillOutput,
     contractValidation,
     producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
@@ -529,14 +528,13 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
     rawLog,
     result: {
       runId: input.runId,
-      taskId: input.skillInvocation?.traceability.taskId,
-      featureId: input.skillInvocation?.traceability.featureId,
+      featureId: input.executionInvocation?.featureId ?? input.executionInvocation?.traceability.featureId,
       sessionId: projection.threadId,
       exitCode,
       events: input.events,
       stdout: projection.assistantMessage,
       stderr,
-      skillInvocation: input.skillInvocation,
+      executionInvocation: input.executionInvocation,
       skillOutput: projection.skillOutput,
       contractValidation,
     },

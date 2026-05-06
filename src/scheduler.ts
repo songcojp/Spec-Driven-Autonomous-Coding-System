@@ -1,19 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, normalize, relative } from "node:path";
+import { join, normalize } from "node:path";
 import { Queue, Worker, type Job, type WorkerOptions } from "bullmq";
 import IORedis from "ioredis";
 import { runSqlite } from "./sqlite.ts";
 import { recordAuditEvent } from "./persistence.ts";
 import {
-  persistStateTransition,
-  transitionTask,
-  type BoardColumn,
   type RiskLevel,
 } from "./orchestration.ts";
 import {
-  buildSkillInvocationPrompt,
+  buildExecutionInvocationPrompt,
   DEFAULT_CLI_ADAPTER_CONFIG,
+  DEFAULT_OUTPUT_SCHEMA,
   GEMINI_CLI_ADAPTER_CONFIG,
   evaluateRunnerSafety,
   isTrustedDirectWriteInvocation,
@@ -27,9 +24,9 @@ import {
   type CliCommandRunner,
   type RunnerQueueStatus,
   type SkillArtifactContract,
-  type SkillInvocationContract,
   type SkillOutputContract,
 } from "./cli-adapter.ts";
+import type { ExecutionAdapterInvocationV1 } from "./execution-adapter-contracts.ts";
 import {
   createCodexAppServerTransportFromConfig,
   DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG,
@@ -56,8 +53,6 @@ export const BULLMQ_EXECUTION_ADAPTER_QUEUE = "specdrive-execution-adapter";
 export const CLI_RUNNER_QUEUE = EXECUTION_ADAPTER_QUEUE;
 export const BULLMQ_CLI_RUNNER_QUEUE = BULLMQ_EXECUTION_ADAPTER_QUEUE;
 export const CLI_WORKER_LOCK_DURATION_MS = 60 * 60 * 1000;
-const MAX_CONTEXT_INLINE_FILE_BYTES = 4_096;
-const MAX_CONTEXT_INLINE_BUNDLE_BYTES = 12_000;
 
 export type SchedulerJobType = "cli.run" | "rpc.run" | "codex.rpc.run" | "codex.app_server.run" | "native.run";
 export type SchedulerJobStatus = "queued" | "running" | "completed" | "approval_needed" | "blocked" | "failed";
@@ -384,7 +379,6 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
   const context = payload.context ?? {};
   const executionPreference = executionPreferenceFromPayload(payload);
   const featureId = optionalString(context.featureId);
-  const taskId = optionalString(context.taskId);
   const skillSlug = optionalString(context.skillSlug);
   const skillPhase = optionalString(context.skillPhase) ?? payload.operation;
   let loaded: ReturnType<typeof loadRunnerTaskContext>;
@@ -419,8 +413,8 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
       },
     ]);
     recordAuditEvent(dbPath, {
-      entityType: taskId ? "task" : featureId ? "feature" : "project",
-      entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
+      entityType: featureId ? "feature" : "project",
+      entityId: featureId ?? payload.projectId ?? payload.executionId,
       eventType: "cli_run_blocked",
       source: "cli_runner",
       reason,
@@ -436,7 +430,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     model: loaded.adapter.defaults.model,
     reasoningEffort: loaded.adapter.defaults.reasoningEffort,
     profile: loaded.adapter.defaults.profile,
-    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.skillInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
+    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.executionInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
     requestedApprovalPolicy: loaded.adapter.defaults.approval,
     now,
   });
@@ -445,13 +439,10 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     runnerId: "bullmq-cli-runner",
     policy,
     queueStatus: "running",
-    message: `Running ${taskId ?? payload.operation}`,
+    message: `Running ${loaded.featureId ?? payload.operation}`,
     now,
   });
   persistCliRunnerArtifacts(dbPath, { policy, heartbeat });
-  if (taskId && loaded.taskStatus) {
-    transitionTaskIfAllowed(dbPath, taskId, loaded.taskStatus, "running", "cli.run job started", "cli.run");
-  }
   runSqlite(dbPath, [
     {
       sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, metadata_json)
@@ -463,7 +454,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
         "cli",
         payload.operation,
         loaded.projectId ?? payload.projectId ?? null,
-        JSON.stringify(loaded.skillInvocation ?? { ...context, featureId: loaded.featureId ?? featureId, taskId }),
+        JSON.stringify(loaded.executionInvocation),
         "running",
         now.toISOString(),
         JSON.stringify({
@@ -471,9 +462,9 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
           jobType: "cli.run",
           executionPreference,
           workspaceRoot: loaded.workspaceRoot,
-          skillSlug: loaded.skillInvocation?.skillSlug,
-          skillPhase: loaded.skillInvocation?.requestedAction,
-          skillInvocationContract: loaded.skillInvocation,
+          skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+          skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+          executionInvocation: loaded.executionInvocation,
         }),
       ],
     },
@@ -491,14 +482,13 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
 
   const result = await processRunnerQueueItem({
     runId: payload.executionId,
-    taskId,
     featureId: loaded.featureId,
     prompt: loaded.prompt,
     policy,
     files: loaded.allowedFiles,
     taskText: loaded.description,
     adapterConfig: loaded.adapter,
-    skillInvocation: loaded.skillInvocation,
+    executionInvocation: loaded.executionInvocation,
   }, runner);
 
   if (result.adapterResult) {
@@ -516,19 +506,15 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     });
       }
 
-  const taskStatus = taskStatusFromRunnerStatus(result.status);
-  if (taskId) {
-    transitionTaskIfAllowed(dbPath, taskId, "running", taskStatus, result.summary, "cli.run");
-  }
   const finalMetadata = {
     scheduler: "bullmq",
     jobType: "cli.run",
     executionPreference,
     workspaceRoot: loaded.workspaceRoot,
     adapterId: loaded.adapter.id,
-    skillSlug: loaded.skillInvocation?.skillSlug,
-    skillPhase: loaded.skillInvocation?.requestedAction,
-    skillInvocationContract: loaded.skillInvocation,
+    skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+    skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+    executionInvocation: loaded.executionInvocation,
     skillOutputContract: result.adapterResult?.result.skillOutput,
     contractValidation: result.adapterResult?.result.contractValidation,
     producedArtifacts: result.adapterResult?.result.skillOutput?.producedArtifacts ?? [],
@@ -562,7 +548,6 @@ export async function runCodexAppServerRunJob(
   const context = payload.context ?? {};
   const executionPreference = executionPreferenceFromPayload(payload);
   const featureId = optionalString(context.featureId);
-  const taskId = optionalString(context.taskId);
   const skillSlug = optionalString(context.skillSlug);
   const skillPhase = optionalString(context.skillPhase) ?? payload.operation;
   let loaded: ReturnType<typeof loadRunnerTaskContext>;
@@ -600,8 +585,8 @@ export async function runCodexAppServerRunJob(
       },
     ]);
     recordAuditEvent(dbPath, {
-      entityType: taskId ? "task" : featureId ? "feature" : "project",
-      entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
+      entityType: featureId ? "feature" : "project",
+      entityId: featureId ?? payload.projectId ?? payload.executionId,
       eventType: "codex_rpc_run_blocked",
       source: "rpc_adapter",
       reason,
@@ -618,7 +603,7 @@ export async function runCodexAppServerRunJob(
     model: loaded.adapter.defaults.model,
     reasoningEffort: loaded.adapter.defaults.reasoningEffort,
     profile: loaded.adapter.defaults.profile,
-    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.skillInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
+    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.executionInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
     requestedApprovalPolicy: loaded.adapter.defaults.approval,
     now,
   });
@@ -627,7 +612,7 @@ export async function runCodexAppServerRunJob(
     prompt: loaded.prompt,
     files: loaded.allowedFiles,
     taskText: loaded.description,
-    skillInvocation: loaded.skillInvocation,
+    executionInvocation: loaded.executionInvocation,
   });
   if (!safety.allowed) {
     runSqlite(dbPath, [
@@ -641,7 +626,7 @@ export async function runCodexAppServerRunJob(
           "codex.rpc",
           payload.operation,
           loaded.projectId ?? payload.projectId ?? null,
-          JSON.stringify(loaded.skillInvocation ?? context),
+          JSON.stringify(loaded.executionInvocation),
           "review_needed",
           now.toISOString(),
           safety.summary,
@@ -652,8 +637,8 @@ export async function runCodexAppServerRunJob(
             executionPreference,
             workspaceRoot: loaded.workspaceRoot,
             safety,
-            skillSlug: loaded.skillInvocation?.skillSlug,
-            skillPhase: loaded.skillInvocation?.requestedAction,
+            skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+            skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
           }),
         ],
       },
@@ -665,7 +650,7 @@ export async function runCodexAppServerRunJob(
     runnerId: "bullmq-codex-rpc-adapter",
     policy,
     queueStatus: "running",
-    message: `Running ${taskId ?? payload.operation}`,
+    message: `Running ${loaded.featureId ?? payload.operation}`,
     now,
   });
   persistCliRunnerArtifacts(dbPath, { policy, heartbeat });
@@ -680,7 +665,7 @@ export async function runCodexAppServerRunJob(
         "codex.rpc",
         payload.operation,
         loaded.projectId ?? payload.projectId ?? null,
-        JSON.stringify(loaded.skillInvocation ?? { ...context, featureId: loaded.featureId ?? featureId, taskId }),
+        JSON.stringify(loaded.executionInvocation),
         "running",
         now.toISOString(),
         JSON.stringify({
@@ -689,9 +674,9 @@ export async function runCodexAppServerRunJob(
           provider: "codex-rpc",
           executionPreference,
           workspaceRoot: loaded.workspaceRoot,
-          skillSlug: loaded.skillInvocation?.skillSlug,
-          skillPhase: loaded.skillInvocation?.requestedAction,
-          skillInvocationContract: loaded.skillInvocation,
+          skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+          skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+          executionInvocation: loaded.executionInvocation,
           threadId: payload.threadId,
           transport: adapterConfig?.transport,
           model: policy.model,
@@ -728,7 +713,7 @@ export async function runCodexAppServerRunJob(
       prompt: loaded.prompt,
       policy,
       transport: activeTransport,
-      skillInvocation: loaded.skillInvocation,
+      executionInvocation: loaded.executionInvocation,
       threadId: payload.threadId,
       startedAt: now.toISOString(),
     });
@@ -758,9 +743,9 @@ export async function runCodexAppServerRunJob(
             jobType: "rpc.run",
             executionPreference,
             workspaceRoot: loaded.workspaceRoot,
-            skillSlug: loaded.skillInvocation?.skillSlug,
-            skillPhase: loaded.skillInvocation?.requestedAction,
-            skillInvocationContract: loaded.skillInvocation,
+            skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+            skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+            executionInvocation: loaded.executionInvocation,
             threadId: payload.threadId,
             transport: adapterConfig?.transport,
             model: policy.model,
@@ -823,9 +808,9 @@ export async function runCodexAppServerRunJob(
           jobType: "rpc.run",
           executionPreference,
           workspaceRoot: loaded.workspaceRoot,
-          skillSlug: loaded.skillInvocation?.skillSlug,
-          skillPhase: loaded.skillInvocation?.requestedAction,
-          skillInvocationContract: loaded.skillInvocation,
+          skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+          skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+          executionInvocation: loaded.executionInvocation,
           skillOutputContract: adapterResult.result.skillOutput,
           producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
           rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
@@ -877,7 +862,6 @@ export async function runGeminiAcpRunJob(
   const context = payload.context ?? {};
   const executionPreference = executionPreferenceFromPayload(payload);
   const featureId = optionalString(context.featureId);
-  const taskId = optionalString(context.taskId);
   const skillSlug = optionalString(context.skillSlug);
   const skillPhase = optionalString(context.skillPhase) ?? payload.operation;
   let loaded: ReturnType<typeof loadRunnerTaskContext>;
@@ -907,8 +891,8 @@ export async function runGeminiAcpRunJob(
       },
     ]);
     recordAuditEvent(dbPath, {
-      entityType: taskId ? "task" : featureId ? "feature" : "project",
-      entityId: taskId ?? featureId ?? payload.projectId ?? payload.executionId,
+      entityType: featureId ? "feature" : "project",
+      entityId: featureId ?? payload.projectId ?? payload.executionId,
       eventType: "gemini_acp_run_blocked",
       source: "rpc_adapter",
       reason,
@@ -925,7 +909,7 @@ export async function runGeminiAcpRunJob(
     model: loaded.adapter.defaults.model,
     reasoningEffort: loaded.adapter.defaults.reasoningEffort,
     profile: loaded.adapter.defaults.profile,
-    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.skillInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
+    requestedSandboxMode: isTrustedDirectWriteInvocation(loaded.executionInvocation, loaded.allowedFiles) ? "danger-full-access" : loaded.adapter.defaults.sandbox,
     requestedApprovalPolicy: loaded.adapter.defaults.approval,
     now,
   });
@@ -934,7 +918,7 @@ export async function runGeminiAcpRunJob(
     prompt: loaded.prompt,
     files: loaded.allowedFiles,
     taskText: loaded.description,
-    skillInvocation: loaded.skillInvocation,
+    executionInvocation: loaded.executionInvocation,
   });
   if (!safety.allowed) {
     runSqlite(dbPath, [
@@ -948,11 +932,11 @@ export async function runGeminiAcpRunJob(
           "gemini.acp",
           payload.operation,
           loaded.projectId ?? payload.projectId ?? null,
-          JSON.stringify(loaded.skillInvocation ?? context),
+          JSON.stringify(loaded.executionInvocation),
           "review_needed",
           now.toISOString(),
           safety.summary,
-          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", executionPreference, workspaceRoot: loaded.workspaceRoot, safety, skillSlug: loaded.skillInvocation?.skillSlug, skillPhase: loaded.skillInvocation?.requestedAction }),
+          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", executionPreference, workspaceRoot: loaded.workspaceRoot, safety, skillSlug: loaded.executionInvocation.skillInstruction.skillSlug, skillPhase: loaded.executionInvocation.skillInstruction.requestedAction }),
         ],
       },
     ]);
@@ -964,7 +948,7 @@ export async function runGeminiAcpRunJob(
     runnerId: "bullmq-gemini-acp-adapter",
     policy,
     queueStatus: "running",
-    message: `Running ${taskId ?? payload.operation}`,
+    message: `Running ${loaded.featureId ?? payload.operation}`,
     now,
   });
   persistCliRunnerArtifacts(dbPath, { policy, heartbeat });
@@ -979,7 +963,7 @@ export async function runGeminiAcpRunJob(
         "gemini.acp",
         payload.operation,
         loaded.projectId ?? payload.projectId ?? null,
-        JSON.stringify(loaded.skillInvocation ?? { ...context, featureId: loaded.featureId ?? featureId, taskId }),
+        JSON.stringify(loaded.executionInvocation),
         "running",
         now.toISOString(),
         JSON.stringify({
@@ -988,9 +972,9 @@ export async function runGeminiAcpRunJob(
           provider: "gemini-acp",
           executionPreference,
           workspaceRoot: loaded.workspaceRoot,
-          skillSlug: loaded.skillInvocation?.skillSlug,
-          skillPhase: loaded.skillInvocation?.requestedAction,
-          skillInvocationContract: loaded.skillInvocation,
+          skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+          skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+          executionInvocation: loaded.executionInvocation,
           sessionId: payload.threadId,
           transport: adapterConfig?.transport,
           model: policy.model,
@@ -1022,7 +1006,7 @@ export async function runGeminiAcpRunJob(
       policy,
       transport: activeTransport,
       commandArgs: (adapterConfig ?? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG).args,
-      skillInvocation: loaded.skillInvocation,
+      executionInvocation: loaded.executionInvocation,
       sessionId: payload.threadId,
       startedAt: now.toISOString(),
     });
@@ -1053,9 +1037,9 @@ export async function runGeminiAcpRunJob(
             provider: "gemini-acp",
             executionPreference,
             workspaceRoot: loaded.workspaceRoot,
-            skillSlug: loaded.skillInvocation?.skillSlug,
-            skillPhase: loaded.skillInvocation?.requestedAction,
-            skillInvocationContract: loaded.skillInvocation,
+            skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+            skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+            executionInvocation: loaded.executionInvocation,
             sessionId: payload.threadId,
             transport: adapterConfig?.transport,
             model: policy.model,
@@ -1114,9 +1098,9 @@ export async function runGeminiAcpRunJob(
           provider: "gemini-acp",
           executionPreference,
           workspaceRoot: loaded.workspaceRoot,
-          skillSlug: loaded.skillInvocation?.skillSlug,
-          skillPhase: loaded.skillInvocation?.requestedAction,
-          skillInvocationContract: loaded.skillInvocation,
+          skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+          skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+          executionInvocation: loaded.executionInvocation,
           skillOutputContract: adapterResult.result.skillOutput,
           producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
           rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
@@ -1315,7 +1299,6 @@ function hasApprovalRequest(events?: Array<Record<string, unknown>>): boolean {
 }
 
 function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
-  taskStatus?: BoardColumn;
   featureId?: string;
   projectId?: string;
   title: string;
@@ -1325,28 +1308,12 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
   workspaceRoot: string;
   adapter: CliAdapterConfig;
   prompt: string;
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation: ExecutionAdapterInvocationV1;
 } {
   const payloadContext = payload.context ?? {};
   const executionPreference = executionPreferenceFromPayload(payload);
   const featureIdFromContext = optionalString(payloadContext.featureId);
-  const taskIdFromContext = optionalString(payloadContext.taskId);
   const result = runSqlite(dbPath, [], [
-    {
-      name: "graphTask",
-      sql: `SELECT t.id, t.feature_id, f.project_id, t.title, '' AS description, t.status, t.risk, t.allowed_files_json
-        FROM task_graph_tasks t LEFT JOIN features f ON f.id = t.feature_id
-        WHERE t.id = ? LIMIT 1`,
-      params: [taskIdFromContext ?? ""],
-    },
-    {
-      name: "task",
-      sql: `SELECT t.id, t.feature_id, f.project_id, t.title, COALESCE(t.description, '') AS description, t.status,
-          'medium' AS risk, COALESCE(t.allowed_files_json, '[]') AS allowed_files_json
-        FROM tasks t LEFT JOIN features f ON f.id = t.feature_id
-        WHERE t.id = ? LIMIT 1`,
-      params: [taskIdFromContext ?? ""],
-    },
     {
       name: "project",
       sql: `SELECT p.id, p.target_repo_path, rc.local_path AS repository_local_path
@@ -1373,15 +1340,11 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
     },
     { name: "adapterCount", sql: "SELECT COUNT(*) AS count FROM cli_adapter_configs" },
   ]);
-  const row = result.queries.graphTask[0] ?? result.queries.task[0];
   const featureRow = result.queries.feature[0];
-  if (!row && !featureRow && taskIdFromContext) {
-    throw new Error(`Task not found: ${taskIdFromContext}`);
+  if (!featureRow && !payload.projectId) {
+    throw new Error("Execution Adapter run requires a feature or project context.");
   }
-  if (!row && !featureRow && !payload.projectId) {
-    throw new Error("CLI run requires a task, feature, or project context.");
-  }
-  const projectId = payload.projectId ?? optionalString(row?.project_id) ?? optionalString(featureRow?.project_id);
+  const projectId = payload.projectId ?? optionalString(featureRow?.project_id);
   const projectRow = result.queries.project.find((entry) => !projectId || entry.id === projectId) ?? result.queries.project[0];
   const workspace = validateWorkspaceRoot(resolveWorkspaceRoot(projectRow));
   if (!workspace.valid || !workspace.workspaceRoot) {
@@ -1400,17 +1363,16 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
   if (adapter.status === "disabled" || adapter.status === "invalid") {
     throw new Error(`CLI adapter is not available: ${adapter.id}`);
   }
-  const featureId = featureIdFromContext ?? optionalString(row?.feature_id) ?? optionalString(featureRow?.id);
-  const title = optionalString(row?.title) ?? optionalString(featureRow?.title) ?? `Project ${projectId}`;
-  const description = optionalString(row?.description) ?? title;
-  const risk = normalizeRisk(row?.risk);
-  const allowedFiles = parseJsonArray(row?.allowed_files_json).map(String);
-  const skillInvocation = buildCliSkillInvocation({
+  const featureId = featureIdFromContext ?? optionalString(featureRow?.id);
+  const title = optionalString(featureRow?.title) ?? `Project ${projectId}`;
+  const description = title;
+  const risk = normalizeRisk(payloadContext.risk);
+  const allowedFiles = optionalStringArray(payloadContext.allowedFiles);
+  const executionInvocation = buildExecutionInvocation({
     payload,
     projectId,
     workspaceRoot: workspace.workspaceRoot,
     featureId,
-    taskId: taskIdFromContext,
     requirementIds: parseJsonArray(featureRow?.primary_requirements_json).map(String),
     allowedFiles,
     risk,
@@ -1418,14 +1380,11 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
     approvalPolicy: adapter.defaults.approval,
   });
   const context = [
-    `Execution ${payload.executionId}${taskIdFromContext ? ` for task ${taskIdFromContext}` : ""}${featureId ? ` in feature ${featureId}` : ""}: ${title}`,
+    `Execution ${payload.executionId}${featureId ? ` for feature ${featureId}` : ""}: ${title}`,
     "",
     description,
-    "",
-    buildWorkspaceContextBundle(workspace.workspaceRoot, skillInvocation),
   ].join("\n");
   return {
-    taskStatus: row ? normalizeBoardStatus(row.status) : undefined,
     featureId,
     projectId,
     title,
@@ -1434,98 +1393,9 @@ function loadRunnerTaskContext(dbPath: string, payload: CliRunJobPayload): {
     allowedFiles,
     workspaceRoot: workspace.workspaceRoot,
     adapter,
-    prompt: buildSkillInvocationPrompt(skillInvocation, context),
-    skillInvocation,
+    prompt: buildExecutionInvocationPrompt(executionInvocation, context),
+    executionInvocation,
   };
-}
-
-function buildWorkspaceContextBundle(workspaceRoot: string, contract: SkillInvocationContract): string {
-  const requestedPaths = uniqueStrings([
-    "AGENTS.md",
-    `.agents/skills/${contract.skillSlug}/SKILL.md`,
-    ...contract.sourcePaths,
-  ]);
-  const sections: string[] = [
-    "Workspace Context Bundle:",
-    "The scheduler pre-checked these workspace-local files before invoking the CLI. Read the referenced files from the workspace when full content is needed; only small files are inlined here to keep provider prompts compact.",
-  ];
-  let remainingBytes = MAX_CONTEXT_INLINE_BUNDLE_BYTES;
-
-  for (const requestedPath of requestedPaths) {
-    if (remainingBytes <= 0) {
-      sections.push("\n[context-inline-truncated]\nThe inline context byte limit was reached. Continue by reading the remaining referenced files from the workspace.");
-      break;
-    }
-    const safePath = safeWorkspaceRelativePath(requestedPath);
-    if (!safePath) {
-      sections.push(`\n### ${requestedPath}\n[omitted: path is outside the workspace boundary]`);
-      continue;
-    }
-    const absolutePath = join(workspaceRoot, safePath);
-    const relativePath = relative(workspaceRoot, absolutePath);
-    if (relativePath.startsWith("..") || relativePath === "" || relativePath.startsWith("/") || relativePath.includes("..\\")) {
-      sections.push(`\n### ${requestedPath}\n[omitted: path is outside the workspace boundary]`);
-      continue;
-    }
-    if (!existsSync(absolutePath)) {
-      sections.push(`\n### ${safePath}\n[missing]`);
-      continue;
-    }
-    const stat = statSync(absolutePath);
-    if (!stat.isFile()) {
-      sections.push(`\n### ${safePath}\n[omitted: not a file]`);
-      continue;
-    }
-    if (stat.size > MAX_CONTEXT_INLINE_FILE_BYTES) {
-      sections.push(`\n### ${safePath}\n[available in workspace; ${stat.size} bytes; not inlined]`);
-      continue;
-    }
-    const maxBytes = Math.min(MAX_CONTEXT_INLINE_FILE_BYTES, remainingBytes);
-    const content = readFileSync(absolutePath);
-    const clipped = content.subarray(0, maxBytes);
-    remainingBytes -= clipped.length;
-    const suffix = content.length > clipped.length ? "\n[truncated; read file from workspace for full content]" : "";
-    sections.push(`\n### ${safePath}\n[${content.length} bytes]\n\`\`\`markdown\n${clipped.toString("utf8")}${suffix}\n\`\`\``);
-  }
-
-  return sections.join("\n");
-}
-
-function safeWorkspaceRelativePath(input: string): string | undefined {
-  if (!input || input.startsWith("/")) return undefined;
-  const normalized = normalize(input).replaceAll("\\", "/");
-  if (normalized === "." || normalized === ".." || normalized.startsWith("../")) return undefined;
-  return normalized;
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values.filter((value) => value.trim().length > 0))];
-}
-
-function transitionTaskIfAllowed(dbPath: string, taskId: string, from: BoardColumn, to: BoardColumn, reason: string, evidence: string): void {
-  if (from === to) return;
-  try {
-    persistStateTransition(dbPath, transitionTask(taskId, from, to, {
-      reason,
-      evidence,
-      triggeredBy: "cli_runner",
-    }));
-  } catch {
-    return;
-  }
-  runSqlite(dbPath, [
-    { sql: "UPDATE task_graph_tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", params: [to, taskId] },
-    { sql: "UPDATE tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", params: [to, taskId] },
-  ]);
-}
-
-function taskStatusFromRunnerStatus(status: RunnerQueueStatus): BoardColumn {
-  if (status === "completed") return "checking";
-  if (status === "approval_needed") return "review_needed";
-  if (status === "review_needed") return "review_needed";
-  if (status === "blocked") return "blocked";
-  if (status === "failed") return "failed";
-  return "running";
 }
 
 function adapterFromRow(row?: Record<string, unknown>): CliAdapterConfig {
@@ -1717,20 +1587,19 @@ function approvalStateFromEvents(events: Array<Record<string, unknown>>): "none"
   }) ? "pending" : "none";
 }
 
-function buildCliSkillInvocation(input: {
+function buildExecutionInvocation(input: {
   payload: CliRunJobPayload;
   projectId?: string;
   workspaceRoot: string;
   featureId?: string;
-  taskId?: string;
   requirementIds?: string[];
   allowedFiles: string[];
   risk: RiskLevel;
   sandboxMode?: string;
   approvalPolicy?: string;
-}): SkillInvocationContract {
+}): ExecutionAdapterInvocationV1 {
   const context = input.payload.context ?? {};
-  const skillSlug = optionalString(context.skillSlug) ?? (input.taskId ? "feat-implement-skill" : "technical-context-skill");
+  const skillSlug = optionalString(context.skillSlug) ?? (input.featureId ? "feat-implement-skill" : "technical-context-skill");
   const requestedAction = input.payload.requestedAction ?? optionalString(context.skillPhase) ?? input.payload.operation;
   const contextSourcePaths = optionalStringArray(context.sourcePaths);
   const contextImagePaths = optionalStringArray(context.imagePaths);
@@ -1748,26 +1617,20 @@ function buildCliSkillInvocation(input: {
       ];
   const expectedArtifacts = contextExpectedArtifacts.length
     ? contextExpectedArtifacts
-    : input.taskId
-      ? normalizeArtifactContracts([".autobuild/runs/cli-adapter.json"])
-      : input.featureId
+    : input.featureId
         ? normalizeArtifactContracts([`docs/features/${input.featureId}/design.md`, `docs/features/${input.featureId}/tasks.md`])
         : normalizeArtifactContracts([".autobuild/reports/spec-intake.json"]);
   return {
-    contractVersion: "skill-contract/v1",
+    contractVersion: "execution-adapter/v1",
     executionId: input.payload.executionId,
+    jobId: optionalString((input.payload as unknown as Record<string, unknown>).schedulerJobId),
     projectId: input.projectId ?? "unknown-project",
     workspaceRoot: input.workspaceRoot,
     operation: input.payload.operation,
-    skillSlug,
-    sourcePaths,
-    imagePaths: contextImagePaths,
-    expectedArtifacts,
+    featureId: input.featureId,
     specState: parseJsonObject(context.specState),
-    operatorInput: buildSkillOperatorInput(context),
     traceability: {
       featureId: input.featureId,
-      taskId: input.taskId,
       requirementIds: input.payload.traceability?.requirementIds ?? input.requirementIds ?? [],
     },
     constraints: {
@@ -1776,11 +1639,19 @@ function buildCliSkillInvocation(input: {
       approvalPolicy: normalizeApprovalPolicy(input.approvalPolicy),
       risk: input.risk,
     },
-    requestedAction,
+    outputSchema: DEFAULT_OUTPUT_SCHEMA,
+    skillInstruction: {
+      skillSlug,
+      requestedAction,
+      sourcePaths,
+      imagePaths: contextImagePaths,
+      expectedArtifacts,
+      operatorInput: buildSkillOperatorInput(context),
+    },
   };
 }
 
-function buildSkillOperatorInput(context: ExecutorJobContext): SkillInvocationContract["operatorInput"] | undefined {
+function buildSkillOperatorInput(context: ExecutorJobContext): ExecutionAdapterInvocationV1["skillInstruction"]["operatorInput"] | undefined {
   const clarificationText = optionalString(context.clarificationText);
   const comment = optionalString(context.comment);
   const specChangeIntent = optionalString(context.specChangeIntent);
@@ -1819,19 +1690,12 @@ function artifactKind(path: string): string {
   return "artifact";
 }
 
-function normalizeSandboxMode(value: unknown): SkillInvocationContract["constraints"]["sandboxMode"] {
+function normalizeSandboxMode(value: unknown): ExecutionAdapterInvocationV1["constraints"]["sandboxMode"] {
   return value === "read-only" || value === "workspace-write" || value === "danger-full-access" ? value : undefined;
 }
 
-function normalizeApprovalPolicy(value: unknown): SkillInvocationContract["constraints"]["approvalPolicy"] {
+function normalizeApprovalPolicy(value: unknown): ExecutionAdapterInvocationV1["constraints"]["approvalPolicy"] {
   return value === "untrusted" || value === "on-failure" || value === "on-request" || value === "never" || value === "bypass" ? value : undefined;
-}
-
-function normalizeBoardStatus(value: unknown): BoardColumn {
-  const status = String(value);
-  return ["backlog", "ready", "scheduled", "running", "checking", "review_needed", "blocked", "failed", "done", "delivered"].includes(status)
-    ? status as BoardColumn
-    : "backlog";
 }
 
 function normalizeRisk(value: unknown): RiskLevel {

@@ -111,7 +111,7 @@ VSCode SpecDrive Extension
 用户在 Spec Explorer 选择 Feature
   -> 展开 requirements.md / design.md / tasks.md / spec-state.json
   -> 用户点击执行 Feature 或执行某个 task
-  -> 插件生成 SkillInvocationContractV1
+  -> 插件生成 ExecutionAdapterInvocationV1.skillInstruction
   -> Control Plane 创建 scheduler_job_records 和 execution_records
   -> Runner 通过 Codex RPC Adapter 调用 turn/start
   -> 插件实时显示 turn/item 事件、diff、命令输出和审批请求
@@ -362,7 +362,7 @@ Runner 获取 codex.rpc.run Job
   -> Runner 调用 thread/start 或 thread/resume
   -> Runner 调用 turn/start
       input:
-        - text: SkillInvocationContractV1 序列化内容和用户意图
+        - text: ExecutionAdapterInvocationV1.skillInstruction 派生的任务指令和用户意图
         - skill: skill name + SKILL.md path
       outputSchema:
         - SkillOutputContractV1 JSON Schema
@@ -562,7 +562,7 @@ THE SYSTEM SHALL 生成 SpecChangeRequest，并通过 Control Plane 创建对应
 ### REQ-VSC-009：触发 Feature 执行
 
 WHEN 用户点击执行 Feature 或执行 Task
-THE SYSTEM SHALL 生成 SkillInvocationContractV1 并交给现有 Scheduler / Runner。
+THE SYSTEM SHALL 生成 ExecutionAdapterInvocationV1，并通过内嵌 `skillInstruction` 交给现有 Scheduler / Runner。
 
 验收：
 - [ ] Contract 包含 `workspaceRoot`、`featureId`、`sourcePaths`、`expectedArtifacts`、`specState`、`traceability` 和 `requestedAction`。
@@ -698,7 +698,7 @@ THE SYSTEM SHALL 展示独立于 Product Console 的 Execution Workbench Webview
     "input": [
       {
         "type": "text",
-        "text": "$spec-evolution-skill 根据以下 SkillInvocationContractV1 修改文档..."
+        "text": "$spec-evolution-skill 根据以下 ExecutionAdapterInvocationV1.skillInstruction 修改文档..."
       },
       {
         "type": "skill",

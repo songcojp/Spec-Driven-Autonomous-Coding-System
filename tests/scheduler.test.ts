@@ -175,18 +175,18 @@ test("cli.run executes mocked CLI runner and persists runner artifacts", async (
   assert.equal(result.status, "completed");
   assert.equal(resultWithSpy.status, "completed");
   assert.equal(calls[0].cwd, root);
-  assert.match(calls[0].args.join("\n"), /Skill Invocation Contract/);
+  assert.match(calls[0].args.join("\n"), /Execute this SpecDrive task/);
   assert.match(calls[0].args.join("\n"), /feat-implement-skill/);
-  assert.match(calls[0].args.join("\n"), /Workspace Context Bundle/);
-  assert.match(calls[0].args.join("\n"), /### AGENTS.md/);
-  assert.match(calls[0].args.join("\n"), /# Test workspace/);
-  assert.match(calls[0].args.join("\n"), /### \.agents\/skills\/feat-implement-skill\/SKILL.md/);
-  assert.match(calls[0].args.join("\n"), /# Feat implement skill/);
+  assert.match(calls[0].args.join("\n"), /Source paths to read:/);
+  assert.doesNotMatch(calls[0].args.join("\n"), /Skill Invocation/);
+  assert.doesNotMatch(calls[0].args.join("\n"), /Workspace Context/);
+  assert.doesNotMatch(calls[0].args.join("\n"), /# Test workspace/);
+  assert.doesNotMatch(calls[0].args.join("\n"), /# Feat implement skill/);
   assert.equal(rows.policy[0].sandbox_mode, "danger-full-access");
   assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
   assert.equal(rows.runs[0].status, "completed");
   assert.equal(JSON.parse(String(rows.runs[0].metadata_json)).contractValidation.valid, true);
-  assert.equal(rows.task[0].status, "checking");
+  assert.equal(rows.task[0].status, "scheduled");
   assert.deepEqual(rows.sessions.map((row) => [row.session_id, row.exit_code]), [["SESSION-CLI", 0]]);
   assert.match(String(rows.logs[0].stdout), /skill-contract\/v1/);
   assert.equal(rows.statusChecks.length, 0);
@@ -216,7 +216,8 @@ test("cli.run keeps large source documents out of the provider prompt", async ()
   const prompt = calls[0].args.join("\n");
   assert.equal(result.status, "completed");
   assert.match(prompt, /docs\/features\/FEAT-CLI\/requirements\.md/);
-  assert.match(prompt, /not inlined/);
+  assert.match(prompt, /Source paths to read:/);
+  assert.doesNotMatch(prompt, /Context:/);
   assert.doesNotMatch(prompt, /REQ: keep prompt compact\./);
   assert.equal(prompt.length < 20_000, true);
 });
@@ -263,7 +264,7 @@ test("cli.run passes clarification operator input into the skill invocation prom
 
   const prompt = calls[0].args.join("\n");
   assert.equal(result.status, "completed");
-  assert.match(prompt, /\"operatorInput\"/);
+  assert.match(prompt, /Operator input:/);
   assert.match(prompt, /\"clarificationText\": \"彩票类型支持大乐透和双色球\"/);
   assert.match(prompt, /operator-provided answer\/decision/);
 });
@@ -348,7 +349,7 @@ test("cli.run uses development sandbox defaults when allowed file scope is missi
   assert.match(calls[0].args.join("\n"), /--sandbox\ndanger-full-access/);
 });
 
-test("cli.run does not include change ids in the skill invocation contract", async () => {
+test("cli.run does not include change ids in the execution invocation", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-"));
   prepareSkillWorkspace(root);
   const dbPath = makeDbPath();
@@ -372,7 +373,7 @@ test("cli.run does not include change ids in the skill invocation contract", asy
   const metadata = JSON.parse(String(rows[0].metadata_json));
 
   assert.equal(result.status, "completed");
-  assert.equal(Object.prototype.hasOwnProperty.call(metadata.skillInvocationContract.traceability, "changeIds"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(metadata.executionInvocation.traceability, "changeIds"), false);
 });
 
 test("cli.run blocks when target project workspace is missing or lacks workspace skills", async () => {
@@ -901,6 +902,10 @@ function skillOutputObject(executionId: string): Record<string, unknown> {
 
 function prepareSkillWorkspace(root: string): void {
   mkdirSync(join(root, ".agents", "skills", "feat-implement-skill"), { recursive: true });
+  mkdirSync(join(root, "docs", "features", "FEAT-CLI"), { recursive: true });
   writeFileSync(join(root, "AGENTS.md"), "# Test workspace\n");
   writeFileSync(join(root, ".agents", "skills", "feat-implement-skill", "SKILL.md"), "# Feat implement skill\n");
+  writeFileSync(join(root, "docs", "features", "FEAT-CLI", "requirements.md"), "# Requirements\n");
+  writeFileSync(join(root, "docs", "features", "FEAT-CLI", "design.md"), "# Design\n");
+  writeFileSync(join(root, "docs", "features", "FEAT-CLI", "tasks.md"), "# Tasks\n");
 }

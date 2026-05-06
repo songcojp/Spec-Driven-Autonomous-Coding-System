@@ -5267,8 +5267,10 @@ function buildSkillInvocationFeedback(
     .map((execution) => {
       const metadata = parseJsonObject(execution.metadata_json);
       const context = parseJsonObject(execution.context_json);
-      const skillSlug = optionalString(metadata.skillSlug);
-      const skillPhase = optionalString(metadata.skillPhase) ?? optionalString(context.skillPhase) ?? optionalString(execution.operation);
+      const executionInvocation = parseJsonObject(metadata.executionInvocation);
+      const skillInstruction = parseJsonObject(executionInvocation.skillInstruction);
+      const skillSlug = optionalString(skillInstruction.skillSlug) ?? optionalString(metadata.skillSlug);
+      const skillPhase = optionalString(skillInstruction.requestedAction) ?? optionalString(metadata.skillPhase) ?? optionalString(context.skillPhase) ?? optionalString(execution.operation);
       if (!skillSlug && !skillPhase) {
         return undefined;
       }
@@ -6211,7 +6213,10 @@ function readSkillOutputViewModel(
 ): SkillOutputViewModel | undefined {
   if (!executionId) return undefined;
   const persistedOutput = parseJsonObject(metadata.skillOutputContract);
-  const persistedInputContract = metadata.skillInvocationContract;
+  const persistedExecutionInvocation = parseJsonObject(metadata.executionInvocation);
+  const persistedInputContract = Object.keys(persistedExecutionInvocation).length > 0
+    ? parseJsonObject(persistedExecutionInvocation.skillInstruction)
+    : undefined;
   const persistedArtifacts = Array.isArray(metadata.producedArtifacts) ? metadata.producedArtifacts : undefined;
   if (!workspaceRoot) {
     if (Object.keys(persistedOutput).length > 0) {

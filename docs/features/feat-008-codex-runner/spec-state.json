@@ -7,7 +7,7 @@
   "dependencies": [
     "FEAT-004"
   ],
-  "nextAction": "Include specState in SkillInvocationContractV1 and project SkillOutputContractV1 back to spec-state.json.",
+  "nextAction": "Include specState in ExecutionAdapterInvocationV1 and project SkillOutputContractV1 back to spec-state.json.",
   "history": [
     {
       "at": "2026-05-02T00:00:00.000Z",
