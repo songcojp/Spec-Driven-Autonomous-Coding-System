@@ -237,10 +237,13 @@ test("VSCode System Settings Webview manages adapter configs through controlled 
   assert.match(extensionSource, /data-pricing-field="reasoningOutputUsdPer1M"/);
   assert.match(extensionSource, /updatePricingRate\(pricingTarget\)/);
   assert.match(extensionSource, /costRates: \{/);
-  assert.match(extensionSource, /class="grid settings-grid"/);
+  assert.match(extensionSource, /class="settings-shell"/);
+  assert.match(extensionSource, /class="settings-rail"/);
+  assert.match(extensionSource, /class="settings-adapter-matrix"/);
   assert.match(extensionSource, /\.pricing-editor\{/);
-  assert.match(extensionSource, /\.settings-grid\{grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,360px\),1fr\)\)\}/);
-  assert.match(extensionSource, /\.settings-grid \.span-6\{grid-column:auto\}/);
+  assert.match(extensionSource, /\.settings-shell\{display:grid;grid-template-columns:minmax\(220px,260px\) minmax\(0,1fr\)/);
+  assert.match(extensionSource, /\.settings-adapter-matrix\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(extensionSource, /@media \(max-width:560px\)\{\.pricing-editor/);
   assert.match(extensionSource, /\.row\{grid-template-columns:minmax\(0,1fr\) minmax\(0,max-content\)\}/);
   assert.match(extensionSource, /\.row code\{white-space:pre-wrap;overflow-wrap:anywhere\}/);
 });

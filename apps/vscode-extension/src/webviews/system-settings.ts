@@ -15,54 +15,99 @@ export function renderSystemSettingsWebview(settings: SystemSettingsViewModel | 
   const nonce = webviewNonce();
   const factSources = settings?.factSources ?? [];
   return renderWorkbenchPage("System Settings", nonce, `
-    <section class="toolbar">
+    <section class="settings-toolbar">
       ${commandButton("Refresh", "refresh", {})}
-      <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
+      <span id="workbench-status" class="status-text" role="status" aria-live="polite">Settings projection loaded.</span>
     </section>
     ${settings ? `
-      <main class="grid settings-grid">
-        ${renderExecutionPreferenceSection(settings.projectExecutionPreference)}
-        ${renderAdapterSection("CLI Adapter", "cli", settings.cliAdapter)}
-        ${renderAdapterSection("RPC Adapter", "rpc", settings.rpcAdapter)}
-        <section class="panel span-12 settings-facts">
-          <div class="panel-title"><h2>Fact Sources</h2><span>${factSources.length}</span></div>
-          ${factSources.length === 0 ? emptyState("No settings fact sources returned.") : factSources.map((source) => `<span class="badge">${escapeHtml(source)}</span>`).join(" ")}
-        </section>
+      <main class="settings-shell">
+        ${renderSettingsRail(settings, factSources)}
+        <div class="settings-main">
+          ${renderExecutionPreferenceSection(settings.projectExecutionPreference)}
+          <div class="settings-adapter-matrix">
+            ${renderAdapterSection("CLI Adapter", "cli", settings.cliAdapter)}
+            ${renderAdapterSection("RPC Adapter", "rpc", settings.rpcAdapter)}
+          </div>
+          <section class="settings-panel settings-facts">
+            <div class="settings-panel-title"><h2>Fact Sources</h2><span>${factSources.length}</span></div>
+            <div class="settings-chip-row">
+              ${factSources.length === 0 ? emptyState("No settings fact sources returned.") : factSources.map((source) => `<span class="badge">${escapeHtml(source)}</span>`).join(" ")}
+            </div>
+          </section>
+        </div>
       </main>
     ` : emptyState("System settings are unavailable.")}
   `);
 }
 
+function renderSettingsRail(settings: SystemSettingsViewModel, factSources: string[]): string {
+  const preference = settings.projectExecutionPreference;
+  const active = preference?.active ?? {};
+  const cliValidation = settings.cliAdapter?.validation;
+  const rpcValidation = settings.rpcAdapter?.validation;
+  return `<aside class="settings-rail" aria-label="Settings Summary">
+    <div class="settings-rail-title">
+      <h2>Settings Summary</h2>
+      <span>${factSources.length} sources</span>
+    </div>
+    <div class="settings-summary-list">
+      ${summaryRow("Project", preference?.projectId ?? "none", "info")}
+      ${summaryRow("Provider Adapter", String(active.adapterId ?? "none"), statusClass(preference?.validation?.valid ? "passed" : "failed"))}
+      ${summaryRow("CLI Adapter", validationLabel(cliValidation), statusClass(cliValidation?.valid ? "passed" : "failed"))}
+      ${summaryRow("RPC Adapter", validationLabel(rpcValidation), statusClass(rpcValidation?.valid ? "passed" : "failed"))}
+      ${summaryRow("Fact Sources", String(factSources.length), factSources.length > 0 ? "ok" : "warn")}
+    </div>
+    <h3>Fact Sources</h3>
+    <div class="settings-source-list">
+      ${factSources.slice(0, 5).map((source) => `<span class="settings-source-item"><span>${escapeHtml(source)}</span><strong class="ok">active</strong></span>`).join("") || emptyState("No settings fact sources returned.")}
+    </div>
+  </aside>`;
+}
+
+function summaryRow(label: string, value: string, className: string): string {
+  return `<div class="settings-summary-row">
+    <span>${escapeHtml(label)}</span>
+    <strong class="${escapeAttr(className)}">${escapeHtml(value)}</strong>
+  </div>`;
+}
+
+function validationLabel(validation: { valid: boolean } | undefined): string {
+  if (!validation) return "unavailable";
+  return validation.valid ? "valid" : "invalid";
+}
+
 function renderExecutionPreferenceSection(section: SystemSettingsViewModel["projectExecutionPreference"]): string {
   if (!section) {
-    return `<section class="panel span-12">
-      <div class="panel-title"><h2>Project Execution Defaults</h2><span class="muted">unavailable</span></div>
+    return `<section class="settings-panel settings-execution-defaults">
+      <div class="settings-panel-title"><h2>Project Execution Defaults</h2><span class="muted">unavailable</span></div>
       ${emptyState("Project execution defaults are unavailable from the current Control Plane response.")}
     </section>`;
   }
   const editorId = "project-execution-preference-json";
   const active = section.active ?? {};
   const validation = section.validation ?? { valid: false, errors: ["Execution preference validation result is unavailable."] };
-  return `<section class="panel span-12">
-    <div class="panel-title">
+  return `<section class="settings-panel settings-execution-defaults">
+    <div class="settings-panel-title">
       <h2>Project Execution Defaults</h2>
-      <span class="${statusClass(validation.valid ? "passed" : "failed")}">${validation.valid ? "valid" : "invalid"}</span>
+      <span class="settings-status-chip ${statusClass(validation.valid ? "passed" : "failed")}">${validation.valid ? "valid" : "invalid"}</span>
     </div>
-    <div class="row"><span>Project</span><span><code>${escapeHtml(section.projectId ?? "none")}</code></span></div>
-    <div class="row"><span>Provider Adapter</span><span><code>${escapeHtml(String(active.adapterId ?? "none"))}</code></span></div>
+    <div class="settings-meta-grid">
+      <div class="settings-meta-row"><span>Project</span><span><code>${escapeHtml(section.projectId ?? "none")}</code></span></div>
+      <div class="settings-meta-row"><span>Provider Adapter</span><span><code>${escapeHtml(String(active.adapterId ?? "none"))}</code></span></div>
+    </div>
     <h3>Provider Presets</h3>
-    <div class="toolbar">
+    <div class="settings-preset-row">
       ${section.cliAdapters.map((adapter) => executionPreferencePresetButton("CLI", editorId, section.projectId, adapter)).join("")}
       ${section.rpcAdapters.map((adapter) => executionPreferencePresetButton("RPC", editorId, section.projectId, adapter)).join("")}
     </div>
     <h3>Validation Errors</h3>
     ${renderErrors(validation.errors)}
     <h3>JSON Config</h3>
-    <textarea id="${editorId}" class="settings-editor" spellcheck="false" aria-label="Project execution preference JSON">${escapeHtml(JSON.stringify({
+    <textarea id="${editorId}" class="settings-editor settings-editor-compact" spellcheck="false" aria-label="Project execution preference JSON">${escapeHtml(JSON.stringify({
       projectId: section.projectId,
       adapterId: active.adapterId,
     }, null, 2))}</textarea>
-    <div class="toolbar">
+    <div class="settings-actionbar">
       ${settingsCommandButton("Save Default", "save_project_execution_preference", "settings", editorId)}
     </div>
   </section>`;
@@ -79,8 +124,8 @@ function executionPreferencePresetButton(label: string, editorId: string, projec
 
 function renderAdapterSection(title: string, kind: AdapterKind, section: AdapterSettingsSection | undefined): string {
   if (!section) {
-    return `<section class="panel span-6">
-      <div class="panel-title"><h2>${escapeHtml(title)}</h2><span class="muted">unavailable</span></div>
+    return `<section class="settings-panel settings-adapter-panel">
+      <div class="settings-panel-title"><h2>${escapeHtml(title)}</h2><span class="muted">unavailable</span></div>
       ${emptyState(`${title} settings are unavailable from the current Control Plane response.`)}
     </section>`;
   }
@@ -95,20 +140,22 @@ function renderAdapterSection(title: string, kind: AdapterKind, section: Adapter
   const saveAction = kind === "cli" ? "save_cli_adapter_config" : "save_rpc_adapter_config";
   const activateAction = kind === "cli" ? "activate_cli_adapter_config" : "activate_rpc_adapter_config";
   const disableAction = kind === "cli" ? "disable_cli_adapter_config" : "disable_rpc_adapter_config";
-  return `<section class="panel span-6">
-    <div class="panel-title">
+  return `<section class="settings-panel settings-adapter-panel">
+    <div class="settings-panel-title">
       <h2>${escapeHtml(title)}</h2>
-      <span class="${statusClass(validation.valid ? "passed" : "failed")}">${validation.valid ? "valid" : "invalid"}</span>
+      <span class="settings-status-chip ${statusClass(validation.valid ? "passed" : "failed")}">${validation.valid ? "valid" : "invalid"}</span>
     </div>
-    <div class="row"><span>Active</span><span><code>${escapeHtml(activeId ?? "none")}</code></span></div>
-    <div class="row"><span>Draft</span><span><code>${escapeHtml(draftId ?? "none")}</code></span></div>
-    <div class="row"><span>Status</span><span class="${statusClass(stringField(source, "status"))}">${escapeHtml(stringField(source, "status") ?? "unknown")}</span></div>
-    <div class="row"><span>Schema Version</span><span>${escapeHtml(String(source.schemaVersion ?? source.schema_version ?? "unknown"))}</span></div>
-    ${renderPricingSummary(source)}
-    ${renderLastCheck(kind, section)}
+    <div class="settings-meta-grid">
+      <div class="settings-meta-row"><span>Active</span><span><code>${escapeHtml(activeId ?? "none")}</code></span></div>
+      <div class="settings-meta-row"><span>Draft</span><span><code>${escapeHtml(draftId ?? "none")}</code></span></div>
+      <div class="settings-meta-row"><span>Status</span><span class="${statusClass(stringField(source, "status"))}">${escapeHtml(stringField(source, "status") ?? "unknown")}</span></div>
+      <div class="settings-meta-row"><span>Schema Version</span><span>${escapeHtml(String(source.schemaVersion ?? source.schema_version ?? "unknown"))}</span></div>
+      ${renderPricingSummary(source)}
+      ${renderLastCheck(kind, section)}
+    </div>
     ${renderPricingEditor(editorId, source)}
     <h3>Presets</h3>
-    <div class="toolbar">
+    <div class="settings-preset-row">
       ${presets.map((preset) => commandButton(stringField(preset, "displayName") ?? stringField(preset, "id") ?? "Preset", "loadSettingsPreset", {
         editorId,
         presetJson: JSON.stringify(preset, null, 2),
@@ -118,7 +165,7 @@ function renderAdapterSection(title: string, kind: AdapterKind, section: Adapter
     ${renderErrors(validation.errors)}
     <h3>JSON Config</h3>
     <textarea id="${editorId}" class="settings-editor" spellcheck="false" aria-label="${escapeAttr(title)} JSON">${escapeHtml(JSON.stringify(source, null, 2))}</textarea>
-    <div class="toolbar">
+    <div class="settings-actionbar">
       ${settingsCommandButton("Validate", validateAction, entityType, editorId)}
       ${settingsCommandButton("Save Draft", saveAction, entityType, editorId)}
       ${settingsCommandButton("Activate", activateAction, entityType, editorId)}
@@ -132,8 +179,8 @@ function renderPricingSummary(source: Record<string, unknown>): string {
   const model = stringField(defaults, "model") ?? "none";
   const costRates = recordField(defaults, "costRates") ?? recordField(defaults, "cost_rates");
   const pricingModels = costRates ? Object.keys(costRates).filter(Boolean) : [];
-  return `<div class="row"><span>Pricing Model</span><span><code>${escapeHtml(model)}</code></span></div>
-    <div class="row"><span>Pricing Rates</span><span>${escapeHtml(pricingModels.length ? pricingModels.join(", ") : "none")}</span></div>`;
+  return `<div class="settings-meta-row"><span>Pricing Model</span><span><code>${escapeHtml(model)}</code></span></div>
+    <div class="settings-meta-row"><span>Pricing Rates</span><span>${escapeHtml(pricingModels.length ? pricingModels.join(", ") : "none")}</span></div>`;
 }
 
 function renderPricingEditor(editorId: string, source: Record<string, unknown>): string {
@@ -178,10 +225,10 @@ function settingsCommandButton(label: string, action: string, entityType: string
 
 function renderLastCheck(kind: AdapterKind, section: AdapterSettingsSection): string {
   const check = kind === "cli" ? section.lastDryRun : section.lastProbe;
-  if (!check) return `<div class="row"><span>${kind === "cli" ? "Last Dry Run" : "Last Probe"}</span><span class="muted">none</span></div>`;
+  if (!check) return `<div class="settings-meta-row"><span>${kind === "cli" ? "Last Dry Run" : "Last Probe"}</span><span class="muted">none</span></div>`;
   const command = [check.command, ...(check.args ?? [])].filter(Boolean).join(" ");
-  return `<div class="row"><span>${kind === "cli" ? "Last Dry Run" : "Last Probe"}</span><span class="${statusClass(check.status)}">${escapeHtml(check.status)}</span></div>
-    ${command ? `<div class="row"><span>Command</span><span><code>${escapeHtml(command)}</code></span></div>` : ""}`;
+  return `<div class="settings-meta-row"><span>${kind === "cli" ? "Last Dry Run" : "Last Probe"}</span><span class="${statusClass(check.status)}">${escapeHtml(check.status)}</span></div>
+    ${command ? `<div class="settings-meta-row"><span>Command</span><span><code>${escapeHtml(command)}</code></span></div>` : ""}`;
 }
 
 function renderErrors(errors: string[] | undefined): string {
