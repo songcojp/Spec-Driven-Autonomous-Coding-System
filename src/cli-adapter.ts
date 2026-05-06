@@ -1215,8 +1215,9 @@ function parseProducedArtifacts(value: unknown): SkillOutputArtifact[] {
   });
 }
 
-export function validateSkillOutputContract(invocation: SkillInvocationContract | undefined, output: SkillOutputContract | undefined): SkillContractValidationResult {
+export function validateSkillOutputContract(invocation: ExecutionAdapterInvocationV1 | undefined, output: SkillOutputContract | undefined): SkillContractValidationResult {
   if (!invocation) return { valid: true, reasons: [] };
+  const instruction = invocation.skillInstruction;
   const reasons: string[] = [];
   if (!output) {
     return { valid: false, reasons: ["Skill output contract is missing or invalid JSON."] };
@@ -1224,15 +1225,15 @@ export function validateSkillOutputContract(invocation: SkillInvocationContract 
   if (typeof output.summary !== "string" || output.summary.trim().length === 0) reasons.push("Skill output summary is required.");
   if (output.nextAction !== null && typeof output.nextAction !== "string") reasons.push("Skill output nextAction must be a string or null.");
   if (typeof output.result !== "object" || output.result === null || Array.isArray(output.result)) reasons.push("Skill output result must be an object.");
-  if (output.contractVersion !== invocation.contractVersion) reasons.push(`Skill output contractVersion mismatch: ${output.contractVersion}.`);
+  if (output.contractVersion !== "skill-contract/v1") reasons.push(`Skill output contractVersion mismatch: ${output.contractVersion}.`);
   if (output.executionId !== invocation.executionId) reasons.push(`Skill output executionId mismatch: ${output.executionId}.`);
-  if (output.skillSlug !== invocation.skillSlug) reasons.push(`Skill output skillSlug mismatch: ${output.skillSlug}.`);
-  if (output.requestedAction !== invocation.requestedAction) reasons.push(`Skill output requestedAction mismatch: ${output.requestedAction}.`);
-  if (!sameOptionalString(output.traceability.featureId, invocation.traceability.featureId)) reasons.push("Skill output traceability.featureId mismatch.");
+  if (output.skillSlug !== instruction.skillSlug) reasons.push(`Skill output skillSlug mismatch: ${output.skillSlug}.`);
+  if (output.requestedAction !== instruction.requestedAction) reasons.push(`Skill output requestedAction mismatch: ${output.requestedAction}.`);
+  if (!sameOptionalString(output.traceability.featureId, invocation.featureId ?? invocation.traceability.featureId)) reasons.push("Skill output traceability.featureId mismatch.");
   if (!sameStringSet(output.traceability.requirementIds, invocation.traceability.requirementIds)) {
     reasons.push("Skill output traceability.requirementIds mismatch.");
   }
-  for (const artifact of invocation.expectedArtifacts.filter((entry) => entry.required && isMaterializedSpecArtifact(entry.path))) {
+  for (const artifact of instruction.expectedArtifacts.filter((entry) => entry.required && isMaterializedSpecArtifact(entry.path))) {
     const produced = output.producedArtifacts.find((entry) => entry.path === artifact.path && entry.status !== "missing" && entry.status !== "skipped");
     const existsOnDisk = existsSync(join(invocation.workspaceRoot, artifact.path));
     if (!produced && !existsOnDisk) {
@@ -1272,7 +1273,7 @@ export async function processRunnerQueueItem(
     prompt: input.prompt,
     taskId: input.taskId,
     featureId: input.featureId,
-    imagePaths: input.skillInvocation?.imagePaths,
+    imagePaths: input.executionInvocation?.skillInstruction.imagePaths,
     adapterConfig: input.adapterConfig,
     executionInvocation: input.executionInvocation,
     runner,
@@ -1666,7 +1667,7 @@ function writeCliInputLog(input: {
   args: string[];
   outputSchemaPath: string;
   imagePaths?: string[];
-  skillInvocation?: SkillInvocationContract;
+  executionInvocation?: ExecutionAdapterInvocationV1;
   createdAt: string;
 }): CliInvocationLogFiles {
   const dir = cliRunLogDir(input.policy.workspaceRoot, input.policy.runId);
@@ -1760,7 +1761,7 @@ export function writeRunReport(
     sessionId?: string;
     eventCount?: number;
     usage?: Record<string, number>;
-    skillInvocation?: SkillInvocationContract;
+    executionInvocation?: ExecutionAdapterInvocationV1;
     skillOutput?: SkillOutputContract;
     contractValidation?: SkillContractValidationResult;
     producedArtifacts?: SkillOutputArtifact[];
@@ -2165,7 +2166,7 @@ function classifyQueueStatus(result: CliAdapterResult): RunnerQueueStatus {
     return "failed";
   }
 
-  if (result.result.skillInvocation) {
+  if (result.result.executionInvocation) {
     if (!result.result.contractValidation?.valid) {
       return "review_needed";
     }
@@ -2177,7 +2178,7 @@ function classifyQueueStatus(result: CliAdapterResult): RunnerQueueStatus {
     return reportedStatus;
   }
 
-  if (result.result.skillInvocation && missingExpectedArtifacts(result).length > 0) {
+  if (result.result.executionInvocation && missingExpectedArtifacts(result).length > 0) {
     return "failed";
   }
 
@@ -2225,9 +2226,9 @@ function parseReportedStatusFromText(text?: string): RunnerQueueStatus | undefin
 }
 
 function missingExpectedArtifacts(result: CliAdapterResult): string[] {
-  const invocation = result.result.skillInvocation;
+  const invocation = result.result.executionInvocation;
   if (!invocation) return [];
-  return invocation.expectedArtifacts.filter((artifact) => {
+  return invocation.skillInstruction.expectedArtifacts.filter((artifact) => {
     if (!isMaterializedSpecArtifact(artifact.path)) return false;
     return !existsSync(join(invocation.workspaceRoot, artifact.path));
   }).map((artifact) => artifact.path);
@@ -2237,8 +2238,8 @@ function isMaterializedSpecArtifact(artifact: string): boolean {
   return artifact.startsWith("docs/") && !artifact.includes("<") && !artifact.startsWith("/");
 }
 
-function outputSchemaForSkillInvocation(schema: Record<string, unknown>, invocation: SkillInvocationContract | undefined): Record<string, unknown> {
-  if (invocation?.skillSlug !== "task-slicing-skill") return schema;
+function outputSchemaForExecutionInvocation(schema: Record<string, unknown>, invocation: ExecutionAdapterInvocationV1 | undefined): Record<string, unknown> {
+  if (invocation?.skillInstruction.skillSlug !== "task-slicing-skill") return schema;
   const cloned = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
   const properties = cloned.properties;
   if (properties && typeof properties === "object" && !Array.isArray(properties)) {
