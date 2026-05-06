@@ -227,21 +227,22 @@ export async function runGeminiAcpSession(input: GeminiAcpSessionInput): Promise
   const startedAt = input.startedAt ?? (input.now ?? new Date()).toISOString();
   const events: CliJsonEvent[] = [];
   const initializeResult = await input.transport.request("initialize", {
+    protocolVersion: 1,
     clientInfo: { name: "SpecDrive AutoBuild", version: "0.1.0" },
     clientCapabilities: {},
   });
   events.push({ type: "initialize/result", ...initializeResult });
 
   const sessionResult = input.sessionId
-    ? await input.transport.request("loadSession", { sessionId: input.sessionId, cwd: input.workspaceRoot, mcpServers: [] })
-    : await input.transport.request("newSession", { cwd: input.workspaceRoot, mcpServers: [] });
+    ? await input.transport.request("session/load", { sessionId: input.sessionId, cwd: input.workspaceRoot, mcpServers: [] })
+    : await input.transport.request("session/new", { cwd: input.workspaceRoot, mcpServers: [] });
   const sessionId = input.sessionId ?? optionalString(sessionResult.sessionId);
   if (!sessionId) {
     throw new Error("Gemini ACP did not return a session id.");
   }
   events.push({ type: input.sessionId ? "loadSession/result" : "newSession/result", sessionId, ...sessionResult });
 
-  const promptPromise = input.transport.request("prompt", {
+  const promptPromise = input.transport.request("session/prompt", {
     sessionId,
     prompt: [{ type: "text", text: input.prompt }],
   });

@@ -565,8 +565,8 @@ test("rpc.run dispatches active Gemini ACP provider and persists runner artifact
   const transport: GeminiAcpTransport = {
     async request(method) {
       calls.push(method);
-      if (method === "newSession") return { sessionId: "GEMINI-ACP-THREAD" };
-      if (method === "prompt") {
+      if (method === "session/new") return { sessionId: "GEMINI-ACP-THREAD" };
+      if (method === "session/prompt") {
         return new Promise((resolve) => setTimeout(() => resolve({ stopReason: "end_turn" }), 0));
       }
       return {};
@@ -591,7 +591,7 @@ test("rpc.run dispatches active Gemini ACP provider and persists runner artifact
   ]).queries;
 
   assert.equal(result.status, "completed");
-  assert.deepEqual(calls, ["initialize", "newSession", "prompt"]);
+  assert.deepEqual(calls, ["initialize", "session/new", "session/prompt"]);
   assert.equal(rows.run[0].status, "completed");
   const metadata = JSON.parse(String(rows.run[0].metadata_json));
   assert.equal(metadata.provider, "gemini-acp");
