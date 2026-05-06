@@ -10,13 +10,13 @@ HLD 参考: 第 7.8 节 Execution Adapter Layer、第 9 节 RPC Adapter
 - RPC Adapter 与 `cli.run` 并存，不替换 CLI Adapter。
 - Execution Adapter Layer 是唯一允许调用 app-server thread/turn API 的组件；VSCode 插件和 Product Console 只能提交受控命令和订阅状态。
 - Adapter 可连接已有 app-server、按配置启动 `codex app-server`、启动 `gemini --acp` ACP agent，或后续连接 HTTP/JSON-RPC/WebSocket 远程执行服务。
-- `ExecutionAdapterInvocationV1` 是 provider 调用输入；其中的 `SkillInvocationContractV1` 序列化为 turn input，`SkillOutputContractV1` JSON Schema 作为 outputSchema。
+- `ExecutionAdapterInvocationV1` 是 provider 调用输入；其中的 `skillInstruction` 派生 provider turn/prompt 的短任务指令，`SkillOutputContractV1` JSON Schema 作为 outputSchema。
 
 ## 2. Contract
 
 `RpcAdapterConfigV1` 扩展 `ExecutionAdapterConfigV1`，包含 `kind = "rpc"`、`provider`、`transport` (`stdio`/`http`/`jsonrpc`/`websocket`)、`endpoint`、`command`、`args`、`headersAllowlist`、`authRef`、`requestTimeoutMs`、`capabilityDetection`、`requestMapping`、`eventMapping`、`outputMapping`。
 
-`ExecutionAdapterInvocationV1` 包含 workspaceRoot、featureId、taskId、sourcePaths、expectedArtifacts、specState、skillSlug、requestedAction、outputSchema、resume 和 constraints。
+`ExecutionAdapterInvocationV1` 包含 workspaceRoot、featureId、specState、traceability、constraints、outputSchema、resume 和 `skillInstruction`；`skillInstruction` 包含 skillSlug、requestedAction、sourcePaths、imagePaths、expectedArtifacts 和可选 operatorInput。RPC Adapter 不管理 Feature 内部 task，Feature 内 `tasks.md` 由 agent 自主读取和执行。
 
 `ExecutionAdapterResultV1.providerSession` 对 Codex RPC provider 至少包含 threadId、turnId、transport、model、cwd、capabilities、eventRefs 和 approvalState；对 Gemini ACP provider 至少包含 sessionId、transport、model、cwd、capabilities、eventRefs 和 approvalState。
 

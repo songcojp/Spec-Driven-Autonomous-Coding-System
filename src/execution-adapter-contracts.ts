@@ -5,7 +5,7 @@ import type {
   RunnerSandboxMode,
   SkillArtifactContract,
   SkillInvocationConstraints,
-  SkillInvocationContract,
+  SkillOperatorInputContract,
   SkillOutputArtifact,
   SkillOutputContract,
   SkillTraceabilityContract,
@@ -50,6 +50,15 @@ export type ExecutionAdapterResumeV1 = {
   turnId?: string;
 };
 
+export type ExecutionAdapterSkillInstructionV1 = {
+  skillSlug: string;
+  requestedAction: string;
+  sourcePaths: string[];
+  imagePaths?: string[];
+  expectedArtifacts: SkillArtifactContract[];
+  operatorInput?: SkillOperatorInputContract;
+};
+
 export type ExecutionAdapterInvocationV1 = {
   contractVersion: "execution-adapter/v1";
   executionId: string;
@@ -58,18 +67,12 @@ export type ExecutionAdapterInvocationV1 = {
   workspaceRoot: string;
   operation: string;
   featureId?: string;
-  taskId?: string;
-  skillSlug?: string;
-  requestedAction: string;
-  sourcePaths: string[];
-  imagePaths?: string[];
-  expectedArtifacts: SkillArtifactContract[];
   specState?: Record<string, unknown>;
   traceability: SkillTraceabilityContract;
   constraints: SkillInvocationConstraints;
   outputSchema: Record<string, unknown>;
   resume?: ExecutionAdapterResumeV1;
-  skillInvocation?: SkillInvocationContract;
+  skillInstruction: ExecutionAdapterSkillInstructionV1;
 };
 
 export type ExecutionAdapterApprovalRequestV1 = {
@@ -140,32 +143,3 @@ export type ExecutionAdapterResultV1 = {
   rawLogRefs: string[];
   error?: string;
 };
-
-export function executionInvocationFromSkillContract(input: {
-  skillInvocation: SkillInvocationContract;
-  outputSchema: Record<string, unknown>;
-  jobId?: string;
-  resume?: ExecutionAdapterResumeV1;
-}): ExecutionAdapterInvocationV1 {
-  return {
-    contractVersion: "execution-adapter/v1",
-    executionId: input.skillInvocation.executionId,
-    jobId: input.jobId,
-    projectId: input.skillInvocation.projectId,
-    workspaceRoot: input.skillInvocation.workspaceRoot,
-    operation: input.skillInvocation.operation,
-    featureId: input.skillInvocation.traceability.featureId,
-    taskId: input.skillInvocation.traceability.taskId,
-    skillSlug: input.skillInvocation.skillSlug,
-    requestedAction: input.skillInvocation.requestedAction,
-    sourcePaths: input.skillInvocation.sourcePaths,
-    imagePaths: input.skillInvocation.imagePaths,
-    expectedArtifacts: input.skillInvocation.expectedArtifacts,
-    specState: input.skillInvocation.specState,
-    traceability: input.skillInvocation.traceability,
-    constraints: input.skillInvocation.constraints,
-    outputSchema: input.outputSchema,
-    resume: input.resume,
-    skillInvocation: input.skillInvocation,
-  };
-}

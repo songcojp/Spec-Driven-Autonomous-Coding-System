@@ -864,8 +864,9 @@ export function validateWorkspaceRoot(workspaceRoot: string | undefined): Worksp
   return { valid: blockedReasons.length === 0, workspaceRoot: trimmed, blockedReasons };
 }
 
-export function buildSkillInvocationPrompt(contract: SkillInvocationContract, context: string): string {
-  const taskSlicingRules = contract.skillSlug === "task-slicing-skill"
+export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvocationV1, context: string): string {
+  const instruction = invocation.skillInstruction;
+  const taskSlicingRules = instruction.skillSlug === "task-slicing-skill"
     ? [
         "- For split_feature_specs, decompose PRD, EARS requirements, and HLD into implementation-ready Feature Spec package directories.",
         "- Do not treat .autobuild/specs/FEAT-INTAKE-*.json as a Feature Spec package; it is only an intake artifact.",
@@ -874,16 +875,16 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
         "- In the task-slicing result, include features, queuePlan, dependencyGraph, userStoryMapping, verificationPlan, and openQuestions.",
       ]
     : [];
-  const featureCodingRules = contract.skillSlug === "feat-implement-skill" && contract.operation === "feature_execution" && !contract.traceability.taskId
+  const featureCodingRules = instruction.skillSlug === "feat-implement-skill" && invocation.operation === "feature_execution"
     ? [
-        "- For feature_execution without taskId, treat the Feature Spec directory in sourcePaths as the implementation scope.",
+        "- For feature_execution, treat the Feature Spec directory in sourcePaths as the implementation scope.",
         "- Read requirements.md, design.md, and tasks.md from that Feature Spec directory, then implement the concrete tasks described there.",
         "- Do not satisfy feature_execution by only creating a report JSON file or by only summarizing planned work.",
         "- If the Feature Spec tasks cannot be implemented from the available source paths, return status blocked with the missing decision or file scope.",
         "- producedArtifacts must list the actual code, test, config, or documentation files created or updated while executing the Feature Spec.",
       ]
     : [];
-  const clarificationRules = contract.skillSlug === "ambiguity-clarification-skill" || contract.requestedAction === "resolve_clarification"
+  const clarificationRules = instruction.skillSlug === "ambiguity-clarification-skill" || instruction.requestedAction === "resolve_clarification"
     ? [
         "- For resolve_clarification, treat operatorInput.clarificationText or operatorInput.comment as an operator-provided answer/decision, not as a new question to ask back.",
         "- Apply the operator-provided answer to the most relevant expected spec artifact or source path when it resolves an existing ambiguity.",
@@ -892,24 +893,33 @@ export function buildSkillInvocationPrompt(contract: SkillInvocationContract, co
       ]
     : [];
   return [
-    "Execute this SpecDrive CLI skill invocation inside the current workspace.",
+    "Execute this SpecDrive task inside the current workspace.",
     "",
-    "Skill Invocation Contract:",
-    JSON.stringify(contract, null, 2),
+    `Execution ID: ${invocation.executionId}`,
+    `Operation: ${invocation.operation}`,
+    `Feature: ${invocation.featureId ?? "none"}`,
+    `Skill: ${instruction.skillSlug}`,
+    `Action: ${instruction.requestedAction}`,
+    "",
+    "Source paths to read:",
+    ...instruction.sourcePaths.map((path) => `- ${path}`),
+    "",
+    "Expected artifacts:",
+    ...instruction.expectedArtifacts.map((artifact) => `- ${artifact.path} (${artifact.kind}, required=${artifact.required})`),
+    ...(instruction.operatorInput ? ["", "Operator input:", JSON.stringify(instruction.operatorInput, null, 2)] : []),
     "",
     "Rules:",
     "- Use only skills discovered from this workspace's .agents/skills directory.",
     "- Treat AGENTS.md and the referenced source paths as governing context.",
-    "- If the prompt includes a Workspace Context Bundle, use it as already-read workspace context; do not block solely because shell-based file reads fail.",
     "- Return exactly one JSON object matching SkillOutputContractV1.",
     "- The JSON object must include contractVersion, executionId, skillSlug, requestedAction, status, summary, nextAction, producedArtifacts, traceability, and result.",
     "- Each producedArtifacts item must include path, kind, status, checksum, and summary; use null for checksum or summary when unknown.",
     "- traceability must include featureId, requirementIds, and changeIds; use null for missing featureId and [] for missing arrays.",
-    "- The output contract must echo contractVersion, executionId, skillSlug, requestedAction, and invocation-owned traceability fields from the Skill Invocation Contract.",
-    "- Do not expect changeIds in the Skill Invocation Contract. If change IDs apply, derive and maintain them from the skill's source documents and return them in output traceability.",
-    "- When specState is present, treat it as the machine-readable Feature state. Return status and result fields that allow the scheduler to patch docs/features/<feature-id>/spec-state.json.",
+    "- The output contract must use contractVersion skill-contract/v1 and echo executionId, skillSlug, requestedAction, and Feature traceability from this task instruction.",
+    "- If change IDs apply, derive and maintain them from the skill's source documents and return them in output traceability.",
+    "- When Feature state is present in source files, treat it as the machine-readable Feature state. Return status and result fields that allow the scheduler to patch docs/features/<feature-id>/spec-state.json.",
     "- Produce the expected artifacts and list every produced or intentionally unchanged artifact in producedArtifacts.",
-    "- Prefer writing expected artifacts directly to the workspace paths named in the contract.",
+    "- Prefer writing expected artifacts directly to the workspace paths named in this task instruction.",
     "- Do not assume a platform Skill Registry or Skill Center exists.",
     ...taskSlicingRules,
     ...featureCodingRules,

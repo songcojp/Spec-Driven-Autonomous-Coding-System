@@ -33,8 +33,8 @@ CLI Adapter 不接收 Product Console 的直接 CLI 执行请求。Console、Spe
 1. Scheduler Trigger 创建 Execution Record 并 enqueue `cli.run` job；payload `operation` 区分 `feature_execution`、`generate_ears`、`generate_hld`、`generate_ui_spec`、`split_feature_specs` 等操作。Feature 级 `feature_execution` 直接以当前项目 workspace 中完整 Feature Spec 目录作为执行输入，不依赖 `task_graph_tasks` / `tasks` 表。
 2. Execution Policy Resolver 从当前项目 repository `local_path` / `target_repo_path` 解析 workspace root 并生成执行配置。
 3. CLI Adapter Registry 读取 active adapter 配置并合并 Execution Policy 约束。
-4. Skill Invocation Prompt Builder 根据 payload context 生成 `SkillInvocationContractV1`，其中 expected artifacts 为 `{ path, kind, required }` 对象，constraints 记录 allowed files、risk、sandbox 和 approval policy；开发阶段默认 sandbox 为 `danger-full-access`，approval policy 为 `never`。Feature 级 `feat-implement-skill` 的 sourcePaths 必须包含 Feature Spec `requirements.md`、`design.md`、`tasks.md`，并在 prompt 中要求执行 `tasks.md` 的具体实现任务。
-5. Execution Adapter Worker 构建 `ExecutionAdapterInvocationV1`，并把 Skill contract 作为 invocation payload 的内容协议字段携带。
+4. Execution Invocation Builder 根据 payload context 生成 `ExecutionAdapterInvocationV1`；其中 `skillInstruction.expectedArtifacts` 为 `{ path, kind, required }` 对象，`constraints` 记录 allowed files、risk、sandbox 和 approval policy；开发阶段默认 sandbox 为 `danger-full-access`，approval policy 为 `never`。Feature 级 `feat-implement-skill` 的 `skillInstruction.sourcePaths` 必须包含 Feature Spec `requirements.md`、`design.md`、`tasks.md`，provider prompt 只要求 agent 读取这些路径并执行 `tasks.md` 的具体实现任务。
+5. Execution Adapter Worker 将 `ExecutionAdapterInvocationV1` 作为唯一 adapter 输入；独立 `SkillInvocationContractV1` 不再生成或传递。
 6. Safety Gate 检查是否允许执行。
 7. CLI Adapter Runtime 在目标项目 workspace root 中运行 active 编码 CLI。
 8. Heartbeat 周期更新。
@@ -50,18 +50,18 @@ Execution Adapter 侧代码负责 workspace 校验、policy 合并、adapter dry
 CLI Adapter 必须接受 HLD 7.8 定义的 `ExecutionAdapterInvocationV1`，并输出 `ExecutionAdapterEventV1` / `ExecutionAdapterResultV1`。CLI 专属字段放入 config 或 result 的 provider details 中：
 
 - config: `executable`、`argumentTemplate`、`resumeArgumentTemplate`、`environmentAllowlist`、`outputMapping`。
-- invocation: `workspaceRoot`、`operation`、`sourcePaths`、`expectedArtifacts`、`constraints`、`outputSchema`。
+- invocation: `workspaceRoot`、`operation`、`featureId`、`specState`、`traceability`、`constraints`、`outputSchema`、`skillInstruction`。
 - provider session: `command`、`args`、`cwd`、`sessionId`、`exitCode`、`startedAt`、`completedAt`。
 - result: `status`、`summary`、`skillOutput`、`producedArtifacts`、`traceability`、`nextAction`、`rawLogRefs`、`error`。
 - run report: 每个 run 在 `.autobuild/runs/<executionId>/report.json` 保留一份合并报告，内容包括 exit/session、SkillOutputContractV1、contract validation、produced artifacts、usage、log refs 和 error。
 
 ## Skill Contracts
 
-`SkillInvocationContractV1` 是 Execution Adapter 传给 CLI Skill 的唯一输入协议，包含 `contractVersion`、`executionId`、`projectId`、`workspaceRoot`、`operation`、`skillSlug`、`requestedAction`、`sourcePaths`、`imagePaths`、`expectedArtifacts`、`traceability` 和 `constraints`。
+`ExecutionAdapterInvocationV1.skillInstruction` 是 Execution Adapter 传给 CLI / RPC agent 的 Skill 指令片段，包含 `skillSlug`、`requestedAction`、`sourcePaths`、`imagePaths`、`expectedArtifacts` 和可选 `operatorInput`。独立 `SkillInvocationContractV1` 已废弃；provider prompt 不再内联上下文或序列化完整 invocation，只说明本次要执行什么任务。
 
 `SkillOutputContractV1` 是 CLI Skill 的唯一结构化输出协议，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts`、`traceability` 和 `result`。Execution Adapter 必须校验输出协议与输入协议匹配；协议缺失、JSON 无效、execution/skill/action/traceability 不匹配或必需 artifact 缺失时，Execution Record 进入 `review_needed`。`result` 是灵活对象，允许 Skill 写入专用执行详情；调用端不维护按 Skill 分支的专用 result schema。
 
-对于无 `taskId` 的 Feature 级 `feature_execution`，`feat-implement-skill` 必须把 Feature Spec 目录作为实现范围：先读取 `requirements.md`、`design.md`、`tasks.md`，再修改代码、测试、配置或必要文档。仅创建报告 JSON、仅复述计划、或把 `tasks.md` 标记为完成而没有实际产物，都不得视为成功输出。
+对于 Feature 级 `feature_execution`，`feat-implement-skill` 必须把 Feature Spec 目录作为实现范围：先读取 `requirements.md`、`design.md`、`tasks.md`，再由 agent 自主执行 Feature 内部任务并修改代码、测试、配置或必要文档。Scheduler / Execution Adapter 不追踪 Feature 内 task 状态；仅创建报告 JSON、仅复述计划、或把 `tasks.md` 标记为完成而没有实际产物，都不得视为成功输出。
 
 ## CLI Adapter JSON Config
 

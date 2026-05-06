@@ -40,10 +40,11 @@
 - CLI Adapter 不得在调度器、状态机或任务图中硬编码 Codex、Gemini 或其他编码 CLI 命令细节。
 - CLI Adapter 不得绕过受控命令和 Scheduler 直接响应 UI 写操作；所有执行类入口必须有 Execution Record、job、audit 和 raw log 追踪。
 - CLI Adapter 必须在启动前校验 workspace root；项目路径缺失、不可读或缺少必要 `.agents/skills` / `AGENTS.md` 时进入 blocked。
-- `feature_execution` 的 `SkillInvocationContractV1` 必须包含 Feature Spec `requirements.md`、`design.md` 和 `tasks.md` 作为 `sourcePaths`；缺失完整 Feature Spec 目录时，新执行必须 blocked。
+- `feature_execution` 的 `ExecutionAdapterInvocationV1.skillInstruction` 必须包含 Feature Spec `requirements.md`、`design.md` 和 `tasks.md` 作为 `sourcePaths`；缺失完整 Feature Spec 目录时，新执行必须 blocked。
 - Feature 级 `feat-implement-skill` 不得只生成报告 JSON 或总结计划来满足执行；输出 contract 的 `producedArtifacts` 必须列出实际创建或更新的代码、测试、配置或文档文件。
-- CLI skill invocation contract 必须使用 `SkillInvocationContractV1`，包含 `contractVersion`、`executionId`、`projectId`、`workspaceRoot`、`operation`、`skillSlug`、`sourcePaths`、`expectedArtifacts`、`traceability`、`constraints` 和 `requestedAction`。
-- CLI skill invocation contract 必须携带当前 `specState`，供 Skill 明确读取 Feature 文件状态而不是查询数据库。
+- CLI Adapter 必须使用 `ExecutionAdapterInvocationV1` 作为唯一输入协议，并通过内嵌 `skillInstruction` 携带 `skillSlug`、`requestedAction`、`sourcePaths`、`expectedArtifacts`、`imagePaths` 和可选 `operatorInput`。
+- `ExecutionAdapterInvocationV1` 必须携带当前 `specState`，供 Skill 明确读取 Feature 文件状态而不是查询数据库。
+- CLI provider prompt 只说明本次要执行的 Feature 级任务、workspace 路径和输出要求，不得内联源文件内容或序列化完整 invocation。
 - CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts`、`traceability` 和 `result`；调用端只校验通用字段和输入回显，`result` 作为灵活对象承载技能专用执行详情。
 - Execution Adapter 校验有效输出后必须把状态、结果摘要、产物和下一步动作投影回 `docs/features/<feature-id>/spec-state.json`。
 - Execution Adapter 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配或必需 artifact 缺失时，Execution Record 必须进入 `review_needed` 并保留原因。
@@ -68,7 +69,7 @@
 - [ ] `codex-cli` adapter 在 mock CLI adapter 中收到的 cwd 等于目标项目 workspace root。
 - [ ] Feature 级 `schedule_run` 可以在完整 Feature Spec 目录存在时产生 `cli.run` scheduler job，Worker 执行后持久化 session/log/status check 并回写 Execution Record 状态。
 - [ ] `run_board_tasks` 作为兼容入口仍可产生 `cli.run` scheduler job，但编码执行不依赖 Task Board 或旧 task 表。
-- [ ] Spec/UI 操作可以生成 `SkillInvocationContractV1` prompt，并在 Execution Record metadata 中追踪 workspace、skill phase、expected artifacts 和输出 contract 校验结果。
+- [ ] Spec/UI 操作可以生成 `ExecutionAdapterInvocationV1.skillInstruction` 驱动的短 prompt，并在 Execution Record metadata 中追踪 workspace、skill phase、expected artifacts 和输出 contract 校验结果。
 - [ ] 有效 `SkillOutputContractV1` 会写入 Execution Record metadata；无效输出会进入 `review_needed` 而不是被当成成功。
 - [ ] 每次 run 都有独立 `.autobuild/runs/<executionId>/report.json`，Feature execution 调度默认把该 report 作为 expected artifact。
 - [ ] `result` 可以包含 Skill 专用字段，CLI/RPC Adapter 不按 `skillSlug` 做专用字段校验。
