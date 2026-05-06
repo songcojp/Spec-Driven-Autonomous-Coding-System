@@ -212,12 +212,13 @@ function renderFeatureTasks(feature: SpecDriveIdeFeatureNode): string {
 
 function renderFeatureArtifacts(documents: SpecDriveIdeDocument[]): string {
   if (documents.length === 0) return emptyState("No source documents discovered.");
-  return `<div class="artifact-grid feature-artifacts">${documents.map((document) => {
+  return `<div class="feature-artifacts">${documents.map((document) => {
     const fileName = document.path.split(/[\\/]/).pop() ?? document.label;
     const state = document.exists ? "Available" : "Missing";
-    return `<div class="artifact-card">
-      <button data-command="openDocument" data-path="${escapeAttr(document.path)}"${document.exists ? "" : " disabled"}>${escapeHtml(fileName)}</button>
+    return `<div class="artifact-row">
+      <strong>${escapeHtml(fileName)}</strong>
       <span class="${document.exists ? "ok" : "bad"}">${escapeHtml(state)}</span>
+      <button data-command="openDocument" data-path="${escapeAttr(document.path)}"${document.exists ? "" : " disabled"}>Open</button>
     </div>`;
   }).join("")}</div>`;
 }

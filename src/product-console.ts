@@ -5628,7 +5628,7 @@ function extractRisks(reviewRows: Record<string, unknown>[], runRows: Record<str
   return [...reviewRisks, ...failedRuns].slice(0, 10);
 }
 
-function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void {
+export function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void {
   const projectFilter = projectId ? "WHERE er.project_id = ?" : "";
   const projectParams = projectId ? [projectId] : [];
   const result = runSqlite(dbPath, [], [
@@ -5673,10 +5673,12 @@ function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void
       ?? optionalString(context.workspaceRoot)
       ?? (project ? workspaceRootByProject.get(project) : undefined);
     if (!workspaceRoot) continue;
-    const stdoutLogPath = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(runId), "stdout.log");
-    const stdoutLog = readStdoutLogEvents(stdoutLogPath);
-    if (!stdoutLog.exists || stdoutLog.error) continue;
-    const usage = tokenUsageFromValue(stdoutLog.events);
+    const runDir = join(workspaceRoot, ".autobuild", "runs", sanitizeRunPathSegment(runId));
+    const cliOutputUsage = readCliOutputTokenUsage(join(runDir, "cli-output.json"));
+    const stdoutLogPath = join(runDir, "stdout.log");
+    const stdoutLog = cliOutputUsage.usage ? undefined : readStdoutLogEvents(stdoutLogPath);
+    const usage = cliOutputUsage.usage ?? (stdoutLog && !stdoutLog.error ? tokenUsageFromValue(stdoutLog.events) : undefined);
+    const sourcePath = cliOutputUsage.usage ? cliOutputUsage.path : stdoutLogPath;
     if (!usage) continue;
     const normalized = normalizeTokenUsage(usage);
     if (normalized.totalTokens <= 0) continue;
@@ -5687,11 +5689,29 @@ function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void
     const pricing = calculateTokenCost(normalized, model, activeAdapter?.defaults.costRates ?? {});
     runSqlite(dbPath, [
       {
-        sql: `INSERT OR IGNORE INTO token_consumption_records (
+        sql: `INSERT INTO token_consumption_records (
             id, run_id, scheduler_job_id, project_id, feature_id, task_id, operation, model,
             input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens,
             cost_usd, currency, pricing_status, usage_json, pricing_json, source_path
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(run_id) DO UPDATE SET
+            scheduler_job_id = excluded.scheduler_job_id,
+            project_id = excluded.project_id,
+            feature_id = excluded.feature_id,
+            task_id = excluded.task_id,
+            operation = excluded.operation,
+            model = excluded.model,
+            input_tokens = excluded.input_tokens,
+            cached_input_tokens = excluded.cached_input_tokens,
+            output_tokens = excluded.output_tokens,
+            reasoning_output_tokens = excluded.reasoning_output_tokens,
+            total_tokens = excluded.total_tokens,
+            cost_usd = excluded.cost_usd,
+            currency = excluded.currency,
+            pricing_status = excluded.pricing_status,
+            usage_json = excluded.usage_json,
+            pricing_json = excluded.pricing_json,
+            source_path = excluded.source_path`,
         params: [
           randomUUID(),
           runId,
@@ -5711,10 +5731,22 @@ function ensureTokenConsumptionRecords(dbPath: string, projectId?: string): void
           pricing.pricingStatus,
           JSON.stringify(usage),
           JSON.stringify(pricing.pricingSnapshot),
-          stdoutLogPath,
+          sourcePath,
         ],
       },
     ]);
+  }
+}
+
+function readCliOutputTokenUsage(cliOutputPath: string): { path: string; usage?: unknown } {
+  if (!existsSync(cliOutputPath)) {
+    return { path: cliOutputPath };
+  }
+  try {
+    const payload = parseJsonObject(readFileSync(cliOutputPath, "utf8"));
+    return { path: cliOutputPath, usage: tokenUsageFromRecord(payload) };
+  } catch {
+    return { path: cliOutputPath };
   }
 }
 

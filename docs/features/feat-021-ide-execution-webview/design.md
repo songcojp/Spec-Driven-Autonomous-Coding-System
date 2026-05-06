@@ -58,7 +58,8 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - Feature Spec 刷新返回的 view model 必须以 index rows 生成 Feature 节点；folder scan 仅用于校验 index 中的 folder 是否存在、读取 `requirements.md` / `design.md` / `tasks.md` / `spec-state.json` 和生成 missing-folder / missing-file blocked reason。未写入 index 的目录、数据库 Feature 记录和历史同步残留不得生成 Feature 节点；Webview 不渲染独立 `Feature Index Sync` 区块。
 - Dependency Graph 只读取 Feature view model 中的 `dependencies`，按“依赖项 -> 依赖它的 Feature”展示层级；缺失依赖必须作为 missing dependency 节点展示，不得静默丢弃；树节点支持折叠和展开，默认展开根节点及二级节点。
 - `tasks.md` 解析只生成 UI 投影，不写入平台 task 表；任务状态以 Markdown 中的状态字段、checkbox 或既有任务段落约定为事实源，详情只展示任务编号和状态，无法解析时保留 blocked reason。
-- Feature Spec 详情面板不展示 Evidence 区域或 Evidence 验收项；Evidence 已从该详情上下文移除，详情只保留 artifacts、tasks、blockers、traceability、最新运行 token/cost 和操作入口。Artifacts 使用两列紧凑布局，按钮文案直接显示文件名，存在 / 缺失状态承载原 acceptance 状态提示。
+- Feature Spec 详情面板不展示 Evidence 区域或 Evidence 验收项；Evidence 已从该详情上下文移除，详情只保留 artifacts、tasks、blockers、traceability、最新运行 token/cost 和操作入口。Artifacts 每行展示文件名、存在 / 缺失状态和 Open 按钮，存在 / 缺失状态承载原 acceptance 状态提示。
+- Feature Spec 详情的 token/cost 先由 Control Plane 从 `.autobuild/runs/<runId>/cli-output.json` 的 `usage` 读取并写入 `token_consumption_records`，Webview 只消费数据库投影，不直接读取运行目录文件。
 - Feature 分类展示只影响 VSCode Webview 投影，不改变 Feature 状态机；存在 blocked reason 或 blocked 状态的 Feature 进入 `Blocked` panel；运行中、执行中或 in-progress 的 Feature 进入 `In-Process` panel；除 `ready`、`done` / `delivered` / `completed`、blocked 和 in-process 外，其它状态进入 `Todo` panel。
 - Feature panel 内的 Feature list 使用自适应换行布局，不能依赖水平滚动条或 panel 内垂直滚动条展示卡片。
 

@@ -714,7 +714,7 @@ test("audit center does not load large run and evidence metadata blobs", () => {
   assert.equal(audit.executionResults.some((entry) => entry.id === "EVID-1"), true);
 });
 
-test("runner and spec workspace record token consumption only from stdout.log", () => {
+test("runner and spec workspace record token consumption from cli-output.json", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const projectPath = mkdtempSync(join(tmpdir(), "skill-output-"));
@@ -792,9 +792,10 @@ test("runner and spec workspace record token consumption only from stdout.log", 
   assert.equal(Object.hasOwn(jobOutput ?? {}, "raw"), false);
   assert.equal(jobOutput?.summary, "Feature specs split and queue plan created.");
   assert.deepEqual(jobOutput?.tokenUsage, skillOutput.tokenUsage);
-  assert.equal(jobOutput?.tokenConsumption?.totalTokens, 1600);
+  assert.equal(jobOutput?.tokenConsumption?.totalTokens, 18000000);
   assert.equal(jobOutput?.tokenConsumption?.pricingStatus, "priced");
-  assert.equal(jobOutput?.tokenConsumption?.costUsd, 0.00524);
+  assert.equal(jobOutput?.tokenConsumption?.costUsd, 90);
+  assert.equal(jobOutput?.tokenConsumption?.sourcePath, join(runDir, "cli-output.json"));
   assert.deepEqual(jobOutput?.inputContract, skillOutput.inputContract);
   assert.equal(Object.hasOwn(jobOutput ?? {}, "outputContract"), false);
   assert.deepEqual(jobOutput?.producedArtifacts, skillOutput.producedArtifacts);

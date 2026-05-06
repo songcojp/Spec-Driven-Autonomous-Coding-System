@@ -1565,6 +1565,48 @@ test("SpecDrive IDE Feature Spec nodes expose latest run token cost", () => {
   assert.equal(feature?.tokenConsumption?.pricingStatus, "priced");
 });
 
+test("SpecDrive IDE Feature Spec nodes persist token usage from cli-output.json", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  const runDir = join(workspaceRoot, ".autobuild", "runs", "RUN-CLI-TOKEN");
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "cli-output.json"), JSON.stringify({
+    usage: { input_tokens: 3000, cached_input_tokens: 1000, output_tokens: 700, reasoning_output_tokens: 300 },
+  }));
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO execution_records (
+        id, scheduler_job_id, executor_type, operation, project_id, context_json,
+        status, started_at, completed_at, metadata_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      params: [
+        "RUN-CLI-TOKEN",
+        "JOB-CLI-TOKEN",
+        "cli",
+        "feature_execution",
+        "project-ide",
+        JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-016-02" }),
+        "completed",
+        "2026-05-02T13:00:00.000Z",
+        "2026-05-02T13:01:00.000Z",
+        JSON.stringify({ model: "gpt-5.5" }),
+      ],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+
+  assert.equal(feature?.latestExecutionId, "RUN-CLI-TOKEN");
+  assert.equal(feature?.tokenConsumption?.totalTokens, 4000);
+  assert.equal(feature?.tokenConsumption?.sourcePath, join(runDir, "cli-output.json"));
+  assert.equal(runSqlite(dbPath, [], [
+    { name: "tokens", sql: "SELECT source_path FROM token_consumption_records WHERE run_id = 'RUN-CLI-TOKEN'" },
+  ]).queries.tokens[0].source_path, join(runDir, "cli-output.json"));
+});
+
 test("SpecDrive IDE execution detail can read incremental raw logs", () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();

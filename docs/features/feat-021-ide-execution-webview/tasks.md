@@ -123,5 +123,5 @@ Feature ID: FEAT-021
 
 ### T-021-24 Feature 详情紧凑化与成本指标
 状态: done
-描述: Feature Spec 详情中 Artifacts 改为两列紧凑展示，按钮文案直接显示文件名并承载可用 / 缺失状态；Tasks 只显示任务编号和状态；Acceptance 状态合并到 Artifacts；详情展示最新运行的 token 消耗和成本。
-验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖最新运行 token/cost 投影、Artifacts / Tasks 渲染边界和 Acceptance 区块移除。
+描述: Feature Spec 详情中 Artifacts 改为每行展示文件名、状态和 Open 按钮；Tasks 只显示任务编号和状态；Acceptance 状态合并到 Artifacts；详情展示最新运行的 token 消耗和成本，token/cost 由 `cli-output.json.usage` 落库后投影到 UI。
+验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts tests/product-console.test.ts` 覆盖最新运行 token/cost 投影、`cli-output.json` 落库来源、Artifacts / Tasks 渲染边界和 Acceptance 区块移除。
