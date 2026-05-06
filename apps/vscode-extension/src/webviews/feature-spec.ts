@@ -1,8 +1,7 @@
-import type { SpecDriveIdeFeatureNode, SpecDriveIdeView } from "../types";
+import type { SpecDriveIdeDocument, SpecDriveIdeFeatureNode, SpecDriveIdeTokenConsumption, SpecDriveIdeView } from "../types";
 import {
   autoRefreshSwitch,
   commandButton,
-  documentList,
   emptyState,
   escapeAttr,
   escapeHtml,
@@ -139,12 +138,12 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: strin
     <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
     <div class="row"><span>Latest Run</span><strong>${escapeHtml(feature.latestExecutionId ?? "-")}</strong></div>
     <div class="row"><span>Execution</span><strong>${escapeHtml(feature.latestExecutionStatus ?? "Not Started")}</strong></div>
+    <h3>Token Cost</h3>
+    ${renderTokenCost(feature.tokenConsumption)}
     <h3>Artifacts</h3>
-    ${documentList(feature.documents)}
+    ${renderFeatureArtifacts(feature.documents)}
     <h3>Tasks</h3>
     ${renderFeatureTasks(feature)}
-    <h3>Acceptance</h3>
-    ${["Requirements traced", "Task queue visible", "Execution state persisted", "Adapter failures handled"].map((item, index) => `<div class="row"><span>${escapeHtml(item)}</span><strong class="${index < 3 ? "ok" : "draft"}">${index < 3 ? "Passed" : "Draft"}</strong></div>`).join("")}
     <h3>Blockers</h3>
     ${feature.blockedReasons.length === 0 ? emptyState("No blockers.") : feature.blockedReasons.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")}
     <h3>Traceability</h3>
@@ -208,12 +207,41 @@ function renderFeatureTasks(feature: SpecDriveIdeFeatureNode): string {
       ? blockers.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")
       : emptyState("No tasks parsed.");
   }
-  return `${tasks.map((task) => `<div class="task-row">
-    <div><strong>${escapeHtml(task.id)}</strong> ${escapeHtml(task.title)}</div>
-    <span class="${statusClass(task.status)}">${escapeHtml(task.status)}</span>
-    ${task.description ? `<p>${escapeHtml(task.description)}</p>` : ""}
-    ${task.verification ? `<code>${escapeHtml(task.verification)}</code>` : ""}
-  </div>`).join("")}${blockers.map((reason) => `<div class="issue warn">${escapeHtml(reason)}</div>`).join("")}`;
+  return `<div class="task-chip-row">${tasks.map((task) => `<span class="task-chip"><strong>${escapeHtml(task.id)}</strong><span class="${statusClass(task.status)}">${escapeHtml(task.status)}</span></span>`).join("")}</div>${blockers.map((reason) => `<div class="issue warn">${escapeHtml(reason)}</div>`).join("")}`;
+}
+
+function renderFeatureArtifacts(documents: SpecDriveIdeDocument[]): string {
+  if (documents.length === 0) return emptyState("No source documents discovered.");
+  return `<div class="artifact-grid feature-artifacts">${documents.map((document) => {
+    const fileName = document.path.split(/[\\/]/).pop() ?? document.label;
+    const state = document.exists ? "Available" : "Missing";
+    return `<div class="artifact-card">
+      <button data-command="openDocument" data-path="${escapeAttr(document.path)}"${document.exists ? "" : " disabled"}>${escapeHtml(fileName)}</button>
+      <span class="${document.exists ? "ok" : "bad"}">${escapeHtml(state)}</span>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function renderTokenCost(token: SpecDriveIdeTokenConsumption | undefined): string {
+  if (!token) return emptyState("No token consumption recorded.");
+  const rows: Array<[string, string]> = [
+    ["Model", token.model ?? "unknown"],
+    ["Input", formatInteger(token.inputTokens)],
+    ["Output", formatInteger(token.outputTokens)],
+    ["Total", formatInteger(token.totalTokens)],
+    ["Cost", formatCurrency(token.costUsd, token.currency)],
+    ["Pricing", token.pricingStatus],
+  ];
+  return `<div class="token-mini-grid">${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>`;
+}
+
+function formatInteger(value: number): string {
+  return Number.isFinite(value) ? Math.trunc(value).toLocaleString("en-US") : "0";
+}
+
+function formatCurrency(value: number, currency: string): string {
+  const amount = Number.isFinite(value) ? value : 0;
+  return `${currency || "USD"} ${amount.toFixed(6)}`;
 }
 
 export function preferredFeature(view: SpecDriveIdeView | undefined): SpecDriveIdeFeatureNode | undefined {

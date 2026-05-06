@@ -290,6 +290,14 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /title: "Blocked"/);
   assert.match(extensionSource, /title: "In-Process"/);
   assert.match(extensionSource, /title: "Todo"/);
+  assert.match(webviewSource, /renderTokenCost\(feature\.tokenConsumption\)/);
+  assert.match(webviewSource, /function renderFeatureArtifacts\(documents: SpecDriveIdeDocument\[\]\): string/);
+  assert.match(webviewSource, /const fileName = document\.path\.split\(\//);
+  assert.match(webviewSource, /<div class="task-chip-row">/);
+  assert.doesNotMatch(webviewSource, /<h3>Acceptance<\/h3>/);
+  assert.match(webviewSource, /\.feature-artifacts\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(webviewSource, /\.task-chip-row\{display:flex;flex-wrap:wrap;gap:6px\}/);
+  assert.match(webviewSource, /\.token-mini-grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.doesNotMatch(extensionSource, /Block \/ In Process \/ Todo/);
 });
 

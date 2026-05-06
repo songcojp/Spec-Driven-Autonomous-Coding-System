@@ -28,11 +28,11 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 | Spec Workspace | Control Guardrails | 展示 constitution checks、command approvals、safe action confirmations、spec consistency 和 manual approval。 |
 | Spec Workspace | Evidence & Traceability | 以表格展示 requirement、feature、artifact、evidence、validation result 和更新时间。 |
 | Feature Spec | Feature Category Panels | 通过可折叠分类 panel 展示 Feature；顺序固定为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`，其中 Done 默认折叠，其它默认展开；panel header 显示展开/折叠状态图标；panel 内 Feature list 自适应换行，不显示水平滚动条。 |
-| Feature Spec | Feature Detail Drawer | 展示选中 Feature 的 artifacts、acceptance、latest run、blockers、traceability 和可执行动作。 |
+| Feature Spec | Feature Detail Drawer | 展示选中 Feature 的 artifacts、latest run、token/cost、tasks、blockers、traceability 和可执行动作；acceptance 状态合并到 artifacts。 |
 | Feature Spec | New Feature Dialog | 顶部 New Feature 按钮打开弹出输入框，提交自然语言需求；Webview 只提交受控需求输入，模型按需求新增/变更边界自行判定后续流程。 |
 | Feature Spec | Feature Index Source | 刷新时以 `docs/features/README.md` 作为 Feature 身份来源；只读取 index 中 folder 对应的三件套事实，非 index 目录和数据库 Feature 记录不生成 Feature 列表项。 |
 | Feature Spec | View Toggle | 顶部第一个控件是单个视图切换按钮；Feature List 视图下按钮显示 `Dependency Graph`，Dependency Graph 视图下按钮显示 `Feature List`。 |
-| Feature Spec | Tasks Projection | 点击 Feature 后解析对应 `tasks.md`，在详情中展示任务 ID、标题、状态、描述和验证命令。 |
+| Feature Spec | Tasks Projection | 点击 Feature 后解析对应 `tasks.md`，在详情中以自适应单行换行 chips 展示任务 ID 和状态。 |
 | Feature Spec | Review Clarification Dialog | 当选中 Feature 状态为 `need review` / `review_needed` 时显示 Review 入口；点击后弹出澄清输入框，提交后以 `clarification` 意图进入 Spec change request。 |
 | Feature Spec | Mark Feature Ready | 当选中 Feature 不是 `ready` 且不是 `done` / `completed` / `delivered` 时显示 `Ready` 入口；点击后通过受控命令把 Feature 文件状态和数据库投影设置为 `ready`。 |
 | Feature Spec | Pass Blocked or Review State | 当选中 Feature 状态为 `blocked` / `block` 或 `need review` / `review_needed` 时显示 `Pass` 入口；点击后通过 Control Plane 受控命令把 Feature 和当前或最近执行记录收敛为 `completed`。 |
@@ -57,8 +57,8 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 - Pass 提交使用 `mark_feature_complete` 受控命令，payload 包含 `projectId` 和 Feature ID；Control Plane 必须校验目标 Feature 当前为 blocked 或 review-needed 状态，再更新 Feature `spec-state.json.status`、`executionStatus`、blocked reasons、lastResult、features 表、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job。Webview 不得直接写 `spec-state.json`、SQLite 或 Scheduler 内部队列。
 - Feature Spec 刷新返回的 view model 必须以 index rows 生成 Feature 节点；folder scan 仅用于校验 index 中的 folder 是否存在、读取 `requirements.md` / `design.md` / `tasks.md` / `spec-state.json` 和生成 missing-folder / missing-file blocked reason。未写入 index 的目录、数据库 Feature 记录和历史同步残留不得生成 Feature 节点；Webview 不渲染独立 `Feature Index Sync` 区块。
 - Dependency Graph 只读取 Feature view model 中的 `dependencies`，按“依赖项 -> 依赖它的 Feature”展示层级；缺失依赖必须作为 missing dependency 节点展示，不得静默丢弃；树节点支持折叠和展开，默认展开根节点及二级节点。
-- `tasks.md` 解析只生成 UI 投影，不写入平台 task 表；任务状态以 Markdown 中的状态字段、checkbox 或既有任务段落约定为事实源，无法解析时保留原文引用和 blocked reason。
-- Feature Spec 详情面板不展示 Evidence 区域或 Evidence 验收项；Evidence 已从该详情上下文移除，详情只保留 artifacts、tasks、acceptance、blockers、traceability 和操作入口。
+- `tasks.md` 解析只生成 UI 投影，不写入平台 task 表；任务状态以 Markdown 中的状态字段、checkbox 或既有任务段落约定为事实源，详情只展示任务编号和状态，无法解析时保留 blocked reason。
+- Feature Spec 详情面板不展示 Evidence 区域或 Evidence 验收项；Evidence 已从该详情上下文移除，详情只保留 artifacts、tasks、blockers、traceability、最新运行 token/cost 和操作入口。Artifacts 使用两列紧凑布局，按钮文案直接显示文件名，存在 / 缺失状态承载原 acceptance 状态提示。
 - Feature 分类展示只影响 VSCode Webview 投影，不改变 Feature 状态机；存在 blocked reason 或 blocked 状态的 Feature 进入 `Blocked` panel；运行中、执行中或 in-progress 的 Feature 进入 `In-Process` panel；除 `ready`、`done` / `delivered` / `completed`、blocked 和 in-process 外，其它状态进入 `Todo` panel。
 - Feature panel 内的 Feature list 使用自适应换行布局，不能依赖水平滚动条或 panel 内垂直滚动条展示卡片。
 

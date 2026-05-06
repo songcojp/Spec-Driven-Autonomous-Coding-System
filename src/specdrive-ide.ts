@@ -47,6 +47,7 @@ export type SpecDriveIdeFeatureNode = {
   documents: SpecDriveIdeDocument[];
   latestExecutionId?: string;
   latestExecutionStatus?: string;
+  tokenConsumption?: SpecDriveIdeTokenConsumption;
   indexStatus: "indexed" | "missing_from_index" | "missing_folder";
   tasks: SpecDriveIdeTaskProjection[];
   taskParseBlockedReasons: string[];
@@ -547,8 +548,10 @@ export function buildSpecDriveIdeExecutionDetail(
 
 function tokenConsumptionFromRow(row: Record<string, unknown> | undefined): SpecDriveIdeTokenConsumption | undefined {
   if (!row) return undefined;
+  const runId = optionalString(row.run_id);
+  if (!runId) return undefined;
   return {
-    runId: String(row.run_id),
+    runId,
     schedulerJobId: optionalString(row.scheduler_job_id),
     projectId: optionalString(row.project_id),
     featureId: optionalString(row.feature_id),
@@ -1354,6 +1357,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
       const latestExecutionId = completedFeature
         ? stateExecutionId ?? latestExecutionForProjection?.executionId
         : latestExecutionForProjection?.executionId;
+      const tokenConsumption = latestExecutionForProjection?.tokenConsumption;
       return {
         id: featureId,
         folder,
@@ -1369,6 +1373,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         nextAction: optionalString(state.nextAction),
         latestExecutionId,
         latestExecutionStatus,
+        tokenConsumption,
         indexStatus: indexed ? folderExists ? "indexed" : "missing_folder" : "missing_from_index",
         tasks: taskProjection.tasks,
         taskParseBlockedReasons: taskProjection.blockedReasons,
@@ -1522,24 +1527,51 @@ export function parseFeatureTasksMarkdown(content: string): SpecDriveIdeTaskProj
 function readLatestExecutionsByFeature(
   dbPath: string,
   projectId?: string,
-): Map<string, { latest?: { executionId: string; status: string }; latestCompleted?: { executionId: string; status: string } }> {
+): Map<string, { latest?: FeatureExecutionProjection; latestCompleted?: FeatureExecutionProjection }> {
   const result = runSqlite(dbPath, [], [
     {
       name: "executions",
-      sql: `SELECT id, status, context_json
-        FROM execution_records
-        ${projectId ? "WHERE project_id = ?" : ""}
-        ORDER BY unixepoch(replace(substr(COALESCE(updated_at, completed_at, started_at, created_at), 1, 19), 'T', ' ')) DESC, rowid DESC`,
+      sql: `SELECT
+          er.id,
+          er.status,
+          er.context_json,
+          tcr.run_id,
+          tcr.scheduler_job_id,
+          tcr.project_id,
+          tcr.feature_id,
+          tcr.task_id,
+          tcr.operation,
+          tcr.model,
+          tcr.input_tokens,
+          tcr.cached_input_tokens,
+          tcr.output_tokens,
+          tcr.reasoning_output_tokens,
+          tcr.total_tokens,
+          tcr.cost_usd,
+          tcr.currency,
+          tcr.pricing_status,
+          tcr.usage_json,
+          tcr.pricing_json,
+          tcr.source_path,
+          tcr.recorded_at
+        FROM execution_records er
+        LEFT JOIN token_consumption_records tcr ON tcr.run_id = er.id
+        ${projectId ? "WHERE er.project_id = ?" : ""}
+        ORDER BY unixepoch(replace(substr(COALESCE(er.updated_at, er.completed_at, er.started_at, er.created_at), 1, 19), 'T', ' ')) DESC, er.rowid DESC`,
       params: projectId ? [projectId] : [],
     },
   ]);
-  const latest = new Map<string, { latest?: { executionId: string; status: string }; latestCompleted?: { executionId: string; status: string } }>();
+  const latest = new Map<string, { latest?: FeatureExecutionProjection; latestCompleted?: FeatureExecutionProjection }>();
   for (const row of result.queries.executions) {
     const context = parseJsonObject(optionalString(row.context_json));
     const featureId = optionalString(context.featureId);
     if (!featureId) continue;
     const existing = latest.get(featureId) ?? {};
-    const execution = { executionId: String(row.id), status: String(row.status) };
+    const execution = {
+      executionId: String(row.id),
+      status: String(row.status),
+      tokenConsumption: tokenConsumptionFromRow(row),
+    };
     if (!existing.latest) {
       existing.latest = execution;
     }
@@ -1550,6 +1582,12 @@ function readLatestExecutionsByFeature(
   }
   return latest;
 }
+
+type FeatureExecutionProjection = {
+  executionId: string;
+  status: string;
+  tokenConsumption?: SpecDriveIdeTokenConsumption;
+};
 
 type QueueExecutionRow = {
   executionId?: string;

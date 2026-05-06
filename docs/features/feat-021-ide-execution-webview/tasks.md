@@ -120,3 +120,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Feature Spec Webview 在选中非 ready、非终态 Feature 后显示 `Ready` 按钮；点击后通过 `mark_feature_ready` 受控命令将 Feature `spec-state.json.status` 和数据库 Feature 状态同步为 `ready`，并清空 blocked reasons。
 验证: `node --test tests/specdrive-ide.test.ts` 覆盖 ready 状态写入；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 按钮和受控命令边界。
+
+### T-021-24 Feature 详情紧凑化与成本指标
+状态: done
+描述: Feature Spec 详情中 Artifacts 改为两列紧凑展示，按钮文案直接显示文件名并承载可用 / 缺失状态；Tasks 只显示任务编号和状态；Acceptance 状态合并到 Artifacts；详情展示最新运行的 token 消耗和成本。
+验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖最新运行 token/cost 投影、Artifacts / Tasks 渲染边界和 Acceptance 区块移除。

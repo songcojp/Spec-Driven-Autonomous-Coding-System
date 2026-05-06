@@ -42,6 +42,7 @@ Feature 名称: IDE Workbench Webviews
 - CHG-044（2026-05-05）：用户要求 Execution Workbench 不通过类别分类 panel 支持折叠；队列分类移除 `ready`，`running` 排第一、`queued` 排第二；除 `running` 和 `queued` 默认展开外，其它分类默认折叠。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-045（2026-05-05）：用户要求 Feature Spec Webview 在 Feature 状态为 `blocked` / `block` 或 `need review` / `review_needed` 时显示 `Pass` 按钮；点击后必须通过受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 标记为 `completed`。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-046（2026-05-05）：用户要求 VSCode Feature Spec Webview 在选中非 ready、非终态 Feature 后显示 `Ready` 按钮；点击后必须通过受控命令将 Feature 状态和 `spec-state.json.status` 设置为 `ready`，并清空阻塞原因。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-047（2026-05-05）：用户要求 VSCode Feature Spec 详情优化：Artifacts 以两列紧凑展示并在按钮上直接显示文件名，Tasks 只显示任务编号和状态并自适应单行换行，Acceptance 状态合并到 Artifacts，详情增加最新运行的 token 消耗和成本显示。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -71,7 +72,7 @@ Feature 名称: IDE Workbench Webviews
 - [x] 点击 Feature 后，详情面板必须解析该 Feature 的 `tasks.md`，展示任务 ID、任务标题、状态、描述和验证命令；Markdown 缺失或格式无法解析时展示 blocked reason。
 - [x] 状态为 `need review` / `review_needed` 的 Feature Spec 必须在 Feature Spec Webview 工具栏和详情面板提供 Review 入口；点击后弹出澄清输入框，提交内容以 `clarification` 意图进入 Spec change request，并由 Control Plane 排入 `ambiguity-clarification-skill` 技能调用任务，不由前端硬编码需求变更或新增路由。
 - [x] 状态为 `blocked` / `block` 或 `need review` / `review_needed` 的 Feature Spec 必须在工具栏和详情面板提供 `Pass` 入口；点击后通过 Control Plane 受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 标记为 `completed`，并清空 blocked reasons。
-- [x] Feature Spec 详情面板不得展示 Evidence 区域或 Evidence 验收项；详情只展示 artifacts、tasks、acceptance、blockers、traceability 和可执行动作。
+- [x] Feature Spec 详情面板不得展示 Evidence 区域或 Evidence 验收项；详情只展示 artifacts、tasks、blockers、traceability、最新运行 token/cost 和可执行动作。Artifacts 必须合并原 acceptance 状态，以两列紧凑布局展示，并在按钮文案中直接显示文件名。
 - [x] Feature Spec Webview 必须按分类 panel 展示 Feature：依次为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`；每组可点击折叠/展开并显示展开/折叠状态图标，Done 默认折叠，其它默认展开；panel 中 Feature list 必须自适应换行，不依赖 panel 内垂直滚动条或水平滚动条展示卡片。
 - [x] Feature Spec Webview 顶部第一个控件必须是单个视图切换按钮；Feature List 视图下按钮文字显示 `Dependency Graph`，点击后切换到 Dependency Graph 视图并将按钮文字改为 `Feature List`；`Dependency Graph` 视图以树状层级展示 Feature 之间的依赖关系，标出缺失依赖，树节点支持折叠和展开，并默认展开到二级节点。
 - [x] `Execution Workbench` 队列任务必须支持选中；Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 等顶部任务按钮必须只在有选中任务且选中任务状态允许该动作时启用；Pause / Resume 作为双态按钮随选中任务状态切换。
@@ -84,3 +85,4 @@ Feature 名称: IDE Workbench Webviews
 - [x] `Execution Workbench` 必须把未识别的 result 字段保留在 Additional Result JSON 中，不得丢弃。
 - [x] `Feature Spec` 必须支持多选 Feature；顶部 Schedule Selected 使用当前 provider adapter 为每个选中 Feature 创建独立 `schedule_run` / `feature_execution` Job，且单个 Feature 的 Schedule Current / 详情 Schedule 也必须携带完整调度 payload 与 Job 级执行偏好。
 - [x] `Feature Spec` 在选中非 ready、非 done / completed / delivered Feature 后必须在详情动作区显示 `Ready` 入口；点击后通过 Control Plane 受控命令将 Feature 记录和 `spec-state.json.status` 设置为 `ready`，清空 blocked reasons，并保留审计 history。
+- [x] `Feature Spec` 详情中的 Tasks 必须只显示任务编号和状态，使用自适应单行换行布局，不展示任务标题、描述或验证命令。

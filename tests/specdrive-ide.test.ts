@@ -1549,6 +1549,22 @@ test("SpecDrive IDE execution detail includes projection logs, artifacts, contra
   assert.deepEqual(detail?.contractValidation, { valid: true });
 });
 
+test("SpecDrive IDE Feature Spec nodes expose latest run token cost", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  seedApprovalRuntimeState(dbPath, workspaceRoot);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+
+  assert.equal(feature?.latestExecutionId, "RUN-APPROVAL");
+  assert.equal(feature?.tokenConsumption?.totalTokens, 1600);
+  assert.equal(feature?.tokenConsumption?.costUsd, 0.00524);
+  assert.equal(feature?.tokenConsumption?.pricingStatus, "priced");
+});
+
 test("SpecDrive IDE execution detail can read incremental raw logs", () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();

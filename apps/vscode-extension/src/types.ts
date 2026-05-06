@@ -17,6 +17,7 @@ export type SpecDriveIdeFeatureNode = {
   documents: SpecDriveIdeDocument[];
   latestExecutionId?: string;
   latestExecutionStatus?: string;
+  tokenConsumption?: SpecDriveIdeTokenConsumption;
   indexStatus?: "indexed" | "missing_from_index" | "missing_folder";
   tasks?: SpecDriveIdeTaskProjection[];
   taskParseBlockedReasons?: string[];
