@@ -216,6 +216,9 @@ test("VSCode System Settings Webview manages adapter configs through controlled 
   assert.match(extensionSource, /settingsCommandButton\("Validate"/);
   assert.match(extensionSource, /class="settings-editor"/);
   assert.match(extensionSource, /"loadSettingsPreset"/);
+  assert.match(extensionSource, /renderPricingSummary\(source\)/);
+  assert.match(extensionSource, /Pricing Model/);
+  assert.match(extensionSource, /Pricing Rates/);
   assert.match(extensionSource, /class="grid settings-grid"/);
   assert.match(extensionSource, /\.settings-grid\{grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,360px\),1fr\)\)\}/);
   assert.match(extensionSource, /\.settings-grid \.span-6\{grid-column:auto\}/);

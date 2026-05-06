@@ -270,6 +270,7 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
             ["Next action", output.nextAction ?? text.none],
             [text.tokenUsage, output.tokenUsage ? formatSpecValue(output.tokenUsage) : text.none],
             ["Cost", output.tokenConsumption ? `$${output.tokenConsumption.costUsd.toFixed(6)} ${output.tokenConsumption.pricingStatus}` : text.none],
+            ["Pricing Source", pricingSourceLabel(output.tokenConsumption?.pricing) ?? text.none],
             [text.stdoutLogPath, output.stdoutLogPath ?? text.none],
           ]}
         />
@@ -306,6 +307,13 @@ function SkillOutputPanel({ output, text }: { output?: SkillOutputModel; text: U
       </div>
     </section>
   );
+}
+
+function pricingSourceLabel(pricing: Record<string, unknown> | undefined): string | undefined {
+  if (!pricing) return undefined;
+  const adapterKind = typeof pricing.adapterKind === "string" ? pricing.adapterKind.toUpperCase() : undefined;
+  const adapterId = typeof pricing.adapterId === "string" ? pricing.adapterId : undefined;
+  return adapterKind && adapterId ? `${adapterKind}: ${adapterId}` : adapterId;
 }
 
 export function RunnerPage({

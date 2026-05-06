@@ -100,6 +100,7 @@ function renderTokenConsumption(detail: SpecDriveIdeExecutionDetail | undefined)
     ["Total", formatInteger(token.totalTokens)],
     ["Cost", formatCurrency(token.costUsd, token.currency)],
     ["Pricing", token.pricingStatus],
+    ["Pricing Source", pricingSourceLabel(token.pricing)],
     ["Source", token.sourcePath],
   ];
   return `<div class="result-summary token-consumption">${rows.map(([label, value]) => `<div class="row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`).join("")}</div>`;
@@ -112,8 +113,16 @@ function renderTokenCostSummary(detail: SpecDriveIdeExecutionDetail | undefined)
     <div class="row"><span>Total Tokens</span><span>${escapeHtml(formatInteger(token.totalTokens))}</span></div>
     <div class="row"><span>Calculated Cost</span><span>${escapeHtml(formatCurrency(token.costUsd, token.currency))}</span></div>
     <div class="row"><span>Pricing Status</span><span>${escapeHtml(token.pricingStatus)}</span></div>
+    <div class="row"><span>Pricing Source</span><span>${escapeHtml(pricingSourceLabel(token.pricing))}</span></div>
     <div class="row"><span>Recorded At</span><span>${escapeHtml(token.recordedAt || "unknown")}</span></div>
   </div>`;
+}
+
+function pricingSourceLabel(pricing: Record<string, unknown> | undefined): string {
+  if (!pricing) return "unknown";
+  const adapterKind = typeof pricing.adapterKind === "string" ? pricing.adapterKind.toUpperCase() : undefined;
+  const adapterId = typeof pricing.adapterId === "string" ? pricing.adapterId : undefined;
+  return adapterKind && adapterId ? `${adapterKind}: ${adapterId}` : adapterId ?? "unknown";
 }
 
 function formatInteger(value: number): string {

@@ -44,82 +44,6 @@ export function SettingsPage({
   onCommand: OnCommand;
   busy: boolean;
 }) {
-  const source = data.settings.cliAdapter.draft ?? data.settings.cliAdapter.active;
-  const [jsonText, setJsonText] = useState(() => JSON.stringify(source, null, 2));
-  const parsed = useMemo(() => {
-    try {
-      return { config: JSON.parse(jsonText) as Record<string, unknown>, error: undefined as string | undefined };
-    } catch (error) {
-      return { config: undefined, error: error instanceof Error ? error.message : String(error) };
-    }
-  }, [jsonText]);
-
-  useEffect(() => {
-    setJsonText(JSON.stringify(source, null, 2));
-  }, [source.id, source.updatedAt]);
-
-  function updateConfig(mutator: (config: Record<string, unknown>) => Record<string, unknown>) {
-    const base = parsed.config ?? (source as unknown as Record<string, unknown>);
-    setJsonText(JSON.stringify(mutator({ ...base }), null, 2));
-  }
-
-  function updateDefaults(key: string, value: string) {
-    updateConfig((config) => ({
-      ...config,
-      defaults: {
-        ...((typeof config.defaults === "object" && config.defaults !== null)
-          ? (config.defaults as Record<string, unknown>)
-          : {}),
-        [key]: value,
-      },
-    }));
-  }
-
-  function updateCostRate(key: string, value: string) {
-    const numeric = value.trim() ? Number(value) : 0;
-    const model = String(defaults?.model ?? "default");
-    updateConfig((config) => {
-      const nextDefaults = {
-        ...((typeof config.defaults === "object" && config.defaults !== null)
-          ? (config.defaults as Record<string, unknown>)
-          : {}),
-      };
-      const costRates = {
-        ...((typeof nextDefaults.costRates === "object" && nextDefaults.costRates !== null)
-          ? (nextDefaults.costRates as Record<string, unknown>)
-          : {}),
-      };
-      const currentRate = typeof costRates[model] === "object" && costRates[model] !== null
-        ? (costRates[model] as Record<string, unknown>)
-        : {};
-      costRates[model] = { ...currentRate, [key]: Number.isFinite(numeric) && numeric >= 0 ? numeric : value };
-      return { ...config, defaults: { ...nextDefaults, costRates } };
-    });
-  }
-
-  function submit(action: CommandReceipt["action"]) {
-    if (!parsed.config) {
-      return;
-    }
-    const adapterId = String(parsed.config.id ?? source.id);
-    onCommand(action, "cli_adapter", adapterId, { adapterId, config: parsed.config });
-  }
-
-  function loadPreset(preset: Record<string, unknown>) {
-    setJsonText(JSON.stringify({ ...preset, status: "draft" }, null, 2));
-  }
-
-  const validation = data.settings.cliAdapter.validation;
-  const lastDryRun = data.settings.cliAdapter.lastDryRun;
-  const defaults = parsed.config?.defaults as Record<string, unknown> | undefined;
-  const defaultModel = String(defaults?.model ?? "");
-  const costRates = typeof defaults?.costRates === "object" && defaults.costRates !== null
-    ? defaults.costRates as Record<string, unknown>
-    : {};
-  const defaultRate = defaultModel && typeof costRates[defaultModel] === "object" && costRates[defaultModel] !== null
-    ? costRates[defaultModel] as Record<string, unknown>
-    : {};
-
   return (
     <div className="space-y-4">
       {data.settings.projectExecutionPreference ? (
@@ -192,271 +116,278 @@ export function SettingsPage({
           </div>
         </Panel>
       ) : null}
-      <Panel className="overflow-hidden">
-        <div className="border-b border-line bg-white px-4 py-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-[18px] font-semibold text-ink">{text.systemSettings}</h2>
-              <p className="mt-1 text-[13px] text-muted">{text.systemSettingsSubtitle}</p>
-            </div>
-            <Chip tone={validation.valid && !parsed.error ? "green" : "red"}>
-              {validation.valid && !parsed.error ? text.dryRunPassed : text.dryRunFailed}
-            </Chip>
+      <AdapterSettingsEditor
+        kind="cli"
+        title={text.cliConfig}
+        subtitle={text.cliConfigSubtitle}
+        section={data.settings.cliAdapter}
+        text={text}
+        onCommand={onCommand}
+        busy={busy}
+      />
+      {data.settings.rpcAdapter ? (
+        <AdapterSettingsEditor
+          kind="rpc"
+          title="RPC Adapter"
+          subtitle="Manage RPC providers separately from headless CLI adapters."
+          section={data.settings.rpcAdapter}
+          text={text}
+          onCommand={onCommand}
+          busy={busy}
+        />
+      ) : null}
+      <div className="rounded-md border border-line bg-white px-4 py-3 text-[12px] text-muted">
+        {data.settings.factSources.join("、")}
+      </div>
+    </div>
+  );
+}
+
+type AdapterSettingsSection =
+  | ConsoleData["settings"]["cliAdapter"]
+  | NonNullable<ConsoleData["settings"]["rpcAdapter"]>;
+
+function AdapterSettingsEditor({
+  kind,
+  title,
+  subtitle,
+  section,
+  text,
+  onCommand,
+  busy,
+}: {
+  kind: "cli" | "rpc";
+  title: string;
+  subtitle: string;
+  section: AdapterSettingsSection;
+  text: UiStrings;
+  onCommand: OnCommand;
+  busy: boolean;
+}) {
+  const source = section.draft ?? section.active;
+  const [jsonText, setJsonText] = useState(() => JSON.stringify(source, null, 2));
+  const parsed = useMemo(() => {
+    try {
+      return { config: JSON.parse(jsonText) as Record<string, unknown>, error: undefined as string | undefined };
+    } catch (error) {
+      return { config: undefined, error: error instanceof Error ? error.message : String(error) };
+    }
+  }, [jsonText]);
+
+  useEffect(() => {
+    setJsonText(JSON.stringify(source, null, 2));
+  }, [kind, source.id, source.updatedAt]);
+
+  function updateConfig(mutator: (config: Record<string, unknown>) => Record<string, unknown>) {
+    const base = parsed.config ?? (source as unknown as Record<string, unknown>);
+    setJsonText(JSON.stringify(mutator({ ...base }), null, 2));
+  }
+
+  function updateDefaults(key: string, value: string) {
+    updateConfig((config) => ({
+      ...config,
+      defaults: {
+        ...recordValue(config.defaults),
+        [key]: value,
+      },
+    }));
+  }
+
+  function updateCostRate(key: string, value: string) {
+    const numeric = value.trim() ? Number(value) : 0;
+    const model = String(defaults?.model || "default");
+    updateConfig((config) => {
+      const nextDefaults = { ...recordValue(config.defaults) };
+      const costRates = { ...recordValue(nextDefaults.costRates) };
+      const currentRate = recordValue(costRates[model]);
+      costRates[model] = { ...currentRate, [key]: Number.isFinite(numeric) && numeric >= 0 ? numeric : value };
+      return { ...config, defaults: { ...nextDefaults, costRates } };
+    });
+  }
+
+  function submit(action: "validate" | "save" | "activate" | "disable") {
+    if (!parsed.config) return;
+    const adapterId = String(parsed.config.id ?? source.id);
+    const command = `${action}_${kind}_adapter_config` as CommandReceipt["action"];
+    onCommand(command, `${kind}_adapter`, adapterId, { adapterId, config: parsed.config });
+  }
+
+  function loadPreset(preset: Record<string, unknown>) {
+    setJsonText(JSON.stringify({ ...preset, status: "draft" }, null, 2));
+  }
+
+  const validation = section.validation;
+  const lastCheck = kind === "cli" ? section.lastDryRun : section.lastProbe;
+  const defaults = recordValue(parsed.config?.defaults);
+  const defaultModel = String(defaults.model ?? "");
+  const costRates = recordValue(defaults.costRates);
+  const defaultRate = defaultModel ? recordValue(costRates[defaultModel]) : {};
+  const pricingModels = Object.keys(costRates).filter(Boolean);
+
+  return (
+    <Panel className="overflow-hidden">
+      <div className="border-b border-line bg-white px-4 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-[18px] font-semibold text-ink">{title}</h2>
+            <p className="mt-1 text-[13px] text-muted">{subtitle}</p>
           </div>
+          <Chip tone={validation.valid && !parsed.error ? "green" : "red"}>
+            {validation.valid && !parsed.error ? text.dryRunPassed : text.dryRunFailed}
+          </Chip>
         </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-0 max-xl:grid-cols-1">
-          <div className="min-w-0 p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-[15px] font-semibold">{text.cliConfig}</h3>
-                <p className="mt-1 text-[13px] text-muted">{text.cliConfigSubtitle}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  disabled={busy || Boolean(parsed.error)}
-                  onClick={() => submit("validate_cli_adapter_config")}
-                >
-                  <CheckCircle2 size={14} />
-                  {text.validateConfig}
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-0 max-xl:grid-cols-1">
+        <div className="min-w-0 p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-[15px] font-semibold">{text.adapterJson}</h3>
+              <p className="mt-1 text-[13px] text-muted">Pricing is stored in this adapter JSON under defaults.costRates.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button disabled={busy || Boolean(parsed.error)} onClick={() => submit("validate")}>
+                <CheckCircle2 size={14} />
+                {text.validateConfig}
+              </Button>
+              <Button disabled={busy || Boolean(parsed.error)} onClick={() => submit("save")}>
+                <FileText size={14} />
+                {text.saveDraft}
+              </Button>
+              <Button tone="primary" disabled={busy || Boolean(parsed.error)} onClick={() => submit("activate")}>
+                <Play size={14} />
+                {text.activateConfig}
+              </Button>
+              {section.draft ? (
+                <Button disabled={busy} onClick={() => submit("disable")}>
+                  <XCircle size={14} />
+                  {text.disableConfig}
                 </Button>
+              ) : null}
+            </div>
+          </div>
+          <div className="mb-4 rounded-md border border-line bg-slate-50 p-3">
+            <div className="mb-2 text-[12px] font-semibold text-ink">{text.adapterPresets}</div>
+            <div className="flex flex-wrap gap-2">
+              {section.presets.map((preset) => (
                 <Button
-                  disabled={busy || Boolean(parsed.error)}
-                  onClick={() => submit("save_cli_adapter_config")}
+                  key={preset.id}
+                  disabled={busy}
+                  onClick={() => loadPreset(preset as unknown as Record<string, unknown>)}
                 >
-                  <FileText size={14} />
-                  {text.saveDraft}
+                  <Settings size={14} />
+                  {preset.displayName}
                 </Button>
-                <Button
-                  tone="primary"
-                  disabled={busy || Boolean(parsed.error)}
-                  onClick={() => submit("activate_cli_adapter_config")}
-                >
-                  <Play size={14} />
-                  {text.activateConfig}
-                </Button>
-                {data.settings.cliAdapter.draft ? (
-                  <Button
-                    disabled={busy}
-                    onClick={() => submit("disable_cli_adapter_config")}
-                  >
-                    <XCircle size={14} />
-                    {text.disableConfig}
-                  </Button>
+              ))}
+            </div>
+          </div>
+          <textarea
+            className="mt-2 min-h-[520px] w-full resize-y rounded-md border border-line bg-slate-950 p-4 font-mono text-[12px] leading-5 text-slate-100 outline-none focus:border-action"
+            value={jsonText}
+            spellCheck={false}
+            onChange={(event) => setJsonText(event.target.value)}
+          />
+          {parsed.error ? (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
+              {text.jsonParseError}: {parsed.error}
+            </div>
+          ) : null}
+        </div>
+        <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle
+                title={text.activeAdapter}
+                action={<Chip tone="green">{section.active.status}</Chip>}
+              />
+              <div className="space-y-3 p-4">
+                <FactList
+                  rows={[
+                    [text.displayName, section.active.displayName],
+                    ["Provider", String(recordValue(section.active).provider ?? section.active.id)],
+                    [text.executable, section.active.executable],
+                    ["Pricing Models", pricingModels.length ? pricingModels.join(", ") : text.none],
+                  ]}
+                />
+                {!section.draft ? (
+                  <div className="text-[12px] text-muted">{text.noDraftAdapter}</div>
                 ) : null}
               </div>
             </div>
-            <div className="mb-4 rounded-md border border-line bg-slate-50 p-3">
-              <div className="mb-2 text-[12px] font-semibold text-ink">{text.adapterPresets}</div>
-              <div className="flex flex-wrap gap-2">
-                {data.settings.cliAdapter.presets.map((preset) => (
-                  <Button
-                    key={preset.id}
-                    disabled={busy}
-                    onClick={() => loadPreset(preset as unknown as Record<string, unknown>)}
-                  >
-                    <Settings size={14} />
-                    {preset.displayName}
-                  </Button>
-                ))}
-              </div>
-            </div>
-            <label className="text-[12px] font-medium text-muted">{text.adapterJson}</label>
-            <textarea
-              className="mt-2 min-h-[520px] w-full resize-y rounded-md border border-line bg-slate-950 p-4 font-mono text-[12px] leading-5 text-slate-100 outline-none focus:border-action"
-              value={jsonText}
-              spellCheck={false}
-              onChange={(event) => setJsonText(event.target.value)}
-            />
-            {parsed.error ? (
-              <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
-                {text.jsonParseError}: {parsed.error}
-              </div>
-            ) : null}
-          </div>
-          <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
-            <div className="space-y-4">
-              <div className="rounded-lg border border-line bg-white">
-                <SectionTitle
-                  title={text.activeAdapter}
-                  action={<Chip tone="green">{data.settings.cliAdapter.active.status}</Chip>}
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle title={text.adapterForm} />
+              <div className="space-y-3 p-4">
+                <SettingsInput
+                  label={text.displayName}
+                  value={String(parsed.config?.displayName ?? "")}
+                  onChange={(value) => updateConfig((config) => ({ ...config, displayName: value }))}
                 />
-                <div className="space-y-3 p-4">
-                  <FactList
-                    rows={[
-                      [text.displayName, data.settings.cliAdapter.active.displayName],
-                      [text.executable, data.settings.cliAdapter.active.executable],
-                      [text.schemaVersion, String(data.settings.cliAdapter.active.schemaVersion)],
-                    ]}
-                  />
-                  {!data.settings.cliAdapter.draft ? (
-                    <div className="text-[12px] text-muted">{text.noDraftAdapter}</div>
-                  ) : null}
-                </div>
-              </div>
-              <div className="rounded-lg border border-line bg-white">
-                <SectionTitle title={text.adapterForm} />
-                <div className="space-y-3 p-4">
-                  <SettingsInput
-                    label={text.displayName}
-                    value={String(parsed.config?.displayName ?? "")}
-                    onChange={(value) => updateConfig((config) => ({ ...config, displayName: value }))}
-                  />
-                  <SettingsInput
-                    label={text.executable}
-                    value={String(parsed.config?.executable ?? "")}
-                    onChange={(value) => updateConfig((config) => ({ ...config, executable: value }))}
-                  />
-                  <SettingsInput
-                    label={text.defaultModel}
-                    value={String(defaults?.model ?? "")}
-                    onChange={(value) => updateDefaults("model", value)}
-                  />
-                  <SettingsInput
-                    label={text.defaultReasoningEffort}
-                    value={String(defaults?.reasoningEffort ?? "")}
-                    onChange={(value) => updateDefaults("reasoningEffort", value)}
-                  />
-                  <SettingsInput
-                    label={text.defaultSandbox}
-                    value={String(defaults?.sandbox ?? "")}
-                    onChange={(value) => updateDefaults("sandbox", value)}
-                  />
-                  <SettingsInput
-                    label={text.defaultApproval}
-                    value={String(defaults?.approval ?? "")}
-                    onChange={(value) => updateDefaults("approval", value)}
-                  />
-                  <div className="border-t border-line pt-3">
-                    <div className="mb-2 text-[12px] font-semibold text-ink">Token pricing per 1M ({defaultModel || "model"})</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <SettingsInput
-                        label="Input USD"
-                        value={String(defaultRate.inputUsdPer1M ?? "")}
-                        onChange={(value) => updateCostRate("inputUsdPer1M", value)}
-                      />
-                      <SettingsInput
-                        label="Cached USD"
-                        value={String(defaultRate.cachedInputUsdPer1M ?? "")}
-                        onChange={(value) => updateCostRate("cachedInputUsdPer1M", value)}
-                      />
-                      <SettingsInput
-                        label="Output USD"
-                        value={String(defaultRate.outputUsdPer1M ?? "")}
-                        onChange={(value) => updateCostRate("outputUsdPer1M", value)}
-                      />
-                      <SettingsInput
-                        label="Reasoning USD"
-                        value={String(defaultRate.reasoningOutputUsdPer1M ?? "")}
-                        onChange={(value) => updateCostRate("reasoningOutputUsdPer1M", value)}
-                      />
-                    </div>
+                <SettingsInput
+                  label={text.executable}
+                  value={String(parsed.config?.executable ?? "")}
+                  onChange={(value) => updateConfig((config) => ({ ...config, executable: value }))}
+                />
+                {kind === "cli" ? (
+                  <>
+                    <SettingsInput
+                      label={text.defaultReasoningEffort}
+                      value={String(defaults.reasoningEffort ?? "")}
+                      onChange={(value) => updateDefaults("reasoningEffort", value)}
+                    />
+                    <SettingsInput
+                      label={text.defaultSandbox}
+                      value={String(defaults.sandbox ?? "")}
+                      onChange={(value) => updateDefaults("sandbox", value)}
+                    />
+                    <SettingsInput
+                      label={text.defaultApproval}
+                      value={String(defaults.approval ?? "")}
+                      onChange={(value) => updateDefaults("approval", value)}
+                    />
+                  </>
+                ) : null}
+                <SettingsInput
+                  label={text.defaultModel}
+                  value={String(defaults.model ?? "")}
+                  onChange={(value) => updateDefaults("model", value)}
+                />
+                <div className="border-t border-line pt-3">
+                  <div className="mb-2 text-[12px] font-semibold text-ink">Token pricing per 1M ({defaultModel || "model"})</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <SettingsInput label="Input USD" value={String(defaultRate.inputUsdPer1M ?? "")} onChange={(value) => updateCostRate("inputUsdPer1M", value)} />
+                    <SettingsInput label="Cached USD" value={String(defaultRate.cachedInputUsdPer1M ?? "")} onChange={(value) => updateCostRate("cachedInputUsdPer1M", value)} />
+                    <SettingsInput label="Output USD" value={String(defaultRate.outputUsdPer1M ?? "")} onChange={(value) => updateCostRate("outputUsdPer1M", value)} />
+                    <SettingsInput label="Reasoning USD" value={String(defaultRate.reasoningOutputUsdPer1M ?? "")} onChange={(value) => updateCostRate("reasoningOutputUsdPer1M", value)} />
                   </div>
                 </div>
               </div>
-              <div className="rounded-lg border border-line bg-white">
-                <SectionTitle
-                  title={text.lastDryRun}
-                  action={
-                    <Chip
-                      tone={
-                        lastDryRun?.status === "passed"
-                          ? "green"
-                          : lastDryRun?.status
-                            ? "red"
-                            : "neutral"
-                      }
-                    >
-                      {lastDryRun?.status ?? text.none}
-                    </Chip>
-                  }
-                />
-                <div className="space-y-3 p-4 text-[12px]">
-                  <FactList
-                    rows={[
-                      [text.command, lastDryRun?.command ?? text.none],
-                      [text.receivedAt, lastDryRun?.at ?? text.none],
-                    ]}
-                  />
-                  {(lastDryRun?.args ?? []).length > 0 ? (
-                    <div className="rounded-md bg-slate-950 p-3 font-mono text-[11px] leading-5 text-slate-100">
-                      {lastDryRun?.args?.join(" ")}
-                    </div>
-                  ) : null}
-                  {[...validation.errors, ...(lastDryRun?.errors ?? [])].map((error) => (
-                    <div key={error} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">
-                      {error}
-                    </div>
-                  ))}
-                  {(validation.warnings ?? []).map((warning) => (
-                    <div
-                      key={warning}
-                      className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700"
-                    >
-                      {warning}
-                    </div>
-                  ))}
-                </div>
-              </div>
             </div>
-          </aside>
-        </div>
-        <div className="border-t border-line bg-white px-4 py-3 text-[12px] text-muted">
-          {data.settings.factSources.join("、")}
-        </div>
-      </Panel>
-      {data.settings.rpcAdapter ? (
-        <Panel className="overflow-hidden">
-          <div className="border-b border-line bg-white px-4 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h3 className="text-[15px] font-semibold text-ink">RPC Adapter</h3>
-                <p className="mt-1 text-[13px] text-muted">Manage RPC providers separately from headless CLI adapters.</p>
-              </div>
-              <Chip tone={data.settings.rpcAdapter.validation.valid ? "green" : "red"}>
-                {data.settings.rpcAdapter.validation.valid ? text.dryRunPassed : text.dryRunFailed}
-              </Chip>
-            </div>
-          </div>
-          <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-0 max-xl:grid-cols-1">
-            <div className="min-w-0 p-4">
-              <div className="mb-3 text-[12px] font-semibold text-ink">{text.adapterPresets}</div>
-              <div className="flex flex-wrap gap-2">
-                {data.settings.rpcAdapter.presets.map((preset) => (
-                  <Button
-                    key={preset.id}
-                    disabled={busy}
-                    onClick={() => onCommand("activate_rpc_adapter_config", "rpc_adapter", preset.id, { adapterId: preset.id, config: preset })}
-                  >
-                    <Settings size={14} />
-                    {preset.displayName}
-                  </Button>
+            <div className="rounded-lg border border-line bg-white">
+              <SectionTitle
+                title={kind === "cli" ? text.lastDryRun : "Last Probe"}
+                action={<Chip tone={lastCheck?.status === "passed" ? "green" : lastCheck?.status ? "red" : "neutral"}>{lastCheck?.status ?? text.none}</Chip>}
+              />
+              <div className="space-y-3 p-4 text-[12px]">
+                <FactList rows={[[text.command, lastCheck?.command ?? text.none], [text.receivedAt, lastCheck?.at ?? text.none]]} />
+                {(lastCheck?.args ?? []).length > 0 ? (
+                  <div className="rounded-md bg-slate-950 p-3 font-mono text-[11px] leading-5 text-slate-100">
+                    {lastCheck?.args?.join(" ")}
+                  </div>
+                ) : null}
+                {[...validation.errors, ...(lastCheck?.errors ?? [])].map((error) => (
+                  <div key={error} className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-red-700">{error}</div>
+                ))}
+                {("warnings" in validation ? validation.warnings ?? [] : []).map((warning) => (
+                  <div key={warning} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-700">{warning}</div>
                 ))}
               </div>
-              <div className="mt-4 rounded-md border border-line bg-slate-950 p-4 font-mono text-[12px] leading-5 text-slate-100">
-                {JSON.stringify(data.settings.rpcAdapter.active, null, 2)}
-              </div>
             </div>
-            <aside className="border-l border-line bg-slate-50/70 p-4 max-xl:border-l-0 max-xl:border-t">
-              <div className="rounded-lg border border-line bg-white">
-                <SectionTitle
-                  title={text.activeAdapter}
-                  action={<Chip tone="green">{data.settings.rpcAdapter.active.status}</Chip>}
-                />
-                <div className="space-y-3 p-4">
-                  <FactList
-                    rows={[
-                      [text.displayName, data.settings.rpcAdapter.active.displayName],
-                      ["Provider", data.settings.rpcAdapter.active.provider ?? data.settings.rpcAdapter.active.id],
-                      [text.executable, data.settings.rpcAdapter.active.executable],
-                      ["Transport", data.settings.rpcAdapter.active.transport],
-                    ]}
-                  />
-                </div>
-              </div>
-            </aside>
           </div>
-        </Panel>
-      ) : null}
-    </div>
+        </aside>
+      </div>
+    </Panel>
   );
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

@@ -104,6 +104,7 @@ function renderAdapterSection(title: string, kind: AdapterKind, section: Adapter
     <div class="row"><span>Draft</span><span><code>${escapeHtml(draftId ?? "none")}</code></span></div>
     <div class="row"><span>Status</span><span class="${statusClass(stringField(source, "status"))}">${escapeHtml(stringField(source, "status") ?? "unknown")}</span></div>
     <div class="row"><span>Schema Version</span><span>${escapeHtml(String(source.schemaVersion ?? source.schema_version ?? "unknown"))}</span></div>
+    ${renderPricingSummary(source)}
     ${renderLastCheck(kind, section)}
     <h3>Presets</h3>
     <div class="toolbar">
@@ -123,6 +124,15 @@ function renderAdapterSection(title: string, kind: AdapterKind, section: Adapter
       ${settingsCommandButton("Disable", disableAction, entityType, editorId)}
     </div>
   </section>`;
+}
+
+function renderPricingSummary(source: Record<string, unknown>): string {
+  const defaults = recordField(source, "defaults");
+  const model = stringField(defaults, "model") ?? "none";
+  const costRates = recordField(defaults, "costRates") ?? recordField(defaults, "cost_rates");
+  const pricingModels = costRates ? Object.keys(costRates).filter(Boolean) : [];
+  return `<div class="row"><span>Pricing Model</span><span><code>${escapeHtml(model)}</code></span></div>
+    <div class="row"><span>Pricing Rates</span><span>${escapeHtml(pricingModels.length ? pricingModels.join(", ") : "none")}</span></div>`;
 }
 
 function settingsCommandButton(label: string, action: string, entityType: string, editorId: string): string {
@@ -152,4 +162,10 @@ function stringField(value: Record<string, unknown> | undefined, key: string): s
   if (!value) return undefined;
   const field = value[key];
   return typeof field === "string" ? field : undefined;
+}
+
+function recordField(value: Record<string, unknown> | undefined, key: string): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  const field = value[key];
+  return typeof field === "object" && field !== null && !Array.isArray(field) ? field as Record<string, unknown> : undefined;
 }

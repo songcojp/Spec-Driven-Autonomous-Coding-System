@@ -232,8 +232,16 @@ function renderTokenCost(token: SpecDriveIdeTokenConsumption | undefined): strin
     ["Total", formatInteger(token.totalTokens)],
     ["Cost", formatCurrency(token.costUsd, token.currency)],
     ["Pricing", token.pricingStatus],
+    ["Source", pricingSourceLabel(token.pricing)],
   ];
   return `<div class="token-mini-grid">${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>`;
+}
+
+function pricingSourceLabel(pricing: Record<string, unknown> | undefined): string {
+  if (!pricing) return "unknown";
+  const adapterKind = typeof pricing.adapterKind === "string" ? pricing.adapterKind.toUpperCase() : undefined;
+  const adapterId = typeof pricing.adapterId === "string" ? pricing.adapterId : undefined;
+  return adapterKind && adapterId ? `${adapterKind}: ${adapterId}` : adapterId ?? "unknown";
 }
 
 function formatInteger(value: number): string {
