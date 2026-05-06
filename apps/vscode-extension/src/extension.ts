@@ -1138,6 +1138,7 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
     retainContextWhenHidden: true,
   });
   let selectedFeatureId = isFeatureItem(item) ? item.feature.id : undefined;
+  let panelOpenState: Record<string, boolean> = {};
   let autoRefreshEnabled = false;
   let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
   let rendering = false;
@@ -1150,7 +1151,7 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
       if (!selectedFeatureId || !view?.features.some((feature) => feature.id === selectedFeatureId)) {
         selectedFeatureId = preferredFeature(view)?.id;
       }
-      panel.webview.html = renderFeatureSpecWebview(view, selectedFeatureId, autoRefreshEnabled);
+      panel.webview.html = renderFeatureSpecWebview(view, selectedFeatureId, autoRefreshEnabled, panelOpenState);
     } finally {
       rendering = false;
     }
@@ -1169,6 +1170,9 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "selectFeature" && typeof message.featureId === "string") {
       selectedFeatureId = message.featureId;
+      if (typeof message.panelOpenState === "object" && message.panelOpenState !== null && !Array.isArray(message.panelOpenState)) {
+        panelOpenState = Object.fromEntries(Object.entries(message.panelOpenState).filter((entry): entry is [string, boolean] => typeof entry[0] === "string" && typeof entry[1] === "boolean"));
+      }
       await render();
       return;
     }

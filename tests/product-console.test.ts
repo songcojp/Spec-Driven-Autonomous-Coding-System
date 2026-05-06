@@ -2494,7 +2494,7 @@ test("console schedule command blocks duplicate active manual Feature execution"
   assert.equal(rows.queries.jobs.length, 1);
 });
 
-test("console schedule command serializes project-level Feature executions", () => {
+test("console schedule command queues another Feature while one is active", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
   const scheduler = createMemoryScheduler(dbPath);
@@ -2528,7 +2528,7 @@ test("console schedule command serializes project-level Feature executions", () 
     entityType: "feature",
     entityId: "FEAT-012",
     requestedBy: "operator",
-    reason: "Do not run a second feature in the same checkout.",
+    reason: "Queue a second feature in the same checkout.",
     payload: { projectId: "project-1", mode: "manual" },
     now: stableDate,
   }, { scheduler });
@@ -2537,10 +2537,9 @@ test("console schedule command serializes project-level Feature executions", () 
   ]);
 
   assert.equal(first.status, "accepted");
-  assert.equal(second.status, "blocked");
-  assert.match(second.blockedReasons?.join("\n") ?? "", /Project already has active feature_execution/);
-  assert.equal(second.schedulerJobId, undefined);
-  assert.equal(rows.queries.jobs.length, 1);
+  assert.equal(second.status, "accepted");
+  assert.equal(rows.queries.jobs.some((row) => row.id === second.schedulerJobId), true);
+  assert.equal(rows.queries.jobs.length, 2);
 });
 
 test("console schedule command blocks completed Feature execution", () => {

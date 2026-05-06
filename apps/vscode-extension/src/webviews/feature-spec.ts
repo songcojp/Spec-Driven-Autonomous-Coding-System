@@ -15,6 +15,7 @@ export function renderFeatureSpecWebview(
   view: SpecDriveIdeView | undefined,
   selectedFeatureId: string | undefined,
   autoRefreshEnabled = false,
+  panelOpenState: Record<string, boolean> = {},
 ): string {
   const nonce = webviewNonce();
   const features = view?.features ?? [];
@@ -35,7 +36,7 @@ export function renderFeatureSpecWebview(
     ${renderWorkbenchInputForm()}
     <main id="feature-list-panel" class="feature-layout" data-view-panel="list">
       <section class="feature-board">
-        ${groups.map((group) => renderFeaturePanel(group, selected?.id)).join("")}
+        ${groups.map((group) => renderFeaturePanel(group, selected?.id, panelOpenState[group.id] ?? group.open)).join("")}
       </section>
       <aside class="panel detail-panel">
         ${selected ? renderFeatureDetail(selected, projectId) : emptyState("No Feature Specs discovered.")}
@@ -103,8 +104,8 @@ type FeaturePanelGroup = {
   open: boolean;
 };
 
-function renderFeaturePanel(group: FeaturePanelGroup, selectedFeatureId: string | undefined): string {
-  return `<details class="feature-panel" data-panel="${escapeAttr(group.id)}" ${group.open ? "open" : ""}>
+function renderFeaturePanel(group: FeaturePanelGroup, selectedFeatureId: string | undefined, open: boolean): string {
+  return `<details class="feature-panel" data-panel="${escapeAttr(group.id)}" ${open ? "open" : ""}>
     <summary><h2>${escapeHtml(group.title)} <span>${group.features.length}</span></h2><span>${escapeHtml(group.statuses)}</span></summary>
     <div class="feature-panel-items">
       ${group.features.length === 0 ? emptyState("No Feature Specs in this category.") : group.features.map((feature) => renderFeatureCard(feature, feature.id === selectedFeatureId)).join("")}

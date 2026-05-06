@@ -134,6 +134,9 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
         .map((entry) => entry.dataset.featureSelect)
         .filter(Boolean);
     };
+    const featurePanelOpenState = () => {
+      return Object.fromEntries(Array.from(document.querySelectorAll("[data-panel]")).map((panel) => [panel.dataset.panel, Boolean(panel.open)]));
+    };
     const setCurrentFeatureCard = (card) => {
       if (!card) return;
       document.querySelectorAll("[data-feature-card].current").forEach((entry) => {
@@ -167,7 +170,7 @@ export function renderWorkbenchPage(title: string, nonce: string, body: string, 
       const featureCard = event.target.closest("[data-feature-card]");
       if (featureCard) setCurrentFeatureCard(featureCard);
       if (featureCard && !event.target.closest("[data-command]") && !event.target.closest("[data-feature-select]")) {
-        vscode.postMessage({command:"selectFeature", featureId: featureCard.dataset.featureCard});
+        vscode.postMessage({command:"selectFeature", featureId: featureCard.dataset.featureCard, panelOpenState: featurePanelOpenState()});
         return;
       }
       const target = event.target.closest("[data-command]");

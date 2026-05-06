@@ -286,7 +286,10 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /class="feature-card\$\{current \? " current" : ""\}"/);
   assert.match(extensionSource, /setCurrentFeatureCard\(card\)/);
   assert.match(extensionSource, /setCurrentFeatureCard\(featureCard\)/);
-  assert.match(extensionSource, /vscode\.postMessage\(\{command:"selectFeature", featureId: featureCard\.dataset\.featureCard\}\)/);
+  assert.match(extensionSource, /const featurePanelOpenState = \(\) =>/);
+  assert.match(extensionSource, /vscode\.postMessage\(\{command:"selectFeature", featureId: featureCard\.dataset\.featureCard, panelOpenState: featurePanelOpenState\(\)\}\)/);
+  assert.match(extensionSource, /let panelOpenState: Record<string, boolean> = \{\}/);
+  assert.match(extensionSource, /renderFeatureSpecWebview\(view, selectedFeatureId, autoRefreshEnabled, panelOpenState\)/);
   assert.match(extensionSource, /card\.classList\.toggle\("selected", selected\)/);
   assert.match(extensionSource, /card\.setAttribute\("aria-selected", selected \? "true" : "false"\)/);
   assert.match(extensionSource, /aria-current=\\"true\\"/);
@@ -302,7 +305,7 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /isReadyMarkableFeature\(feature\)/);
   assert.match(extensionSource, /markFeatureReadyButton\("Ready", feature, projectId, "Feature Detail"\)/);
   assert.match(extensionSource, /action: "mark_feature_ready"/);
-  assert.match(extensionSource, /renderFeatureSpecWebview\(view, selectedFeatureId, autoRefreshEnabled\)/);
+  assert.match(extensionSource, /panelOpenState = Object\.fromEntries/);
   assert.match(extensionSource, /panel\.onDidDispose\(stopAutoRefresh\)/);
   assert.match(webviewSource, /autoRefreshSwitch\(autoRefreshEnabled\)/);
   assert.match(extensionSource, /title: "Blocked"/);
