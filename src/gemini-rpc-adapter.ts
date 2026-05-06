@@ -21,6 +21,9 @@ import {
   type RpcAdapterConfig,
   type RpcAdapterConfigV1,
 } from "./rpc-adapter.ts";
+import { GEMINI_3_PRO_PREVIEW_STANDARD_COST_RATE } from "./gemini-pricing.ts";
+
+const GEMINI_ACP_DEFAULT_MODEL = "gemini-3-pro-preview";
 
 export type GeminiAcpAdapterConfig = RpcAdapterConfig & {
   provider?: "gemini-acp";
@@ -75,8 +78,10 @@ export const DEFAULT_GEMINI_ACP_ADAPTER_CONFIG: GeminiAcpAdapterConfig = {
   endpoint: "stdio://",
   requestTimeoutMs: 120_000,
   defaults: {
-    model: "gemini-3-pro-preview",
-    costRates: {},
+    model: GEMINI_ACP_DEFAULT_MODEL,
+    costRates: {
+      [GEMINI_ACP_DEFAULT_MODEL]: GEMINI_3_PRO_PREVIEW_STANDARD_COST_RATE,
+    },
   },
   status: "disabled",
 };

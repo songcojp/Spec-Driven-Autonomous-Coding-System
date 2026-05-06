@@ -1,5 +1,6 @@
 import { CODEX_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
 import type { CliAdapterConfig, RunnerApprovalPolicy, RunnerReasoningEffort } from "./cli-adapter.ts";
+import { GEMINI_3_PRO_PREVIEW_STANDARD_COST_RATE } from "./gemini-pricing.ts";
 
 const GEMINI_DEFAULT_MODEL = "gemini-3-pro-preview";
 const GEMINI_DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
@@ -43,7 +44,9 @@ export const GEMINI_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
     reasoningEffort: GEMINI_DEFAULT_REASONING_EFFORT,
     sandbox: "danger-full-access",
     approval: "never",
-    costRates: {},
+    costRates: {
+      [GEMINI_DEFAULT_MODEL]: GEMINI_3_PRO_PREVIEW_STANDARD_COST_RATE,
+    },
   },
   environmentAllowlist: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_GENAI_USE_VERTEXAI"],
   outputMapping: {

@@ -240,6 +240,12 @@ test("Gemini CLI adapter preset validates and dry-renders headless stream-json c
 
   assert.equal(result.valid, true);
   assert.equal(result.command, "gemini");
+  assert.deepEqual(GEMINI_CLI_ADAPTER_CONFIG.defaults.costRates?.["gemini-3-pro-preview"], {
+    inputUsdPer1M: 2,
+    cachedInputUsdPer1M: 0.2,
+    outputUsdPer1M: 12,
+    reasoningOutputUsdPer1M: 12,
+  });
   assert.deepEqual(result.args, [
     "--model",
     "gemini-3-pro-preview",

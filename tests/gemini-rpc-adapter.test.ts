@@ -17,6 +17,12 @@ test("Gemini ACP config exposes unified RPC adapter config", () => {
   assert.equal(config.provider, "gemini-acp");
   assert.equal(config.transport, "stdio");
   assert.equal(config.inputMapping.executable, "gemini");
+  assert.deepEqual(config.defaults.costRates?.["gemini-3-pro-preview"], {
+    inputUsdPer1M: 2,
+    cachedInputUsdPer1M: 0.2,
+    outputUsdPer1M: 12,
+    reasoningOutputUsdPer1M: 12,
+  });
 });
 
 test("Gemini ACP session initializes, starts a session, prompts, and projects SkillOutput", async () => {
@@ -36,7 +42,7 @@ test("Gemini ACP session initializes, starts a session, prompts, and projects Sk
     now: new Date("2026-05-02T12:00:01.000Z"),
   });
 
-  assert.deepEqual(transport.requests.map((request) => request.method), ["initialize", "newSession", "prompt"]);
+  assert.deepEqual(transport.requests.map((request) => request.method), ["initialize", "session/new", "session/prompt"]);
   assert.equal(result.session.sessionId, "GEMINI-ACP-SESSION");
   assert.equal(result.result.skillOutput?.summary, "Implemented.");
   assert.equal(result.executionAdapterResult?.providerSession.provider, "gemini-acp");
@@ -164,10 +170,10 @@ class FakeGeminiAcpTransport implements GeminiAcpTransport {
   request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     this.requests.push({ method, params });
     if (method === "initialize") return Promise.resolve({ agentInfo: { name: "gemini-cli" } });
-    if (method === "newSession") return Promise.resolve({ sessionId: "GEMINI-ACP-SESSION" });
-    if (method === "loadSession") return Promise.resolve({});
-    if (method === "prompt" && this.options.hangPrompt) return new Promise(() => undefined);
-    if (method === "prompt") {
+    if (method === "session/new") return Promise.resolve({ sessionId: "GEMINI-ACP-SESSION" });
+    if (method === "session/load") return Promise.resolve({});
+    if (method === "session/prompt" && this.options.hangPrompt) return new Promise(() => undefined);
+    if (method === "session/prompt") {
       return new Promise((resolve) => setTimeout(() => resolve({
         stopReason: "end_turn",
         _meta: { quota: { token_count: { input_tokens: 4, output_tokens: 5 }, model_usage: [] } },
