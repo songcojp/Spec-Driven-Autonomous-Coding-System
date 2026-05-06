@@ -176,6 +176,7 @@ export type CliInvocationLogFiles = {
   output: string;
   stdout: string;
   stderr: string;
+  report: string;
 };
 
 export type RunnerPolicyInput = {
@@ -999,6 +1000,18 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
         error: error instanceof Error ? error : new Error(String(error)),
         completedAt: new Date().toISOString(),
       });
+      writeRunReport(input.policy.workspaceRoot, input.policy.runId, {
+        runId: input.policy.runId,
+        taskId: input.taskId,
+        featureId: input.featureId,
+        status: "failed",
+        exitCode: null,
+        eventCount: 0,
+        skillInvocation: input.skillInvocation,
+        logFiles,
+        error: error instanceof Error ? error.message : String(error),
+        completedAt: new Date().toISOString(),
+      });
       throw error;
     }
     const stdout = result.stdout ?? "";
@@ -1041,6 +1054,25 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       eventCount: redactedEvents.length,
       sessionId,
       usage,
+    });
+    writeRunReport(input.policy.workspaceRoot, input.policy.runId, {
+      runId: input.policy.runId,
+      taskId: input.taskId,
+      featureId: input.featureId,
+      status: contractValidation && !contractValidation.valid
+        ? "review_needed"
+        : skillOutput?.status ?? ((result.status ?? 1) === 0 ? "completed" : "failed"),
+      exitCode: result.status,
+      sessionId,
+      eventCount: redactedEvents.length,
+      usage,
+      skillInvocation: input.skillInvocation,
+      skillOutput,
+      contractValidation,
+      producedArtifacts: skillOutput?.producedArtifacts ?? [],
+      logFiles,
+      error: stderr || undefined,
+      completedAt,
     });
     const executionResult: RunnerExecutionResultInput = {
       runId: input.policy.runId,
@@ -1085,7 +1117,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       producedArtifacts: skillOutput?.producedArtifacts ?? [],
       traceability: skillOutput?.traceability ?? input.skillInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
       nextAction: skillOutput?.nextAction,
-      rawLogRefs: [logFiles.input, logFiles.output, logFiles.stdout, logFiles.stderr],
+      rawLogRefs: [logFiles.input, logFiles.output, logFiles.stdout, logFiles.stderr, logFiles.report],
       error: rawLog.stderr || undefined,
     };
 
@@ -1738,6 +1770,63 @@ function writeCliOutputLog(
   );
 }
 
+export function writeRunReport(
+  workspaceRoot: string,
+  runId: string,
+  input: {
+    runId: string;
+    taskId?: string;
+    featureId?: string;
+    status: RunnerQueueStatus | "unknown";
+    exitCode?: number | null;
+    sessionId?: string;
+    eventCount?: number;
+    usage?: Record<string, number>;
+    skillInvocation?: SkillInvocationContract;
+    skillOutput?: SkillOutputContract;
+    contractValidation?: SkillContractValidationResult;
+    producedArtifacts?: SkillOutputArtifact[];
+    logFiles?: Partial<CliInvocationLogFiles>;
+    error?: string;
+    completedAt: string;
+  },
+): string | undefined {
+  const dir = cliRunLogDir(workspaceRoot, runId);
+  const reportPath = cliInvocationLogFiles(workspaceRoot, runId).report;
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      reportPath,
+      `${JSON.stringify(
+        {
+          reportVersion: "specdrive-run-report/v1",
+          runId: input.runId,
+          taskId: input.taskId,
+          featureId: input.featureId,
+          status: input.status,
+          exitCode: input.exitCode,
+          sessionId: input.sessionId,
+          eventCount: input.eventCount ?? 0,
+          usage: input.usage,
+          skillInvocation: input.skillInvocation,
+          skillOutput: input.skillOutput,
+          contractValidation: input.contractValidation,
+          producedArtifacts: input.producedArtifacts ?? input.skillOutput?.producedArtifacts ?? [],
+          logFiles: input.logFiles,
+          error: input.error ? redactLog(input.error) : undefined,
+          completedAt: input.completedAt,
+        },
+        null,
+        2,
+      )}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    return reportPath;
+  } catch {
+    return undefined;
+  }
+}
+
 function cliInvocationLogFiles(workspaceRoot: string, runId: string): CliInvocationLogFiles {
   const dir = cliRunLogDir(workspaceRoot, runId);
   return {
@@ -1745,6 +1834,7 @@ function cliInvocationLogFiles(workspaceRoot: string, runId: string): CliInvocat
     output: join(dir, "cli-output.json"),
     stdout: join(dir, "stdout.log"),
     stderr: join(dir, "stderr.log"),
+    report: join(dir, "report.json"),
   };
 }
 

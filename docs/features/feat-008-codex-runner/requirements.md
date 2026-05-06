@@ -48,6 +48,7 @@
 - Execution Adapter 校验有效输出后必须把状态、结果摘要、产物和下一步动作投影回 `docs/features/<feature-id>/spec-state.json`。
 - Execution Adapter 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配或必需 artifact 缺失时，Execution Record 必须进入 `review_needed` 并保留原因。
 - CLI Adapter 必须以 `execution_records` 作为执行状态主表；不得为 `cli.run` 创建或更新旧 `runs` 记录。
+- 每次 Execution Adapter run 必须在 `.autobuild/runs/<executionId>/report.json` 写入一份独立 Run Report，合并 exit/session、SkillOutputContractV1、contract validation、产物、usage 和 log refs；Feature execution 默认 expected artifact 指向该 run report，不再写入共享 `.autobuild/reports/feature-execution.json`。
 - CLI Adapter 配置必须以 JSON 为唯一事实源，并支持 dry-run 校验。
 - CLI Adapter 必须提供 `codex-cli` 和 `gemini-cli` 内置 adapter preset；Gemini CLI preset 必须通过 headless JSON/JSONL 输出和 SkillOutputContractV1 事后校验接入，不要求 Gemini CLI 支持 Codex 风格自定义 output schema 参数。
 - 开发阶段高风险任务默认以 `danger-full-access` 和 `approval=never` 执行；敏感文件、危险命令和 forbidden files 仍必须触发安全规则。
@@ -69,6 +70,7 @@
 - [ ] `run_board_tasks` 作为兼容入口仍可产生 `cli.run` scheduler job，但编码执行不依赖 Task Board 或旧 task 表。
 - [ ] Spec/UI 操作可以生成 `SkillInvocationContractV1` prompt，并在 Execution Record metadata 中追踪 workspace、skill phase、expected artifacts 和输出 contract 校验结果。
 - [ ] 有效 `SkillOutputContractV1` 会写入 Execution Record metadata；无效输出会进入 `review_needed` 而不是被当成成功。
+- [ ] 每次 run 都有独立 `.autobuild/runs/<executionId>/report.json`，Feature execution 调度默认把该 report 作为 expected artifact。
 - [ ] `result` 可以包含 Skill 专用字段，CLI/RPC Adapter 不按 `skillSlug` 做专用字段校验。
 - [ ] Feature 级 coding prompt 明确要求读取 Feature Spec 三件套并执行 `tasks.md`，不能将 report-only completion 当成成功。
 - [ ] Execution Policy 能根据开发阶段策略解析 sandbox、approval、model、profile 和输出 schema。

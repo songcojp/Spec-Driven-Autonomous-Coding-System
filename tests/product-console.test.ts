@@ -2278,7 +2278,7 @@ test("console schedule command records scheduler triggers without bypassing boun
   assert.equal(cliRunPayload.context.skillSlug, "feat-implement-skill");
   assert.equal(cliRunPayload.context.skillPhase, "feature_execution");
   assert.equal(cliRunPayload.context.workspaceRoot, projectPath);
-  assert.deepEqual(cliRunPayload.context.expectedArtifacts, [".autobuild/reports/feature-execution.json"]);
+  assert.deepEqual(cliRunPayload.context.expectedArtifacts, [`.autobuild/runs/${cliRunPayload.executionId}/report.json`]);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/requirements.md"), true);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/design.md"), true);
   assert.equal(cliRunPayload.context.sourcePaths.includes("docs/features/feat-013-product-console/tasks.md"), true);

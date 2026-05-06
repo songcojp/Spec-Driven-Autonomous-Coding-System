@@ -3057,7 +3057,7 @@ function executeScheduleCommand(
     specStatePath: featureFolder ? specStateRelativePath(featureFolder) : undefined,
     specState,
     sourcePaths: scheduleRunSourcePaths(payload, featureSpecPath, project.targetRepoPath),
-    expectedArtifacts: scheduleRunExpectedArtifacts(payload),
+    expectedArtifacts: scheduleRunExpectedArtifacts(payload, executionId),
     workspaceRoot,
     skillSlug,
     skillPhase: optionalString(payload.skillPhase) ?? operation,
@@ -3293,9 +3293,13 @@ function scheduleRunSourcePaths(payload: Record<string, unknown>, featureSpecPat
   ];
 }
 
-function scheduleRunExpectedArtifacts(payload: Record<string, unknown>): string[] {
+function scheduleRunExpectedArtifacts(payload: Record<string, unknown>, executionId: string): string[] {
   const requested = optionalStringArray(payload.expectedArtifacts);
-  return requested.length > 0 ? requested : [".autobuild/reports/feature-execution.json"];
+  return requested.length > 0 ? requested : [runReportArtifactPath(executionId)];
+}
+
+function runReportArtifactPath(executionId: string): string {
+  return `.autobuild/runs/${sanitizeArtifactName(executionId)}/report.json`;
 }
 
 type EnqueueNextFeatureExecutionResult = {
@@ -3790,7 +3794,7 @@ function enqueueNextFeatureExecutionFromQueue(
       `${featureSpecPath}/design.md`,
       `${featureSpecPath}/tasks.md`,
     ],
-    expectedArtifacts: [".autobuild/reports/feature-execution.json"],
+    expectedArtifacts: [runReportArtifactPath(executionId)],
     workspaceRoot: project.targetRepoPath,
     skillSlug: "feat-implement-skill",
     skillPhase: "feature_execution",

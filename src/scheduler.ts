@@ -532,6 +532,7 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     skillOutputContract: result.adapterResult?.result.skillOutput,
     contractValidation: result.adapterResult?.result.contractValidation,
     producedArtifacts: result.adapterResult?.result.skillOutput?.producedArtifacts ?? [],
+    rawLogRefs: result.adapterResult?.executionAdapterResult?.rawLogRefs ?? [],
   };
   runSqlite(dbPath, [
     {
@@ -827,6 +828,7 @@ export async function runCodexAppServerRunJob(
           skillInvocationContract: loaded.skillInvocation,
           skillOutputContract: adapterResult.result.skillOutput,
           producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
+          rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
           threadId: adapterResult.session.sessionId,
           turnId: eventTurnId(adapterResult.rawLog.events),
           transport: adapterConfig?.transport,
@@ -1117,6 +1119,7 @@ export async function runGeminiAcpRunJob(
           skillInvocationContract: loaded.skillInvocation,
           skillOutputContract: adapterResult.result.skillOutput,
           producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
+          rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
           sessionId: adapterResult.session.sessionId,
           transport: adapterConfig?.transport,
           model: policy.model,

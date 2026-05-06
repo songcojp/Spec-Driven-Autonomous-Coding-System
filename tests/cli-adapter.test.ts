@@ -643,7 +643,7 @@ test("feature-level coding prompt requires Feature Spec execution instead of rep
         "docs/features/FEAT-001/design.md",
         "docs/features/FEAT-001/tasks.md",
       ],
-      expectedArtifacts: [{ path: ".autobuild/reports/feature-execution.json", kind: "json", required: true }],
+      expectedArtifacts: [{ path: ".autobuild/runs/RUN-FEAT/report.json", kind: "json", required: true }],
       featureId: "FEAT-001",
       taskId: undefined,
     }),
@@ -804,12 +804,14 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
     output: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "cli-output.json"),
     stdout: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "stdout.log"),
     stderr: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "stderr.log"),
+    report: join(workspaceRoot, ".autobuild", "runs", "RUN-004", "report.json"),
   };
   assert.deepEqual(result.rawLog.files, expectedLogFiles);
   assert.equal(existsSync(expectedLogFiles.input), true);
   assert.equal(existsSync(expectedLogFiles.output), true);
   assert.equal(existsSync(expectedLogFiles.stdout), true);
   assert.equal(existsSync(expectedLogFiles.stderr), true);
+  assert.equal(existsSync(expectedLogFiles.report), true);
 
   const inputLog = JSON.parse(readFileSync(expectedLogFiles.input, "utf8"));
   assert.equal(inputLog.runId, "RUN-004");
@@ -824,6 +826,11 @@ test("Codex CLI adapter captures JSON events, session id, output, and redacts lo
   assert.equal(outputLog.status, 0);
   assert.equal(outputLog.sessionId, "SESSION-NEW");
   assert.equal(outputLog.eventCount, 2);
+  const runReport = JSON.parse(readFileSync(expectedLogFiles.report, "utf8"));
+  assert.equal(runReport.reportVersion, "specdrive-run-report/v1");
+  assert.equal(runReport.runId, "RUN-004");
+  assert.equal(runReport.status, "completed");
+  assert.equal(runReport.logFiles.report, expectedLogFiles.report);
 
   const executionResult = buildExecutionResultInput(result.result);
   assert.equal(executionResult.kind, "cli_runner");

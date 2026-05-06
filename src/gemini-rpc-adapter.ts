@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { validateSkillOutputContract } from "./cli-adapter.ts";
+import { validateSkillOutputContract, writeRunReport } from "./cli-adapter.ts";
 import type {
   CliAdapterResult,
   CliJsonEvent,
@@ -305,6 +305,22 @@ export function buildGeminiAcpAdapterResult(input: GeminiAcpAdapterResultInput):
     rawLogRefs: [rawLog.id],
     error: stderr || undefined,
   };
+  const reportPath = writeRunReport(input.workspaceRoot, input.runId, {
+    runId: input.runId,
+    taskId: input.skillInvocation?.traceability.taskId,
+    featureId: input.skillInvocation?.traceability.featureId,
+    status: executionAdapterResult.status === "cancelled" ? "blocked" : executionAdapterResult.status,
+    exitCode,
+    sessionId: projection.sessionId,
+    eventCount: input.events.length,
+    skillInvocation: input.skillInvocation,
+    skillOutput: projection.skillOutput,
+    contractValidation,
+    producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
+    error: stderr || undefined,
+    completedAt: input.completedAt,
+  });
+  if (reportPath) executionAdapterResult.rawLogRefs.push(reportPath);
   return {
     session: {
       id: `${input.runId}:gemini-acp-session`,
