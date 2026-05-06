@@ -14,7 +14,7 @@
 - 支持 Execution Record、状态、Memory 和 Evidence 更新的幂等重放。
 - 保留任务、Execution Record、Evidence Pack 和 Project Memory 状态以支持崩溃恢复。
 - 记录任务、Execution Record、审批和状态变化的审计时间线。
-- 使用独立 token 消费明细记录每次 CLI run 的 token、成本、模型、价格快照和来源 `stdout.log`；通用 Metrics 仅记录成功率、失败率、看板加载耗时、状态刷新耗时、Evidence 写入耗时和 Runner 心跳。
+- 使用独立 token 消费明细记录每次 CLI / RPC run 的 token、成本、模型、adapter 级价格快照和运行 artifact 来源；通用 Metrics 仅记录成功率、失败率、看板加载耗时、状态刷新耗时、Evidence 写入耗时和 Runner 心跳。
 - 追踪 MVP 自动化成功指标。
 
 ## Non-Scope
@@ -48,6 +48,7 @@
 - [ ] 幂等键覆盖 Execution Record、状态、Memory 和 Evidence 更新。
 - [ ] Audit Timeline 记录状态变化、Execution Record、审批、恢复、Memory 压缩、worktree 生命周期和交付事件。
 - [ ] token 消费明细可以记录每次 run 的 token 和成本；Metrics 可以记录成功率、失败率、性能基线和心跳。
+- [ ] token 消费明细的价格快照包含 adapter id、adapter kind、model、rate 或 missing_rate 原因；已存在 run_id 不自动重算。
 - [ ] 崩溃恢复测试不会丢失未完成任务。
 
 ## Risks and Open Questions

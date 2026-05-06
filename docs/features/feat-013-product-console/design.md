@@ -42,7 +42,7 @@ CHG-016 update：Spec Workspace、Task Board 和 Runner Console 必须展示 wor
 | Scheduler Job Inspector | 展示选中 job 的 scheduler job id、BullMQ job id、queue、job type、payload context、Execution Record、workspace、CLI Adapter / native handler、heartbeat、blocked reason 和 Evidence 摘要。 |
 | Skill Invocation Feedback | 在 Spec Workspace、Task Board 和 Runner Console 展示 scheduler job、execution id、workspace、skill phase、blocked reason、token 消费明细和 Evidence 摘要。 |
 | System Settings View | 承载跨页面、跨 Execution Record 的系统级配置，MVP 至少包含 CLI 配置页。 |
-| CLI Adapter Config Panel | 位于 System Settings，展示 active adapter、Codex/Gemini preset、原始 JSON、JSON Schema 表单、token 价格表、dry-run 结果、字段级错误、保存草稿和启用/禁用操作。 |
+| Execution Adapter Config Panel | 位于 System Settings，分别展示 CLI / RPC active adapter、provider preset、原始 JSON、JSON Schema 表单、token 价格表、dry-run / probe 结果、字段级错误、保存草稿和启用/禁用操作。 |
 | Review Center View | 展示 ReviewItem、风险筛选、diff、Evidence 和审批动作。 |
 | Audit Center View | 展示 audit timeline、命令回执、阻塞原因、状态转换、Evidence、Execution Record、Job 和 Approval 关联事实。 |
 | Console Command Gateway | 将 UI 动作转换为 Control Plane 命令。 |
@@ -76,7 +76,7 @@ Product Console 的查询接口只负责读取 ViewModel、配置 schema、Evide
 8. 用户切换语言后，App Shell 保存偏好并重新渲染界面文案；事实数据保持 API 返回原文。
 9. 用户切换项目后，App Shell 更新当前项目上下文，重新查询所有项目级页面；若命令返回 `project_id` 缺失或不匹配，展示阻塞反馈并保留原页面状态。
 10. 用户在导入现有项目表单设置目录后，Console 调用只读 `/projects/scan` 扫描 Git、包管理器、SpecDrive 目录和仓库来源，并把扫描结果作为导入项目默认信息。
-11. 用户从 App Shell 打开 System Settings，或从 Runner Console 的配置健康摘要跳转到系统设置中的 CLI 配置页；Console 加载 active/draft JSON 配置、JSON Schema、token 价格表和 form schema，并在原始 JSON 编辑器与表单之间保持同一份待保存配置状态。
+11. 用户从 App Shell 打开 System Settings，或从 Runner Console 的配置健康摘要跳转到系统设置中的 adapter 配置页；Console 加载 CLI / RPC active/draft JSON 配置、JSON Schema、token 价格表和 form schema，并在原始 JSON 编辑器与表单之间保持同一份待保存配置状态。
 12. 用户执行 dry-run 或保存配置时，Console 调用 Control Plane 受控命令；校验失败展示字段级错误和命令模板错误，校验通过后允许保存草稿或启用配置。
 13. 用户从 Spec Workspace 或 Task Board 发起执行类操作时，Console 展示 Control Plane 返回的 command receipt，并在后续刷新中显示 scheduler job、execution id、workspace、skill phase、blocked reason 和最近 Evidence；Feature 级 `schedule_run` 必须以当前项目 workspace 中完整 Feature Spec 目录作为输入，目录缺少 `requirements.md`、`design.md` 或 `tasks.md` 时展示 blocked 反馈而不是依赖平台 task 表兜底。
 14. 用户进入 Runner Console 时，Console 先展示 executor queue 健康，再展示 Job 列表；用户选择 Job 后，右侧 inspector 显示该 Job 关联的 Execution Record、payload context、workspace、CLI Adapter / native handler、Runner heartbeat、阻塞原因、Evidence 和日志，所有调度/运行动作仍通过受控命令提交。

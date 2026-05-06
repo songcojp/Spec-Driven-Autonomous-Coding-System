@@ -30,3 +30,8 @@ Feature ID: FEAT-022
 状态: done
 描述: 同步 requirements、HLD 和 Feature index，补充 Webview 不复用 Product Console UI 的边界测试。
 验证: `git diff --check`
+
+### T-022-06 Adapter pricing summary
+状态: done
+描述: System Settings Webview 在 CLI / RPC adapter section 中展示默认模型和已配置 pricing models，配置仍通过共享 adapter JSON 编辑和受控命令保存。
+验证: `node --test tests/specdrive-ide-webview-boundary.test.ts`

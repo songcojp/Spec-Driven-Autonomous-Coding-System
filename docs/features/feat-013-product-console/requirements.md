@@ -77,7 +77,7 @@ Spec Evolution:
 - 用户可以从 Spec Workspace 查看 PRD、EARS、requirements、HLD、design、Feature Spec、tasks 和 README / 索引等 Spec Sources 的自动扫描状态、发现数量、缺失项、冲突和需要澄清的问题。
 - 用户可以判断 Runner 是否可执行新任务。
 - 用户可以通过系统设置查看 active CLI Adapter，并通过原始 JSON 或 JSON Schema 表单编辑 adapter 配置。
-- 用户可以通过系统设置维护 active CLI Adapter 的模型 token 价格表，用于 token 消费明细成本计算。
+- 用户可以通过系统设置维护 CLI / RPC Adapter 的模型 token 价格表，用于 token 消费明细成本计算；费率必须写入对应 adapter JSON 的 `defaults.costRates`。
 - 用户保存或启用 CLI Adapter 配置前可以看到 dry-run 校验结果；无效配置不得影响正在运行的 Execution Record。
 - 高风险、阻塞或需澄清任务能从 Review Center 被处理。
 - 用户可以在浏览器中打开 Product Console，并在 Dashboard、Project Home、Spec Workspace、Runner Console 和 Review Center 之间切换。
@@ -118,6 +118,7 @@ Spec Evolution:
 - [ ] Spec Workspace 阶段流程默认不展开阶段内步骤；用户点击阶段状态标签后才展开对应阶段详情，且头部流程只以标签承载状态和提示信息。
 - [ ] Product Console 提供系统设置入口，系统设置至少包含 CLI 配置页。
 - [ ] 系统设置提供 CLI Adapter 配置管理 UI，覆盖 Codex/Gemini preset、原始 JSON 编辑、JSON Schema 表单编辑、token 价格表编辑、dry-run 校验、保存草稿、启用/禁用和字段级错误展示。
+- [ ] 系统设置提供 RPC Adapter token 价格表编辑与摘要展示，并与 CLI Adapter 共享同一套 `defaults.costRates` 表单行为。
 - [ ] Runner Console 只展示 CLI Adapter 配置健康摘要和跳转入口，不直接编辑 CLI 配置。
 - [ ] Runner Console 浏览器级验证覆盖 `cli.run` / `native.run` 执行队列、Job 列表、execution detail、payload context、workspace、Runner heartbeat、blocked reason 或 Evidence 摘要。
 - [ ] Runner Console 浏览器级验证覆盖 Job 队列筛选、执行详情、可读执行描述，以及详情来自真实 ViewModel 字段而不是静态 demo 文案。
