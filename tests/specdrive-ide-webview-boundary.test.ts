@@ -217,9 +217,18 @@ test("VSCode System Settings Webview manages adapter configs through controlled 
   assert.match(extensionSource, /class="settings-editor"/);
   assert.match(extensionSource, /"loadSettingsPreset"/);
   assert.match(extensionSource, /renderPricingSummary\(source\)/);
+  assert.match(extensionSource, /renderPricingEditor\(editorId, source\)/);
   assert.match(extensionSource, /Pricing Model/);
   assert.match(extensionSource, /Pricing Rates/);
+  assert.match(extensionSource, /Token Pricing/);
+  assert.match(extensionSource, /data-pricing-field="inputUsdPer1M"/);
+  assert.match(extensionSource, /data-pricing-field="cachedInputUsdPer1M"/);
+  assert.match(extensionSource, /data-pricing-field="outputUsdPer1M"/);
+  assert.match(extensionSource, /data-pricing-field="reasoningOutputUsdPer1M"/);
+  assert.match(extensionSource, /updatePricingRate\(pricingTarget\)/);
+  assert.match(extensionSource, /costRates: \{/);
   assert.match(extensionSource, /class="grid settings-grid"/);
+  assert.match(extensionSource, /\.pricing-editor\{/);
   assert.match(extensionSource, /\.settings-grid\{grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,360px\),1fr\)\)\}/);
   assert.match(extensionSource, /\.settings-grid \.span-6\{grid-column:auto\}/);
   assert.match(extensionSource, /\.row\{grid-template-columns:minmax\(0,1fr\) minmax\(0,max-content\)\}/);

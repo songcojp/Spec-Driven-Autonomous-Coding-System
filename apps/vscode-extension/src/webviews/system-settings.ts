@@ -106,6 +106,7 @@ function renderAdapterSection(title: string, kind: AdapterKind, section: Adapter
     <div class="row"><span>Schema Version</span><span>${escapeHtml(String(source.schemaVersion ?? source.schema_version ?? "unknown"))}</span></div>
     ${renderPricingSummary(source)}
     ${renderLastCheck(kind, section)}
+    ${renderPricingEditor(editorId, source)}
     <h3>Presets</h3>
     <div class="toolbar">
       ${presets.map((preset) => commandButton(stringField(preset, "displayName") ?? stringField(preset, "id") ?? "Preset", "loadSettingsPreset", {
@@ -133,6 +134,37 @@ function renderPricingSummary(source: Record<string, unknown>): string {
   const pricingModels = costRates ? Object.keys(costRates).filter(Boolean) : [];
   return `<div class="row"><span>Pricing Model</span><span><code>${escapeHtml(model)}</code></span></div>
     <div class="row"><span>Pricing Rates</span><span>${escapeHtml(pricingModels.length ? pricingModels.join(", ") : "none")}</span></div>`;
+}
+
+function renderPricingEditor(editorId: string, source: Record<string, unknown>): string {
+  const defaults = recordField(source, "defaults");
+  const model = stringField(defaults, "model") ?? "";
+  const costRates = recordField(defaults, "costRates") ?? recordField(defaults, "cost_rates");
+  const rate = model ? recordField(costRates, model) ?? {} : {};
+  const modelInputId = `${editorId}-pricing-model`;
+  return `<h3>Token Pricing</h3>
+    <div class="pricing-editor" data-editor-id="${escapeAttr(editorId)}">
+      <label class="settings-field">
+        <span>Default Model</span>
+        <input id="${escapeAttr(modelInputId)}" type="text" value="${escapeAttr(model)}" data-settings-field="model" data-editor-id="${escapeAttr(editorId)}">
+      </label>
+      <label class="settings-field">
+        <span>Input USD / 1M</span>
+        <input type="number" min="0" step="0.000001" value="${escapeAttr(numberishField(rate, "inputUsdPer1M"))}" data-pricing-field="inputUsdPer1M" data-editor-id="${escapeAttr(editorId)}" data-model-input-id="${escapeAttr(modelInputId)}">
+      </label>
+      <label class="settings-field">
+        <span>Cached USD / 1M</span>
+        <input type="number" min="0" step="0.000001" value="${escapeAttr(numberishField(rate, "cachedInputUsdPer1M"))}" data-pricing-field="cachedInputUsdPer1M" data-editor-id="${escapeAttr(editorId)}" data-model-input-id="${escapeAttr(modelInputId)}">
+      </label>
+      <label class="settings-field">
+        <span>Output USD / 1M</span>
+        <input type="number" min="0" step="0.000001" value="${escapeAttr(numberishField(rate, "outputUsdPer1M"))}" data-pricing-field="outputUsdPer1M" data-editor-id="${escapeAttr(editorId)}" data-model-input-id="${escapeAttr(modelInputId)}">
+      </label>
+      <label class="settings-field">
+        <span>Reasoning USD / 1M</span>
+        <input type="number" min="0" step="0.000001" value="${escapeAttr(numberishField(rate, "reasoningOutputUsdPer1M"))}" data-pricing-field="reasoningOutputUsdPer1M" data-editor-id="${escapeAttr(editorId)}" data-model-input-id="${escapeAttr(modelInputId)}">
+      </label>
+    </div>`;
 }
 
 function settingsCommandButton(label: string, action: string, entityType: string, editorId: string): string {
@@ -168,4 +200,10 @@ function recordField(value: Record<string, unknown> | undefined, key: string): R
   if (!value) return undefined;
   const field = value[key];
   return typeof field === "object" && field !== null && !Array.isArray(field) ? field as Record<string, unknown> : undefined;
+}
+
+function numberishField(value: Record<string, unknown> | undefined, key: string): string {
+  if (!value) return "";
+  const field = value[key];
+  return typeof field === "number" || typeof field === "string" ? String(field) : "";
 }
