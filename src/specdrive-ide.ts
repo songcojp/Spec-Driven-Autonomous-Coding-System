@@ -379,6 +379,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
       "docs/features/*/spec-state.json",
       "scheduler_job_records",
       "execution_records",
+      "token_consumption_records",
       "cli_adapter_configs",
       "rpc_adapter_configs",
       "project_execution_preferences",
@@ -1344,14 +1345,11 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
       ];
       const status = resolveFeatureNodeStatus(optionalString(state.status), indexEntry?.status, documents, taskProjection);
       const stateCurrentJob = isRecord(state.currentJob) ? state.currentJob : undefined;
-      const executionClearedBySpecState = Object.prototype.hasOwnProperty.call(state, "currentJob") && state.currentJob === null;
       const stateExecutionId = optionalString(stateCurrentJob?.executionId);
       const completedFeature = isCompletedFeatureStatus(status);
       const latestExecutionForProjection = completedFeature
         ? latestExecution?.latestCompleted ?? latestExecution?.latest
-        : executionClearedBySpecState && latestExecution?.latest?.status === "completed"
-          ? undefined
-          : latestExecution?.latest;
+        : latestExecution?.latest;
       const latestExecutionStatus = isCompletedFeatureStatus(status)
         ? "completed"
         : latestExecutionForProjection?.status;

@@ -101,6 +101,7 @@
 | CHG-025 | 进入 FEAT-004 / FEAT-008 / FEAT-019 / FEAT-021 patch；自主执行下一 Feature 选择由 `feature-selection-skill` 推理返回 `select_next_feature` 决策，Control Plane 只执行通过队列、三件套、依赖、resume 和 active execution 安全校验的选择；CLI/app-server `approval_needed`、`blocked`、`review_needed`、`failed` 统一投影到 Feature 执行结果。 | 已同步 PRD、REQ-033、HLD、Feature Index、FEAT-004 requirements/design、FEAT-019 design、FEAT-021 design、`docs/zh-CN/skills.md` 和新增 skill；实现覆盖 selection result 校验、单项目串行 active execution 闸、Codex RPC approval pending 投影、codex runner evidence 持久化；`node --test tests/product-console.test.ts tests/scheduler.test.ts tests/specdrive-ide.test.ts` 68 项通过。 | 已同步实现 |
 | CHG-026 | 独立 `push_feature_spec_pool` 步骤废弃；任务调度全流程由项目级 `schedule_run` 和 `start_auto_run` 承担。 | 已同步 PRD、REQ-006、REQ-029、REQ-033、HLD、Feature Index、FEAT-004 requirements/design/tasks、FEAT-013 requirements/design、Product Console Spec flow、VSCode Webview 和测试；`push_feature_spec_pool` 已从 public command action、Spec Workspace action 和工作流阶段移除。 | 已同步实现 |
 | CHG-028 | 执行层重构为 Execution Adapter Layer，CLI 与 RPC 使用统一适配层接口。 | 已同步 REQ-037、REQ-065、REQ-080、HLD 7.8 / 9、Feature Index、FEAT-008 requirements/design、FEAT-018 requirements/design；实现迁移尚未开始。 | 需同步实现 |
+| CHG-050 | Feature 最新费用与 Job 累计费用边界 | 用户指令：Feature 执行完成后 VSCode Feature Spec 页面未正确显示 token 计费；同一 Feature 可以多次执行，Job 记录每次费用，Feature 只保留最后一次执行费用，累计成本按 Job 历史统计 | 已增强 NFR-006、REQ-084、Feature Index 和 FEAT-021 requirements/tasks | 已执行 FEAT-021 follow-up：`T-021-26` 覆盖 Feature 最新执行费用、Job 历史累计边界和再次 queued/run 状态依据。 |
 
 ## Feature Spec Execute 评估
 

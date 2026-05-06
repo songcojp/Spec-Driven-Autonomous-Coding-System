@@ -130,3 +130,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Feature Spec 和 Execution Workbench 的 token/cost 投影展示 pricing source，来源为 `token_consumption_records.pricing_json` 中的 adapter id 与 adapter kind。
 验证: `node --test tests/specdrive-ide-webview-boundary.test.ts tests/product-console.test.ts` 覆盖 Webview 渲染边界和 adapter 级价格快照。
+
+### T-021-26 Feature 最新费用与 Job 累计费用边界
+状态: done
+描述: Feature Spec 详情将 token/cost 标注并投影为最后一次有效执行费用；清空 `spec-state.json.currentJob` 只表示当前 Job 已解除，不清空历史最后执行费用。Execution Workbench / Execution Workspace 继续按 Job / Run 展示单次费用；同一 Feature 多次执行总成本只能从 Job / Execution 历史累计 `token_consumption_records`。Feature 是否能再次 queued 或 run 只看当前 Feature 状态、依赖、安全闸和 active execution，不因历史 Job 中出现同一 Feature 多次执行而阻塞。
+验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖 ready Feature 保留最后执行费用、多次执行只展示最新费用、Webview 标题边界和历史 Job 费用不覆盖。

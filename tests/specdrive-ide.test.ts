@@ -606,7 +606,7 @@ test("SpecDrive IDE completed Feature prefers completed execution across mixed t
   assert.equal(feature?.latestExecutionStatus, "completed");
 });
 
-test("SpecDrive IDE ready Feature does not project stale completed execution as current", () => {
+test("SpecDrive IDE ready Feature keeps latest completed token cost after current job is cleared", () => {
   const workspaceRoot = makeWorkspace();
   writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({
     schemaVersion: 1,
@@ -632,14 +632,28 @@ test("SpecDrive IDE ready Feature does not project stale completed execution as 
         VALUES ('RUN-OLD-COMPLETED', 'JOB-OLD-COMPLETED', 'codex.cli', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05T18:00:00.000Z', '2026-05-05T18:09:03.307Z', '2026-05-05T18:09:03.307Z', 'Previously completed before operator reset.', '{}')`,
       params: [JSON.stringify({ featureId: "FEAT-016" })],
     },
+    tokenConsumptionRecord({
+      id: "TOKEN-OLD-COMPLETED",
+      runId: "RUN-OLD-COMPLETED",
+      schedulerJobId: "JOB-OLD-COMPLETED",
+      projectId: "project-ide",
+      featureId: "FEAT-016",
+      taskId: "TASK-016-01",
+      totalTokens: 1200,
+      costUsd: 0.0042,
+      sourcePath: join(workspaceRoot, ".autobuild", "runs", "RUN-OLD-COMPLETED", "cli-output.json"),
+      recordedAt: "2026-05-05T18:09:04.000Z",
+    }),
   ]);
 
   const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
   const feature = view.features.find((entry) => entry.id === "FEAT-016");
 
   assert.equal(feature?.status, "ready");
-  assert.equal(feature?.latestExecutionId, undefined);
-  assert.equal(feature?.latestExecutionStatus, undefined);
+  assert.equal(feature?.latestExecutionId, "RUN-OLD-COMPLETED");
+  assert.equal(feature?.latestExecutionStatus, "completed");
+  assert.equal(feature?.tokenConsumption?.totalTokens, 1200);
+  assert.equal(feature?.tokenConsumption?.costUsd, 0.0042);
 });
 
 test("parseFeatureTasksMarkdown supports checkbox and status block task formats", () => {
@@ -1641,6 +1655,74 @@ test("SpecDrive IDE Feature Spec nodes persist token usage from cli-output.json"
   ]).queries.tokens[0].source_path, join(runDir, "cli-output.json"));
 });
 
+test("SpecDrive IDE Feature Spec nodes show latest run cost while job history keeps cumulative cost", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-FIRST-COST', 'bull-first-cost', 'specdrive:execution-adapter', 'cli.run', 'completed', '{}', '2026-05-05T10:05:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, updated_at, summary, metadata_json)
+        VALUES ('RUN-FIRST-COST', 'JOB-FIRST-COST', 'codex.cli', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05T10:00:00.000Z', '2026-05-05T10:05:00.000Z', '2026-05-05T10:05:00.000Z', 'First execution completed.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-016-01" })],
+    },
+    tokenConsumptionRecord({
+      id: "TOKEN-FIRST-COST",
+      runId: "RUN-FIRST-COST",
+      schedulerJobId: "JOB-FIRST-COST",
+      projectId: "project-ide",
+      featureId: "FEAT-016",
+      taskId: "TASK-016-01",
+      totalTokens: 1000,
+      costUsd: 0.003,
+      sourcePath: join(workspaceRoot, ".autobuild", "runs", "RUN-FIRST-COST", "cli-output.json"),
+      recordedAt: "2026-05-05T10:05:01.000Z",
+    }),
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-LATEST-COST', 'bull-latest-cost', 'specdrive:execution-adapter', 'cli.run', 'completed', '{}', '2026-05-05T11:05:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, updated_at, summary, metadata_json)
+        VALUES ('RUN-LATEST-COST', 'JOB-LATEST-COST', 'codex.cli', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05T11:00:00.000Z', '2026-05-05T11:05:00.000Z', '2026-05-05T11:05:00.000Z', 'Latest execution completed.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-016", taskId: "TASK-016-02" })],
+    },
+    tokenConsumptionRecord({
+      id: "TOKEN-LATEST-COST",
+      runId: "RUN-LATEST-COST",
+      schedulerJobId: "JOB-LATEST-COST",
+      projectId: "project-ide",
+      featureId: "FEAT-016",
+      taskId: "TASK-016-02",
+      totalTokens: 2400,
+      costUsd: 0.008,
+      sourcePath: join(workspaceRoot, ".autobuild", "runs", "RUN-LATEST-COST", "cli-output.json"),
+      recordedAt: "2026-05-05T11:05:01.000Z",
+    }),
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+  const tokenRows = runSqlite(dbPath, [], [
+    {
+      name: "tokens",
+      sql: "SELECT COUNT(*) AS count, SUM(total_tokens) AS total_tokens, SUM(cost_usd) AS cost_usd FROM token_consumption_records WHERE feature_id = 'FEAT-016'",
+    },
+  ]).queries.tokens[0];
+
+  assert.equal(feature?.latestExecutionId, "RUN-LATEST-COST");
+  assert.equal(feature?.tokenConsumption?.runId, "RUN-LATEST-COST");
+  assert.equal(feature?.tokenConsumption?.totalTokens, 2400);
+  assert.equal(feature?.tokenConsumption?.costUsd, 0.008);
+  assert.equal(tokenRows.count, 2);
+  assert.equal(tokenRows.total_tokens, 3400);
+  assert.equal(tokenRows.cost_usd, 0.011);
+});
+
 test("SpecDrive IDE execution detail can read incremental raw logs", () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();
@@ -2023,6 +2105,49 @@ function seedApprovalRuntimeState(dbPath: string, workspaceRoot: string): void {
       ],
     },
   ]);
+}
+
+function tokenConsumptionRecord(input: {
+  id: string;
+  runId: string;
+  schedulerJobId: string;
+  projectId: string;
+  featureId: string;
+  taskId: string;
+  totalTokens: number;
+  costUsd: number;
+  sourcePath: string;
+  recordedAt: string;
+}): { sql: string; params: unknown[] } {
+  return {
+    sql: `INSERT INTO token_consumption_records (
+        id, run_id, scheduler_job_id, project_id, feature_id, task_id, operation, model,
+        input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens, total_tokens,
+        cost_usd, currency, pricing_status, usage_json, pricing_json, source_path, recorded_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    params: [
+      input.id,
+      input.runId,
+      input.schedulerJobId,
+      input.projectId,
+      input.featureId,
+      input.taskId,
+      "feature_execution",
+      "gpt-5.5",
+      input.totalTokens,
+      0,
+      0,
+      0,
+      input.totalTokens,
+      input.costUsd,
+      "USD",
+      "priced",
+      JSON.stringify({ inputTokens: input.totalTokens, totalTokens: input.totalTokens }),
+      JSON.stringify({ adapterId: "codex-cli", adapterKind: "cli", model: "gpt-5.5" }),
+      input.sourcePath,
+      input.recordedAt,
+    ],
+  };
 }
 
 async function getJson(url: string): Promise<Record<string, unknown>> {

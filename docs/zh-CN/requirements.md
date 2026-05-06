@@ -1042,6 +1042,8 @@ THE SYSTEM SHALL 显示 `Pass` 入口，并通过 Control Plane 受控命令将 
 - [ ] Execution Workbench 必须以摘要优先方式展示结构化 Skill 输出：状态、summary、nextAction、traceability、produced artifacts、常见 result 分组和完整 JSON 审计视图。
 - [ ] Execution Workbench 必须把 produced artifacts 展示为可扫描表格，并把 `commands`、`verification`、`decision`、`blockers`、`findings`、`risks`、`coverage`、`openQuestions`、`updatedDocuments` 等常见 result 字段分组展示。
 - [ ] 未识别的 result 字段必须保留在 Additional Result JSON 中，不得丢弃。
+- [ ] Feature Spec Webview 的 Feature 详情必须把 token / cost 标注为最后一次有效执行费用；Execution Workbench / Execution Workspace 按选中的 Job / Run 展示单次费用，如需总成本则按 Job 历史累计。
+- [ ] Feature Spec Webview 中 Feature 的 Schedule / Run 入口必须依据 Feature 当前状态和执行安全闸启用或阻塞，不得把同一 Feature 的历史多次 Job 记录当作重复执行错误。
 
 ### REQ-085：在 VSCode IDE 中管理系统设置
 来源：用户指令“vscode ide添加系统设置”
@@ -1138,9 +1140,15 @@ THE SYSTEM SHALL 记录可追踪时间线。
 WHEN 系统执行 Subagent 或 Execution Adapter 工作
 THE SYSTEM SHALL 统计 token、成本、成功率和失败率。
 
+WHEN 同一个 Feature 被多次排队或执行
+THE SYSTEM SHALL 保留每次 Job / Execution Record 的 token 与成本记录，并只在 Feature 投影中展示最后一次有效执行的 token 与成本。
+
 验收：
 - [ ] Dashboard 或相关控制台可以展示成本与成功率指标。
 - [ ] `token_consumption_records.pricing_json` 必须保存 `adapterId`、`adapterKind`、`model`、费率快照或缺失原因；已落库记录不得因 adapter 费率修改被自动重算。
+- [ ] `token_consumption_records` 必须按 `run_id` 表示单次执行费用；同一 `feature_id` 的多次执行不得互相覆盖。
+- [ ] Feature Spec 页面只展示 Feature 最后一次有效执行的 token / cost；需要统计同一 Feature 多次执行总成本时，必须从 Job / Execution Record 历史累计 `token_consumption_records`。
+- [ ] Feature 是否可以再次 queued 或 run 必须依据 Feature 当前状态、依赖、安全闸和 active execution 判断，不得因历史 Job 中存在相同 Feature 的多次执行记录而阻塞。
 
 ### NFR-007：看板性能
 来源：PRD 第 9.4 节

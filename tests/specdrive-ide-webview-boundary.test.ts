@@ -315,7 +315,11 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /title: "Blocked"/);
   assert.match(extensionSource, /title: "In-Process"/);
   assert.match(extensionSource, /title: "Todo"/);
+  assert.match(webviewSource, /<h3>Latest Execution Cost<\/h3>/);
   assert.match(webviewSource, /renderTokenCost\(feature\.tokenConsumption\)/);
+  assert.match(webviewSource, /\["Cached Input", formatInteger\(token\.cachedInputTokens\)\]/);
+  assert.match(webviewSource, /\["Reasoning Output", formatInteger\(token\.reasoningOutputTokens\)\]/);
+  assert.match(webviewSource, /\["Pricing Source", pricingSourceLabel\(token\.pricing\)\]/);
   assert.match(webviewSource, /function renderFeatureArtifacts\(documents: SpecDriveIdeDocument\[\]\): string/);
   assert.match(webviewSource, /const fileName = document\.path\.split\(\//);
   assert.match(webviewSource, /<strong>\$\{escapeHtml\(fileName\)\}<\/strong>/);
@@ -325,7 +329,7 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(webviewSource, /\.feature-artifacts\{display:grid;gap:5px\}/);
   assert.match(webviewSource, /\.artifact-row\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(72px,max-content\) auto/);
   assert.match(webviewSource, /\.task-chip-row\{display:flex;flex-wrap:wrap;gap:6px\}/);
-  assert.match(webviewSource, /\.token-mini-grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(webviewSource, /\.token-mini-grid\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(webviewSource, /\.token-consumption-grid\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.doesNotMatch(extensionSource, /Block \/ In Process \/ Todo/);
 });

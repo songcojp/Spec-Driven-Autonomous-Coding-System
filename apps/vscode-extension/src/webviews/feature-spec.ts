@@ -139,7 +139,7 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: strin
     <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
     <div class="row"><span>Latest Run</span><strong>${escapeHtml(feature.latestExecutionId ?? "-")}</strong></div>
     <div class="row"><span>Execution</span><strong>${escapeHtml(feature.latestExecutionStatus ?? "Not Started")}</strong></div>
-    <h3>Token Cost</h3>
+    <h3>Latest Execution Cost</h3>
     ${renderTokenCost(feature.tokenConsumption)}
     <h3>Artifacts</h3>
     ${renderFeatureArtifacts(feature.documents)}
@@ -229,11 +229,13 @@ function renderTokenCost(token: SpecDriveIdeTokenConsumption | undefined): strin
   const rows: Array<[string, string]> = [
     ["Model", token.model ?? "unknown"],
     ["Input", formatInteger(token.inputTokens)],
+    ["Cached Input", formatInteger(token.cachedInputTokens)],
     ["Output", formatInteger(token.outputTokens)],
+    ["Reasoning Output", formatInteger(token.reasoningOutputTokens)],
     ["Total", formatInteger(token.totalTokens)],
     ["Cost", formatCurrency(token.costUsd, token.currency)],
     ["Pricing", token.pricingStatus],
-    ["Source", pricingSourceLabel(token.pricing)],
+    ["Pricing Source", pricingSourceLabel(token.pricing)],
   ];
   return `<div class="token-mini-grid">${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>`;
 }
