@@ -18,6 +18,7 @@ function readSourceTree(dir: string): string {
 
 const extensionSource = readSourceTree("apps/vscode-extension/src");
 const webviewSource = readSourceTree("apps/vscode-extension/src/webviews");
+const executionWebviewSource = readFileSync("apps/vscode-extension/src/webviews/execution.ts", "utf8");
 const executionQueueGroupsBlock = webviewSource.match(/const EXECUTION_QUEUE_GROUPS[\s\S]*?\];/)?.[0] ?? "";
 const productConsoleSource = readFileSync("src/product-console.ts", "utf8");
 const vscodeRestartBackendScript = readFileSync("scripts/vscode-restart-backend.sh", "utf8");
@@ -147,6 +148,9 @@ test("VSCode Execution Workbench renders execution result sections from durable 
   assert.match(webviewSource, /<h3>Token Consumption<\/h3>/);
   assert.match(webviewSource, /renderTokenConsumption\(executionDetail\)/);
   assert.match(webviewSource, /No token consumption recorded\./);
+  assert.match(webviewSource, /<div class="token-consumption-grid">/);
+  assert.match(webviewSource, /\["Pricing Source", pricingSourceLabel\(token\.pricing\)\]/);
+  assert.doesNotMatch(webviewSource, /\["Source", token\.sourcePath\]/);
   assert.match(webviewSource, /commandButton\("Open", "openRawLogRef"/);
   assert.match(extensionSource, /message\.command === "openRawLogRef"/);
   assert.match(extensionSource, /openRawLogRef\(message\.path\)/);
@@ -158,9 +162,9 @@ test("VSCode Execution Workbench renders execution result sections from durable 
   assert.match(webviewSource, /<div class="section-title"><h2>Result Projection<\/h2><span>spec-state\.json<\/span><\/div>/);
   assert.match(webviewSource, /renderSkillOutputSummary\(executionDetail\)/);
   assert.match(webviewSource, /renderTraceabilityChips/);
-  assert.match(webviewSource, /<h3>Token Cost<\/h3>/);
-  assert.match(webviewSource, /renderTokenCostSummary\(executionDetail\)/);
-  assert.match(webviewSource, /Calculated Cost/);
+  assert.doesNotMatch(executionWebviewSource, /<h3>Token Cost<\/h3>/);
+  assert.doesNotMatch(executionWebviewSource, /renderTokenCostSummary\(executionDetail\)/);
+  assert.doesNotMatch(executionWebviewSource, /Calculated Cost/);
   assert.match(webviewSource, /<h3>Produced Artifacts<\/h3>/);
   assert.match(webviewSource, /renderProducedArtifacts\(executionDetail\)/);
   assert.match(webviewSource, /<h3>Additional Result<\/h3>/);
@@ -322,6 +326,7 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(webviewSource, /\.artifact-row\{display:grid;grid-template-columns:minmax\(0,1fr\) minmax\(72px,max-content\) auto/);
   assert.match(webviewSource, /\.task-chip-row\{display:flex;flex-wrap:wrap;gap:6px\}/);
   assert.match(webviewSource, /\.token-mini-grid\{display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(webviewSource, /\.token-consumption-grid\{display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.doesNotMatch(extensionSource, /Block \/ In Process \/ Todo/);
 });
 

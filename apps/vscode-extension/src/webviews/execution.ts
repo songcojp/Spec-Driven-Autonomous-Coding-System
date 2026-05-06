@@ -77,8 +77,6 @@ export function renderExecutionWorkbenchWebview(
         ${renderBlockersAndApprovals(blockers, executionDetail)}
         <div class="section-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
         ${renderSkillOutputSummary(executionDetail)}
-        <h3>Token Cost</h3>
-        ${renderTokenCostSummary(executionDetail)}
         <h3>Produced Artifacts</h3>
         ${renderProducedArtifacts(executionDetail)}
         <h3>Additional Result</h3>
@@ -101,21 +99,8 @@ function renderTokenConsumption(detail: SpecDriveIdeExecutionDetail | undefined)
     ["Cost", formatCurrency(token.costUsd, token.currency)],
     ["Pricing", token.pricingStatus],
     ["Pricing Source", pricingSourceLabel(token.pricing)],
-    ["Source", token.sourcePath],
   ];
-  return `<div class="result-summary token-consumption">${rows.map(([label, value]) => `<div class="row"><span>${escapeHtml(label)}</span><span>${escapeHtml(value)}</span></div>`).join("")}</div>`;
-}
-
-function renderTokenCostSummary(detail: SpecDriveIdeExecutionDetail | undefined): string {
-  const token = detail?.tokenConsumption;
-  if (!token) return emptyState("No cost calculation recorded.");
-  return `<div class="result-summary token-cost-summary">
-    <div class="row"><span>Total Tokens</span><span>${escapeHtml(formatInteger(token.totalTokens))}</span></div>
-    <div class="row"><span>Calculated Cost</span><span>${escapeHtml(formatCurrency(token.costUsd, token.currency))}</span></div>
-    <div class="row"><span>Pricing Status</span><span>${escapeHtml(token.pricingStatus)}</span></div>
-    <div class="row"><span>Pricing Source</span><span>${escapeHtml(pricingSourceLabel(token.pricing))}</span></div>
-    <div class="row"><span>Recorded At</span><span>${escapeHtml(token.recordedAt || "unknown")}</span></div>
-  </div>`;
+  return `<div class="token-consumption-grid">${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}</div>`;
 }
 
 function pricingSourceLabel(pricing: Record<string, unknown> | undefined): string {
