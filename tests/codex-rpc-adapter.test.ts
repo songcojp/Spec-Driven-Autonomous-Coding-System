@@ -430,8 +430,6 @@ function skillOutput(): SkillOutputContract {
     producedArtifacts: [],
     traceability: {
       featureId: "FEAT-016",
-      requirementIds: ["REQ-VSC-010"],
-      changeIds: [],
     },
     result: { changedFiles: ["src/example.ts"] },
   };

@@ -123,7 +123,7 @@ Use these patterns when the source documents support them. They are reusable HLD
 ## Output
 
 - `docs/hld.md` project-level HLD, including the primary page/surface inventory when applicable. Use `docs/<language>/hld.md` only for explicitly multilingual projects or localized invocations.
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability`; echo invocation-owned traceability fields and manage any `changeIds` from the source documents.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and Feature-level `traceability`.
 - The `summary` field must briefly state whether the HLD was created, regenerated, blocked, or routed for review, and must name the primary HLD artifact path.
 - The `summary` or `producedArtifacts[].summary` should mention input files, technology-stack decisions, required-structure coverage, requirement coverage, and unresolved architecture questions when relevant.
 
@@ -163,8 +163,7 @@ Use these patterns when the source documents support them. They are reusable HLD
     { "path": "docs/hld.md", "kind": "markdown", "required": true }
   ],
   "traceability": {
-    "requirementIds": ["REQ-001"],
-    "changeIds": []
+    "featureId": null
   },
   "constraints": {
     "allowedFiles": [],

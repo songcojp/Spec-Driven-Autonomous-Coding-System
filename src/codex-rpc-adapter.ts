@@ -552,11 +552,11 @@ function extractSkillOutput(event: CliJsonEvent): SkillOutputContract | undefine
     isRecord(event.result) ? event.result.finalOutput : undefined,
   ];
   for (const candidate of candidates) {
-    if (isSkillOutput(candidate)) return candidate;
+    if (isSkillOutput(candidate)) return normalizeSkillOutput(candidate);
     if (typeof candidate === "string") {
       try {
         const parsed = JSON.parse(candidate);
-        if (isSkillOutput(parsed)) return parsed;
+        if (isSkillOutput(parsed)) return normalizeSkillOutput(parsed);
       } catch {
         continue;
       }
@@ -569,7 +569,7 @@ function extractSkillOutputFromText(text: string): SkillOutputContract | undefin
   for (const candidate of candidateJsonObjects(text).reverse()) {
     try {
       const parsed = JSON.parse(candidate);
-      if (isSkillOutput(parsed)) return parsed;
+      if (isSkillOutput(parsed)) return normalizeSkillOutput(parsed);
     } catch {
       continue;
     }
@@ -628,7 +628,17 @@ function isSkillOutput(value: unknown): value is SkillOutputContract {
     && typeof value.summary === "string"
     && (typeof value.nextAction === "string" || value.nextAction === null)
     && Array.isArray(value.producedArtifacts)
+    && isRecord(value.traceability)
     && isRecord(value.result);
+}
+
+function normalizeSkillOutput(value: SkillOutputContract): SkillOutputContract {
+  return {
+    ...value,
+    traceability: {
+      featureId: typeof value.traceability.featureId === "string" ? value.traceability.featureId : undefined,
+    },
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

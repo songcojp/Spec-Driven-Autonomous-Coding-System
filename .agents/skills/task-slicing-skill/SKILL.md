@@ -50,13 +50,13 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 - Dependencies and parallelism constraints.
 - Verification plan.
 - Requirement, user story, and acceptance mapping.
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability`; echo invocation-owned traceability fields and manage any `changeIds` from the source documents.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and Feature-level `traceability`.
 
 ## Output Contract
 
 - Follow `.agents/skills/SKILL_OUTPUT_CONTRACT.md` and return exactly one `SkillOutputContractV1` JSON object.
 - The final assistant message must be only that JSON object. Do not return shorthand output with only `summary`, `status`, and `evidence`.
-- Echo `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `traceability.featureId`, and `traceability.requirementIds` exactly from the invocation contract. Add `traceability.changeIds` from source documents, or `[]` when none apply. Do not include `traceability.taskId` in the common Skill output contract.
+- Echo `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, and `traceability.featureId` exactly from the invocation contract. Do not include `traceability.requirementIds`, `traceability.taskId`, `traceability.changeIds`, or other non-Feature tracking in the common Skill output contract.
 - Every `producedArtifacts[]` entry must include `path`, `kind`, `status`, `checksum`, and `summary`; use `null` for `checksum` or `summary` when unavailable.
 - `summary` must state the generated or updated Feature Specs, queue plan, dependencies, and verification plan readiness.
 - `result` must follow the specialized contract below.
@@ -100,10 +100,7 @@ This is the design-named entry point for Feature Spec decomposition and task gra
     }
   ],
   "traceability": {
-    "featureId": null,
-    "taskId": null,
-    "requirementIds": [],
-    "changeIds": []
+    "featureId": null
   },
   "result": {
     "features": [

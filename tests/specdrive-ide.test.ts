@@ -1591,7 +1591,7 @@ test("SpecDrive IDE execution detail includes projection logs, artifacts, contra
     summary: "Approval requested.",
     nextAction: "Resolve approval request.",
     producedArtifacts: [{ path: "src/example.ts", kind: "typescript", status: "updated" }],
-    traceability: { featureId: "FEAT-016", taskId: "TASK-001", requirementIds: ["REQ-084"], changeIds: [] },
+    traceability: { featureId: "FEAT-016" },
     result: { blockers: ["approval_requested"] },
   });
   assert.deepEqual(detail?.contractValidation, { valid: true });
@@ -2054,7 +2054,7 @@ function seedApprovalRuntimeState(dbPath: string, workspaceRoot: string): void {
             summary: "Approval requested.",
             nextAction: "Resolve approval request.",
             producedArtifacts: [{ path: "src/example.ts", kind: "typescript", status: "updated" }],
-            traceability: { featureId: "FEAT-016", taskId: "TASK-001", requirementIds: ["REQ-084"], changeIds: [] },
+            traceability: { featureId: "FEAT-016" },
             result: { blockers: ["approval_requested"] },
           },
           approvalState: "pending",

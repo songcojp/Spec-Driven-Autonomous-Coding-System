@@ -982,7 +982,7 @@ THE SYSTEM SHALL 将 provider session id、threadId、turnId、eventRefs、appro
 - [ ] `SkillOutputContractV1` 校验通过后，Execution Record 标记 completed，并更新 Feature `spec-state.json`。
 - [ ] output schema 校验失败时，Execution Record 标记 failed，保留 raw output 供重试或恢复。
 - [ ] Gemini ACP permission pending 投影为 `approval_needed`，不写入 SkillOutputContractV1.status。
-- [ ] `SkillOutputContractV1` 的通用机器契约由 CLI/RPC Adapter 调用端定义和校验；所有 Skill 输出必须包含 `summary`、`nextAction`、`producedArtifacts`、`traceability` 和 `result`。
+- [ ] `SkillOutputContractV1` 的通用机器契约由 CLI/RPC Adapter 调用端定义和校验；所有 Skill 输出必须包含 `summary`、`nextAction`、`producedArtifacts`、Feature 级 `traceability` 和 `result`。
 - [ ] `result` 必须是机器可读对象，允许不同 Skill 写入专用执行详情；调用端不得按 `skillSlug` 硬编码专用字段校验。
 - [ ] 不新增重型 Execution Result；聊天记录、provider 事件流、raw logs 和 Execution Record 共同构成执行证据。
 

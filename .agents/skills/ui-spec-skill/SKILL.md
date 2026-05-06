@@ -40,7 +40,7 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
 - `docs/ui/ui-spec.md` — project-level structured UI Spec document when no feature is selected
 - `docs/ui/concepts/<page-id>.svg` — generated major-page concept images
 - Summary listing generated pages, generated concept image paths, and REQ coverage
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability`; echo invocation-owned traceability fields and manage any `changeIds` from the source documents.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and Feature-level `traceability`.
 
 ## Output Contract
 
@@ -80,9 +80,7 @@ The concept images are outputs, not required inputs. Generate text-based SVG con
     { "path": "docs/ui/concepts/<page-id>.svg", "kind": "image", "required": true }
   ],
   "traceability": {
-    "featureId": "feat-013-product-console",
-    "requirementIds": ["REQ-052", "REQ-053", "REQ-054"],
-    "changeIds": ["CHG-001"]
+    "featureId": "feat-013-product-console"
   },
   "constraints": {
     "allowedFiles": [],

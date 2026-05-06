@@ -463,7 +463,7 @@ function parseSkillOutputText(text: string | undefined): SkillOutputContract | u
   for (const candidate of candidateJsonTexts(text)) {
     try {
       const parsed = JSON.parse(candidate);
-      if (isSkillOutput(parsed)) return parsed;
+      if (isSkillOutput(parsed)) return normalizeSkillOutput(parsed);
     } catch {
       continue;
     }
@@ -496,6 +496,15 @@ function isSkillOutput(value: unknown): value is SkillOutputContract {
     && Array.isArray(value.producedArtifacts)
     && isRecord(value.traceability)
     && isRecord(value.result);
+}
+
+function normalizeSkillOutput(value: SkillOutputContract): SkillOutputContract {
+  return {
+    ...value,
+    traceability: {
+      featureId: typeof value.traceability.featureId === "string" ? value.traceability.featureId : undefined,
+    },
+  };
 }
 
 function parseJsonLine(line: string): Record<string, unknown> | undefined {

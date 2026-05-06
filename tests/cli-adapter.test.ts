@@ -100,7 +100,7 @@ function skillOutputEvent(overrides: Partial<{
     summary: overrides.summary ?? "Skill completed.",
     nextAction: "Update spec-state.json and continue.",
     producedArtifacts: overrides.producedArtifacts ?? [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
-    traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+    traceability: { featureId: null },
     result: { resultSummary: overrides.resultSummary ?? "Skill result details." },
   };
   return JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(output) } });
@@ -266,7 +266,7 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
       contractVersion: Record<string, unknown>;
       status: Record<string, unknown>;
       producedArtifacts: { items: { required: string[]; properties: { status: Record<string, unknown>; checksum: Record<string, unknown>; summary: Record<string, unknown> } } };
-      traceability: { required: string[]; properties: { featureId: Record<string, unknown>; taskId?: Record<string, unknown> } };
+      traceability: { required: string[]; properties: { featureId: Record<string, unknown>; requirementIds?: Record<string, unknown>; taskId?: Record<string, unknown>; changeIds?: Record<string, unknown> } };
       result: Record<string, unknown>;
     };
   };
@@ -279,9 +279,11 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
   });
   assert.deepEqual(schema.properties.producedArtifacts.items.properties.checksum, { type: ["string", "null"] });
   assert.deepEqual(schema.properties.producedArtifacts.items.properties.summary, { type: ["string", "null"] });
-  assert.deepEqual(schema.properties.traceability.required, ["featureId", "requirementIds", "changeIds"]);
+  assert.deepEqual(schema.properties.traceability.required, ["featureId"]);
   assert.deepEqual(schema.properties.traceability.properties.featureId, { type: ["string", "null"] });
+  assert.equal(Object.prototype.hasOwnProperty.call(schema.properties.traceability.properties, "requirementIds"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(schema.properties.traceability.properties, "taskId"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(schema.properties.traceability.properties, "changeIds"), false);
   assert.equal(schema.properties.result.type, "object");
   assert.equal(schema.properties.result.additionalProperties, false);
   assert.deepEqual(schema.properties.result.required, ["resultSummary", "details", "items", "openQuestions"]);
@@ -299,7 +301,7 @@ test("SkillOutputContract validation requires common fields but allows skill-spe
     summary: "Generated requirements.",
     nextAction: null,
     producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
-    traceability: { featureId: "FEAT-008", taskId: "TASK-001", requirementIds: [], changeIds: ["CHG-016"] },
+    traceability: { featureId: "FEAT-008" },
     result: { requirements: ["REQ-001"], openQuestions: [], nested: { allowed: true } },
   } as const;
 
@@ -329,16 +331,16 @@ test("SkillOutputContract validation requires common fields but allows skill-spe
     {
       ...valid,
       executionId: "RUN-FEATURE",
-      traceability: { featureId: "FEAT-008", requirementIds: [], changeIds: [] },
+      traceability: { featureId: "FEAT-008" },
     },
   );
   assert.equal(absentTaskId.valid, true);
 
-  const skillManagedChangeIds = validateSkillOutputContract(invocation, {
+  const outputManagedNonFeatureTraceability = validateSkillOutputContract(invocation, {
     ...valid,
-    traceability: { ...valid.traceability, changeIds: ["CHG-SKILL-MANAGED"] },
+    traceability: { ...valid.traceability, requirementIds: ["REQ-SKILL-MANAGED"], changeIds: ["CHG-SKILL-MANAGED"] },
   });
-  assert.equal(skillManagedChangeIds.valid, true);
+  assert.equal(outputManagedNonFeatureTraceability.valid, true);
 
   const missingArtifact = validateSkillOutputContract(invocation, { ...valid, producedArtifacts: [] });
   assert.equal(missingArtifact.valid, false);
@@ -877,7 +879,7 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
     summary: "Gemini completed.",
     nextAction: "Continue.",
     producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
-    traceability: { requirementIds: [], changeIds: ["CHG-016"] },
+    traceability: { featureId: null },
     result: { userStories: ["US-001"], openQuestions: [] },
   };
 

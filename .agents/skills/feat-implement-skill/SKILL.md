@@ -69,7 +69,7 @@ do not create a sibling Git worktree as part of this skill.
 - Test or verification summary.
 - Residual risks and follow-up notes.
 - Pull request, merge, and branch cleanup summary with `gh` command evidence for GitHub-facing actions.
-- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and `traceability`; echo invocation-owned traceability fields and manage any `changeIds` from the source documents.
+- Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and Feature-level `traceability`.
 - Put verification command results in `summary`, `producedArtifacts[].summary`, or `result` fields; do not add extra top-level output fields.
 
 ## Output Contract

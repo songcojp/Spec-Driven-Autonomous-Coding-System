@@ -275,7 +275,7 @@ export type SkillArtifactContract = {
 export type SkillTraceabilityContract = {
   featureId?: string;
   taskId?: string;
-  requirementIds: string[];
+  requirementIds?: string[];
   changeIds?: string[];
 };
 
@@ -449,11 +449,9 @@ export const DEFAULT_OUTPUT_SCHEMA = {
     traceability: {
       type: "object",
       additionalProperties: false,
-      required: ["featureId", "requirementIds", "changeIds"],
+      required: ["featureId"],
       properties: {
         featureId: { type: ["string", "null"] },
-        requirementIds: { type: "array", items: { type: "string" } },
-        changeIds: { type: "array", items: { type: "string" } },
       },
     },
     result: {
@@ -914,9 +912,8 @@ export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvoc
     "- Return exactly one JSON object matching SkillOutputContractV1.",
     "- The JSON object must include contractVersion, executionId, skillSlug, requestedAction, status, summary, nextAction, producedArtifacts, traceability, and result.",
     "- Each producedArtifacts item must include path, kind, status, checksum, and summary; use null for checksum or summary when unknown.",
-    "- traceability must include featureId, requirementIds, and changeIds; use null for missing featureId and [] for missing arrays.",
-    "- The output contract must use contractVersion skill-contract/v1 and echo executionId, skillSlug, requestedAction, and Feature traceability from this task instruction.",
-    "- If change IDs apply, derive and maintain them from the skill's source documents and return them in output traceability.",
+    "- traceability must include only featureId; use null when no Feature applies. Do not include requirementIds, taskId, changeIds, or other non-Feature traceability in the common output contract.",
+    "- The output contract must use contractVersion skill-contract/v1 and echo executionId, skillSlug, requestedAction, and traceability.featureId from this task instruction.",
     "- When Feature state is present in source files, treat it as the machine-readable Feature state. Return status and result fields that allow the scheduler to patch docs/features/<feature-id>/spec-state.json.",
     "- Produce the expected artifacts and list every produced or intentionally unchanged artifact in producedArtifacts.",
     "- Prefer writing expected artifacts directly to the workspace paths named in this task instruction.",
@@ -1182,14 +1179,8 @@ function hasOwn(record: Record<string, unknown>, key: string): boolean {
 function parseTraceabilityContract(value: unknown): SkillTraceabilityContract | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
-  const requirementIds = Array.isArray(record.requirementIds) ? record.requirementIds.filter((item): item is string => typeof item === "string") : undefined;
-  const changeIds = Array.isArray(record.changeIds) ? record.changeIds.filter((item): item is string => typeof item === "string") : [];
-  if (!requirementIds) return undefined;
   return {
     featureId: typeof record.featureId === "string" ? record.featureId : undefined,
-    taskId: typeof record.taskId === "string" ? record.taskId : undefined,
-    requirementIds,
-    changeIds,
   };
 }
 
@@ -1227,9 +1218,6 @@ export function validateSkillOutputContract(invocation: ExecutionAdapterInvocati
   if (output.skillSlug !== instruction.skillSlug) reasons.push(`Skill output skillSlug mismatch: ${output.skillSlug}.`);
   if (output.requestedAction !== instruction.requestedAction) reasons.push(`Skill output requestedAction mismatch: ${output.requestedAction}.`);
   if (!sameOptionalString(output.traceability.featureId, invocation.featureId ?? invocation.traceability.featureId)) reasons.push("Skill output traceability.featureId mismatch.");
-  if (!sameStringSet(output.traceability.requirementIds, invocation.traceability.requirementIds)) {
-    reasons.push("Skill output traceability.requirementIds mismatch.");
-  }
   for (const artifact of instruction.expectedArtifacts.filter((entry) => entry.required && isMaterializedSpecArtifact(entry.path))) {
     const produced = output.producedArtifacts.find((entry) => entry.path === artifact.path && entry.status !== "missing" && entry.status !== "skipped");
     const existsOnDisk = existsSync(join(invocation.workspaceRoot, artifact.path));
@@ -1242,12 +1230,6 @@ export function validateSkillOutputContract(invocation: ExecutionAdapterInvocati
 
 function sameOptionalString(left: string | undefined, right: string | undefined): boolean {
   return (left ?? null) === (right ?? null);
-}
-
-function sameStringSet(left: string[], right: string[]): boolean {
-  const leftSorted = [...new Set(left)].sort();
-  const rightSorted = [...new Set(right)].sort();
-  return leftSorted.length === rightSorted.length && leftSorted.every((value, index) => value === rightSorted[index]);
 }
 
 export async function processRunnerQueueItem(
