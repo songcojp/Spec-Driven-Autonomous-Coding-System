@@ -46,6 +46,7 @@ import {
 import {
   createUnavailableScheduler,
   type SchedulerClient,
+  type SchedulerJobType,
 } from "./scheduler.ts";
 import { DEFAULT_CODEX_APP_SERVER_ADAPTER_CONFIG } from "./codex-rpc-adapter.ts";
 import { DEFAULT_GEMINI_ACP_ADAPTER_CONFIG, type GeminiAcpAdapterConfig } from "./gemini-rpc-adapter.ts";
@@ -3117,6 +3118,15 @@ function executeScheduleCommand(
       executionId,
     }));
   }
+  dispatchQueuedJobWhenAutomationEnabled(dbPath, {
+    projectId,
+    acceptedAt,
+    scheduler,
+    schedulerJobId: job.schedulerJobId,
+    bullmqJobId: job.bullmqJobId,
+    jobType: job.jobType,
+    payload: runPayload,
+  });
   return { triggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId };
 }
 
@@ -3311,6 +3321,12 @@ type EnqueueNextFeatureExecutionResult = {
   automationEnabled?: boolean;
 };
 
+type RequeuedProjectExecutionJob = {
+  schedulerJobId: string;
+  executionId?: string;
+  blockedReasons: string[];
+};
+
 function executeAutoRunCommand(
   dbPath: string,
   input: ConsoleCommandInput,
@@ -3350,6 +3366,20 @@ function executeAutoRunCommand(
       params: [acceptedAt, input.entityId],
     },
   ]);
+  const resumedQueuedJob = requeueQueuedProjectExecutionJob(dbPath, {
+    projectId: input.entityId,
+    acceptedAt,
+    scheduler,
+  });
+  if (resumedQueuedJob) {
+    return {
+      featureIds: [],
+      schedulerJobId: resumedQueuedJob.schedulerJobId,
+      executionId: resumedQueuedJob.executionId,
+      blockedReasons: resumedQueuedJob.blockedReasons,
+      automationEnabled: true,
+    };
+  }
   const selection = enqueueNextFeatureExecutionFromQueue(dbPath, {
     projectId: input.entityId,
     payload: parseJsonObject(input.payload),
@@ -3363,6 +3393,139 @@ function executeAutoRunCommand(
     selectionBlockedReasons: selection.blockedReasons,
     automationEnabled: true,
   };
+}
+
+function requeueQueuedProjectExecutionJob(
+  dbPath: string,
+  input: { projectId: string; acceptedAt: string; scheduler: SchedulerClient },
+): RequeuedProjectExecutionJob | undefined {
+  const rows = runSqlite(dbPath, [], [
+    {
+      name: "jobs",
+      sql: `SELECT
+          sj.id,
+          sj.bullmq_job_id,
+          sj.job_type,
+          sj.payload_json,
+          er.id AS execution_id,
+          er.project_id AS execution_project_id,
+          er.context_json,
+          er.metadata_json
+        FROM scheduler_job_records sj
+        LEFT JOIN execution_records er ON er.scheduler_job_id = sj.id
+        WHERE sj.status = 'queued'
+          AND sj.job_type IN ('cli.run', 'rpc.run', 'codex.rpc.run', 'codex.app_server.run')
+        ORDER BY COALESCE(sj.updated_at, sj.created_at) ASC, sj.rowid ASC`,
+    },
+  ]).queries.jobs;
+  for (const row of rows) {
+    const payload = parseJsonObject(row.payload_json);
+    const payloadContext = parseJsonObject(payload.context);
+    const executionContext = parseJsonObject(row.context_json);
+    const projectId = optionalString(row.execution_project_id)
+      ?? optionalString(payload.projectId)
+      ?? optionalString(payloadContext.projectId)
+      ?? optionalString(executionContext.projectId);
+    if (projectId !== input.projectId) continue;
+    const schedulerJobId = optionalString(row.id);
+    const bullmqJobId = optionalString(row.bullmq_job_id);
+    const jobType = optionalString(row.job_type);
+    if (!schedulerJobId || !bullmqJobId || !isReplayableExecutionSchedulerJobType(jobType)) {
+      return {
+        schedulerJobId: schedulerJobId ?? "unknown",
+        executionId: optionalString(row.execution_id) ?? optionalString(payload.executionId),
+        blockedReasons: [`Queued job ${schedulerJobId ?? "unknown"} cannot be replayed because its scheduler metadata is incomplete.`],
+      };
+    }
+    if (!input.scheduler.requeueExistingJob) {
+      return {
+        schedulerJobId,
+        executionId: optionalString(row.execution_id) ?? optionalString(payload.executionId),
+        blockedReasons: ["Scheduler is required to resume queued Auto Run jobs."],
+      };
+    }
+    const executionId = optionalString(row.execution_id) ?? optionalString(payload.executionId) ?? randomUUID();
+    const runPayload = {
+      ...payload,
+      executionId,
+      operation: optionalString(payload.operation) ?? optionalString(payload.requestedAction) ?? "feature_execution",
+      projectId: input.projectId,
+      context: {
+        ...payloadContext,
+        ...executionContext,
+        autoRunResumedAt: input.acceptedAt,
+      },
+      requestedAction: optionalString(payload.requestedAction) ?? optionalString(payloadContext.skillPhase) ?? optionalString(executionContext.skillPhase),
+      executionPreference: parseJsonObject(payload.executionPreference).adapterId
+        ? payload.executionPreference as Parameters<NonNullable<SchedulerClient["requeueExistingJob"]>>[0]["payload"]["executionPreference"]
+        : undefined,
+    };
+    runSqlite(dbPath, [
+      {
+        sql: "UPDATE scheduler_job_records SET status = 'queued', payload_json = ?, error = NULL, updated_at = ? WHERE id = ?",
+        params: [JSON.stringify(runPayload), input.acceptedAt, schedulerJobId],
+      },
+      ...(optionalString(row.execution_id) ? [{
+        sql: "UPDATE execution_records SET status = 'queued', metadata_json = ?, updated_at = ? WHERE id = ?",
+        params: [
+          JSON.stringify({
+            ...parseJsonObject(row.metadata_json),
+            autoRunResumedAt: input.acceptedAt,
+          }),
+          input.acceptedAt,
+          row.execution_id,
+        ],
+      }] : []),
+    ]);
+    input.scheduler.requeueExistingJob({
+      schedulerJobId,
+      bullmqJobId,
+      jobType,
+      payload: runPayload,
+    });
+    return { schedulerJobId, executionId, blockedReasons: [] };
+  }
+  return undefined;
+}
+
+function dispatchQueuedJobWhenAutomationEnabled(
+  dbPath: string,
+  input: {
+    projectId?: string;
+    acceptedAt: string;
+    scheduler: SchedulerClient;
+    schedulerJobId: string;
+    bullmqJobId: string;
+    jobType: SchedulerJobType;
+    payload: Parameters<NonNullable<SchedulerClient["requeueExistingJob"]>>[0]["payload"];
+  },
+): void {
+  if (!input.projectId || !input.scheduler.requeueExistingJob) return;
+  if (!isProjectAutomationEnabled(dbPath, input.projectId)) return;
+  if (!isReplayableExecutionSchedulerJobType(input.jobType)) return;
+  runSqlite(dbPath, [
+    {
+      sql: "UPDATE scheduler_job_records SET status = 'queued', payload_json = ?, error = NULL, updated_at = ? WHERE id = ?",
+      params: [JSON.stringify(input.payload), input.acceptedAt, input.schedulerJobId],
+    },
+  ]);
+  input.scheduler.requeueExistingJob({
+    schedulerJobId: input.schedulerJobId,
+    bullmqJobId: input.bullmqJobId,
+    jobType: input.jobType,
+    payload: input.payload,
+  });
+}
+
+function isProjectAutomationEnabled(dbPath: string, projectId: string): boolean {
+  const row = runSqlite(dbPath, [], [
+    { name: "project", sql: "SELECT automation_enabled FROM projects WHERE id = ? LIMIT 1", params: [projectId] },
+  ]).queries.project[0];
+  return Number(row?.automation_enabled ?? 0) === 1;
+}
+
+function isReplayableExecutionSchedulerJobType(value?: string): value is Exclude<SchedulerJobType, "native.run"> {
+  return value === "cli.run" || value === "rpc.run" || value === "codex.rpc.run" || value === "codex.app_server.run";
 }
 
 function executeFeatureReviewCommand(
@@ -3853,6 +4016,15 @@ function enqueueNextFeatureExecutionFromQueue(
     schedulerJobId: job.schedulerJobId,
     executionId,
   }));
+  dispatchQueuedJobWhenAutomationEnabled(dbPath, {
+    projectId: project.id,
+    acceptedAt,
+    scheduler,
+    schedulerJobId: job.schedulerJobId,
+    bullmqJobId: job.bullmqJobId,
+    jobType: job.jobType,
+    payload: runPayload,
+  });
   return { featureIds, scheduleTriggerId: trigger.id, schedulerJobId: job.schedulerJobId, executionId, blockedReasons: [] };
 }
 
@@ -3927,6 +4099,24 @@ function executeSpecSkillCommand(
       workspaceRoot: project.targetRepoPath,
       skillSlug,
       skillPhase: input.action,
+    },
+  });
+  dispatchQueuedJobWhenAutomationEnabled(dbPath, {
+    projectId,
+    acceptedAt,
+    scheduler,
+    schedulerJobId: job.schedulerJobId,
+    bullmqJobId: job.bullmqJobId,
+    jobType: job.jobType,
+    payload: {
+      executionId,
+      operation: input.action,
+      projectId,
+      context,
+      requestedAction: input.action,
+      traceability: {
+        requirementIds: optionalStringArray(payload.requirementIds),
+      },
     },
   });
   return { executionId, schedulerJobId: job.schedulerJobId, skillSlug, workspaceRoot: project.targetRepoPath };

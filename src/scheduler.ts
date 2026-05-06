@@ -247,7 +247,9 @@ export function createMemoryScheduler(dbPath: string): SchedulerClient & { jobs:
         queueName: EXECUTION_ADAPTER_QUEUE,
         jobType: input.jobType,
       };
-      jobs.push(result);
+      if (!jobs.some((job) => job.bullmqJobId === input.bullmqJobId)) {
+        jobs.push(result);
+      }
       return result;
     },
     health() {

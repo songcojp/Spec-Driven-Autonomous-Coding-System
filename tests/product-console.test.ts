@@ -1973,6 +1973,60 @@ test("start Auto Run enables automation when the skill queue plan is missing", (
   assert.deepEqual(result.queries.jobs, []);
 });
 
+test("start Auto Run replays an existing queued project job before selecting new work", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json)
+        VALUES ('JOB-QUEUED-AUTO', 'BULL-QUEUED-AUTO', 'specdrive:execution-adapter', 'cli.run', 'queued', ?)`,
+      params: [JSON.stringify({
+        executionId: "RUN-QUEUED-AUTO",
+        operation: "feature_execution",
+        projectId: "project-1",
+        context: {
+          featureId: "FEAT-001",
+          workspaceRoot: "/tmp/specdrive-project",
+          skillSlug: "feat-implement-skill",
+          skillPhase: "feature_execution",
+        },
+      })],
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status)
+        VALUES ('RUN-QUEUED-AUTO', 'JOB-QUEUED-AUTO', 'cli', 'feature_execution', 'project-1', ?, 'queued')`,
+      params: [JSON.stringify({ featureId: "FEAT-001", skillPhase: "feature_execution" })],
+    },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "start_auto_run",
+    entityType: "project",
+    entityId: "project-1",
+    requestedBy: "operator",
+    reason: "Resume existing queued work.",
+    payload: {},
+    now: stableDate,
+  }, { scheduler });
+  const result = runSqlite(dbPath, [], [
+    { name: "project", sql: "SELECT automation_enabled FROM projects WHERE id = 'project-1'" },
+    { name: "job", sql: "SELECT status, error, payload_json FROM scheduler_job_records WHERE id = 'JOB-QUEUED-AUTO'" },
+  ]);
+  const payload = JSON.parse(String(result.queries.job[0].payload_json));
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(receipt.schedulerJobId, "JOB-QUEUED-AUTO");
+  assert.equal(receipt.executionId, "RUN-QUEUED-AUTO");
+  assert.equal(Number(result.queries.project[0].automation_enabled), 1);
+  assert.equal(result.queries.job[0].status, "queued");
+  assert.equal(result.queries.job[0].error, null);
+  assert.equal(payload.context.autoRunResumedAt, stableDate.toISOString());
+  assert.deepEqual(scheduler.jobs.map((job) => [job.schedulerJobId, job.bullmqJobId, job.jobType]), [
+    ["JOB-QUEUED-AUTO", "BULL-QUEUED-AUTO", "cli.run"],
+  ]);
+});
+
 test("start Auto Run writes file-backed state and can skip to the next Feature", () => {
   const dbPath = makeDbPath();
   seedConsoleData(dbPath);
@@ -2414,6 +2468,50 @@ test("console schedule command records scheduler triggers without bypassing boun
     ["cli.run", "specdrive:execution-adapter", "queued", "feature_execution"],
   ]);
   assert.deepEqual(result.queries.decisions, []);
+});
+
+test("schedule_run dispatches queued jobs immediately when project automation is already enabled", () => {
+  const dbPath = makeDbPath();
+  seedConsoleData(dbPath);
+  const scheduler = createMemoryScheduler(dbPath);
+  let replayedJobId: string | undefined;
+  const originalRequeue = scheduler.requeueExistingJob?.bind(scheduler);
+  scheduler.requeueExistingJob = (input) => {
+    replayedJobId = input.schedulerJobId;
+    return originalRequeue!(input);
+  };
+  const projectPath = mkdtempSync(join(tmpdir(), "spec-schedule-auto-enabled-"));
+  const featureDir = join(projectPath, "docs", "features", "feat-001-ticket-capture");
+  mkdirSync(featureDir, { recursive: true });
+  writeFileSync(join(featureDir, "requirements.md"), "# Feature Spec: FEAT-001 Ticket Capture\n\n- REQ-001: The system shall run this Feature.", "utf8");
+  writeFileSync(join(featureDir, "design.md"), "# Design\n", "utf8");
+  writeFileSync(join(featureDir, "tasks.md"), "# Tasks\n", "utf8");
+  runSqlite(dbPath, [
+    { sql: "UPDATE projects SET target_repo_path = ?, automation_enabled = 1 WHERE id = 'project-1'", params: [projectPath] },
+    { sql: "UPDATE repository_connections SET local_path = ? WHERE id = 'RC-1'", params: [projectPath] },
+    { sql: "DELETE FROM execution_records" },
+    { sql: "DELETE FROM scheduler_job_records" },
+  ]);
+
+  const receipt = submitConsoleCommand(dbPath, {
+    action: "schedule_run",
+    entityType: "feature",
+    entityId: "FEAT-001",
+    requestedBy: "operator",
+    reason: "Schedule while Auto Run is already enabled.",
+    payload: {
+      projectId: "project-1",
+      featureId: "FEAT-001",
+      mode: "manual",
+      operation: "feature_execution",
+      requestedAction: "feature_execution",
+    },
+    now: stableDate,
+  }, { scheduler });
+
+  assert.equal(receipt.status, "accepted");
+  assert.equal(replayedJobId, receipt.schedulerJobId);
+  assert.deepEqual(scheduler.jobs.map((job) => job.schedulerJobId), [receipt.schedulerJobId]);
 });
 
 test("console schedule command blocks feature execution when Feature Spec directory is incomplete", () => {
