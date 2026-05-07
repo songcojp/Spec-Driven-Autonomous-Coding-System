@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeSchema, listTables } from "../src/schema.ts";
@@ -68,6 +68,51 @@ test("project memory initializes readable project.md and project creation wires 
   });
   assert.equal(project.name, "Created Project");
   assert.equal(existsSync(join(repoPath, ".autobuild", "memory", "project.md")), true);
+});
+
+test("project memory initialization repairs missing file without replacing existing file", () => {
+  const root = makeTempDir();
+  const dbPath = makeDbPath(root);
+  initializeSchema(dbPath);
+  const artifactRoot = join(root, ".autobuild");
+
+  const memory = initializeProjectMemory({
+    dbPath,
+    artifactRoot,
+    projectId: "project-repair",
+    projectName: "Repair Project",
+    goal: "Repair missing memory",
+    defaultBranch: "main",
+    now: stableDate,
+  });
+  const memoryPath = join(artifactRoot, "memory", "project.md");
+  const original = readFileSync(memoryPath, "utf8");
+
+  writeFileSync(memoryPath, `${original}\nManual note.\n`, "utf8");
+  const preserved = initializeProjectMemory({
+    dbPath,
+    artifactRoot,
+    projectId: "project-repair",
+    projectName: "Repair Project",
+    goal: "Should not replace",
+    defaultBranch: "main",
+  });
+  assert.equal(readFileSync(memoryPath, "utf8").includes("Manual note."), true);
+  assert.equal(preserved.goal, "Repair missing memory");
+
+  rmSync(memoryPath);
+  const restored = initializeProjectMemory({
+    dbPath,
+    artifactRoot,
+    projectId: "project-repair",
+    projectName: "Repair Project",
+    goal: "Should restore latest",
+    defaultBranch: "main",
+  });
+  assert.equal(existsSync(memoryPath), true);
+  assert.equal(restored.id, memory.id);
+  assert.equal(readFileSync(memoryPath, "utf8").includes("Repair missing memory"), true);
+  assert.deepEqual(listMemoryVersions(dbPath, memory.id).map((entry) => entry.version), [1]);
 });
 
 test("memory injection covers active task, board, last run, blockers, prohibitions, and approvals", () => {

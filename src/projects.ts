@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureArtifactDirectories } from "./artifacts.ts";
@@ -524,24 +524,44 @@ export function initializeProjectSpecProtocol(dbPath: string, projectId: string)
   }
   const artifactRoot = join(project.targetRepoPath, ".autobuild");
   ensureArtifactDirectories(artifactRoot);
+  ensureProjectGitIgnore(project.targetRepoPath);
   ensureProjectAgentRuntime(project.targetRepoPath);
+  ensureProjectConstitutionFile(dbPath, projectId);
   return { artifactRoot };
+}
+
+function ensureProjectGitIgnore(projectPath: string): void {
+  const gitignoreFile = join(projectPath, ".gitignore");
+  const ignoredRunPath = ".autobuild/runs/";
+  if (!existsSync(gitignoreFile)) {
+    writeFileSync(gitignoreFile, [
+      "# SpecDrive AutoBuild local runtime artifacts",
+      ignoredRunPath,
+      "",
+    ].join("\n"));
+    return;
+  }
+
+  const current = readFileSync(gitignoreFile, "utf8");
+  const hasRunIgnore = current
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .some((line) => line === ".autobuild/runs" || line === ignoredRunPath);
+  if (hasRunIgnore) return;
+
+  const needsLeadingBreak = current.length > 0 && !current.endsWith("\n");
+  appendFileSync(gitignoreFile, [
+    needsLeadingBreak ? "\n" : "",
+    "# SpecDrive AutoBuild local runtime artifacts",
+    ignoredRunPath,
+    "",
+  ].join("\n"));
 }
 
 function ensureProjectAgentRuntime(projectPath: string): void {
   const agentsFile = join(projectPath, "AGENTS.md");
   if (!existsSync(agentsFile)) {
-    writeFileSync(agentsFile, [
-      "# Agent Guidelines",
-      "",
-      "This project is managed by SpecDrive AutoBuild.",
-      "",
-      "- Treat PRD, EARS requirements, HLD, and docs/features as the source of truth.",
-      "- Feature Specs live under docs/features/<feature-id>/ and include requirements.md, design.md, and tasks.md.",
-      "- Do not treat .autobuild/specs/FEAT-INTAKE-*.json as Feature Spec packages; those files are intake artifacts.",
-      "- Preserve unrelated user changes and keep implementation traceable to requirements and Feature Specs.",
-      "",
-    ].join("\n"));
+    writeFileSync(agentsFile, projectAgentGuidelinesTemplate());
   }
 
   const sourceAgents = resolveAgentRuntimeSource();
@@ -549,6 +569,62 @@ function ensureProjectAgentRuntime(projectPath: string): void {
   mkdirSync(targetAgents, { recursive: true });
   if (!existsSync(sourceAgents)) return;
   copyMissingAgentRuntime(sourceAgents, targetAgents);
+}
+
+function projectAgentGuidelinesTemplate(): string {
+  return [
+    "# Agent Guidelines",
+    "",
+    "This project is managed by SpecDrive AutoBuild. This file explains the SpecDrive spec standard and the skill-driven workflow that agents should follow inside this target project.",
+    "",
+    "## Spec Standard",
+    "",
+    "- Treat spec artifacts as the source of truth for product intent, architecture, implementation scope, and acceptance.",
+    "- Keep a product entry document such as `docs/PRD.md` or `docs/<locale>/PRD.md` for product goals, user value, milestones, and scope boundaries.",
+    "- Keep EARS-style requirements in `docs/requirements.md`, `docs/<locale>/requirements.md`, or the requirement path selected during intake.",
+    "- Keep architecture and design decisions in HLD/design docs such as `docs/hld.md`, `docs/design.md`, or localized equivalents.",
+    "- Feature Specs live under `docs/features/<feature-id>/` and normally contain `requirements.md`, `design.md`, and `tasks.md`.",
+    "- A Feature Spec should connect requirement IDs, design constraints, executable tasks, acceptance criteria, verification commands, and produced artifacts.",
+    "- `.autobuild/specs/FEAT-INTAKE-*.json` files are intake artifacts, not Feature Spec packages.",
+    "- Runtime state lives under `.autobuild/`; `.autobuild/runs/` contains local run logs and should stay ignored by Git.",
+    "",
+    "## Spec Workflow",
+    "",
+    "- Requirement intake turns new product intent into governed PRD, EARS requirements, design notes, and Feature Spec updates.",
+    "- Spec evolution changes existing requirement IDs or Feature Specs when repository reality, user decisions, tests, or review findings require it.",
+    "- Planning reads the active Feature Spec and produces or validates technical context, research decisions, architecture plan, data model, contracts, quickstart checks, task slicing, and consistency checks.",
+    "- Implementation starts only from a bounded Feature Spec/task scope with known requirements, design constraints, allowed files, and verification commands.",
+    "- Verification records the smallest meaningful targeted checks first, then broader checks when the Feature Spec or blast radius requires them.",
+    "- Delivery summaries should cite affected requirement IDs, Feature Specs, changed files, verification evidence, and known follow-ups.",
+    "",
+    "## Skill Workflow",
+    "",
+    "- Project-local skills live under `.agents/skills/` and describe repeatable SpecDrive workflows.",
+    "- Use skills when the task is a governed SpecDrive workflow: requirement intake, requirements quality check, technical context, research decision, architecture/data/contract planning, quickstart validation, task slicing, spec consistency, implementation, test execution, review report, spec evolution, recovery, or delivery preparation.",
+    "- Use normal agent behavior for ordinary questions, simple file edits, simple commands, and direct bug fixes that do not require the governed SpecDrive workflow.",
+    "- When a user explicitly names a skill, follow `.agents/skills/<skill-name>/SKILL.md` for that turn.",
+    "- When no skill is named but the task changes product scope, requirements, Feature Specs, implementation state, verification evidence, or delivery status, choose the matching SpecDrive workflow before editing.",
+    "- Preserve the boundaries declared by the active Feature Spec and skill instructions. If a requested edit exceeds them, update or evolve the spec first.",
+    "",
+    "## Agent Operating Rules",
+    "",
+    "- Before changing code or specs, read the relevant PRD, requirements, HLD/design, Feature Spec, and task file.",
+    "- Keep implementation, docs, evidence, and delivery notes traceable to requirements and Feature Specs.",
+    "- Preserve unrelated user changes and do not rewrite broad docs or refactor unrelated code without an explicit request.",
+    "- When repository facts conflict with specs, use the spec workflow to update the specs instead of silently coding around the conflict.",
+    "- If intent, acceptance criteria, or file scope is unclear, ask for clarification before risky changes.",
+    "- Preserve existing language, structure, numbering, and terminology in localized docs unless a language or tone change is requested.",
+    "",
+    "## Delivery Evidence",
+    "",
+    "- Report commands run, failures, skipped checks, and residual risks.",
+    "- For code changes, include targeted verification evidence tied to the active Feature Spec.",
+    "- For docs-only changes, run at least a diff whitespace check and inspect affected links or referenced paths.",
+    "- Do not commit unless the user asks for a commit or delivery action.",
+    "",
+    "Use this file as the target project's SpecDrive operating contract. The SpecDrive control-plane repository may have different AGENTS.md instructions because it is the system implementation, not a managed product workspace.",
+    "",
+  ].join("\n");
 }
 
 function resolveAgentRuntimeSource(): string {
@@ -641,7 +717,7 @@ export function saveProjectConstitution(
     payload: { constitutionId: id, version, source, title },
   });
 
-  return {
+  const record = {
     id,
     projectId,
     version,
@@ -654,6 +730,68 @@ export function saveProjectConstitution(
     defaultConstraints: [...input.defaultConstraints],
     status: "active",
   };
+  writeProjectConstitutionFile(project, record, { overwrite: true });
+  return record;
+}
+
+export function ensureProjectConstitutionFile(dbPath: string, projectId: string): string | undefined {
+  const project = getProject(dbPath, projectId);
+  const constitution = getCurrentProjectConstitution(dbPath, projectId);
+  if (!project || !constitution) return undefined;
+  return writeProjectConstitutionFile(project, constitution, { overwrite: false });
+}
+
+function writeProjectConstitutionFile(
+  project: ProjectRecord,
+  constitution: ProjectConstitutionRecord,
+  options: { overwrite: boolean },
+): string | undefined {
+  if (!project.targetRepoPath || !existsSync(project.targetRepoPath)) return undefined;
+  const memoryDir = join(project.targetRepoPath, ".autobuild", "memory");
+  const filePath = join(memoryDir, "constitution.md");
+  if (!options.overwrite && existsSync(filePath)) return filePath;
+  mkdirSync(memoryDir, { recursive: true, mode: 0o700 });
+  writeFileSync(filePath, renderProjectConstitutionMarkdown(project, constitution), { encoding: "utf8", mode: 0o600 });
+  return filePath;
+}
+
+function renderProjectConstitutionMarkdown(
+  project: ProjectRecord,
+  constitution: ProjectConstitutionRecord,
+): string {
+  return [
+    `# ${constitution.title}`,
+    "",
+    "This file is the target project's readable SpecDrive constitution. The control plane keeps the indexed version, status, and audit trail in SQLite; agents should read this file as project-governance context.",
+    "",
+    "## Metadata",
+    "",
+    `- Project ID: ${project.id}`,
+    `- Constitution ID: ${constitution.id}`,
+    `- Version: ${constitution.version}`,
+    `- Source: ${constitution.source}`,
+    `- Status: ${constitution.status}`,
+    constitution.createdAt ? `- Created At: ${constitution.createdAt}` : undefined,
+    "",
+    "## Project Goal",
+    "",
+    constitution.projectGoal,
+    "",
+    renderMarkdownList("Engineering Principles", constitution.engineeringPrinciples),
+    renderMarkdownList("Boundary Rules", constitution.boundaryRules),
+    renderMarkdownList("Approval Rules", constitution.approvalRules),
+    renderMarkdownList("Default Constraints", constitution.defaultConstraints),
+    "",
+  ].filter((line): line is string => line !== undefined).join("\n");
+}
+
+function renderMarkdownList(title: string, items: string[]): string {
+  return [
+    `## ${title}`,
+    "",
+    ...(items.length > 0 ? items.map((item) => `- ${item}`) : ["- None"]),
+    "",
+  ].join("\n");
 }
 
 export function getCurrentProjectConstitution(

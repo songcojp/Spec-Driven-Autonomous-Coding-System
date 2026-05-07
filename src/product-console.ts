@@ -55,6 +55,7 @@ import { assertApprovalPresentForTerminalStatus, listReviewCenterItems, recordAp
 import {
   connectProjectRepository,
   createDefaultProjectConstitution,
+  ensureProjectConstitutionFile,
   getCurrentProjectConstitution,
   getProject,
   initializeProjectPhase1,
@@ -2874,6 +2875,7 @@ function executeProjectInitializationCommand(
 
     const existing = getCurrentProjectConstitution(dbPath, project.id);
     if (existing) {
+      ensureProjectConstitutionFile(dbPath, project.id);
       return { constitutionId: existing.id, blockedReasons: [] };
     }
 

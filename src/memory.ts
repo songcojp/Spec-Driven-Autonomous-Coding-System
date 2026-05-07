@@ -127,8 +127,22 @@ const PRESERVED_COMPACTION_SECTIONS = [
 ];
 
 export function initializeProjectMemory(input: InitializeProjectMemoryInput): ProjectMemory {
-  const now = (input.now ?? new Date()).toISOString();
   const path = join(input.artifactRoot, "memory", MEMORY_FILE);
+  if (existsSync(path)) {
+    const existing = readProjectMemory(input.artifactRoot);
+    persistProjectMemory(input.dbPath, existing);
+    return existing;
+  }
+
+  const latest = latestMemoryVersionRecord(input.dbPath, stableMemoryId(input.projectId));
+  if (latest?.content) {
+    const restored = parseMemoryContent(latest.content);
+    persistProjectMemory(input.dbPath, restored);
+    writeMemoryFile(input.artifactRoot, restored);
+    return restored;
+  }
+
+  const now = (input.now ?? new Date()).toISOString();
   const memory: ProjectMemory = {
     id: stableMemoryId(input.projectId),
     projectId: input.projectId,
@@ -612,6 +626,11 @@ function latestVersion(dbPath: string, projectMemoryId: string): number {
     },
   ]).queries.latest[0];
   return Number(row?.version ?? 0);
+}
+
+function latestMemoryVersionRecord(dbPath: string, projectMemoryId: string): MemoryVersionRecord | undefined {
+  const versions = listMemoryVersions(dbPath, projectMemoryId);
+  return versions[versions.length - 1];
 }
 
 function mapMemoryVersionRecord(row: Record<string, unknown>): MemoryVersionRecord {

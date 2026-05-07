@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { initializeSchema } from "../src/schema.ts";
@@ -12,6 +12,7 @@ import {
   createProject,
   DuplicateProjectPathError,
   getCurrentProjectSelection,
+  initializeProjectSpecProtocol,
   readProjectRepository,
   initializeProjectPhase1,
   listProjects,
@@ -220,6 +221,71 @@ test("initializeProjectPhase1 creates local git for a project path without git m
   assert.ok(result.blockingReasons.length > 0, "Should have blocking reasons");
   assert.equal(result.blockingReasons.some((r) => r.includes("git")), false);
   assert.equal(result.blockingReasons.includes("package_manager_missing"), true);
+});
+
+test("initializeProjectPhase1 creates SpecDrive gitignore and AGENTS guidance", () => {
+  const root = mkdtempSync(join(tmpdir(), "proj-init-files-"));
+  const dbPath = freshDb();
+
+  initializeProjectPhase1(dbPath, {
+    ...baseInput({ name: "InitFiles", creationMode: "import_existing", targetRepoPath: root }),
+  });
+
+  const gitignore = readFileSync(join(root, ".gitignore"), "utf8");
+  assert.match(gitignore, /^\.autobuild\/runs\/$/m);
+  assert.equal(existsSync(join(root, ".autobuild", "memory")), true);
+  assert.equal(existsSync(join(root, ".autobuild", "specs")), true);
+  assert.equal(existsSync(join(root, ".autobuild", "runs")), true);
+  assert.equal(existsSync(join(root, ".autobuild", "reports")), false);
+
+  const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
+  assert.match(agents, /This file explains the SpecDrive spec standard and the skill-driven workflow/);
+  assert.match(agents, /## Spec Standard/);
+  assert.match(agents, /## Spec Workflow/);
+  assert.match(agents, /## Skill Workflow/);
+  assert.match(agents, /Use this file as the target project's SpecDrive operating contract/);
+  assert.doesNotMatch(agents, /Skill-vs-Code Rule/);
+
+  const constitution = readFileSync(join(root, ".autobuild", "memory", "constitution.md"), "utf8");
+  assert.match(constitution, /^# InitFiles Project Constitution/m);
+  assert.match(constitution, /## Project Goal/);
+  assert.match(constitution, /Automate tests/);
+});
+
+test("initializeProjectPhase1 safely appends autobuild runs ignore to existing gitignore", () => {
+  const root = mkdtempSync(join(tmpdir(), "proj-existing-gitignore-"));
+  writeFileSync(join(root, ".gitignore"), "dist/");
+  const dbPath = freshDb();
+
+  initializeProjectPhase1(dbPath, {
+    ...baseInput({ name: "ExistingGitignore", creationMode: "import_existing", targetRepoPath: root }),
+  });
+
+  const gitignore = readFileSync(join(root, ".gitignore"), "utf8");
+  assert.match(gitignore, /^dist\/$/m);
+  assert.match(gitignore, /^\.autobuild\/runs\/$/m);
+  assert.equal(gitignore.match(/\.autobuild\/runs\/?/g)?.length, 1);
+});
+
+test("initializeProjectSpecProtocol restores missing constitution file without replacing existing files", () => {
+  const root = mkdtempSync(join(tmpdir(), "proj-reinit-files-"));
+  const dbPath = freshDb();
+
+  const result = initializeProjectPhase1(dbPath, {
+    ...baseInput({ name: "ReinitFiles", creationMode: "import_existing", targetRepoPath: root }),
+  });
+  const constitutionPath = join(root, ".autobuild", "memory", "constitution.md");
+  const agentsPath = join(root, "AGENTS.md");
+  const customAgents = "# Custom Agent Rules\n";
+  writeFileSync(agentsPath, customAgents, "utf8");
+  rmSync(constitutionPath);
+
+  initializeProjectSpecProtocol(dbPath, result.project.id);
+
+  assert.equal(readFileSync(agentsPath, "utf8"), customAgents);
+  const restoredConstitution = readFileSync(constitutionPath, "utf8");
+  assert.match(restoredConstitution, /^# ReinitFiles Project Constitution/m);
+  assert.equal(existsSync(join(root, ".autobuild", "reports")), false);
 });
 
 test("initializeProjectPhase1 returns success:false on duplicate targetRepoPath", () => {

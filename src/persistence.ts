@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import { join, relative } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { ARTIFACT_DIRECTORIES } from "./artifacts.ts";
+import { ARTIFACT_WRITE_DIRECTORIES, type ArtifactWriteDirectory } from "./artifacts.ts";
 import { assertApprovalPresentForTerminalStatus } from "./review-center.ts";
 import { runSqlite } from "./sqlite.ts";
 
@@ -523,18 +523,18 @@ export function listMetricSamples(dbPath: string): MetricInput[] {
   }));
 }
 
-export function ensureAutobuildArtifactLayout(artifactRoot: string): Record<(typeof ARTIFACT_DIRECTORIES)[number], string> {
+export function ensureAutobuildArtifactLayout(artifactRoot: string): Record<ArtifactWriteDirectory, string> {
   mkdirSync(artifactRoot, { recursive: true, mode: 0o700 });
   return Object.fromEntries(
-    ARTIFACT_DIRECTORIES.map((dir) => {
+    ARTIFACT_WRITE_DIRECTORIES.map((dir) => {
       const path = join(artifactRoot, dir);
       mkdirSync(path, { recursive: true, mode: 0o700 });
       return [dir, path];
     }),
-  ) as Record<(typeof ARTIFACT_DIRECTORIES)[number], string>;
+  ) as Record<ArtifactWriteDirectory, string>;
 }
 
-export function writeSanitizedArtifact(artifactRoot: string, directory: (typeof ARTIFACT_DIRECTORIES)[number], name: string, content: string): string {
+export function writeSanitizedArtifact(artifactRoot: string, directory: ArtifactWriteDirectory, name: string, content: string): string {
   if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
     throw new Error(`Invalid artifact name: ${name}`);
   }

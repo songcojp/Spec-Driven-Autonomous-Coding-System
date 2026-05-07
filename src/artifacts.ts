@@ -2,7 +2,9 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { BootstrapError } from "./errors.ts";
 
-export const ARTIFACT_DIRECTORIES = ["memory", "specs", "reports", "runs"] as const;
+export const ARTIFACT_DIRECTORIES = ["memory", "specs", "runs"] as const;
+export const ARTIFACT_WRITE_DIRECTORIES = [...ARTIFACT_DIRECTORIES, "reports"] as const;
+export type ArtifactWriteDirectory = (typeof ARTIFACT_WRITE_DIRECTORIES)[number];
 
 export function ensureArtifactDirectories(artifactRoot: string): string[] {
   const createdPaths = ARTIFACT_DIRECTORIES.map((dir) => join(artifactRoot, dir));

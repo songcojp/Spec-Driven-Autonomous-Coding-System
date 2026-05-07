@@ -87,7 +87,7 @@ export function readRepositorySummary(localPath: string, runner: CommandRunner =
     summary.latestCommit = firstSuccessfulLine(git(["rev-parse", "HEAD"], localPath, runner));
 
     const status = git(["status", "--short"], localPath, runner);
-    summary.uncommittedChanges = lines(status.stdout).filter((line) => !isControlPlaneArtifactStatus(line));
+    summary.uncommittedChanges = lines(status.stdout).filter((line) => !isControlPlaneArtifactStatus(line, localPath));
     summary.hasUncommittedChanges = summary.uncommittedChanges.length > 0;
 
     summary.taskBranches = lines(git(["branch", "--format=%(refname:short)"], localPath, runner).stdout).filter(
@@ -241,13 +241,28 @@ function readSensitiveFileRisks(localPath: string): string[] {
   }
 }
 
-function isControlPlaneArtifactStatus(line: string): boolean {
+function isControlPlaneArtifactStatus(line: string, localPath: string): boolean {
   const path = line.replace(/^[ MADRCU?!]{1,2}\s+/, "");
   if (path === ".autobuild" || path === ".autobuild/" || path.startsWith(".autobuild/")) return true;
+  if (path === ".gitignore") return isSpecDriveGeneratedGitIgnore(join(localPath, path));
   if (line.startsWith("?? ") && (path === "AGENTS.md" || path === ".agents" || path === ".agents/" || path.startsWith(".agents/"))) {
     return true;
   }
   return false;
+}
+
+function isSpecDriveGeneratedGitIgnore(path: string): boolean {
+  try {
+    const meaningfulLines = readFileSync(path, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    return meaningfulLines.length === 2
+      && meaningfulLines[0] === "# SpecDrive AutoBuild local runtime artifacts"
+      && meaningfulLines[1] === ".autobuild/runs/";
+  } catch {
+    return false;
+  }
 }
 
 function firstNonEmpty(value: string): string | undefined {
