@@ -6,6 +6,8 @@ export const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | 
   completed: "green",
   ready: "green",
   running: "blue",
+  waiting_input: "amber",
+  approval_needed: "amber",
   scheduled: "blue",
   queued: "blue",
   pending: "amber",
@@ -16,6 +18,7 @@ export const statusTone: Record<string, "neutral" | "green" | "amber" | "red" | 
   recorded: "neutral",
   blocked: "red",
   failed: "red",
+  cancelled: "red",
 };
 
 export function formatPercent(value: number): string {

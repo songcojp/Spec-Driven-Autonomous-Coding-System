@@ -57,7 +57,20 @@ export type { TokenCostRate } from "./adapter-pricing.ts";
 export type RunnerSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 export type RunnerApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never" | "bypass";
 export type RunnerReasoningEffort = "low" | "medium" | "high" | "xhigh";
-export type RunnerQueueStatus = "queued" | "running" | "completed" | "approval_needed" | "review_needed" | "blocked" | "failed";
+export const SKILL_OUTPUT_STATUSES = [
+  "queued",
+  "running",
+  "waiting_input",
+  "approval_needed",
+  "review_needed",
+  "blocked",
+  "failed",
+  "cancelled",
+  "completed",
+] as const;
+export type SkillOutputStatus = typeof SKILL_OUTPUT_STATUSES[number];
+export type RunnerQueueStatus = SkillOutputStatus;
+const TERMINAL_SKILL_OUTPUT_STATUSES = new Set<SkillOutputStatus>(["completed", "review_needed", "blocked", "failed", "cancelled"]);
 
 export type RunnerPolicy = {
   id: string;
@@ -303,7 +316,7 @@ export type SkillOutputContract = {
   executionId: string;
   skillSlug: string;
   requestedAction: string;
-  status: "completed" | "review_needed" | "blocked" | "failed";
+  status: SkillOutputStatus;
   summary: string;
   nextAction: string | null;
   producedArtifacts: SkillOutputArtifact[];
@@ -434,7 +447,7 @@ export const DEFAULT_OUTPUT_SCHEMA = {
     requestedAction: { type: "string" },
     summary: { type: "string" },
     nextAction: { type: ["string", "null"] },
-    status: { type: "string", enum: ["completed", "review_needed", "blocked", "failed"] },
+    status: { type: "string", enum: [...SKILL_OUTPUT_STATUSES] },
     producedArtifacts: {
       type: "array",
       items: {
@@ -873,7 +886,7 @@ export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvoc
         "- For split_feature_specs, decompose PRD, EARS requirements, and HLD into implementation-ready Feature Spec package directories.",
         "- Do not treat .autobuild/specs/FEAT-INTAKE-*.json as a Feature Spec package; it is only an intake artifact.",
         "- Write Feature Spec packages under docs/features/<feature-id>/ with requirements.md, design.md, tasks.md, and update docs/features/README.md.",
-        "- The final response must be the full SkillOutputContractV1 object, not shorthand JSON with only summary/status/evidence.",
+        "- The final response must be the last full SkillOutputContractV1 object, not shorthand JSON with only summary/status/evidence.",
         "- In the task-slicing result, include features, queuePlan, dependencyGraph, userStoryMapping, verificationPlan, and openQuestions.",
       ]
     : [];
@@ -913,8 +926,9 @@ export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvoc
     "Rules:",
     "- Use only skills discovered from this workspace's .agents/skills directory.",
     "- Treat AGENTS.md and the referenced source paths as governing context.",
-    "- Return exactly one JSON object matching SkillOutputContractV1.",
+    "- Stream progress only as SkillOutputContractV1 objects with status running, waiting_input, or approval_needed; the final SkillOutputContractV1 object must be the last valid contract in the stream.",
     "- The JSON object must include contractVersion, executionId, skillSlug, requestedAction, status, summary, nextAction, producedArtifacts, traceability, and result.",
+    "- Final status must be completed, review_needed, blocked, failed, or cancelled. Use review_needed only for a real human/risk review gate with a clear reason in summary or result.reviewNeededReason.",
     "- Each producedArtifacts item must include path, kind, status, checksum, and summary; use null for checksum or summary when unknown.",
     "- traceability must include only featureId; use null when no Feature applies. Do not include requirementIds, taskId, changeIds, or other non-Feature traceability in the common output contract.",
     "- The output contract must use contractVersion skill-contract/v1 and echo executionId, skillSlug, requestedAction, and traceability.featureId from this task instruction.",
@@ -1023,6 +1037,8 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
     };
     const skillOutput = extractSkillOutputContract(events, adapterConfig.outputMapping.responseTextPaths);
     const contractValidation = validateSkillOutputContract(input.executionInvocation, skillOutput);
+    const projectedStatus = projectAdapterRunStatus(result.status, skillOutput, contractValidation);
+    const projectedSummary = projectAdapterRunSummary(adapterConfig.id, result.status, skillOutput, projectedStatus);
     const usage = extractUsage(events);
     writeCliOutputLog(logFiles, {
       status: result.status,
@@ -1038,9 +1054,7 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
       runId: input.policy.runId,
       taskId: input.taskId,
       featureId: input.featureId,
-      status: contractValidation && !contractValidation.valid
-        ? "review_needed"
-        : skillOutput?.status ?? ((result.status ?? 1) === 0 ? "completed" : "failed"),
+      status: projectedStatus,
       exitCode: result.status,
       sessionId,
       eventCount: redactedEvents.length,
@@ -1087,11 +1101,9 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
     const executionAdapterResult: ExecutionAdapterResultV1 = {
       contractVersion: "execution-adapter/v1",
       executionId: input.policy.runId,
-      status: contractValidation && !contractValidation.valid
-        ? "failed"
-        : skillOutput?.status ?? ((result.status ?? 1) === 0 ? "completed" : "failed"),
+      status: projectedStatus,
       providerSession,
-      summary: skillOutput?.summary ?? `CLI adapter ${adapterConfig.id} exit=${result.status ?? "unknown"}.`,
+      summary: projectedSummary,
       skillOutput,
       producedArtifacts: skillOutput?.producedArtifacts ?? [],
       traceability: skillOutput?.traceability ?? input.executionInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
@@ -1108,31 +1120,61 @@ export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterR
   }
 }
 
+function projectAdapterRunStatus(
+  exitCode: number | null | undefined,
+  skillOutput: SkillOutputContract | undefined,
+  contractValidation: SkillContractValidationResult | undefined,
+): RunnerQueueStatus {
+  if (contractValidation && !contractValidation.valid) return "review_needed";
+  if (skillOutput) {
+    if (isTerminalSkillOutputStatus(skillOutput.status)) return skillOutput.status;
+    return (exitCode ?? 1) === 0 ? "review_needed" : "failed";
+  }
+  return (exitCode ?? 1) === 0 ? "completed" : "failed";
+}
+
+function projectAdapterRunSummary(
+  adapterId: string,
+  exitCode: number | null | undefined,
+  skillOutput: SkillOutputContract | undefined,
+  status: RunnerQueueStatus,
+): string {
+  if (skillOutput && !isTerminalSkillOutputStatus(skillOutput.status) && (exitCode ?? 1) === 0) {
+    return `Skill output contract review needed: process ended after non-terminal status ${skillOutput.status}; missing final terminal SkillOutputContractV1.`;
+  }
+  return skillOutput?.summary ?? `CLI adapter ${adapterId} exit=${exitCode ?? "unknown"}${status ? ` (${status})` : ""}.`;
+}
+
+function isTerminalSkillOutputStatus(status: RunnerQueueStatus): boolean {
+  return TERMINAL_SKILL_OUTPUT_STATUSES.has(status);
+}
+
 function extractSkillOutputContract(events: CliJsonEvent[], responseTextPaths: string[] = []): SkillOutputContract | undefined {
+  let latest: SkillOutputContract | undefined;
   for (const event of events) {
     const direct = parseSkillOutputRecord(event);
-    if (direct) return direct;
+    if (direct) latest = direct;
 
     const output = typeof event.output === "object" && event.output !== null ? event.output as Record<string, unknown> : undefined;
     const fromOutput = parseSkillOutputRecord(output);
-    if (fromOutput) return fromOutput;
+    if (fromOutput) latest = fromOutput;
 
     for (const path of responseTextPaths) {
       const value = readJsonPath(event, path);
       const fromMappedText = parseSkillOutputText(typeof value === "string" ? value : undefined);
-      if (fromMappedText) return fromMappedText;
+      if (fromMappedText) latest = fromMappedText;
     }
 
     const item = typeof event.item === "object" && event.item !== null ? event.item as Record<string, unknown> : undefined;
     const itemText = typeof item?.text === "string" ? item.text : undefined;
     const fromItemText = parseSkillOutputText(itemText);
-    if (fromItemText) return fromItemText;
+    if (fromItemText) latest = fromItemText;
 
     const responseText = typeof event.response === "string" ? event.response : undefined;
     const fromResponseText = parseSkillOutputText(responseText);
-    if (fromResponseText) return fromResponseText;
+    if (fromResponseText) latest = fromResponseText;
   }
-  return undefined;
+  return latest;
 }
 
 function parseSkillOutputText(text: string | undefined): SkillOutputContract | undefined {
@@ -2156,7 +2198,7 @@ function classifyQueueStatus(result: CliAdapterResult): RunnerQueueStatus {
     if (!result.result.contractValidation?.valid) {
       return "review_needed";
     }
-    return result.result.skillOutput?.status ?? "review_needed";
+    return projectAdapterRunStatus(result.session.exitCode, result.result.skillOutput, result.result.contractValidation);
   }
 
   const reportedStatus = extractReportedStatus(result.rawLog.events);
@@ -2196,8 +2238,8 @@ function extractReportedStatus(events: CliJsonEvent[]): RunnerQueueStatus | unde
 }
 
 function normalizeQueueStatus(status?: string): RunnerQueueStatus | undefined {
-  return status === "approval_needed" || status === "review_needed" || status === "blocked" || status === "failed" || status === "completed"
-    ? status
+  return SKILL_OUTPUT_STATUSES.includes(status as SkillOutputStatus)
+    ? status as SkillOutputStatus
     : undefined;
 }
 

@@ -25,6 +25,7 @@ import {
   runCommand,
   runCliAdapter,
   runDueRecoveryDispatches,
+  SKILL_OUTPUT_STATUSES,
   validateCliAdapterConfig,
   validateSkillOutputContract,
 } from "../src/cli-adapter.ts";
@@ -86,7 +87,7 @@ function skillOutputEvent(overrides: Partial<{
   executionId: string;
   skillSlug: string;
   requestedAction: string;
-  status: "completed" | "review_needed" | "blocked" | "failed";
+  status: "queued" | "running" | "waiting_input" | "approval_needed" | "completed" | "review_needed" | "blocked" | "failed" | "cancelled";
   summary: string;
   nextAction: string;
   resultSummary: string;
@@ -279,7 +280,10 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
   };
 
   assert.deepEqual(schema.properties.contractVersion, { type: "string", const: "skill-contract/v1" });
-  assert.deepEqual(schema.properties.status, { type: "string", enum: ["completed", "review_needed", "blocked", "failed"] });
+  assert.deepEqual(schema.properties.status, {
+    type: "string",
+    enum: ["queued", "running", "waiting_input", "approval_needed", "review_needed", "blocked", "failed", "cancelled", "completed"],
+  });
   assert.deepEqual(schema.properties.producedArtifacts.items.properties.status, {
     type: "string",
     enum: ["created", "updated", "unchanged", "missing", "skipped"],
@@ -295,6 +299,20 @@ test("default SkillOutputContract schema is valid for Codex strict JSON schema",
   assert.equal(schema.properties.result.additionalProperties, false);
   assert.deepEqual(schema.properties.result.required, ["resultSummary", "details", "items", "openQuestions"]);
   assertStrictSchemaObjects(policy.outputSchema);
+});
+
+test("SkillOutputContract status enum covers execution interaction states", () => {
+  assert.deepEqual([...SKILL_OUTPUT_STATUSES], [
+    "queued",
+    "running",
+    "waiting_input",
+    "approval_needed",
+    "review_needed",
+    "blocked",
+    "failed",
+    "cancelled",
+    "completed",
+  ]);
 });
 
 test("SkillOutputContract validation requires common fields but allows skill-specific result fields", () => {
@@ -691,8 +709,9 @@ test("task-slicing prompt requires the full SkillOutputContract result", () => {
     "Context",
   );
 
-  assert.match(prompt, /full SkillOutputContractV1 object/);
+  assert.match(prompt, /last full SkillOutputContractV1 object/);
   assert.match(prompt, /not shorthand JSON with only summary\/status\/evidence/);
+  assert.match(prompt, /final SkillOutputContractV1 object must be the last valid contract/);
   assert.match(prompt, /features, queuePlan, dependencyGraph, userStoryMapping, verificationPlan, and openQuestions/);
   assert.match(prompt, /Each producedArtifacts item must include path, kind, status, checksum, and summary/);
 });
@@ -999,6 +1018,133 @@ test("Gemini CLI adapter extracts session, usage, and SkillOutputContract from s
 
   const outputLog = JSON.parse(readFileSync(result.rawLog.files?.output ?? "", "utf8"));
   assert.deepEqual(outputLog.usage, { inputTokens: 11, outputTokens: 7 });
+});
+
+test("CLI adapter uses the last SkillOutputContract when progress contracts precede the final result", async () => {
+  const workspaceRoot = makeWorkspacePath();
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-MULTI-CONTRACT",
+    risk: "low",
+    workspaceRoot,
+    now: stableDate,
+  });
+  const invocation = executionInvocation({
+    executionId: "RUN-MULTI-CONTRACT",
+    workspaceRoot,
+    expectedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", required: false }],
+  });
+
+  const result = await runCliAdapter({
+    policy,
+    prompt: buildExecutionInvocationPrompt(invocation, "Context"),
+    executionInvocation: invocation,
+    now: stableDate,
+    runner: () => ({
+      status: 0,
+      stdout: [
+        skillOutputEvent({ executionId: "RUN-MULTI-CONTRACT", status: "running", summary: "Reading source docs.", producedArtifacts: [] }),
+        skillOutputEvent({ executionId: "RUN-MULTI-CONTRACT", status: "running", summary: "Writing requirements.", producedArtifacts: [] }),
+        skillOutputEvent({
+          executionId: "RUN-MULTI-CONTRACT",
+          status: "completed",
+          summary: "Requirements generated.",
+          producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
+        }),
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  assert.equal(result.executionAdapterResult?.status, "completed");
+  assert.equal(result.result.skillOutput?.summary, "Requirements generated.");
+  assert.deepEqual(result.result.skillOutput?.producedArtifacts, [{
+    path: "docs/requirements.md",
+    kind: "markdown",
+    status: "created",
+    checksum: undefined,
+    summary: undefined,
+  }]);
+  const report = JSON.parse(readFileSync(result.rawLog.files?.report ?? "", "utf8")) as Record<string, unknown>;
+  assert.equal(report.status, "completed");
+});
+
+test("CLI adapter preserves a final review_needed contract as a real review gate", async () => {
+  const workspaceRoot = makeWorkspacePath();
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-FINAL-REVIEW",
+    risk: "low",
+    workspaceRoot,
+    now: stableDate,
+  });
+  const invocation = executionInvocation({
+    executionId: "RUN-FINAL-REVIEW",
+    workspaceRoot,
+    expectedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", required: false }],
+  });
+
+  const result = await runCliAdapter({
+    policy,
+    prompt: buildExecutionInvocationPrompt(invocation, "Context"),
+    executionInvocation: invocation,
+    now: stableDate,
+    runner: () => ({
+      status: 0,
+      stdout: [
+        skillOutputEvent({ executionId: "RUN-FINAL-REVIEW", status: "running", summary: "Drafting requirements.", producedArtifacts: [] }),
+        skillOutputEvent({
+          executionId: "RUN-FINAL-REVIEW",
+          status: "review_needed",
+          summary: "Review needed: requirements conflict with HLD boundary.",
+          producedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", status: "created" }],
+        }),
+      ].join("\n"),
+      stderr: "",
+    }),
+  });
+
+  assert.equal(result.executionAdapterResult?.status, "review_needed");
+  assert.match(result.executionAdapterResult?.summary ?? "", /requirements conflict/);
+});
+
+test("CLI adapter routes ended non-terminal SkillOutputContract to review", async () => {
+  const workspaceRoot = makeWorkspacePath();
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-NONTERMINAL",
+    risk: "low",
+    workspaceRoot,
+    now: stableDate,
+  });
+  const invocation = executionInvocation({
+    executionId: "RUN-NONTERMINAL",
+    workspaceRoot,
+    expectedArtifacts: [{ path: "docs/requirements.md", kind: "markdown", required: false }],
+  });
+
+  const result = await runCliAdapter({
+    policy,
+    prompt: buildExecutionInvocationPrompt(invocation, "Context"),
+    executionInvocation: invocation,
+    now: stableDate,
+    runner: () => ({
+      status: 0,
+      stdout: skillOutputEvent({ executionId: "RUN-NONTERMINAL", status: "running", summary: "Still validating.", producedArtifacts: [] }),
+      stderr: "",
+    }),
+  });
+
+  assert.equal(result.executionAdapterResult?.status, "review_needed");
+  assert.match(result.executionAdapterResult?.summary ?? "", /missing final terminal SkillOutputContractV1/);
+  assert.equal(result.result.skillOutput?.status, "running");
+  const worker = await processRunnerQueueItem(
+    {
+      runId: "RUN-NONTERMINAL",
+      prompt: "Generate requirements",
+      policy,
+      executionInvocation: invocation,
+    },
+    () => ({ status: 0, stdout: skillOutputEvent({ executionId: "RUN-NONTERMINAL", status: "running", summary: "Still validating.", producedArtifacts: [] }), stderr: "" }),
+  );
+  assert.equal(worker.status, "review_needed");
 });
 
 test("Gemini CLI adapter routes successful runs with missing SkillOutputContract to review", async () => {

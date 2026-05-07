@@ -270,8 +270,23 @@ export function buildGeminiAcpAdapterResult(input: GeminiAcpAdapterResultInput):
   const projection = projectGeminiAcpEvents(input.events);
   const contractValidation = validateSkillOutputContract(input.executionInvocation, projection.skillOutput);
   const failedContract = input.executionInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
+  const nonTerminalContract = projection.skillOutput && !isTerminalSkillOutputStatus(projection.skillOutput.status);
   const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
   const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
+  const projectedStatus = projection.status === "approval_needed"
+    ? "approval_needed"
+    : projection.status === "failed"
+      ? "failed"
+      : failedContract
+        ? "review_needed"
+        : exitCode === 0
+        ? nonTerminalContract
+          ? "review_needed"
+          : projection.skillOutput?.status ?? "completed"
+        : "failed";
+  const projectedSummary = nonTerminalContract && exitCode === 0
+    ? `Skill output contract review needed: process ended after non-terminal status ${projection.skillOutput?.status}; missing final terminal SkillOutputContractV1.`
+    : projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Gemini ACP is waiting for permission." : `Gemini ACP exit=${exitCode}.`);
   const commandArgs = input.commandArgs ?? DEFAULT_GEMINI_ACP_ADAPTER_CONFIG.args;
   const providerSession: ExecutionAdapterProviderSessionV1 = {
     provider: "gemini-acp",
@@ -301,13 +316,9 @@ export function buildGeminiAcpAdapterResult(input: GeminiAcpAdapterResultInput):
   const executionAdapterResult: ExecutionAdapterResultV1 = {
     contractVersion: "execution-adapter/v1",
     executionId: input.runId,
-    status: projection.status === "approval_needed"
-      ? "approval_needed"
-      : exitCode === 0
-        ? projection.skillOutput?.status ?? "completed"
-        : "failed",
+    status: projectedStatus,
     providerSession,
-    summary: projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Gemini ACP is waiting for permission." : `Gemini ACP exit=${exitCode}.`),
+    summary: projectedSummary,
     skillOutput: projection.skillOutput,
     producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
     traceability: projection.skillOutput?.traceability ?? input.executionInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
@@ -466,7 +477,7 @@ function contentText(value: unknown): string {
 
 function parseSkillOutputText(text: string | undefined): SkillOutputContract | undefined {
   if (!text) return undefined;
-  for (const candidate of candidateJsonTexts(text)) {
+  for (const candidate of candidateJsonTexts(text).reverse()) {
     try {
       const parsed = JSON.parse(candidate);
       if (isSkillOutput(parsed)) return normalizeSkillOutput(parsed);
@@ -487,7 +498,53 @@ function candidateJsonTexts(text: string): string[] {
   if (firstBrace >= 0 && lastBrace > firstBrace) {
     candidates.push(trimmed.slice(firstBrace, lastBrace + 1));
   }
+  candidates.push(...candidateJsonObjects(text));
   return [...new Set(candidates.filter(Boolean))];
+}
+
+function candidateJsonObjects(text: string): string[] {
+  const candidates: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+      continue;
+    }
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        candidates.push(text.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function isTerminalSkillOutputStatus(status: SkillOutputContract["status"]): boolean {
+  return ["completed", "review_needed", "blocked", "failed", "cancelled"].includes(status);
 }
 
 function isSkillOutput(value: unknown): value is SkillOutputContract {

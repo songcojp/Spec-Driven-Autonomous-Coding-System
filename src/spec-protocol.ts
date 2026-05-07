@@ -8,6 +8,7 @@ export type FileSpecLifecycleStatus =
   | "ready"
   | "queued"
   | "running"
+  | "waiting_input"
   | "paused"
   | "approval_needed"
   | "cancelled"
@@ -20,6 +21,7 @@ export type FileSpecLifecycleStatus =
 export type FileSpecExecutionStatus =
   | "queued"
   | "running"
+  | "waiting_input"
   | "paused"
   | "approval_needed"
   | "cancelled"
@@ -788,13 +790,15 @@ export function mergeFileSpecState(
 }
 
 export function skillOutputToSpecStatePatch(output: {
-  status: "completed" | "review_needed" | "blocked" | "failed";
+  status: "queued" | "running" | "waiting_input" | "approval_needed" | "completed" | "review_needed" | "blocked" | "failed" | "cancelled";
   summary: string;
   nextAction?: string;
   producedArtifacts: Array<{ path: string; kind: string; status: string; summary?: string }>;
 }): FileSpecStatePatch {
-  const status: FileSpecLifecycleStatus = output.status === "completed" ? "completed" : output.status;
-  const executionStatus: FileSpecExecutionStatus | undefined = output.status === "review_needed" ? undefined : output.status;
+  const status: FileSpecLifecycleStatus = output.status;
+  const executionStatus: FileSpecExecutionStatus | undefined = output.status === "review_needed"
+    ? undefined
+    : output.status;
   return {
     status,
     executionStatus,
@@ -864,6 +868,7 @@ function isFileSpecLifecycleStatus(value: unknown): value is FileSpecLifecycleSt
     "ready",
     "queued",
     "running",
+    "waiting_input",
     "paused",
     "approval_needed",
     "blocked",
@@ -880,6 +885,7 @@ function isFileSpecExecutionStatus(value: unknown): value is FileSpecExecutionSt
   return typeof value === "string" && [
     "queued",
     "running",
+    "waiting_input",
     "paused",
     "approval_needed",
     "blocked",

@@ -14,7 +14,18 @@ export type CommandCheckKind =
   | "secret_scan"
   | "custom";
 export type CommandCheckStatus = "passed" | "failed" | "skipped" | "not_run";
-export type RunnerTerminalStatus = "completed" | "ready" | "scheduled" | "review_needed" | "blocked" | "failed";
+export type RunnerTerminalStatus =
+  | "queued"
+  | "running"
+  | "waiting_input"
+  | "approval_needed"
+  | "completed"
+  | "ready"
+  | "scheduled"
+  | "review_needed"
+  | "blocked"
+  | "failed"
+  | "cancelled";
 
 export type CommandCheckResult = {
   kind: CommandCheckKind;

@@ -736,7 +736,30 @@ test("runner and spec workspace record token consumption from cli-output.json", 
     traceability: { featureId: "FEAT-013" },
     result: { featureCount: 3 },
   };
+  const progressOutput = {
+    ...skillOutput,
+    status: "waiting_input",
+    summary: "Waiting for operator input before finalizing feature split.",
+    nextAction: "Provide the missing scope decision.",
+    producedArtifacts: [],
+    result: { reviewNeededReason: "not_final_progress" },
+  };
+  const approvalOutput = {
+    ...skillOutput,
+    status: "approval_needed",
+    summary: "Approval needed before writing feature artifacts.",
+    producedArtifacts: [],
+  };
+  const reviewOutput = {
+    ...skillOutput,
+    status: "review_needed",
+    summary: "Review needed before accepting feature boundaries.",
+    producedArtifacts: [],
+  };
   writeFileSync(join(runDir, "stdout.log"), [
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(progressOutput) } }),
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(approvalOutput) } }),
+    JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(reviewOutput) } }),
     JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(skillOutput) } }),
     JSON.stringify({ type: "turn.completed", usage: skillOutput.tokenUsage }),
     "",
@@ -780,7 +803,11 @@ test("runner and spec workspace record token consumption from cli-output.json", 
         VALUES ('RUN-SKILL', 'JOB-SKILL', 'cli', 'split_feature_specs', 'project-1', ?, 'completed', '2026-04-28T12:03:00.000Z', '2026-04-28T12:04:00.000Z', ?)`,
       params: [
         JSON.stringify({ featureId: "FEAT-013", skillPhase: "split_feature_specs" }),
-        JSON.stringify({ skillSlug: "task-slicing-skill" }),
+        JSON.stringify({
+          skillSlug: "task-slicing-skill",
+          skillOutputContract: progressOutput,
+          producedArtifacts: progressOutput.producedArtifacts,
+        }),
       ],
     },
   ]);
@@ -791,6 +818,7 @@ test("runner and spec workspace record token consumption from cli-output.json", 
 
   assert.equal(jobOutput?.parseStatus, "found");
   assert.equal(Object.hasOwn(jobOutput ?? {}, "raw"), false);
+  assert.equal(jobOutput?.status, "completed");
   assert.equal(jobOutput?.summary, "Feature specs split and queue plan created.");
   assert.deepEqual(jobOutput?.tokenUsage, skillOutput.tokenUsage);
   assert.equal(jobOutput?.tokenConsumption?.totalTokens, 18000000);

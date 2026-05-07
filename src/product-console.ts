@@ -687,7 +687,7 @@ function activeFeatureExecution(dbPath: string, projectId: string): { executionI
       sql: `SELECT id, status FROM execution_records
         WHERE project_id = ?
           AND operation = 'feature_execution'
-          AND status IN ('queued', 'running', 'approval_needed')
+          AND status IN ('queued', 'running', 'waiting_input', 'approval_needed')
         ORDER BY updated_at DESC
         LIMIT 1`,
       params: [projectId],
@@ -842,7 +842,7 @@ function validateFeatureSelectionDecision(input: FeaturePoolSelectionInput, deci
     ...dependencyMissing.map((dependency) => `${entry.id} is blocked by incomplete dependency: ${dependency}.`),
     ...readiness.map((reason) => `${entry.id} cannot run: ${reason}`),
   ];
-  if (["blocked", "failed", "review_needed", "approval_needed"].includes(state.status) && input.resumeFeatureId !== entry.id) {
+  if (["blocked", "failed", "review_needed", "waiting_input", "approval_needed"].includes(state.status) && input.resumeFeatureId !== entry.id) {
     blockedReasons.push(`${entry.id} is ${state.status} and requires resume before it can run.`);
   } else if (state.status !== "ready" && input.resumeFeatureId !== entry.id) {
     blockedReasons.push(`${entry.id} is ${state.status}; scheduler only runs ready or explicitly resumed Features.`);
@@ -3151,12 +3151,12 @@ function activeManualScheduleConflict(
     (input.sourceExecutionId && input.sourceExecutionId === input.specStateExecutionId)
     || (input.sourceSchedulerJobId && input.sourceSchedulerJobId === input.specStateSchedulerJobId),
   );
-  if (!sameSpecStateJob && (activeSpecState === "queued" || activeSpecState === "running" || activeSpecState === "approval needed")) {
+  if (!sameSpecStateJob && (activeSpecState === "queued" || activeSpecState === "running" || activeSpecState === "waiting_input" || activeSpecState === "approval needed")) {
     const id = input.specStateExecutionId ?? input.specStateSchedulerJobId;
     return [`${input.taskId ?? input.featureId ?? "Target"} is already ${activeSpecState}${id ? ` (${id})` : ""}; cancel, finish, or retry the active run before scheduling again.`];
   }
   if (!input.projectId || (!input.featureId && !input.taskId)) return [];
-  const activeStatuses = ["queued", "running", "approval_needed"];
+  const activeStatuses = ["queued", "running", "waiting_input", "approval_needed"];
   const executionRows = runSqlite(dbPath, [], [
     {
       name: "executions",
@@ -3164,7 +3164,7 @@ function activeManualScheduleConflict(
         FROM execution_records
         WHERE project_id = ?
           AND operation = ?
-          AND status IN ('queued', 'running', 'approval_needed')
+          AND status IN ('queued', 'running', 'waiting_input', 'approval_needed')
         ORDER BY COALESCE(updated_at, started_at, created_at) DESC`,
       params: [input.projectId, input.operation],
     },
@@ -3183,7 +3183,7 @@ function activeManualScheduleConflict(
       sql: `SELECT sj.id, sj.status, sj.payload_json
         FROM scheduler_job_records sj
         LEFT JOIN execution_records er ON er.scheduler_job_id = sj.id
-        WHERE sj.status IN ('queued', 'running', 'approval_needed')
+        WHERE sj.status IN ('queued', 'running', 'waiting_input', 'approval_needed')
           AND er.id IS NULL
         ORDER BY COALESCE(sj.updated_at, sj.created_at) DESC`,
     },
@@ -6560,25 +6560,27 @@ function findSkillOutputRecord(value: unknown): Record<string, unknown> | undefi
   if (record && ("summary" in record || "producedArtifacts" in record || "traceability" in record || "result" in record)) return record;
   if (!Array.isArray(value)) return record;
 
+  let latest: Record<string, unknown> | undefined;
   for (const item of value) {
     const direct = findSkillOutputRecordFromEvent(item);
-    if (direct) return direct;
+    if (direct) latest = direct;
   }
-  return undefined;
+  return latest;
 }
 
 function findSkillOutputRecordFromEvent(value: unknown): Record<string, unknown> | undefined {
   if (!isRecord(value)) return undefined;
+  let latest: Record<string, unknown> | undefined;
   if (value.contractVersion === "skill-contract/v1") return value;
   const output = findSkillOutputRecord(value.output);
-  if (output) return output;
+  if (output) latest = output;
   const item = isRecord(value.item) ? value.item : undefined;
   if (typeof item?.text === "string") {
     const parsed = parseJson(item.text);
     const fromText = findSkillOutputRecord(parsed);
-    if (fromText) return fromText;
+    if (fromText) latest = fromText;
   }
-  return undefined;
+  return latest;
 }
 
 function sanitizeRunPathSegment(value: string): string {

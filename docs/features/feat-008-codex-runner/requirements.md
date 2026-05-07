@@ -45,9 +45,9 @@
 - CLI Adapter 必须使用 `ExecutionAdapterInvocationV1` 作为唯一输入协议，并通过内嵌 `skillInstruction` 携带 `skillSlug`、`requestedAction`、`sourcePaths`、`expectedArtifacts`、`imagePaths` 和可选 `operatorInput`。
 - `ExecutionAdapterInvocationV1` 必须携带当前 `specState`，供 Skill 明确读取 Feature 文件状态而不是查询数据库。
 - CLI provider prompt 只说明本次要执行的 Feature 级任务、workspace 路径和输出要求，不得内联源文件内容或序列化完整 invocation。
-- CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts`、Feature 级 `traceability` 和 `result`；调用端只校验通用字段、输入回显和 `traceability.featureId`，`result` 作为灵活对象承载技能专用执行详情。
+- CLI skill output contract 必须使用 `SkillOutputContractV1`，包含 `contractVersion`、`executionId`、`skillSlug`、`requestedAction`、`status`、`summary`、`nextAction`、`producedArtifacts`、Feature 级 `traceability` 和 `result`；`status` 必须覆盖 `queued`、`running`、`waiting_input`、`approval_needed`、`review_needed`、`blocked`、`failed`、`cancelled` 和 `completed`，其中 `review_needed` 只表示真实人工或风险审查门。
 - Execution Adapter 校验有效输出后必须把状态、结果摘要、产物和下一步动作投影回 `docs/features/<feature-id>/spec-state.json`。
-- Execution Adapter 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 Feature 级 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配或必需 artifact 缺失时，Execution Record 必须进入 `review_needed` 并保留原因。
+- Execution Adapter 必须校验输出 contract 与输入 contract 的 execution、skill、action 和 Feature 级 traceability 是否一致；输出缺失、JSON 不合法、字段不匹配、必需 artifact 缺失，或进程结束后最后一条 contract 仍为非终态时，Execution Record 必须进入 `review_needed` 并保留原因。
 - CLI Adapter 必须以 `execution_records` 作为执行状态主表；不得为 `cli.run` 创建或更新旧 `runs` 记录。
 - 每次 Execution Adapter run 必须在 `.autobuild/runs/<executionId>/report.json` 写入一份独立 Run Report，合并 exit/session、SkillOutputContractV1、contract validation、产物、usage 和 log refs；Feature execution 默认 expected artifact 指向该 run report，不再写入共享 `.autobuild/reports/feature-execution.json`。
 - CLI Adapter 配置必须以 JSON 为唯一事实源，并支持 dry-run 校验。

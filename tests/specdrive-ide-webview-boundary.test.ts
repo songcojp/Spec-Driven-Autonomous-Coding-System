@@ -119,6 +119,7 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /class="queue-item\$\{selected \? " selected" : ""\}"/);
   assert.match(extensionSource, /const EXECUTION_QUEUE_GROUPS: Array<\{ status: string; open: boolean \}> = \[/);
   assert.match(extensionSource, /\{ status: "running", open: true \},\n  \{ status: "queued", open: true \}/);
+  assert.match(extensionSource, /\{ status: "waiting_input", open: false \}/);
   assert.match(extensionSource, /\{ status: "approval_needed", open: false \}/);
   assert.match(extensionSource, /\{ status: "approval_answered", open: false \}/);
   assert.match(extensionSource, /\{ status: "review_needed", open: false \}/);

@@ -669,7 +669,7 @@ async function runControlledCommand(input: unknown, provider: SpecExplorerProvid
 function hasActiveQueueItem(view: SpecDriveIdeView | undefined): boolean {
   return Object.values(view?.queue.groups ?? {})
     .flat()
-    .some((item) => ["queued", "running", "approval_needed"].includes(item.status));
+    .some((item) => ["queued", "running", "waiting_input", "approval_needed"].includes(item.status));
 }
 
 async function registerCurrentProject(provider: SpecExplorerProvider): Promise<void> {
@@ -1479,7 +1479,7 @@ function isSchedulableFeature(feature: SpecDriveIdeFeatureNode | undefined): boo
   const status = normalizeFeatureScheduleStatus(feature.status);
   const executionStatus = normalizeFeatureScheduleStatus(feature.latestExecutionStatus);
   return !["done", "completed", "delivered"].includes(status)
-    && !["queued", "running"].includes(executionStatus);
+    && !["queued", "running", "waiting_input"].includes(executionStatus);
 }
 
 function normalizeFeatureScheduleStatus(status: string | undefined): string {

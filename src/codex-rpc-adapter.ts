@@ -450,8 +450,23 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
   const projection = projectCodexAppServerEvents(input.events);
   const contractValidation = validateSkillOutputContract(input.executionInvocation, projection.skillOutput);
   const failedContract = input.executionInvocation && projection.status !== "approval_needed" && !contractValidation.valid;
+  const nonTerminalContract = projection.skillOutput && !isTerminalSkillOutputStatus(projection.skillOutput.status);
   const exitCode = projection.status === "failed" || failedContract ? 1 : 0;
   const stderr = projection.error ?? (failedContract ? contractValidation.reasons.join("; ") : "");
+  const projectedStatus = projection.status === "approval_needed"
+    ? "approval_needed"
+    : projection.status === "failed"
+      ? "failed"
+      : failedContract
+        ? "review_needed"
+        : exitCode === 0
+        ? nonTerminalContract
+          ? "review_needed"
+          : projection.skillOutput?.status ?? "completed"
+        : "failed";
+  const projectedSummary = nonTerminalContract && exitCode === 0
+    ? `Skill output contract review needed: process ended after non-terminal status ${projection.skillOutput?.status}; missing final terminal SkillOutputContractV1.`
+    : projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Codex RPC is waiting for approval." : `Codex RPC exit=${exitCode}.`);
   const providerSession: ExecutionAdapterProviderSessionV1 = {
     provider: "codex-rpc",
     transport: "stdio",
@@ -484,13 +499,9 @@ export function buildCodexAppServerAdapterResult(input: CodexAppServerAdapterRes
   const executionAdapterResult: ExecutionAdapterResultV1 = {
     contractVersion: "execution-adapter/v1",
     executionId: input.runId,
-    status: projection.status === "approval_needed"
-      ? "approval_needed"
-      : exitCode === 0
-        ? projection.skillOutput?.status ?? "completed"
-        : "failed",
+    status: projectedStatus,
     providerSession,
-    summary: projection.skillOutput?.summary ?? projection.error ?? (projection.status === "approval_needed" ? "Codex RPC is waiting for approval." : `Codex RPC exit=${exitCode}.`),
+    summary: projectedSummary,
     skillOutput: projection.skillOutput,
     producedArtifacts: projection.skillOutput?.producedArtifacts ?? [],
     traceability: projection.skillOutput?.traceability ?? input.executionInvocation?.traceability ?? { requirementIds: [], changeIds: [] },
@@ -575,6 +586,10 @@ function extractSkillOutputFromText(text: string): SkillOutputContract | undefin
     }
   }
   return undefined;
+}
+
+function isTerminalSkillOutputStatus(status: SkillOutputContract["status"]): boolean {
+  return ["completed", "review_needed", "blocked", "failed", "cancelled"].includes(status);
 }
 
 function candidateJsonObjects(text: string): string[] {

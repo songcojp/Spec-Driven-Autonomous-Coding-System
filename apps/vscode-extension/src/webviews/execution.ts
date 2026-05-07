@@ -23,6 +23,7 @@ import {
 const EXECUTION_QUEUE_GROUPS: Array<{ status: string; open: boolean }> = [
   { status: "running", open: true },
   { status: "queued", open: true },
+  { status: "waiting_input", open: false },
   { status: "approval_needed", open: false },
   { status: "approval_answered", open: false },
   { status: "review_needed", open: false },
@@ -93,7 +94,7 @@ export function renderExecutionWorkbenchWebview(
 function selectedBlockerItems(item: SpecDriveIdeQueueItem | undefined): SpecDriveIdeQueueItem[] {
   if (!item) return [];
   const status = item.status.toLowerCase();
-  return status === "blocked" || status === "approval_needed" ? [item] : [];
+  return status === "blocked" || status === "approval_needed" || status === "waiting_input" ? [item] : [];
 }
 
 function renderTokenConsumption(detail: SpecDriveIdeExecutionDetail | undefined): string {
