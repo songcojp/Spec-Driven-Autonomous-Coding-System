@@ -235,9 +235,12 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
   assert.match(extensionSource, /if \(featureSpecPanel\) \{\n    featureSpecPanel\.selectFeature\(item\);/);
   assert.match(extensionSource, /if \(executionWorkbenchPanel\) \{\n    executionWorkbenchPanel\.panel\.reveal\(vscode\.ViewColumn\.Active\);/);
   assert.match(extensionSource, /if \(systemSettingsPanel\) \{\n    systemSettingsPanel\.panel\.reveal\(vscode\.ViewColumn\.Active\);/);
-  assert.match(extensionSource, /function specExploreIconUri\(\): vscode\.Uri/);
-  assert.match(extensionSource, /join\(__dirname, "\.\.", "resources", "spec-explore\.svg"\)/);
-  assert.match(extensionSource, /panel\.iconPath = specExploreIconUri\(\)/);
+  assert.match(extensionSource, /function specExplorePanelIconUri\(icon: "checklist" \| "layout" \| "run-all" \| "settings-gear"\): vscode\.Uri/);
+  assert.match(extensionSource, /join\(__dirname, "\.\.", "resources", `spec-explore-\$\{icon\}\.svg`\)/);
+  assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("checklist"\)/);
+  assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("layout"\)/);
+  assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("run-all"\)/);
+  assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("settings-gear"\)/);
 });
 
 test("VSCode System Settings Webview manages adapter configs through controlled commands", () => {

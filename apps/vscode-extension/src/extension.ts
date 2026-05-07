@@ -1061,7 +1061,7 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
     enableScripts: true,
     retainContextWhenHidden: true,
   });
-  panel.iconPath = specExploreIconUri();
+  panel.iconPath = specExplorePanelIconUri("run-all");
   let selectedQueueKey: string | undefined;
   let autoRefreshEnabled = true;
   let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
@@ -1133,7 +1133,7 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
     retainContextWhenHidden: true,
     localResourceRoots,
   });
-  panel.iconPath = specExploreIconUri();
+  panel.iconPath = specExplorePanelIconUri("checklist");
   let autoRefreshEnabled = true;
   let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
   let rendering = false;
@@ -1200,7 +1200,7 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
     enableScripts: true,
     retainContextWhenHidden: true,
   });
-  panel.iconPath = specExploreIconUri();
+  panel.iconPath = specExplorePanelIconUri("layout");
   let selectedFeatureId = isFeatureItem(item) ? item.feature.id : undefined;
   let panelOpenState: Record<string, boolean> = {};
   let autoRefreshEnabled = true;
@@ -1286,7 +1286,7 @@ async function openSystemSettings(provider: SpecExplorerProvider): Promise<void>
     enableScripts: true,
     retainContextWhenHidden: true,
   });
-  panel.iconPath = specExploreIconUri();
+  panel.iconPath = specExplorePanelIconUri("settings-gear");
   const render = async (): Promise<void> => {
     panel.webview.html = renderSystemSettingsWebview(await fetchSystemSettings());
   };
@@ -1312,8 +1312,8 @@ async function openSystemSettings(provider: SpecExplorerProvider): Promise<void>
   await render();
 }
 
-function specExploreIconUri(): vscode.Uri {
-  return vscode.Uri.file(join(__dirname, "..", "resources", "spec-explore.svg"));
+function specExplorePanelIconUri(icon: "checklist" | "layout" | "run-all" | "settings-gear"): vscode.Uri {
+  return vscode.Uri.file(join(__dirname, "..", "resources", `spec-explore-${icon}.svg`));
 }
 
 async function handleWorkbenchMessage(
