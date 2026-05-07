@@ -1566,9 +1566,9 @@ export function parseFeatureTasksMarkdown(content: string): SpecDriveIdeTaskProj
   let current: SpecDriveIdeTaskProjection | undefined;
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    const headingMatch = line.match(/^#{2,4}\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
-    const listMatch = line.match(/^\s*[-*]\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
-    const plainMatch = line.match(/^(?<id>TASK-[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
+    const headingMatch = line.match(/^#{2,4}\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-?[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
+    const listMatch = line.match(/^\s*[-*]\s+(?:\[(?<checkbox>[ xX])\]\s*)?(?<id>T(?:ASK)?-?[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
+    const plainMatch = line.match(/^(?<id>T(?:ASK)?-?[A-Z0-9-]+|TASK-\d+|T\d+)\s*:?\s*(?<title>.*)$/);
     const match = headingMatch ?? listMatch ?? plainMatch;
     if (match?.groups?.id) {
       current = {
@@ -1583,7 +1583,7 @@ export function parseFeatureTasksMarkdown(content: string): SpecDriveIdeTaskProj
     if (!current) continue;
     const status = line.match(/^\s*状态\s*[:：]\s*(.+)$/)?.[1] ?? line.match(/^\s*Status\s*[:：]\s*(.+)$/i)?.[1];
     if (status) {
-      current.status = status.trim();
+      current.status = normalizeTaskStatus(status);
       continue;
     }
     const description = line.match(/^\s*描述\s*[:：]\s*(.+)$/)?.[1] ?? line.match(/^\s*Description\s*[:：]\s*(.+)$/i)?.[1];
@@ -2512,7 +2512,9 @@ function splitChineseList(value: string | undefined): string[] {
 }
 
 function normalizeTaskId(value: string): string {
-  return value.toUpperCase();
+  const upper = value.toUpperCase();
+  const compact = upper.match(/^T(?<feature>\d{3})-(?<task>\d{2,})$/);
+  return compact?.groups ? `T-${compact.groups.feature}-${compact.groups.task}` : upper;
 }
 
 function cleanTaskTitle(value: string | undefined): string {
@@ -2520,11 +2522,15 @@ function cleanTaskTitle(value: string | undefined): string {
 }
 
 function statusFromTaskLine(line: string, checkbox?: string): string {
-  const explicit = line.match(/\b状态\s*[:：]\s*([^\s,，;；]+)/)?.[1]
-    ?? line.match(/\bStatus\s*[:：]\s*([^\s,，;；]+)/i)?.[1];
-  if (explicit) return explicit.trim();
+  const explicit = line.match(/\b状态\s*[:：]\s*([^\s,，;；.。]+)/)?.[1]
+    ?? line.match(/\bStatus\s*[:：]\s*([^\s,，;；.。]+)/i)?.[1];
+  if (explicit) return normalizeTaskStatus(explicit);
   if (checkbox) return checkbox.toLowerCase() === "x" ? "done" : "todo";
   return "unknown";
+}
+
+function normalizeTaskStatus(value: string): string {
+  return value.trim().replace(/[.。]+$/, "");
 }
 
 function titleFromFolder(folder: string): string {

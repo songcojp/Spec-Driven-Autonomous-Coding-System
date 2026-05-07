@@ -37,12 +37,24 @@ feature branch in `workspaceRoot` instead.
 10. Fix required code review findings before running the test flow. If a finding requires requirement or design changes, route through clarification, risk review, or spec evolution before continuing.
 11. Add or update focused tests when behavior, contracts, state, or user-visible UI changes.
 12. Run targeted verification and capture command results.
-13. Confirm the implementation checkout, whether sibling worktree or fallback branch in `workspaceRoot`, contains only scoped changes intended for this task, then commit them on the feature branch with a narrow Conventional Commit message.
-14. Use `gh` for GitHub delivery: authenticate or report the blocker, push/set upstream as needed, create a pull request with traceability, changed files, verification results, deviations, and residual risks, then record the PR URL.
-15. Use `gh pr checks` or the configured equivalent to inspect required checks. If checks or required reviews are pending or failing, stop with `approval_needed`, `review_needed`, or `blocked` instead of claiming delivery is complete.
-16. Use `gh pr merge` only after required checks/reviews pass and project policy allows merge.
-17. After the PR is merged, delete the remote feature branch through `gh` or the PR merge cleanup option when available. Delete the local feature branch only when policy allows and only after confirming no uncommitted changes remain. If a sibling worktree was created, remove it after confirming it is clean.
-18. Report any deviations, blockers, cleanup failures, missing commit evidence, missing PR evidence, or required spec evolution.
+13. After verification passes, synchronize the implemented Feature Spec tasks in `docs/features/<feature-id>/tasks.md` using the existing task block structure. The task file must remain parseable by the Feature Spec Webview task parser (`parseFeatureTasksMarkdown()` in `src/specdrive-ide.ts`) because Feature item task completion counts depend on the parsed task IDs and statuses. Each implemented task must have a parser-compatible heading ID such as `T-001-01`, `T-021-12`, or `TASK-001`, plus a standalone `状态:` or `Status:` line. If the source task file uses compact legacy rows such as `- T001-01: ... Requirements: ... Verification: ...`, first normalize the affected rows into task blocks and normalize IDs to the generated parseable form, for example `T001-01` -> `T-001-01`.
+    For each completed task, update its `状态:` or `Status:` line from `todo`, `pending`, `in_progress`, `blocked`, or another non-terminal pending value to `done`. Preserve or recreate the surrounding heading and fields, for example:
+    ```md
+    ### T-001-01 Task title
+    状态: done
+    描述: ...
+    关联需求: ...
+    范围: ...
+    验证: ...
+    完成标准: ...
+    ```
+    Do not mark a task `done` when implementation is blocked, verification fails, or the task was not actually completed. If a task file already defines an explicit blocked-status convention, follow that convention for blocked work; otherwise leave the existing task status unchanged and report the blocker in the skill output.
+14. Confirm the implementation checkout, whether sibling worktree or fallback branch in `workspaceRoot`, contains only scoped changes intended for this task, then commit them on the feature branch with a narrow Conventional Commit message.
+15. Use `gh` for GitHub delivery: authenticate or report the blocker, push/set upstream as needed, create a pull request with traceability, changed files, verification results, deviations, and residual risks, then record the PR URL.
+16. Use `gh pr checks` or the configured equivalent to inspect required checks. If checks or required reviews are pending or failing, stop with `approval_needed`, `review_needed`, or `blocked` instead of claiming delivery is complete.
+17. Use `gh pr merge` only after required checks/reviews pass and project policy allows merge.
+18. After the PR is merged, delete the remote feature branch through `gh` or the PR merge cleanup option when available. Delete the local feature branch only when policy allows and only after confirming no uncommitted changes remain. If a sibling worktree was created, remove it after confirming it is clean.
+19. Report any deviations, blockers, cleanup failures, missing commit evidence, missing PR evidence, or required spec evolution.
 
 ## Review Gates
 
@@ -69,6 +81,7 @@ feature branch in `workspaceRoot` instead.
 - Implementation plan summary.
 - Code review findings and fixes.
 - Test or verification summary.
+- Updated `docs/features/<feature-id>/tasks.md` task blocks and task statuses for completed and verified tasks, including normalization from compact legacy rows when needed.
 - Residual risks and follow-up notes.
 - Pull request, merge, and branch cleanup summary with `gh` command evidence for GitHub-facing actions.
 - Return a `SkillOutputContractV1` JSON object with `contractVersion`, `executionId`, `skillSlug`, `requestedAction`, `status`, `summary`, `producedArtifacts`, and Feature-level `traceability`.
@@ -86,7 +99,7 @@ feature branch in `workspaceRoot` instead.
 
 - `changedFiles`: array of code, test, config, or docs files changed.
 - `verification`: array of commands with `command`, `cwd`, `status`, `exitCode`, and concise `summary`.
-- `implementedTasks`: array of completed Feature Spec task IDs or task names.
+- `implementedTasks`: array of completed Feature Spec task IDs or task names. When `tasks.md` statuses were changed, this array must match the normalized task IDs whose `状态:` or `Status:` lines were updated to `done`.
 - `reviewGates`: array of requirements and design review outcomes with `gate`, `status`, `summary`, and related traceability IDs.
 - `implementationPlan`: object with `summary`, `fileScope`, `testPlan`, `reviewFocus`, `traceabilityIds`, and `scopeStatus`.
 - `codeReview`: object with `status`, `findings`, `fixesApplied`, and `residualReviewRisks`.

@@ -660,9 +660,11 @@ test("parseFeatureTasksMarkdown supports checkbox and status block task formats"
   const tasks = parseFeatureTasksMarkdown([
     "- [x] TASK-001: Completed checkbox task",
     "- [ ] TASK-002: Pending checkbox task",
+    "- T001-03: Legacy compact rapid task. Requirements: FEAT-001-REQ-001. Verification: npm test.",
+    "- T001-04: Legacy completed rapid task. Status: done. Requirements: FEAT-001-REQ-002. Verification: npm test.",
     "",
     "### T-021-12 Feature 详情 tasks.md 任务解析",
-    "状态: todo",
+    "状态: todo。",
     "描述: 展示任务状态。",
     "验证: npm run ide:build",
   ].join("\n"));
@@ -670,10 +672,12 @@ test("parseFeatureTasksMarkdown supports checkbox and status block task formats"
   assert.deepEqual(tasks.map((task) => [task.id, task.status]), [
     ["TASK-001", "done"],
     ["TASK-002", "todo"],
+    ["T-001-03", "unknown"],
+    ["T-001-04", "done"],
     ["T-021-12", "todo"],
   ]);
-  assert.equal(tasks[2].description, "展示任务状态。");
-  assert.equal(tasks[2].verification, "npm run ide:build");
+  assert.equal(tasks[4].description, "展示任务状态。");
+  assert.equal(tasks[4].verification, "npm run ide:build");
 });
 
 test("SpecDrive IDE view scopes queue and latest executions to the current workspace project", () => {

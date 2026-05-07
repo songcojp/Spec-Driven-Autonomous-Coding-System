@@ -182,8 +182,9 @@ function featureDetailActions(feature: SpecDriveIdeFeatureNode, projectId?: stri
     return disabledButtonHtml("Review", "Review reason is missing; refresh the Feature or open Execution Workbench.", "check");
   }
   if (isBlockedFeature(feature)) {
-    const reviewAction = reviewReason === "risk_review_needed" || reviewReason === "approval_needed"
-      ? reviewFeatureButton(reviewReason === "approval_needed" ? "Approve" : "Review", feature, "Feature Detail")
+    const blockedReviewReason = feature.latestReviewNeededReason;
+    const reviewAction = blockedReviewReason === "risk_review_needed" || blockedReviewReason === "approval_needed"
+      ? reviewFeatureButton(blockedReviewReason === "approval_needed" ? "Approve" : "Review", feature, "Feature Detail")
       : "";
     return `${reviewAction}${clarifyFeatureButton(feature)}${markFeatureReadyButton("Ready", feature, projectId, "Feature Detail")}`;
   }

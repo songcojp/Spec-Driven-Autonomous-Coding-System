@@ -25,9 +25,10 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 11. **Structure tasks by user story phase**: organize tasks into phases that mirror the user story priority order—Phase 1: shared setup (no story yet), Phase 2: P1 story tasks, Phase 3: P2 story tasks, Phase 4: P3 story tasks, Phase N: polish and cross-cutting. Each story phase must have an independent test checkpoint.
 12. Create tasks that are independently reviewable, ordered by dependency, and tied to requirement IDs.
 13. Assign expected files, allowed scope, required skill, subagent type, verification command, and done criteria.
-14. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`.
-15. Always create or update the feature index table at `docs/features/README.md`. The index table MUST strictly use the following format: `| Feature ID | Status | Name | Milestone | Dependencies |`. A tree-structured dependency graph (树状依赖关系图) MUST be included to visualize the feature dependencies. This file is required by the downstream coding, testing, review, and PR generation skills.
-16. Always create or update the machine-readable Feature Spec Pool queue plan at `docs/features/feature-pool-queue.json`. Code consumes this artifact to push Feature Specs into the Pool; do not rely on code parsing dependency prose from `README.md`.
+14. Generate `tasks.md` with Webview-parseable task blocks that match `parseFeatureTasksMarkdown()` in `src/specdrive-ide.ts`, not compact single-line task bullets. Each task heading must use a stable parser-compatible task ID such as `T-001-01`, `T-021-12`, or `TASK-001`; do not generate compact IDs like `T001-01` even though the Webview can normalize them for legacy files. Each task block must include a standalone `状态:` or `Status:` line so the Feature Spec Webview can track status and compute task completion counts. New generated tasks must start as `状态: todo` unless the task is already completed from existing source evidence.
+15. Write output to the requested location. If unspecified, create or update `docs/features/<feature-id>/requirements.md`, `design.md`, and `tasks.md`.
+16. Always create or update the feature index table at `docs/features/README.md`. The index table MUST strictly use the following format: `| Feature ID | Status | Name | Milestone | Dependencies |`. A tree-structured dependency graph (树状依赖关系图) MUST be included to visualize the feature dependencies. This file is required by the downstream coding, testing, review, and PR generation skills.
+17. Always create or update the machine-readable Feature Spec Pool queue plan at `docs/features/feature-pool-queue.json`. Code consumes this artifact to push Feature Specs into the Pool; do not rely on code parsing dependency prose from `README.md`.
 
 ## Feature Slicing Rules
 
@@ -45,6 +46,17 @@ This is the design-named entry point for Feature Spec decomposition and task gra
 ## Output
 
 - Task graph or updated `tasks.md`, organized by user story phase (P1 → P2 → P3).
+- `tasks.md` must preserve the current project-readable block structure and be parseable by the Feature Spec Webview task parser. Feature item task completion counts depend on the same parsed `id` and `status` fields, so use this shape for every task:
+  ```md
+  ### T-001-01 Task title
+  状态: todo
+  描述: Concrete implementation work.
+  关联需求: REQ-001, US-001
+  范围: Allowed files or modules.
+  验证: Targeted command or acceptance check.
+  完成标准: Observable done criteria.
+  ```
+  English-only projects may use `Status:`, `Description:`, and `Verification:`, but the task ID and status line are still mandatory. Do not use compact task rows such as `- T001-01: ... Requirements: ... Verification: ...` as the final generated format.
 - Feature Spec Pool queue plan at `docs/features/feature-pool-queue.json` with `features[]` entries containing `id`, `priority`, and `dependencies`.
 - User story to task mapping with independent-test checkpoint per story.
 - Dependencies and parallelism constraints.
