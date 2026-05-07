@@ -117,6 +117,12 @@ export type SpecDriveIdeTokenConsumption = {
   recordedAt: string;
 };
 
+export type SpecDriveIdeProjectCostSummary = {
+  totalUsd: number;
+  tokensUsed: number;
+  currency: string;
+};
+
 export type BuildSpecDriveIdeExecutionDetailOptions = {
   logsAfter?: string;
   logLimit?: number;
@@ -174,6 +180,7 @@ export type SpecDriveIdeView = {
     cliAdapters: Array<{ id: string; displayName: string; status: string }>;
     rpcAdapters: Array<{ id: string; displayName: string; status: string; provider?: string }>;
   };
+  projectCost: SpecDriveIdeProjectCostSummary;
   automation: SpecDriveIdeAutomationState;
   projectInitialization: {
     ready: boolean;
@@ -343,6 +350,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
   const language = specRoot?.startsWith("docs/") ? specRoot.slice("docs/".length) : undefined;
   const documents = workspaceRoot ? buildTopLevelDocuments(workspaceRoot, specRoot) : [];
   const features = workspaceRoot ? buildFeatureNodes(dbPath, workspaceRoot, projectId) : [];
+  const projectCost = buildProjectCostSummary(dbPath, projectId);
   const queue = buildQueueGroups(dbPath, projectId);
   const activeAdapter = readActiveAdapter(dbPath);
   const executionPreferenceOptions = readExecutionPreferenceOptions(dbPath, projectId);
@@ -366,6 +374,7 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
     } : undefined,
     activeAdapter,
     executionPreferenceOptions,
+    projectCost,
     automation,
     projectInitialization,
     documents,
@@ -391,6 +400,27 @@ export function buildSpecDriveIdeView(dbPath: string, options: BuildSpecDriveIde
         queue: "/#runner",
       },
     },
+  };
+}
+
+function buildProjectCostSummary(dbPath: string, projectId?: string): SpecDriveIdeProjectCostSummary {
+  if (!projectId) return { totalUsd: 0, tokensUsed: 0, currency: "USD" };
+  const result = runSqlite(dbPath, [], [
+    {
+      name: "projectCost",
+      sql: `SELECT
+          COALESCE(SUM(total_tokens), 0) AS total_tokens,
+          COALESCE(SUM(cost_usd), 0) AS cost_usd
+        FROM token_consumption_records
+        WHERE project_id = ?`,
+      params: [projectId],
+    },
+  ]);
+  const row = result.queries.projectCost[0] ?? {};
+  return {
+    totalUsd: nonNegativeNumberOrZero(row.cost_usd),
+    tokensUsed: numberOrZero(row.total_tokens),
+    currency: "USD",
   };
 }
 

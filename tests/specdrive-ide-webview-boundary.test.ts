@@ -357,6 +357,10 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /title: "Todo"/);
   assert.match(webviewSource, /<h3>Latest Execution Cost<\/h3>/);
   assert.match(webviewSource, /renderTokenCost\(feature\.tokenConsumption\)/);
+  assert.match(webviewSource, /renderProjectCostTotal\(view\)/);
+  assert.match(webviewSource, /Project Cost Total/);
+  assert.match(webviewSource, /formatCurrency\(cost\.totalUsd, cost\.currency\)/);
+  assert.match(webviewSource, /\.project-cost-total\{margin-left:auto/);
   assert.match(webviewSource, /\["Cached Input", formatInteger\(token\.cachedInputTokens\)\]/);
   assert.match(webviewSource, /\["Reasoning Output", formatInteger\(token\.reasoningOutputTokens\)\]/);
   assert.match(webviewSource, /\["Pricing Source", pricingSourceLabel\(token\.pricing\)\]/);

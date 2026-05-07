@@ -86,6 +86,12 @@ export type SpecDriveIdeTokenConsumption = {
   recordedAt: string;
 };
 
+export type SpecDriveIdeProjectCostSummary = {
+  totalUsd: number;
+  tokensUsed: number;
+  currency: string;
+};
+
 export type SpecDriveIdeDiagnostic = {
   path: string;
   severity: "error" | "warning" | "info";
@@ -129,6 +135,7 @@ export type SpecDriveIdeView = {
     cliAdapters: Array<{ id: string; displayName: string; status: string }>;
     rpcAdapters: Array<{ id: string; displayName: string; status: string; provider?: string }>;
   };
+  projectCost?: SpecDriveIdeProjectCostSummary;
   automation?: SpecDriveIdeAutomationState;
   projectInitialization?: {
     ready: boolean;

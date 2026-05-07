@@ -34,6 +34,7 @@ export function renderFeatureSpecWebview(
       ${commandButton("Refresh", "refresh", {})}
       ${autoRefreshSwitch(autoRefreshEnabled)}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
+      ${renderProjectCostTotal(view)}
     </section>
     ${renderWorkbenchInputForm()}
     <main id="feature-list-panel" class="feature-layout" data-view-panel="list">
@@ -49,6 +50,12 @@ export function renderFeatureSpecWebview(
       ${renderDependencyGraph(features)}
     </section>
   `);
+}
+
+function renderProjectCostTotal(view: SpecDriveIdeView | undefined): string {
+  const cost = view?.projectCost;
+  if (!cost) return "";
+  return `<span class="project-cost-total" title="Project cost total from execution history"><span>Project Cost Total</span><strong>${escapeHtml(formatCurrency(cost.totalUsd, cost.currency))}</strong></span>`;
 }
 
 type DependencyTreeNode = {

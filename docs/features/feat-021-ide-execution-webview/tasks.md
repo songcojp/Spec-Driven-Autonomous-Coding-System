@@ -145,3 +145,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Spec Workspace 的 UI Spec Concept Images 使用每行最多 8 张图片的网格布局，超过 8 张自动换行，并在窄宽度下自适应减少列数。
 验证: `node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 concept image grid 的 8 列上限和窄屏断点。
+
+### T-021-29 Feature Spec 项目成本总计
+状态: done
+描述: Feature Spec Webview 顶部操作栏靠右显示当前项目成本总计；总计按当前项目执行历史累计 `token_consumption_records.cost_usd`，不改变选中 Feature 详情中“最新执行成本”的投影语义。
+验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖项目累计成本 ViewModel 和 toolbar 靠右渲染边界。
