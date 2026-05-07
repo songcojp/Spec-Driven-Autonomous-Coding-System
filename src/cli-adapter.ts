@@ -131,6 +131,23 @@ export type CliJsonEvent = {
 };
 
 export type CliAdapterStatus = "draft" | "active" | "disabled" | "invalid";
+export type CliImageGenerationOperation = "generate" | "edit" | "restore" | "icon" | "pattern" | "story" | "diagram" | "natural_language";
+
+export type CliImageGenerationInterface = {
+  provider: string;
+  invocation: "codex-skill" | "gemini-extension-command" | "cli-command";
+  operations: CliImageGenerationOperation[];
+  commands?: Partial<Record<CliImageGenerationOperation, string>>;
+  defaultModel?: string;
+  modelEnvVar?: string;
+  requiredEnv?: string[];
+  outputFormats: string[];
+  maxVariations?: number;
+  outputPathArgument?: string;
+  inputImageArgument?: string;
+  countArgument?: string;
+  notes?: string[];
+};
 
 export type CliAdapterConfig = {
   id: string;
@@ -150,6 +167,7 @@ export type CliAdapterConfig = {
     approval?: RunnerApprovalPolicy;
     costRates?: Record<string, TokenCostRate>;
   };
+  imageGeneration?: CliImageGenerationInterface;
   environmentAllowlist: string[];
   outputMapping: {
     eventStream: "json";
@@ -396,6 +414,13 @@ const DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function cliAdapterConfigToExecutionAdapterConfig(config: CliAdapterConfig): ExecutionAdapterConfigV1 {
+  const capabilities = ["process", "json-events", "skill-output-contract"];
+  if (config.imageGeneration) {
+    capabilities.push("image-generation");
+    for (const operation of config.imageGeneration.operations) {
+      capabilities.push(`image-generation:${operation}`);
+    }
+  }
   return {
     id: config.id,
     kind: "cli",
@@ -403,7 +428,7 @@ export function cliAdapterConfigToExecutionAdapterConfig(config: CliAdapterConfi
     provider: config.id,
     schemaVersion: config.schemaVersion,
     transport: "process",
-    capabilities: ["process", "json-events", "skill-output-contract"],
+    capabilities,
     defaults: {
       model: config.defaults.model,
       reasoningEffort: config.defaults.reasoningEffort ?? config.defaults.reasoning_effort,
@@ -416,6 +441,7 @@ export function cliAdapterConfigToExecutionAdapterConfig(config: CliAdapterConfi
       executable: config.executable,
       argumentTemplate: config.argumentTemplate,
       resumeArgumentTemplate: config.resumeArgumentTemplate,
+      imageGeneration: config.imageGeneration,
     },
     outputMapping: config.outputMapping,
     security: {
@@ -695,48 +721,62 @@ export function isTrustedDirectWriteInvocation(invocation?: ExecutionAdapterInvo
 }
 
 export function normalizeCliAdapterConfig(input: Partial<CliAdapterConfig> | Record<string, unknown>): CliAdapterConfig {
+  const inputRecord = input as Record<string, unknown>;
+  const baseConfig = defaultCliAdapterConfigForId(inputRecord.id);
   const defaults = isRecord(input.defaults) ? input.defaults : {};
   const outputMapping = isRecord(input.outputMapping) ? input.outputMapping : {};
+  const imageGeneration = normalizeImageGenerationInterface(inputRecord.imageGeneration ?? inputRecord.image_generation ?? baseConfig.imageGeneration);
   const normalized: CliAdapterConfig = {
-    ...DEFAULT_CLI_ADAPTER_CONFIG,
-    id: optionalConfigString(input.id) ?? DEFAULT_CLI_ADAPTER_CONFIG.id,
-    displayName: optionalConfigString(input.displayName) ?? optionalConfigString(input.display_name) ?? DEFAULT_CLI_ADAPTER_CONFIG.displayName,
-    schemaVersion: Number(input.schemaVersion ?? input.schema_version ?? DEFAULT_CLI_ADAPTER_CONFIG.schemaVersion),
-    executable: optionalConfigString(input.executable) ?? DEFAULT_CLI_ADAPTER_CONFIG.executable,
-    argumentTemplate: stringArray(input.argumentTemplate ?? input.argument_template, DEFAULT_CLI_ADAPTER_CONFIG.argumentTemplate),
-    resumeArgumentTemplate: stringArray(input.resumeArgumentTemplate ?? input.resume_argument_template, DEFAULT_CLI_ADAPTER_CONFIG.resumeArgumentTemplate ?? []),
-    configSchema: isRecord(input.configSchema) ? input.configSchema : isRecord(input.config_schema) ? input.config_schema : DEFAULT_CLI_ADAPTER_CONFIG.configSchema,
-    formSchema: isRecord(input.formSchema) ? input.formSchema : isRecord(input.form_schema) ? input.form_schema : DEFAULT_CLI_ADAPTER_CONFIG.formSchema,
+    ...baseConfig,
+    id: optionalConfigString(input.id) ?? baseConfig.id,
+    displayName: optionalConfigString(input.displayName) ?? optionalConfigString(input.display_name) ?? baseConfig.displayName,
+    schemaVersion: Number(input.schemaVersion ?? input.schema_version ?? baseConfig.schemaVersion),
+    executable: optionalConfigString(input.executable) ?? baseConfig.executable,
+    argumentTemplate: stringArray(input.argumentTemplate ?? input.argument_template, baseConfig.argumentTemplate),
+    resumeArgumentTemplate: stringArray(input.resumeArgumentTemplate ?? input.resume_argument_template, baseConfig.resumeArgumentTemplate ?? []),
+    configSchema: isRecord(input.configSchema) ? input.configSchema : isRecord(input.config_schema) ? input.config_schema : baseConfig.configSchema,
+    formSchema: isRecord(input.formSchema) ? input.formSchema : isRecord(input.form_schema) ? input.form_schema : baseConfig.formSchema,
     defaults: {
-      model: optionalConfigString(defaults.model) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.model,
-      reasoningEffort: normalizeReasoningEffort(defaults.reasoningEffort ?? defaults.reasoning_effort) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.reasoningEffort,
+      model: optionalConfigString(defaults.model) ?? baseConfig.defaults.model,
+      reasoningEffort: normalizeReasoningEffort(defaults.reasoningEffort ?? defaults.reasoning_effort) ?? baseConfig.defaults.reasoningEffort,
       profile: optionalConfigString(defaults.profile),
-      sandbox: normalizeSandbox(defaults.sandbox) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.sandbox,
-      approval: normalizeApproval(defaults.approval) ?? DEFAULT_CLI_ADAPTER_CONFIG.defaults.approval,
+      sandbox: normalizeSandbox(defaults.sandbox) ?? baseConfig.defaults.sandbox,
+      approval: normalizeApproval(defaults.approval) ?? baseConfig.defaults.approval,
       costRates: normalizeCostRates(defaults.costRates ?? defaults.cost_rates),
     },
+    imageGeneration,
     environmentAllowlist: stringArray(input.environmentAllowlist ?? input.environment_allowlist, []),
     outputMapping: {
-      eventStream: outputMapping.eventStream === "json" || outputMapping.event_stream === "json" ? "json" : DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.eventStream,
+      eventStream: outputMapping.eventStream === "json" || outputMapping.event_stream === "json" ? "json" : baseConfig.outputMapping.eventStream,
       outputSchema: optionalConfigString(outputMapping.outputSchema) ??
         optionalConfigString(outputMapping.output_schema) ??
-        DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.outputSchema,
-      sessionIdPath: optionalConfigString(outputMapping.sessionIdPath) ?? optionalConfigString(outputMapping.session_id_path) ?? DEFAULT_CLI_ADAPTER_CONFIG.outputMapping.sessionIdPath,
+        baseConfig.outputMapping.outputSchema,
+      sessionIdPath: optionalConfigString(outputMapping.sessionIdPath) ?? optionalConfigString(outputMapping.session_id_path) ?? baseConfig.outputMapping.sessionIdPath,
       responseTextPaths: stringArray(outputMapping.responseTextPaths ?? outputMapping.response_text_paths, []),
     },
-    status: normalizeAdapterStatus(input.status) ?? DEFAULT_CLI_ADAPTER_CONFIG.status,
+    status: normalizeAdapterStatus(input.status) ?? baseConfig.status,
     updatedAt: optionalConfigString(input.updatedAt) ?? optionalConfigString(input.updated_at) ?? new Date().toISOString(),
   };
-  return upgradeBuiltInCodexAdapterConfig(normalized);
+  return upgradeBuiltInAdapterConfig(normalized);
 }
 
-function upgradeBuiltInCodexAdapterConfig(config: CliAdapterConfig): CliAdapterConfig {
-  if (config.id !== DEFAULT_CLI_ADAPTER_CONFIG.id || config.schemaVersion >= DEFAULT_CLI_ADAPTER_CONFIG.schemaVersion) {
+function defaultCliAdapterConfigForId(id: unknown): CliAdapterConfig {
+  return optionalConfigString(id) === GEMINI_CLI_ADAPTER_CONFIG.id ? GEMINI_CLI_ADAPTER_CONFIG : DEFAULT_CLI_ADAPTER_CONFIG;
+}
+
+function upgradeBuiltInAdapterConfig(config: CliAdapterConfig): CliAdapterConfig {
+  const baseConfig = defaultCliAdapterConfigForId(config.id);
+  if (config.id !== baseConfig.id || config.schemaVersion >= baseConfig.schemaVersion) {
     return config;
   }
-  return {
+  const upgraded: CliAdapterConfig = {
     ...config,
-    schemaVersion: DEFAULT_CLI_ADAPTER_CONFIG.schemaVersion,
+    schemaVersion: baseConfig.schemaVersion,
+    imageGeneration: config.imageGeneration ?? baseConfig.imageGeneration,
+  };
+  if (config.id !== DEFAULT_CLI_ADAPTER_CONFIG.id) return upgraded;
+  return {
+    ...upgraded,
     defaults: {
       ...config.defaults,
       sandbox: DEFAULT_CLI_ADAPTER_CONFIG.defaults.sandbox,
@@ -759,6 +799,12 @@ export function validateCliAdapterConfig(config: CliAdapterConfig): CliAdapterVa
   if (!config.outputMapping.sessionIdPath.trim()) errors.push("outputMapping.sessionIdPath is required");
   if (config.defaults.approval === "bypass") errors.push("default approval may not bypass approvals");
   if (!normalizeReasoningEffort(config.defaults.reasoningEffort)) errors.push("default reasoning effort must be low, medium, high, or xhigh");
+  if (config.imageGeneration) {
+    if (!config.imageGeneration.provider.trim()) errors.push("imageGeneration.provider is required");
+    if (!config.imageGeneration.invocation.trim()) errors.push("imageGeneration.invocation is required");
+    if (config.imageGeneration.operations.length === 0) errors.push("imageGeneration.operations must include at least one operation");
+    if (config.imageGeneration.outputFormats.length === 0) errors.push("imageGeneration.outputFormats must include at least one format");
+  }
   errors.push(...validateCostRates(config.defaults.costRates));
   return { valid: errors.length === 0, errors };
 }
@@ -2307,6 +2353,43 @@ function stringArray(value: unknown, fallback: string[]): string[] {
   }
   const strings = value.filter((entry): entry is string => typeof entry === "string");
   return strings.length > 0 ? strings : fallback;
+}
+
+function normalizeImageGenerationInterface(value: unknown): CliImageGenerationInterface | undefined {
+  if (!isRecord(value)) return undefined;
+  const operations = stringArray(value.operations, [])
+    .filter((operation): operation is CliImageGenerationOperation =>
+      operation === "generate" ||
+      operation === "edit" ||
+      operation === "restore" ||
+      operation === "icon" ||
+      operation === "pattern" ||
+      operation === "story" ||
+      operation === "diagram" ||
+      operation === "natural_language");
+  const commands = isRecord(value.commands)
+    ? Object.fromEntries(
+      Object.entries(value.commands).filter((entry): entry is [CliImageGenerationOperation, string] =>
+        typeof entry[1] === "string" && operations.includes(entry[0] as CliImageGenerationOperation)),
+    )
+    : undefined;
+  return {
+    provider: optionalConfigString(value.provider) ?? "",
+    invocation: value.invocation === "codex-skill" || value.invocation === "gemini-extension-command" || value.invocation === "cli-command"
+      ? value.invocation
+      : "cli-command",
+    operations,
+    commands,
+    defaultModel: optionalConfigString(value.defaultModel) ?? optionalConfigString(value.default_model),
+    modelEnvVar: optionalConfigString(value.modelEnvVar) ?? optionalConfigString(value.model_env_var),
+    requiredEnv: stringArray(value.requiredEnv ?? value.required_env, []),
+    outputFormats: stringArray(value.outputFormats ?? value.output_formats, []),
+    maxVariations: Number.isInteger(value.maxVariations) ? Number(value.maxVariations) : Number.isInteger(value.max_variations) ? Number(value.max_variations) : undefined,
+    outputPathArgument: optionalConfigString(value.outputPathArgument) ?? optionalConfigString(value.output_path_argument),
+    inputImageArgument: optionalConfigString(value.inputImageArgument) ?? optionalConfigString(value.input_image_argument),
+    countArgument: optionalConfigString(value.countArgument) ?? optionalConfigString(value.count_argument),
+    notes: stringArray(value.notes, []),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

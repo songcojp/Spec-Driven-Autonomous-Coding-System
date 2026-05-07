@@ -4,11 +4,12 @@ import { GEMINI_3_PRO_PREVIEW_STANDARD_COST_RATE } from "./gemini-pricing.ts";
 
 const GEMINI_DEFAULT_MODEL = "gemini-3-pro-preview";
 const GEMINI_DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
+const GEMINI_NANOBANANA_DEFAULT_MODEL = "gemini-3.1-flash-image-preview";
 
 export const GEMINI_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "gemini-cli",
   displayName: "Google Gemini CLI",
-  schemaVersion: 2,
+  schemaVersion: 3,
   executable: "gemini",
   argumentTemplate: [
     "--model",
@@ -48,7 +49,33 @@ export const GEMINI_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
       [GEMINI_DEFAULT_MODEL]: GEMINI_3_PRO_PREVIEW_STANDARD_COST_RATE,
     },
   },
-  environmentAllowlist: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_GENAI_USE_VERTEXAI"],
+  imageGeneration: {
+    provider: "gemini-nanobanana",
+    invocation: "gemini-extension-command",
+    operations: ["generate", "edit", "restore", "icon", "pattern", "story", "diagram", "natural_language"],
+    commands: {
+      generate: "/generate",
+      edit: "/edit",
+      restore: "/restore",
+      icon: "/icon",
+      pattern: "/pattern",
+      story: "/story",
+      diagram: "/diagram",
+      natural_language: "/nanobanana",
+    },
+    defaultModel: GEMINI_NANOBANANA_DEFAULT_MODEL,
+    modelEnvVar: "NANOBANANA_MODEL",
+    requiredEnv: ["NANOBANANA_API_KEY"],
+    outputFormats: ["png", "jpeg"],
+    maxVariations: 8,
+    inputImageArgument: "<image-path>",
+    countArgument: "--count",
+    notes: [
+      "Requires the gemini-cli-extensions/nanobanana Gemini CLI extension.",
+      "Nano Banana 2 uses gemini-3.1-flash-image-preview by default; NANOBANANA_MODEL can select another supported image model.",
+    ],
+  },
+  environmentAllowlist: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_GENAI_USE_VERTEXAI", "NANOBANANA_API_KEY", "NANOBANANA_MODEL"],
   outputMapping: {
     eventStream: "json",
     outputSchema: "skill-output.schema.json",

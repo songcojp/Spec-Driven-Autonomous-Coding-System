@@ -7,14 +7,14 @@ const CODEX_CLI_IMAGE_ARTIFACT_RULES = [
   "- Expected image artifacts must be real raster image files generated through the Codex CLI-specific image generation feature. In Codex CLI, explicitly invoke the built-in $imagegen skill when generating these PNGs.",
   "- Do not satisfy expected image artifacts with SVG, HTML/CSS, Mermaid, ASCII wireframes, base64 text, or Markdown descriptions.",
   "- The policy text/reasoning model may draft the image prompt, but it is not the image generator. Built-in Codex CLI image generation uses gpt-image-2; do not claim that the active text model produced a PNG unless $imagegen created the file.",
-  "- Do not assume Gemini CLI, generic CLI adapters, or other non-Codex providers can generate images through $imagegen.",
+  "- Do not use another adapter's image command syntax, such as Gemini Nano Banana slash commands, while running through Codex CLI.",
   "- If this Codex CLI runtime does not expose $imagegen, return status blocked with nextAction explaining that Codex CLI image generation is required for the listed image artifacts.",
 ];
 
 export const CODEX_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "codex-cli",
   displayName: "Codex CLI",
-  schemaVersion: 2,
+  schemaVersion: 3,
   executable: "codex",
   argumentTemplate: [
     "-a",
@@ -67,6 +67,7 @@ export const CODEX_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
       { path: "defaults.sandbox", label: "Sandbox", type: "select" },
       { path: "defaults.approval", label: "Approval", type: "select" },
       { path: "defaults.costRates", label: "Token cost rates", type: "object" },
+      { path: "imageGeneration", label: "Image generation", type: "object" },
       { path: "outputMapping.sessionIdPath", label: "Session id path", type: "text" },
     ],
   },
@@ -76,6 +77,21 @@ export const CODEX_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
     sandbox: "danger-full-access",
     approval: "never",
     costRates: {},
+  },
+  imageGeneration: {
+    provider: "codex-imagegen",
+    invocation: "codex-skill",
+    operations: ["generate", "edit"],
+    commands: {
+      generate: "$imagegen",
+      edit: "$imagegen",
+    },
+    defaultModel: "gpt-image-2",
+    outputFormats: ["png"],
+    notes: [
+      "Use the Codex CLI built-in $imagegen skill for raster image artifacts.",
+      "The text model drafts prompts; gpt-image-2 produces image files.",
+    ],
   },
   environmentAllowlist: [],
   outputMapping: {

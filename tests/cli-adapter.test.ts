@@ -229,8 +229,11 @@ test("CLI adapter exposes unified execution adapter config", () => {
   assert.equal(config.kind, "cli");
   assert.equal(config.provider, "codex-cli");
   assert.equal(config.transport, "process");
+  assert.ok(config.capabilities.includes("image-generation"));
+  assert.ok(config.capabilities.includes("image-generation:generate"));
   assert.equal(config.defaults.model, "gpt-5.5");
   assert.deepEqual(config.inputMapping.argumentTemplate, DEFAULT_CLI_ADAPTER_CONFIG.argumentTemplate);
+  assert.deepEqual(config.inputMapping.imageGeneration, DEFAULT_CLI_ADAPTER_CONFIG.imageGeneration);
 });
 
 test("Gemini CLI adapter preset validates and dry-renders headless stream-json command", () => {
@@ -242,6 +245,10 @@ test("Gemini CLI adapter preset validates and dry-renders headless stream-json c
 
   assert.equal(result.valid, true);
   assert.equal(result.command, "gemini");
+  assert.equal(GEMINI_CLI_ADAPTER_CONFIG.imageGeneration?.provider, "gemini-nanobanana");
+  assert.equal(GEMINI_CLI_ADAPTER_CONFIG.imageGeneration?.commands?.generate, "/generate");
+  assert.equal(GEMINI_CLI_ADAPTER_CONFIG.imageGeneration?.defaultModel, "gemini-3.1-flash-image-preview");
+  assert.ok(GEMINI_CLI_ADAPTER_CONFIG.environmentAllowlist.includes("NANOBANANA_API_KEY"));
   assert.deepEqual(GEMINI_CLI_ADAPTER_CONFIG.defaults.costRates?.["gemini-3-pro-preview"], {
     inputUsdPer1M: 2,
     cachedInputUsdPer1M: 0.2,
@@ -445,6 +452,33 @@ test("CLI adapter normalizes snake_case DB row fields to camelCase config", () =
   assert.equal(normalized.defaults.model, "gemini-pro");
   assert.equal(normalized.defaults.reasoningEffort, "high");
   assert.equal(normalized.status, "active");
+});
+
+test("CLI adapter normalizes image generation interface definitions", () => {
+  const normalized = normalizeCliAdapterConfig({
+    id: "gemini-cli",
+    schema_version: 2,
+    image_generation: {
+      provider: "gemini-nanobanana",
+      invocation: "gemini-extension-command",
+      operations: ["generate", "edit", "invalid"],
+      commands: { generate: "/generate", edit: "/edit", invalid: "/invalid" },
+      default_model: "gemini-3.1-flash-image-preview",
+      model_env_var: "NANOBANANA_MODEL",
+      required_env: ["NANOBANANA_API_KEY"],
+      output_formats: ["png", "jpeg"],
+      max_variations: 8,
+      input_image_argument: "<image-path>",
+      count_argument: "--count",
+    },
+  });
+
+  assert.equal(normalized.schemaVersion, GEMINI_CLI_ADAPTER_CONFIG.schemaVersion);
+  assert.equal(normalized.imageGeneration?.provider, "gemini-nanobanana");
+  assert.deepEqual(normalized.imageGeneration?.operations, ["generate", "edit"]);
+  assert.deepEqual(normalized.imageGeneration?.commands, { generate: "/generate", edit: "/edit" });
+  assert.equal(normalized.imageGeneration?.modelEnvVar, "NANOBANANA_MODEL");
+  assert.equal(normalized.imageGeneration?.maxVariations, 8);
 });
 
 test("CLI adapter upgrades stale built-in sandbox defaults", () => {
@@ -829,7 +863,7 @@ test("Codex CLI adapter augments image artifact prompts with imagegen rules", as
 
   const inputLog = JSON.parse(readFileSync(result.rawLog.files?.input ?? "", "utf8"));
   assert.match(inputLog.prompt, /Codex CLI image artifact rules/);
-  assert.match(inputLog.prompt, /Do not assume Gemini CLI, generic CLI adapters, or other non-Codex providers/);
+  assert.match(inputLog.prompt, /Do not use another adapter's image command syntax/);
 });
 
 test("clarification skill prompt treats operator input as an answer to apply", () => {

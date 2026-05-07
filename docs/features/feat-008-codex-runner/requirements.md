@@ -52,6 +52,8 @@
 - 每次 Execution Adapter run 必须在 `.autobuild/runs/<executionId>/report.json` 写入一份独立 Run Report，合并 exit/session、SkillOutputContractV1、contract validation、产物、usage 和 log refs；Feature execution 默认 expected artifact 指向该 run report，不再写入共享 `.autobuild/reports/feature-execution.json`。
 - CLI Adapter 配置必须以 JSON 为唯一事实源，并支持 dry-run 校验。
 - CLI Adapter 必须提供 `codex-cli` 和 `gemini-cli` 内置 adapter preset；Gemini CLI preset 必须通过 headless JSON/JSONL 输出和 SkillOutputContractV1 事后校验接入，不要求 Gemini CLI 支持 Codex 风格自定义 output schema 参数。
+- CLI Adapter 配置必须支持可选 `imageGeneration` 接口定义，用于声明 adapter 是否支持直接图像生成、支持哪些图像操作、调用入口、默认图像模型、模型环境变量、必需环境变量和输出格式；该定义必须投影为 Execution Adapter capability，供后续 UI / Scheduler 直接选择可产出 image artifact 的 provider。
+- `codex-cli` preset 的图像生成接口必须声明 Codex CLI 内置 `$imagegen` Skill，默认图像模型为 `gpt-image-2`；`gemini-cli` preset 的图像生成接口必须声明 Nano Banana Gemini CLI extension 命令，包括 `/generate`、`/edit`、`/restore`、`/icon`、`/pattern`、`/story`、`/diagram` 和 `/nanobanana`，并允许通过 `NANOBANANA_MODEL` 切换图像模型。
 - 开发阶段高风险任务默认以 `danger-full-access` 和 `approval=never` 执行；敏感文件、危险命令和 forbidden files 仍必须触发安全规则。
 - 认证、权限、支付、迁移、密钥和 forbidden files 修改必须触发安全规则。
 - Execution Adapter Worker 在线时必须每 10 至 30 秒更新心跳。
@@ -66,6 +68,7 @@
 
 - [ ] `codex-cli` adapter 可以在指定 workspace root 中启动 Codex CLI。
 - [ ] `gemini-cli` adapter 可以通过 active CLI Adapter 配置在指定 workspace root 中启动 Google Gemini CLI。
+- [ ] `codex-cli` 和 `gemini-cli` adapter preset 会把图像生成接口投影为 `image-generation` capability，并保留 provider 专属命令/模型/环境变量约定。
 - [ ] `codex-cli` adapter 在 mock CLI adapter 中收到的 cwd 等于目标项目 workspace root。
 - [ ] Feature 级 `schedule_run` 可以在完整 Feature Spec 目录存在时产生 `cli.run` scheduler job，Worker 执行后持久化 session/log/status check 并回写 Execution Record 状态。
 - [ ] `run_board_tasks` 作为兼容入口仍可产生 `cli.run` scheduler job，但编码执行不依赖 Task Board 或旧 task 表。
