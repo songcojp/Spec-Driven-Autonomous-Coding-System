@@ -229,6 +229,15 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
   assert.match(extensionSource, /consoleCommandActions/);
   assert.match(extensionSource, /AUTOBUILD_AGENT_RUNTIME_PATHS/);
   assert.match(extensionSource, /this\.context\.extensionPath/);
+  assert.match(extensionSource, /let specWorkspacePanel: ManagedWebviewPanel \| undefined/);
+  assert.match(extensionSource, /let featureSpecPanel: \(ManagedWebviewPanel & \{ selectFeature: \(item\?: unknown\) => void \}\) \| undefined/);
+  assert.match(extensionSource, /if \(specWorkspacePanel\) \{\n    specWorkspacePanel\.panel\.reveal\(vscode\.ViewColumn\.Active\);/);
+  assert.match(extensionSource, /if \(featureSpecPanel\) \{\n    featureSpecPanel\.selectFeature\(item\);/);
+  assert.match(extensionSource, /if \(executionWorkbenchPanel\) \{\n    executionWorkbenchPanel\.panel\.reveal\(vscode\.ViewColumn\.Active\);/);
+  assert.match(extensionSource, /if \(systemSettingsPanel\) \{\n    systemSettingsPanel\.panel\.reveal\(vscode\.ViewColumn\.Active\);/);
+  assert.match(extensionSource, /function specExploreIconUri\(\): vscode\.Uri/);
+  assert.match(extensionSource, /join\(__dirname, "\.\.", "resources", "spec-explore\.svg"\)/);
+  assert.match(extensionSource, /panel\.iconPath = specExploreIconUri\(\)/);
 });
 
 test("VSCode System Settings Webview manages adapter configs through controlled commands", () => {
@@ -334,7 +343,8 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /markFeatureReadyButton\("Ready", feature, projectId, "Feature Detail"\)/);
   assert.match(extensionSource, /action: "mark_feature_ready"/);
   assert.match(extensionSource, /panelOpenState = Object\.fromEntries/);
-  assert.match(extensionSource, /panel\.onDidDispose\(stopAutoRefresh\)/);
+  assert.match(extensionSource, /panel\.onDidDispose\(\(\) => \{\n    stopAutoRefresh\(\);\n    featureSpecPanel = undefined;/);
+  assert.match(extensionSource, /async function openFeatureSpec[\s\S]*let autoRefreshEnabled = true[\s\S]*startAutoRefresh\(\);\n  await render\(\);/);
   assert.match(webviewSource, /autoRefreshSwitch\(autoRefreshEnabled\)/);
   assert.match(extensionSource, /title: "Blocked"/);
   assert.match(extensionSource, /title: "In-Process"/);
@@ -387,7 +397,7 @@ test("VSCode Feature Spec Webview schedules selected Features with adapter prefe
 test("VSCode Spec Workspace keeps global skill input at top and document actions inside lifecycle", () => {
   assert.match(extensionSource, /renderSpecWorkspaceWebview/);
   assert.match(extensionSource, /renderSpecWorkspaceWebview\(view, uiConceptImages, autoRefreshEnabled, panel\.webview\.cspSource\)/);
-  assert.match(extensionSource, /panel\.onDidDispose\(stopAutoRefresh\)/);
+  assert.match(extensionSource, /panel\.onDidDispose\(\(\) => \{\n    stopAutoRefresh\(\);\n    specWorkspacePanel = undefined;/);
   assert.match(specWorkspaceWebviewSource, /autoRefreshSwitch\(autoRefreshEnabled\)/);
   assert.match(specWorkspaceWebviewSource, /autoRefreshEnabled = false/);
   assert.match(extensionSource, /commandButton\("Spec Change", "openWorkbenchForm", \{ formMode: "specChange", intent: "requirement_change_or_intake" \}\)/);
@@ -452,6 +462,9 @@ test("VSCode Spec Workspace keeps global skill input at top and document actions
   assert.match(extensionSource, /<h3>UI Spec Concept Images<\/h3>/);
   assert.doesNotMatch(extensionSource, /<h3>UI Spec Assets<\/h3>/);
   assert.doesNotMatch(extensionSource, /UI Spec includes the Markdown document above plus the concept images below\./);
+  assert.match(extensionSource, /\.concept-grid\{display:grid;grid-template-columns:repeat\(8,minmax\(0,1fr\)\);gap:10px\}/);
+  assert.match(extensionSource, /@media \(max-width:1100px\)[\s\S]*\.concept-grid\{grid-template-columns:repeat\(4,minmax\(0,1fr\)\)\}/);
+  assert.match(extensionSource, /@media \(max-width:980px\)[\s\S]*\.concept-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}/);
   assert.match(extensionSource, /class="concept-card" data-command="openConceptImage"/);
   assert.match(extensionSource, /id="concept-modal" class="concept-modal" hidden/);
   assert.match(extensionSource, /payload\.command === "openConceptImage"/);

@@ -29,6 +29,14 @@ import { renderSystemSettingsWebview } from "./webviews/system-settings";
 let controlPlaneManager: BundledControlPlaneManager | undefined;
 let startupSpecWorkspaceOpened = false;
 const WEBVIEW_AUTO_REFRESH_INTERVAL_MS = 60_000;
+type ManagedWebviewPanel = {
+  panel: vscode.WebviewPanel;
+  render: () => Promise<void>;
+};
+let executionWorkbenchPanel: ManagedWebviewPanel | undefined;
+let specWorkspacePanel: ManagedWebviewPanel | undefined;
+let featureSpecPanel: (ManagedWebviewPanel & { selectFeature: (item?: unknown) => void }) | undefined;
+let systemSettingsPanel: ManagedWebviewPanel | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection("specdrive");
@@ -1044,10 +1052,16 @@ async function openExecution(item: unknown): Promise<void> {
 }
 
 async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<void> {
+  if (executionWorkbenchPanel) {
+    executionWorkbenchPanel.panel.reveal(vscode.ViewColumn.Active);
+    await executionWorkbenchPanel.render();
+    return;
+  }
   const panel = vscode.window.createWebviewPanel("specdriveExecutionWorkbench", "Execution Workbench", vscode.ViewColumn.Active, {
     enableScripts: true,
     retainContextWhenHidden: true,
   });
+  panel.iconPath = specExploreIconUri();
   let selectedQueueKey: string | undefined;
   let autoRefreshEnabled = true;
   let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
@@ -1080,7 +1094,10 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
       void render();
     }, WEBVIEW_AUTO_REFRESH_INTERVAL_MS);
   };
-  panel.onDidDispose(stopAutoRefresh);
+  panel.onDidDispose(() => {
+    stopAutoRefresh();
+    executionWorkbenchPanel = undefined;
+  });
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "selectQueueItem" && typeof message.entityId === "string") {
       selectedQueueKey = `${message.entityType === "job" ? "job" : "run"}:${message.entityId}`;
@@ -1096,11 +1113,17 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
     }
     await handleWorkbenchMessage(message, provider, render);
   });
+  executionWorkbenchPanel = { panel, render };
   startAutoRefresh();
   await render();
 }
 
 async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> {
+  if (specWorkspacePanel) {
+    specWorkspacePanel.panel.reveal(vscode.ViewColumn.Active);
+    await specWorkspacePanel.render();
+    return;
+  }
   await provider.refresh();
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
   const conceptRoot = uiConceptWorkspaceRoot(provider.currentView(), workspaceRoot);
@@ -1110,6 +1133,7 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
     retainContextWhenHidden: true,
     localResourceRoots,
   });
+  panel.iconPath = specExploreIconUri();
   let autoRefreshEnabled = true;
   let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
   let rendering = false;
@@ -1135,7 +1159,10 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
       void render();
     }, WEBVIEW_AUTO_REFRESH_INTERVAL_MS);
   };
-  panel.onDidDispose(stopAutoRefresh);
+  panel.onDidDispose(() => {
+    stopAutoRefresh();
+    specWorkspacePanel = undefined;
+  });
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "specWorkspaceRequest" && typeof message.content === "string") {
       await submitSpecWorkspaceRequest(message.content, message.intent, provider);
@@ -1151,6 +1178,7 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
     }
     await handleWorkbenchMessage(message, provider, render);
   });
+  specWorkspacePanel = { panel, render };
   startAutoRefresh();
   await render();
 }
@@ -1162,13 +1190,20 @@ function queueItemKeyForWorkbench(item: SpecDriveIdeQueueItem | undefined): stri
 }
 
 async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): Promise<void> {
+  if (featureSpecPanel) {
+    featureSpecPanel.selectFeature(item);
+    featureSpecPanel.panel.reveal(vscode.ViewColumn.Active);
+    await featureSpecPanel.render();
+    return;
+  }
   const panel = vscode.window.createWebviewPanel("specdriveFeatureSpec", "Feature Spec", vscode.ViewColumn.Active, {
     enableScripts: true,
     retainContextWhenHidden: true,
   });
+  panel.iconPath = specExploreIconUri();
   let selectedFeatureId = isFeatureItem(item) ? item.feature.id : undefined;
   let panelOpenState: Record<string, boolean> = {};
-  let autoRefreshEnabled = false;
+  let autoRefreshEnabled = true;
   let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
   let rendering = false;
   const render = async (): Promise<void> => {
@@ -1195,7 +1230,13 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
       void render();
     }, WEBVIEW_AUTO_REFRESH_INTERVAL_MS);
   };
-  panel.onDidDispose(stopAutoRefresh);
+  const selectFeature = (nextItem?: unknown): void => {
+    if (isFeatureItem(nextItem)) selectedFeatureId = nextItem.feature.id;
+  };
+  panel.onDidDispose(() => {
+    stopAutoRefresh();
+    featureSpecPanel = undefined;
+  });
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "selectFeature" && typeof message.featureId === "string") {
       selectedFeatureId = message.featureId;
@@ -1230,14 +1271,22 @@ async function openFeatureSpec(provider: SpecExplorerProvider, item?: unknown): 
     }
     await handleWorkbenchMessage(message, provider, render);
   });
+  featureSpecPanel = { panel, render, selectFeature };
+  startAutoRefresh();
   await render();
 }
 
 async function openSystemSettings(provider: SpecExplorerProvider): Promise<void> {
+  if (systemSettingsPanel) {
+    systemSettingsPanel.panel.reveal(vscode.ViewColumn.Active);
+    await systemSettingsPanel.render();
+    return;
+  }
   const panel = vscode.window.createWebviewPanel("specdriveSystemSettings", "System Settings", vscode.ViewColumn.Active, {
     enableScripts: true,
     retainContextWhenHidden: true,
   });
+  panel.iconPath = specExploreIconUri();
   const render = async (): Promise<void> => {
     panel.webview.html = renderSystemSettingsWebview(await fetchSystemSettings());
   };
@@ -1256,7 +1305,15 @@ async function openSystemSettings(provider: SpecExplorerProvider): Promise<void>
       await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
     }
   });
+  panel.onDidDispose(() => {
+    systemSettingsPanel = undefined;
+  });
+  systemSettingsPanel = { panel, render };
   await render();
+}
+
+function specExploreIconUri(): vscode.Uri {
+  return vscode.Uri.file(join(__dirname, "..", "resources", "spec-explore.svg"));
 }
 
 async function handleWorkbenchMessage(

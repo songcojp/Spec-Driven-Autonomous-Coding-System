@@ -44,6 +44,8 @@ Feature 名称: IDE Workbench Webviews
 - CHG-046（2026-05-05）：用户要求 VSCode Feature Spec Webview 在选中非 ready、非终态 Feature 后显示 `Ready` 按钮；点击后必须通过受控命令将 Feature 状态和 `spec-state.json.status` 设置为 `ready`，并清空阻塞原因。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-047（2026-05-05）：用户要求 VSCode Feature Spec 详情优化：Artifacts 每行展示文件名、状态和 Open 按钮，Tasks 只显示任务编号和状态并自适应单行换行，Acceptance 状态合并到 Artifacts，详情增加最新运行的 token 消耗和成本显示。token 消耗可信来源为 `.autobuild/runs/<runId>/cli-output.json` 的 `usage`。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-050（2026-05-06）：用户澄清同一 Feature 可以存在多次 Job / Execution Record；Job 记录每次执行费用，Feature 详情只展示最后一次有效执行费用，统计多次执行总成本必须按 Job / Execution 历史累计；是否可以再次 queued 或 run 依据 Feature 当前状态和执行安全闸判断，不以历史重复执行记录作为阻塞条件。影响 NFR-006、REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-051（2026-05-07）：用户要求 VSCode Feature Spec Webview 自动刷新默认开启；打开 Feature Spec Webview 后必须立即显示开启状态并启动 extension host 自动刷新定时器。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-052（2026-05-07）：用户要求 Spec Workspace 的 UI Spec Concept Images 每行最多显示 8 张图片，超过 8 张自动换行。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -87,3 +89,5 @@ Feature 名称: IDE Workbench Webviews
 - [x] `Feature Spec` 必须支持多选 Feature；顶部 Schedule Selected 使用当前 provider adapter 为每个选中 Feature 创建独立 `schedule_run` / `feature_execution` Job，且单个 Feature 的 Schedule Current / 详情 Schedule 也必须携带完整调度 payload 与 Job 级执行偏好。
 - [x] `Feature Spec` 在选中非 ready、非 done / completed / delivered Feature 后必须在详情动作区显示 `Ready` 入口；点击后通过 Control Plane 受控命令将 Feature 记录和 `spec-state.json.status` 设置为 `ready`，清空 blocked reasons，并保留审计 history。
 - [x] `Feature Spec` 详情中的 Tasks 必须只显示任务编号和状态，使用自适应单行换行布局，不展示任务标题、描述或验证命令。
+- [x] `Feature Spec` Webview 自动刷新默认开启；自动刷新状态和定时器由 VSCode extension host 管理，Webview 只渲染 switch 状态并提交 toggle 消息。
+- [x] `Spec Workspace` 中的 UI Spec Concept Images 每行最多显示 8 张图片，超出后自动换行，并在窄宽度下自适应减少列数。

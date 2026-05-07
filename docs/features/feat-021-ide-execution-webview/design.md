@@ -27,6 +27,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 | Spec Workspace | Stage Detail | 展示当前阶段来源文档、traceability、required skills、evidence、blockers 和阶段推进按钮。 |
 | Spec Workspace | Control Guardrails | 展示 constitution checks、command approvals、safe action confirmations、spec consistency 和 manual approval。 |
 | Spec Workspace | Evidence & Traceability | 以表格展示 requirement、feature、artifact、evidence、validation result 和更新时间。 |
+| Spec Workspace | UI Spec Concept Grid | `UI Spec Concept Images` 使用响应式图片网格，每行最多 8 张，超过 8 张自动换行，窄宽度下减少为 4 列或 2 列。 |
 | Feature Spec | Feature Category Panels | 通过可折叠分类 panel 展示 Feature；顺序固定为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`，其中 Done 默认折叠，其它默认展开；panel header 显示展开/折叠状态图标；panel 内 Feature list 自适应换行，不显示水平滚动条。 |
 | Feature Spec | Feature Detail Drawer | 展示选中 Feature 的 artifacts、latest run、token/cost、tasks、blockers、traceability 和可执行动作；acceptance 状态合并到 artifacts。 |
 | Feature Spec | New Feature Dialog | 顶部 New Feature 按钮打开弹出输入框，提交自然语言需求；Webview 只提交受控需求输入，模型按需求新增/变更边界自行判定后续流程。 |
@@ -36,6 +37,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 | Feature Spec | Review Clarification Dialog | 当选中 Feature 状态为 `need review` / `review_needed` 时显示 Review 入口；点击后弹出澄清输入框，提交后以 `clarification` 意图进入 Spec change request。 |
 | Feature Spec | Mark Feature Ready | 当选中 Feature 不是 `ready` 且不是 `done` / `completed` / `delivered` 时显示 `Ready` 入口；点击后通过受控命令把 Feature 文件状态和数据库投影设置为 `ready`。 |
 | Feature Spec | Pass Blocked or Review State | 当选中 Feature 状态为 `blocked` / `block` 或 `need review` / `review_needed` 时显示 `Pass` 入口；点击后通过 Control Plane 受控命令把 Feature 和当前或最近执行记录收敛为 `completed`。 |
+| Feature Spec | Auto Refresh | 自动刷新 switch 默认开启；打开 Webview 时由 VSCode extension host 启动自动刷新定时器，Webview 只负责显示当前 switch 状态并提交 `toggleAutoRefresh`。 |
 
 ## 3. Contract 边界
 

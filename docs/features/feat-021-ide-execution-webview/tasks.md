@@ -135,3 +135,13 @@ Feature ID: FEAT-021
 状态: done
 描述: Feature Spec 详情将 token/cost 标注并投影为最后一次有效执行费用；清空 `spec-state.json.currentJob` 只表示当前 Job 已解除，不清空历史最后执行费用。Execution Workbench / Execution Workspace 继续按 Job / Run 展示单次费用；同一 Feature 多次执行总成本只能从 Job / Execution 历史累计 `token_consumption_records`。Feature 是否能再次 queued 或 run 只看当前 Feature 状态、依赖、安全闸和 active execution，不因历史 Job 中出现同一 Feature 多次执行而阻塞。
 验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖 ready Feature 保留最后执行费用、多次执行只展示最新费用、Webview 标题边界和历史 Job 费用不覆盖。
+
+### T-021-27 Feature Spec 自动刷新默认开启
+状态: done
+描述: Feature Spec Webview 打开时默认开启自动刷新，并在 VSCode extension host 中立即启动自动刷新定时器；Webview switch 初始状态显示为开启，用户仍可手动关闭。
+验证: `node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Feature Spec Webview 默认开启自动刷新和定时器启动边界。
+
+### T-021-28 Spec Workspace UI Spec Concept Images 每行上限
+状态: done
+描述: Spec Workspace 的 UI Spec Concept Images 使用每行最多 8 张图片的网格布局，超过 8 张自动换行，并在窄宽度下自适应减少列数。
+验证: `node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 concept image grid 的 8 列上限和窄屏断点。
