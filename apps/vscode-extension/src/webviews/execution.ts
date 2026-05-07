@@ -20,19 +20,16 @@ import {
   webviewNonce,
 } from "./shared";
 
-const EXECUTION_QUEUE_GROUPS: Array<{ status: string; open: boolean }> = [
-  { status: "running", open: true },
-  { status: "queued", open: true },
-  { status: "waiting_input", open: false },
-  { status: "approval_needed", open: false },
-  { status: "approval_answered", open: false },
-  { status: "review_needed", open: false },
-  { status: "blocked", open: false },
-  { status: "failed", open: false },
-  { status: "paused", open: false },
-  { status: "cancelled", open: false },
-  { status: "skipped", open: false },
-  { status: "completed", open: false },
+const EXECUTION_QUEUE_GROUPS: Array<{ label: string; statuses: string[]; open: boolean }> = [
+  { label: "running", statuses: ["running"], open: true },
+  { label: "queued", statuses: ["queued"], open: true },
+  { label: "waiting_input", statuses: ["waiting_input"], open: false },
+  { label: "approval / review", statuses: ["approval_needed", "approval_answered", "review_needed"], open: false },
+  { label: "blocked / failed", statuses: ["blocked", "failed"], open: false },
+  { label: "paused", statuses: ["paused"], open: false },
+  { label: "cancelled", statuses: ["cancelled"], open: false },
+  { label: "skipped", statuses: ["skipped"], open: false },
+  { label: "completed", statuses: ["completed"], open: false },
 ];
 
 export function renderExecutionWorkbenchWebview(
@@ -59,7 +56,7 @@ export function renderExecutionWorkbenchWebview(
     <main class="execution-layout">
       <section class="panel execution-queue-column">
         <div class="panel-title"><h2>Execution Queue</h2><span>${queue.length} items</span></div>
-        ${EXECUTION_QUEUE_GROUPS.map((group) => renderQueueGroup(group.status, grouped[group.status] ?? [], selectedKey, group.open)).join("")}
+        ${EXECUTION_QUEUE_GROUPS.map((group) => renderQueueGroup(group.label, queueGroupItems(group.statuses, grouped), selectedKey, group.open)).join("")}
       </section>
       <section class="panel current-selected-column">
         <div class="panel-title selected-title">
@@ -95,6 +92,25 @@ function selectedBlockerItems(item: SpecDriveIdeQueueItem | undefined): SpecDriv
   if (!item) return [];
   const status = item.status.toLowerCase();
   return status === "blocked" || status === "approval_needed" || status === "waiting_input" ? [item] : [];
+}
+
+function queueGroupItems(statuses: string[], grouped: Record<string, SpecDriveIdeQueueItem[]>): SpecDriveIdeQueueItem[] {
+  return statuses.flatMap((status) => grouped[status] ?? []).sort(compareQueueItemsByEndTimeDesc);
+}
+
+function compareQueueItemsByEndTimeDesc(left: SpecDriveIdeQueueItem, right: SpecDriveIdeQueueItem): number {
+  const rightTime = queueItemSortTime(right);
+  const leftTime = queueItemSortTime(left);
+  if (rightTime !== leftTime) return rightTime - leftTime;
+  return (right.executionId ?? right.schedulerJobId ?? "").localeCompare(left.executionId ?? left.schedulerJobId ?? "");
+}
+
+function queueItemSortTime(item: SpecDriveIdeQueueItem): number {
+  const value = item.completedAt ?? item.updatedAt;
+  if (!value) return 0;
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const time = Date.parse(normalized);
+  return Number.isFinite(time) ? time : 0;
 }
 
 function renderTokenConsumption(detail: SpecDriveIdeExecutionDetail | undefined): string {

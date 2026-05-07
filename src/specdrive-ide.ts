@@ -78,6 +78,7 @@ export type SpecDriveIdeQueueItem = {
   preferenceSource?: string;
   threadId?: string;
   turnId?: string;
+  completedAt?: string;
   updatedAt?: string;
   summary?: string;
 };
@@ -2197,11 +2198,14 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
           er.context_json,
           er.metadata_json,
           sj.payload_json,
+          er.completed_at AS execution_completed_at,
           er.updated_at AS execution_updated_at
         FROM scheduler_job_records sj
         LEFT JOIN execution_records er ON er.scheduler_job_id = sj.id
         ${projectFilter}
-        ORDER BY COALESCE(er.updated_at, sj.updated_at) DESC
+        ORDER BY
+          unixepoch(replace(substr(COALESCE(er.completed_at, er.updated_at, sj.updated_at, sj.created_at), 1, 19), 'T', ' ')) DESC,
+          sj.rowid DESC
         LIMIT 100`,
       params: projectId ? [projectId, projectId, projectId] : [],
     },
@@ -2247,6 +2251,7 @@ function buildQueueGroups(dbPath: string, projectId?: string): { groups: Record<
       preferenceSource: executionPreference?.source,
       threadId: optionalString(metadata.threadId),
       turnId: optionalString(metadata.turnId),
+      completedAt: optionalString(row.execution_completed_at),
       updatedAt: optionalString(row.execution_updated_at) ?? optionalString(row.job_updated_at),
       summary: optionalString(row.summary),
     };

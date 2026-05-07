@@ -17,7 +17,7 @@ HLD 参考: 第 7.15 节 VSCode SpecDrive Extension
 
 | Webview | View | 说明 |
 |---|---|
-| Execution Workbench | Queue Timeline | 按 `running`、`queued`、`approval_needed`、`blocked`、`failed`、`paused`、`cancelled`、`skipped`、`completed` 展示可折叠 Job 分类 panel；不展示独立 `ready` 分类；`running` 和 `queued` 默认展开，其它分类默认折叠。 |
+| Execution Workbench | Queue Timeline | 按 `running`、`queued`、`approval / review`（合并 `approval_needed`、`approval_answered` 与 `review_needed`）、`blocked / failed`（合并 `blocked` 与 `failed`）、`paused`、`cancelled`、`skipped`、`completed` 展示可折叠 Job 分类 panel；不展示独立 `ready` 分类；`running` 和 `queued` 默认展开，其它分类默认折叠。 |
 | Execution Workbench | Auto Run Control | 提供 start auto run、pause automation、resume automation、stop、并发策略和下一步动作预览。 |
 | Execution Workbench | Selected Task Actions | 队列行支持显式选中；顶部自动执行入口在 Start Auto Run / Pause Auto Run 间切换；Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 默认禁用，只对选中任务可用，并根据选中任务状态启用、禁用或切换按钮文案。 |
 | Execution Workbench | Current Execution | 展示当前 Execution Record、thread/turn、步骤进度、raw log refs、diff 摘要和输出校验状态。 |

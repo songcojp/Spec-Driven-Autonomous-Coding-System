@@ -108,7 +108,7 @@ Feature ID: FEAT-021
 
 ### T-021-21 Execution Workbench 队列分类折叠
 状态: done
-描述: Execution Workbench 队列分类 panel 支持折叠/展开；分类移除 `ready`，并按 `running`、`queued`、`approval_needed`、`blocked`、`failed`、`paused`、`cancelled`、`skipped`、`completed` 固定排序；`running` 和 `queued` 默认展开，其它分类默认折叠。
+描述: Execution Workbench 队列分类 panel 支持折叠/展开；分类移除 `ready`，并按 `running`、`queued`、`approval / review`（合并 `approval_needed`、`approval_answered` 与 `review_needed`）、`blocked / failed`（合并 `blocked` 与 `failed`）、`paused`、`cancelled`、`skipped`、`completed` 固定排序；`running` 和 `queued` 默认展开，其它分类默认折叠。
 验证: `node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 源码边界；`git diff --check` 验证文档和代码格式。
 
 ### T-021-22 Feature blocked / review 临时 Pass 命令

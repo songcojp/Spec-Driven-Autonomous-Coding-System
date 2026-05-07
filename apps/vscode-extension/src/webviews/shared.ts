@@ -539,6 +539,7 @@ export function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
       ["Run Mode", item.runMode],
       ["Provider", item.adapterId],
       ["Preference", item.preferenceSource],
+      ["Completed", item.completedAt],
       ["Updated", item.updatedAt],
     ]
     : [
@@ -552,6 +553,7 @@ export function executionFieldsHtml(item: SpecDriveIdeQueueItem): string {
       ["Run Mode", item.runMode],
       ["Provider", item.adapterId],
       ["Preference", item.preferenceSource],
+      ["Completed", item.completedAt],
       ["Updated", item.updatedAt],
     ];
   return `<ul>${fields

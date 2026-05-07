@@ -606,6 +606,38 @@ test("SpecDrive IDE completed Feature prefers completed execution across mixed t
   assert.equal(feature?.latestExecutionStatus, "completed");
 });
 
+test("SpecDrive IDE queue orders jobs by completed time descending", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-OLDER-END', 'bull-older-end', 'specdrive:execution-adapter', 'cli.run', 'completed', '{}', '2026-05-05T18:30:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, updated_at, summary, metadata_json)
+        VALUES ('RUN-OLDER-END', 'JOB-OLDER-END', 'codex.cli', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05T18:00:00.000Z', '2026-05-05T18:10:00.000Z', '2026-05-05T18:30:00.000Z', 'Older completion but newer update.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-016" })],
+    },
+    {
+      sql: `INSERT INTO scheduler_job_records (id, bullmq_job_id, queue_name, job_type, status, payload_json, updated_at)
+        VALUES ('JOB-NEWER-END', 'bull-newer-end', 'specdrive:execution-adapter', 'cli.run', 'completed', '{}', '2026-05-05T18:20:00.000Z')`,
+    },
+    {
+      sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, started_at, completed_at, updated_at, summary, metadata_json)
+        VALUES ('RUN-NEWER-END', 'JOB-NEWER-END', 'codex.cli', 'feature_execution', 'project-ide', ?, 'completed', '2026-05-05T18:00:00.000Z', '2026-05-05T18:20:00.000Z', '2026-05-05T18:20:00.000Z', 'Newer completion.', '{}')`,
+      params: [JSON.stringify({ featureId: "FEAT-016" })],
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+
+  assert.deepEqual(view.queue.groups.completed.map((item) => item.executionId), ["RUN-NEWER-END", "RUN-OLDER-END"]);
+  assert.equal(view.queue.groups.completed[0].completedAt, "2026-05-05T18:20:00.000Z");
+});
+
 test("SpecDrive IDE ready Feature keeps latest completed token cost after current job is cleared", () => {
   const workspaceRoot = makeWorkspace();
   writeFileSync(join(workspaceRoot, "docs/features/feat-016-specdrive-ide-foundation/spec-state.json"), JSON.stringify({

@@ -83,7 +83,7 @@ Feature 名称: IDE Workbench Webviews
 - [x] Feature Spec Webview 必须按分类 panel 展示 Feature：依次为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`；每组可点击折叠/展开并显示展开/折叠状态图标，Done 默认折叠，其它默认展开；panel 中 Feature list 必须自适应换行，不依赖 panel 内垂直滚动条或水平滚动条展示卡片。
 - [x] Feature Spec Webview 顶部第一个控件必须是单个视图切换按钮；Feature List 视图下按钮文字显示 `Dependency Graph`，点击后切换到 Dependency Graph 视图并将按钮文字改为 `Feature List`；`Dependency Graph` 视图以树状层级展示 Feature 之间的依赖关系，标出缺失依赖，树节点支持折叠和展开，并默认展开到二级节点。
 - [x] `Execution Workbench` 队列任务必须支持选中；Run Now、Pause / Resume、Retry、Cancel、Skip、Reprioritize、Enqueue 等顶部任务按钮必须只在有选中任务且选中任务状态允许该动作时启用；Pause / Resume 作为双态按钮随选中任务状态切换。
-- [x] `Execution Workbench` 队列分类 panel 必须支持点击折叠/展开；分类顺序固定为 `running`、`queued`、`approval_needed`、`blocked`、`failed`、`paused`、`cancelled`、`skipped`、`completed`，不得展示独立 `ready` 分类；`running` 和 `queued` 默认展开，其它分类默认折叠。
+- [x] `Execution Workbench` 队列分类 panel 必须支持点击折叠/展开；分类顺序固定为 `running`、`queued`、`approval / review`（合并 `approval_needed`、`approval_answered` 与 `review_needed`）、`blocked / failed`（合并 `blocked` 与 `failed`）、`paused`、`cancelled`、`skipped`、`completed`，不得展示独立 `ready` 分类；`running` 和 `queued` 默认展开，其它分类默认折叠。
 - [x] `Execution Workbench` 顶部自动执行入口必须在 `Start Auto Run` / `Pause Auto Run` 两种状态间切换；其它顶部任务按钮默认禁用，只有选中任务后才按选中任务状态启用。
 - [x] `Execution Workbench` 自动执行入口状态必须使用 Control Plane 返回的自动执行启用状态；Auto Run 是启用/禁用自动续跑的状态标记，不是当前队列运行状态。点击 `Start Auto Run` 必须将项目自动执行标记置为启用，即使队列为空或暂时选不到可执行 Feature 也要切换为启用；点击 `Pause Auto Run` 必须禁用自动执行。普通队列是否存在 running / queued 任务不得决定该按钮状态。
 - [x] `Execution Workbench` 顶部按钮必须区分全局任务调度动作和 Job 动作；全局动作不依赖 Job 选择，Job 动作必须在选中 Job 后才启用，并且对 schedule-only Job 与已有 Execution Record 的 Run 都能正确执行。
