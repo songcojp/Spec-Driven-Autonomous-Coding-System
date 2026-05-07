@@ -171,7 +171,7 @@ declare module "vscode" {
 
   export interface WebviewPanel extends Disposable {
     webview: Webview;
-    iconPath?: Uri;
+    iconPath?: Uri | { light: Uri; dark: Uri };
     onDidDispose: Event<void>;
     reveal(viewColumn?: ViewColumn): void;
   }

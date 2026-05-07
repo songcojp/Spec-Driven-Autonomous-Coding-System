@@ -1048,6 +1048,7 @@ async function openItem(item: unknown): Promise<void> {
 async function openExecution(item: unknown): Promise<void> {
   if (!isQueueItem(item)) return;
   const panel = vscode.window.createWebviewPanel("specdriveExecution", "SpecDrive Execution", vscode.ViewColumn.Active, { enableScripts: false });
+  panel.iconPath = specExplorePanelIconUri("run-all");
   panel.webview.html = renderExecutionWebview(await fetchExecutionDetail(item.item));
 }
 
@@ -1312,8 +1313,12 @@ async function openSystemSettings(provider: SpecExplorerProvider): Promise<void>
   await render();
 }
 
-function specExplorePanelIconUri(icon: "checklist" | "layout" | "run-all" | "settings-gear"): vscode.Uri {
-  return vscode.Uri.file(join(__dirname, "..", "resources", `spec-explore-${icon}.svg`));
+function specExplorePanelIconUri(icon: "checklist" | "layout" | "run-all" | "settings-gear"): { light: vscode.Uri; dark: vscode.Uri } {
+  const resourceRoot = join(__dirname, "..", "resources");
+  return {
+    light: vscode.Uri.file(join(resourceRoot, `spec-explore-${icon}-light.svg`)),
+    dark: vscode.Uri.file(join(resourceRoot, `spec-explore-${icon}-dark.svg`)),
+  };
 }
 
 async function handleWorkbenchMessage(

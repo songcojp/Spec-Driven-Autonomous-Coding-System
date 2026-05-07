@@ -235,11 +235,13 @@ test("VSCode Spec Explorer title actions are ordered by workflow", () => {
   assert.match(extensionSource, /if \(featureSpecPanel\) \{\n    featureSpecPanel\.selectFeature\(item\);/);
   assert.match(extensionSource, /if \(executionWorkbenchPanel\) \{\n    executionWorkbenchPanel\.panel\.reveal\(vscode\.ViewColumn\.Active\);/);
   assert.match(extensionSource, /if \(systemSettingsPanel\) \{\n    systemSettingsPanel\.panel\.reveal\(vscode\.ViewColumn\.Active\);/);
-  assert.match(extensionSource, /function specExplorePanelIconUri\(icon: "checklist" \| "layout" \| "run-all" \| "settings-gear"\): vscode\.Uri/);
-  assert.match(extensionSource, /join\(__dirname, "\.\.", "resources", `spec-explore-\$\{icon\}\.svg`\)/);
+  assert.match(extensionSource, /function specExplorePanelIconUri\(icon: "checklist" \| "layout" \| "run-all" \| "settings-gear"\): \{ light: vscode\.Uri; dark: vscode\.Uri \}/);
+  assert.match(extensionSource, /spec-explore-\$\{icon\}-light\.svg/);
+  assert.match(extensionSource, /spec-explore-\$\{icon\}-dark\.svg/);
+  assert.match(extensionSource, /const resourceRoot = join\(__dirname, "\.\.", "resources"\)/);
   assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("checklist"\)/);
   assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("layout"\)/);
-  assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("run-all"\)/);
+  assert.equal((extensionSource.match(/panel\.iconPath = specExplorePanelIconUri\("run-all"\)/g) ?? []).length, 2);
   assert.match(extensionSource, /panel\.iconPath = specExplorePanelIconUri\("settings-gear"\)/);
 });
 
