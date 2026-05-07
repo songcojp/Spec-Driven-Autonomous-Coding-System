@@ -14,13 +14,15 @@ PR creation, PR checks, PR merge, and remote branch cleanup.
 
 The scheduler/runtime should start this skill with a sandbox that can access the
 target repository Git metadata, such as `danger-full-access` in trusted local
-development. Treat invocation `workspaceRoot` as the implementation checkout and
-do not create a sibling Git worktree as part of this skill.
+development. Treat invocation `workspaceRoot` as the owner checkout. Before
+editing, try to create a sibling Git worktree for the intended feature branch. If
+worktree creation fails, record the reason and create or switch to the intended
+feature branch in `workspaceRoot` instead.
 
 ## Workflow
 
 1. Read the task, related Feature Spec, restrictive requirements, design constraints, allowed file scope, and project constitution constraints.
-2. Inspect the current repository state in invocation `workspaceRoot`, confirm the active branch or create/switch to the intended feature branch only when required by the delivery policy, and preserve unrelated user changes before editing. Do not create a new Git worktree.
+2. Inspect the current repository state in invocation `workspaceRoot`, preserve unrelated user changes, and try to create a sibling Git worktree for the intended feature branch before editing. If worktree creation fails, record the failure reason and create or switch to the intended feature branch in `workspaceRoot` instead.
 3. Run requirements review against the Feature Spec and source requirements. Confirm that each implementation task maps to approved `REQ-*`, `NFR-*`, `EDGE-*`, or task traceability. Stop with `clarification_needed` when material requirement intent is unclear.
 4. Run design review against the Feature Spec design, HLD/design constraints, data/contract boundaries, and allowed file scope. Stop with `risk_review_needed` when the implementation would exceed approved design or scope.
 5. If requirements or design review exposes a question that can be safely resolved by automatic decision, record it in a dedicated clarification and decision section in the corresponding document before implementation. Use the affected document closest to the decision:
@@ -35,11 +37,11 @@ do not create a sibling Git worktree as part of this skill.
 10. Fix required code review findings before running the test flow. If a finding requires requirement or design changes, route through clarification, risk review, or spec evolution before continuing.
 11. Add or update focused tests when behavior, contracts, state, or user-visible UI changes.
 12. Run targeted verification and capture command results.
-13. Confirm the implementation checkout contains only scoped changes intended for this task, then commit them on the feature branch with a narrow Conventional Commit message.
+13. Confirm the implementation checkout, whether sibling worktree or fallback branch in `workspaceRoot`, contains only scoped changes intended for this task, then commit them on the feature branch with a narrow Conventional Commit message.
 14. Use `gh` for GitHub delivery: authenticate or report the blocker, push/set upstream as needed, create a pull request with traceability, changed files, verification results, deviations, and residual risks, then record the PR URL.
 15. Use `gh pr checks` or the configured equivalent to inspect required checks. If checks or required reviews are pending or failing, stop with `approval_needed`, `review_needed`, or `blocked` instead of claiming delivery is complete.
 16. Use `gh pr merge` only after required checks/reviews pass and project policy allows merge.
-17. Delete the remote feature branch through `gh` or the PR merge cleanup option when available. Delete the local feature branch only when policy allows and only after confirming no uncommitted changes remain.
+17. After the PR is merged, delete the remote feature branch through `gh` or the PR merge cleanup option when available. Delete the local feature branch only when policy allows and only after confirming no uncommitted changes remain. If a sibling worktree was created, remove it after confirming it is clean.
 18. Report any deviations, blockers, cleanup failures, missing commit evidence, missing PR evidence, or required spec evolution.
 
 ## Review Gates
@@ -53,13 +55,13 @@ do not create a sibling Git worktree as part of this skill.
 
 ## Git Delivery
 
-- Work in invocation `workspaceRoot` as the implementation checkout. This skill must not create sibling Git worktrees or require worktree evidence for completion.
-- Preserve unrelated changes in the implementation checkout.
+- Treat invocation `workspaceRoot` as the owner checkout. Prefer a sibling Git worktree for feature implementation and delivery. If worktree creation fails, record the blocker and fall back to a new or existing feature branch in `workspaceRoot`.
+- Preserve unrelated changes in the owner checkout and in the implementation checkout.
 - Commit only the scoped implementation, tests, and required spec or decision-record updates. Local staging and commit creation may use `git`; never include unrelated modified files.
 - Use `gh` for GitHub-facing operations: checking authentication, creating PRs, reading PR status/checks, merging PRs, and remote branch cleanup. Do not hardcode GitHub API calls when `gh` can provide the operation.
 - Create and merge the PR as part of the skill delivery lane when the environment has the required repository permissions and checks pass. If repository policy requires a separate delivery skill, stop after the scoped commit and return `approval_needed` with a `nextAction` to run `pr-generation-skill`.
-- After merge, clean up the remote feature branch and local feature branch when policy allows. If cleanup cannot complete safely, report the exact blocker and leave the branch intact.
-- `completed` requires auditable `gitDelivery` evidence for the workspace path, branch, commit hash, PR URL or approved delivery exemption, merge status, and cleanup status. Missing commit or PR evidence must produce `review_needed`, `approval_needed`, or `blocked`.
+- After merge, clean up the remote feature branch and local feature branch when policy allows, and remove the sibling worktree when one was used. If cleanup cannot complete safely, report the exact blocker and leave the branch or worktree intact.
+- `completed` requires auditable `gitDelivery` evidence for the owner workspace path, implementation workspace path, worktree creation or fallback reason, branch, commit hash, PR URL or approved delivery exemption, merge status, remote branch cleanup, local branch cleanup, and worktree cleanup. Missing commit, PR, merge, or cleanup evidence must produce `review_needed`, `approval_needed`, or `blocked`.
 
 ## Output
 
@@ -89,7 +91,7 @@ do not create a sibling Git worktree as part of this skill.
 - `implementationPlan`: object with `summary`, `fileScope`, `testPlan`, `reviewFocus`, `traceabilityIds`, and `scopeStatus`.
 - `codeReview`: object with `status`, `findings`, `fixesApplied`, and `residualReviewRisks`.
 - `recordedDecisions`: array of automatic clarification or design decisions recorded in source documents with `document`, `section`, `decision`, `rationale`, `rejectedAlternatives`, and `residualRisk`.
-- `gitDelivery`: object with `workspacePath`, `workspaceVerified`, `branch`, `baseCommit`, `targetBranch`, `commit`, `commitCreated`, `pullRequest`, `pullRequestUrl`, `ghCommands`, `checksStatus`, `mergeStatus`, `remoteBranchDeleted`, `localBranchDeleted`, and `deliveryExemption`.
+- `gitDelivery`: object with `ownerWorkspacePath`, `implementationWorkspacePath`, `workspacePath`, `workspaceVerified`, `worktreeCreated`, `worktreePath`, `worktreeFallbackReason`, `branch`, `baseCommit`, `targetBranch`, `commit`, `commitCreated`, `pullRequest`, `pullRequestUrl`, `ghCommands`, `checksStatus`, `mergeStatus`, `remoteBranchDeleted`, `localBranchDeleted`, `worktreeDeleted`, and `deliveryExemption`.
 - `residualRisks`: array of remaining risks or follow-ups.
 - `blockedReason`: string or `null`.
 
@@ -100,4 +102,4 @@ do not create a sibling Git worktree as part of this skill.
 - Use `failure-recovery-skill` input when verification fails and recovery is allowed.
 - Use `review_needed` when implementation produced changes but the output lacks auditable workspace, commit, PR, or verification evidence.
 - Use `approval_needed` when protected branch, missing review, pending checks, or delivery policy prevents merge or requires a separate `pr-generation-skill` handoff.
-- Use `blocked` when workspace verification, `gh` authentication, PR creation, merge, remote branch deletion, or local branch deletion cannot complete safely.
+- Use `blocked` when workspace verification, fallback branch creation, `gh` authentication, PR creation, merge, remote branch deletion, local branch deletion, or worktree deletion cannot complete safely.
