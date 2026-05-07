@@ -157,7 +157,12 @@ test("VSCode Execution Workbench renders execution result sections from durable 
   assert.match(webviewSource, /<h3>Diff Summary<\/h3>/);
   assert.match(webviewSource, /<h3>SkillOutputContractV1<\/h3>/);
   assert.match(webviewSource, /executionDetail\?\.skillOutputContract/);
-  assert.match(webviewSource, /<div class="section-title"><h2>Blockers & Approvals<\/h2><span>\$\{blockers\.length\}<\/span><\/div>/);
+  assert.match(webviewSource, /const selectedBlockers = selectedBlockerItems\(selectedItem\)/);
+  assert.match(webviewSource, /const blockerApprovalCount = selectedBlockers\.length \+ \(executionDetail\?\.approvalRequests\.length \?\? 0\)/);
+  assert.match(webviewSource, /<div class="section-title"><h2>Blockers & Approvals<\/h2><span>\$\{blockerApprovalCount\}<\/span><\/div>/);
+  assert.match(webviewSource, /renderBlockersAndApprovals\(selectedBlockers, executionDetail\)/);
+  assert.match(webviewSource, /function selectedBlockerItems\(item: SpecDriveIdeQueueItem \| undefined\): SpecDriveIdeQueueItem\[\]/);
+  assert.doesNotMatch(executionWebviewSource, /queue\.filter\(\(item\) => item\.status === "blocked" \|\| item\.status === "approval_needed"\)/);
   assert.match(webviewSource, /Approval Requests/);
   assert.match(webviewSource, /<div class="section-title"><h2>Result Projection<\/h2><span>spec-state\.json<\/span><\/div>/);
   assert.match(webviewSource, /renderSkillOutputSummary\(executionDetail\)/);

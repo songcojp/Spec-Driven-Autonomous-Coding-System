@@ -41,9 +41,10 @@ export function renderExecutionWorkbenchWebview(
   const nonce = webviewNonce();
   const queue = view ? allQueueItems(view) : [];
   const grouped = view?.queue.groups ?? {};
-  const blockers = queue.filter((item) => item.status === "blocked" || item.status === "approval_needed");
   const selectedItem = selectedKey ? detail : undefined;
   const executionDetail = detail && "metadata" in detail ? detail as SpecDriveIdeExecutionDetail : undefined;
+  const selectedBlockers = selectedBlockerItems(selectedItem);
+  const blockerApprovalCount = selectedBlockers.length + (executionDetail?.approvalRequests.length ?? 0);
   return renderWorkbenchPage("Execution Workbench", nonce, `
     <section class="toolbar">
       ${executionPreferenceControls(view)}
@@ -74,8 +75,8 @@ export function renderExecutionWorkbenchWebview(
         ${compactJsonBlock(executionDetail?.diffSummary ?? null)}
         <h3>SkillOutputContractV1</h3>
         ${compactJsonBlock(executionDetail?.skillOutputContract ?? null)}
-        <div class="section-title"><h2>Blockers & Approvals</h2><span>${blockers.length}</span></div>
-        ${renderBlockersAndApprovals(blockers, executionDetail)}
+        <div class="section-title"><h2>Blockers & Approvals</h2><span>${blockerApprovalCount}</span></div>
+        ${renderBlockersAndApprovals(selectedBlockers, executionDetail)}
         <div class="section-title"><h2>Result Projection</h2><span>spec-state.json</span></div>
         ${renderSkillOutputSummary(executionDetail)}
         <h3>Produced Artifacts</h3>
@@ -85,6 +86,12 @@ export function renderExecutionWorkbenchWebview(
       </section>
     </main>
   `);
+}
+
+function selectedBlockerItems(item: SpecDriveIdeQueueItem | undefined): SpecDriveIdeQueueItem[] {
+  if (!item) return [];
+  const status = item.status.toLowerCase();
+  return status === "blocked" || status === "approval_needed" ? [item] : [];
 }
 
 function renderTokenConsumption(detail: SpecDriveIdeExecutionDetail | undefined): string {
