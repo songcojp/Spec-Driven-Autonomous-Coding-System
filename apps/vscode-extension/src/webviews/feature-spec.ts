@@ -55,7 +55,7 @@ export function renderFeatureSpecWebview(
 function renderProjectCostTotal(view: SpecDriveIdeView | undefined): string {
   const cost = view?.projectCost;
   if (!cost) return "";
-  return `<span class="project-cost-total" title="Project cost total from execution history"><span>Project Cost Total</span><strong>${escapeHtml(formatCurrency(cost.totalUsd, cost.currency))}</strong></span>`;
+  return `<span class="project-cost-total" title="Project cost total from execution history"><span>Project Cost Total</span><strong>${escapeHtml(formatCurrency(cost.totalUsd, cost.currency, 2))}</strong></span>`;
 }
 
 type DependencyTreeNode = {
@@ -296,9 +296,9 @@ function formatInteger(value: number): string {
   return Number.isFinite(value) ? Math.trunc(value).toLocaleString("en-US") : "0";
 }
 
-function formatCurrency(value: number, currency: string): string {
+function formatCurrency(value: number, currency: string, fractionDigits = 6): string {
   const amount = Number.isFinite(value) ? value : 0;
-  return `${currency || "USD"} ${amount.toFixed(6)}`;
+  return `${currency || "USD"} ${amount.toFixed(fractionDigits)}`;
 }
 
 export function preferredFeature(view: SpecDriveIdeView | undefined): SpecDriveIdeFeatureNode | undefined {

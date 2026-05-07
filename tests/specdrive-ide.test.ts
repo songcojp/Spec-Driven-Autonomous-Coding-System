@@ -1752,7 +1752,7 @@ test("SpecDrive IDE Feature Spec nodes show latest run cost while job history ke
   assert.equal(feature?.tokenConsumption?.runId, "RUN-LATEST-COST");
   assert.equal(feature?.tokenConsumption?.totalTokens, 2400);
   assert.equal(feature?.tokenConsumption?.costUsd, 0.008);
-  assert.equal(view.projectCost.totalUsd, 0.011);
+  assert.equal(view.projectCost.totalUsd, 0.01);
   assert.equal(view.projectCost.tokensUsed, 3400);
   assert.equal(view.projectCost.currency, "USD");
   assert.equal(tokenRows.count, 2);

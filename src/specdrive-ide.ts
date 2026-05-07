@@ -420,10 +420,14 @@ function buildProjectCostSummary(dbPath: string, projectId?: string): SpecDriveI
   ]);
   const row = result.queries.projectCost[0] ?? {};
   return {
-    totalUsd: nonNegativeNumberOrZero(row.cost_usd),
+    totalUsd: roundCurrencyAmount(nonNegativeNumberOrZero(row.cost_usd)),
     tokensUsed: numberOrZero(row.total_tokens),
     currency: "USD",
   };
+}
+
+function roundCurrencyAmount(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 export function isSpecChangeRequestV1(value: unknown): value is SpecChangeRequestV1 {

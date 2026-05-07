@@ -148,7 +148,7 @@ Feature ID: FEAT-021
 
 ### T-021-29 Feature Spec 项目成本总计
 状态: done
-描述: Feature Spec Webview 顶部操作栏靠右显示当前项目成本总计；总计按当前项目执行历史累计 `token_consumption_records.cost_usd`，不改变选中 Feature 详情中“最新执行成本”的投影语义。
+描述: Feature Spec Webview 顶部操作栏靠右显示当前项目成本总计；总计按当前项目执行历史累计 `token_consumption_records.cost_usd`，保留两位小数并四舍五入，不改变选中 Feature 详情中“最新执行成本”的投影语义。
 验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖项目累计成本 ViewModel 和 toolbar 靠右渲染边界。
 
 ### T-021-30 Feature Review 审批入口
