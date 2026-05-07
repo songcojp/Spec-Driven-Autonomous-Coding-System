@@ -19,13 +19,25 @@ editing, try to create a sibling Git worktree for the intended feature branch. I
 worktree creation fails, record the reason and create or switch to the intended
 feature branch in `workspaceRoot` instead.
 
+Runtime integration requirements:
+
+- Load the provider prompt from `agents/codex.yaml` or `agents/openai.yaml` when
+  this skill is invoked through Codex/OpenAI runtimes.
+- Use the compact evidence `result` contract in this file as the output schema
+  for `feature_execution`; do not replace it with a generic
+  `resultSummary/details/items/openQuestions` schema.
+- If the runtime cannot expose the compact evidence result schema, return
+  `review_needed` and record the schema limitation in `blockedReason` instead of
+  returning `completed`.
+
 ## Subagent Execution Model
 
-Use Codex CLI native subagents to reduce main-thread context growth and to keep
-long FEAT implementation paths from losing required delivery steps. The mainline
-agent owns control flow, scope, integration, final review, task status updates,
-Git delivery, and the final `SkillOutputContractV1`. Subagents are helpers; they
-do not own final delivery.
+Default to Codex CLI native subagents for feature execution unless the task is
+too small to benefit from delegation or subagents are unavailable. Use subagents
+to reduce main-thread context growth and to keep long FEAT implementation paths
+from losing required delivery steps. The mainline agent owns control flow, scope,
+integration, final review, task status updates, Git delivery, and the final
+`SkillOutputContractV1`. Subagents are helpers; they do not own final delivery.
 
 Before editing, the mainline agent must:
 
@@ -57,6 +69,22 @@ If Codex CLI subagents are unavailable, continue in the owner thread using the
 same ledger, scope, review, and output requirements. Report that fallback in
 `result.subagentUsageSummary`.
 
+Default delegation plan:
+
+1. Use an explorer subagent for repository mapping when the feature touches more
+   than one package, app, persistence surface, or UI/API boundary.
+2. Use worker subagents only after requirements and design gates pass and the
+   ledger assigns disjoint file ownership.
+3. Use a review subagent after implementation and before test execution when the
+   diff touches contracts, persistence, security/safety policy, UI behavior, or
+   shared runtime behavior.
+4. Use a verification subagent only to analyze failing commands or propose a
+   scoped recovery; final acceptance evidence remains the mainline agent's
+   responsibility.
+5. If no subagent is used, add one owner-thread fallback entry to
+   `result.subagentUsageSummary` with the reason, owned files, and token
+   visibility status. Do not omit this field.
+
 ## Mainline Guardrails
 
 - Keep the feature execution ledger current after every subagent result and
@@ -67,10 +95,10 @@ same ledger, scope, review, and output requirements. Report that fallback in
   has passed code review or all blocking findings have been fixed.
 - Do not return `completed` unless required Git delivery evidence exists or a
   delivery exemption is explicitly recorded in `result.gitDelivery`.
-- Do not hide required structured output inside free-form `details`. The final
-  `result` object must include structured `changedFiles`, `verification`,
-  `implementedTasks`, `reviewGates`, `implementationPlan`, `codeReview`,
-  `gitDelivery`, `subagentUsageSummary`, `residualRisks`, and `blockedReason`.
+- Keep final output compact. Do not hide required evidence inside free-form
+  `details`, but do not duplicate full plans, ledgers, logs, or review prose in
+  the final JSON. The final `result` object must include the compact evidence
+  fields listed below.
 
 ## Token and Cost Handling
 
@@ -153,10 +181,10 @@ At finalization:
 ## Output
 
 - Code changes within scope.
-- Implementation plan summary.
-- Feature execution ledger summary.
-- Subagent usage summary, including fallback when subagents are unavailable.
-- Code review findings and fixes.
+- Compact implementation plan and ledger status.
+- Compact subagent usage summary, including fallback when subagents are
+  unavailable.
+- Compact code review outcome.
 - Test or verification summary.
 - Updated `docs/features/<feature-id>/tasks.md` task blocks and task statuses for completed and verified tasks, including normalization from compact legacy rows when needed.
 - Residual risks and follow-up notes.
@@ -172,19 +200,29 @@ At finalization:
 
 ## Specialized Result Contract
 
-`result` should contain:
+`result` should be compact. Prefer short strings, path arrays, and status
+objects over nested prose. Store detailed ledgers, long review notes, command
+logs, and rationale in source documents, task notes, produced artifacts, or run
+logs instead of duplicating them here.
 
-- `changedFiles`: array of code, test, config, or docs files changed.
-- `verification`: array of commands with `command`, `cwd`, `status`, `exitCode`, and concise `summary`.
-- `implementedTasks`: array of completed Feature Spec task IDs or task names. When `tasks.md` statuses were changed, this array must match the normalized task IDs whose `状态:` or `Status:` lines were updated to `done`.
-- `reviewGates`: array of requirements and design review outcomes with `gate`, `status`, `summary`, and related traceability IDs.
-- `implementationPlan`: object with `summary`, `fileScope`, `testPlan`, `reviewFocus`, `traceabilityIds`, `scopeStatus`, `delegationPlan`, and `ledger`.
-- `codeReview`: object with `status`, `findings`, `fixesApplied`, and `residualReviewRisks`.
-- `recordedDecisions`: array of automatic clarification or design decisions recorded in source documents with `document`, `section`, `decision`, `rationale`, `rejectedAlternatives`, and `residualRisk`.
-- `gitDelivery`: object with `ownerWorkspacePath`, `implementationWorkspacePath`, `workspacePath`, `workspaceVerified`, `worktreeCreated`, `worktreePath`, `worktreeFallbackReason`, `branch`, `baseCommit`, `targetBranch`, `commit`, `commitCreated`, `pullRequest`, `pullRequestUrl`, `ghCommands`, `checksStatus`, `mergeStatus`, `remoteBranchDeleted`, `localBranchDeleted`, `worktreeDeleted`, and `deliveryExemption`.
-- `subagentUsageSummary`: array of subagent or owner-thread fallback entries with `name`, `role`, `delegatedPurpose`, `ownedFiles`, `status`, `editedFiles`, `tokenUsageDirectlyObservable`, and `notes`.
-- `tokenUsageObservation`: object with `cliOutputUsagePresent`, `reportUsagePresent`, `parentRunUsageIncludesSubagents`, `subagentUsageDirectlyObservable`, and `runtimeFollowUpNeeded`.
-- `residualRisks`: array of remaining risks or follow-ups.
+Required compact fields:
+
+- `changedFiles`: array of changed file paths only.
+- `verification`: array of `{ command, status, summary }`, where `status` is
+  `passed`, `failed`, or `skipped`.
+- `tasks`: object with `done` and `blocked` arrays of normalized task IDs. When
+  `tasks.md` statuses were changed, `done` must match the IDs updated to `done`.
+- `gates`: object with `requirements`, `design`, and `codeReview` statuses.
+  Values should be short, for example `passed`, `review_needed`, or `blocked`.
+- `delegation`: array of compact entries `{ role, status, files, note }`.
+  Include at least one entry. If no subagent is used, include an owner-thread
+  fallback entry with the reason.
+- `git`: object with `branch`, `commit`, `pr`, `checks`, `merge`, `cleanup`, and
+  `exemption`. Use `null` for missing values and return a non-`completed` status
+  when required delivery evidence is missing.
+- `tokenUsage`: object with `parentUsagePresent` and
+  `subagentUsageObservable` booleans.
+- `risks`: array of concise residual risk strings.
 - `blockedReason`: string or `null`.
 
 ## Failure Routing

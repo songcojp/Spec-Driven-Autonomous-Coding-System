@@ -1,0 +1,4 @@
+interface:
+  display_name: "Feat Implement Skill"
+  short_description: "Implement Feature Specs with review gates"
+  default_prompt: "Use $feat-implement-skill to execute the scheduled Feature Spec with default subagent delegation, scoped review gates, verification, task status sync, git delivery evidence, and a compact evidence result contract."
