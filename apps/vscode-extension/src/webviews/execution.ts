@@ -24,6 +24,8 @@ const EXECUTION_QUEUE_GROUPS: Array<{ status: string; open: boolean }> = [
   { status: "running", open: true },
   { status: "queued", open: true },
   { status: "approval_needed", open: false },
+  { status: "approval_answered", open: false },
+  { status: "review_needed", open: false },
   { status: "blocked", open: false },
   { status: "failed", open: false },
   { status: "paused", open: false },
