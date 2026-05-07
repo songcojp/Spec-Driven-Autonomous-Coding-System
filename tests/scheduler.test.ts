@@ -192,6 +192,39 @@ test("cli.run executes mocked CLI runner and persists runner artifacts", async (
   assert.equal(rows.statusChecks.length, 0);
 });
 
+test("cli.run creates a ReviewItem when feature execution returns review_needed", async () => {
+  const root = mkdtempSync(join(tmpdir(), "specdrive-cli-run-review-"));
+  prepareSkillWorkspace(root);
+  const dbPath = makeDbPath();
+  seedCliRunData(dbPath, root);
+
+  const result = await runCliRunJob(dbPath, cliRunPayload("RUN-CLI-REVIEW"), () => ({
+    status: 0,
+    stdout: `{"type":"session","session_id":"SESSION-CLI-REVIEW"}\n${skillOutputEvent("RUN-CLI-REVIEW", {
+      status: "review_needed",
+      summary: "Implementation is verified; AGENTS.md requires operator authorization before commit or PR delivery.",
+    })}`,
+    stderr: "",
+  }));
+  const rows = runSqlite(dbPath, [], [
+    { name: "run", sql: "SELECT status FROM execution_records WHERE id = 'RUN-CLI-REVIEW'" },
+    { name: "reviews", sql: "SELECT id, project_id, feature_id, run_id, status, review_needed_reason, trigger_reasons_json, recommended_actions_json FROM review_items WHERE run_id = 'RUN-CLI-REVIEW'" },
+    { name: "feature", sql: "SELECT status FROM features WHERE id = 'FEAT-CLI'" },
+  ]).queries;
+
+  assert.equal(result.status, "review_needed");
+  assert.equal(rows.run[0].status, "review_needed");
+  assert.equal(rows.reviews.length, 1);
+  assert.equal(rows.reviews[0].id, "execution-review-RUN-CLI-REVIEW");
+  assert.equal(rows.reviews[0].project_id, "project-1");
+  assert.equal(rows.reviews[0].feature_id, "FEAT-CLI");
+  assert.equal(rows.reviews[0].status, "review_needed");
+  assert.equal(rows.reviews[0].review_needed_reason, "approval_needed");
+  assert.deepEqual(JSON.parse(String(rows.reviews[0].trigger_reasons_json)), ["permission_escalation"]);
+  assert.deepEqual(JSON.parse(String(rows.reviews[0].recommended_actions_json)), ["approve_continue", "request_changes", "reject"]);
+  assert.equal(rows.feature[0].status, "review_needed");
+});
+
 test("cli.run keeps large source documents out of the provider prompt", async () => {
   const root = mkdtempSync(join(tmpdir(), "specdrive-cli-compact-prompt-"));
   prepareSkillWorkspace(root);
@@ -859,14 +892,16 @@ function skillOutputEvent(executionId: string, overrides: {
   requestedAction?: string;
   producedArtifacts?: Array<{ path: string; kind: string; status: string }>;
   changeIds?: string[];
+  status?: "completed" | "review_needed" | "blocked" | "failed" | "cancelled";
+  summary?: string;
 } = {}): string {
   const output = {
     contractVersion: "skill-contract/v1",
     executionId,
     skillSlug: overrides.skillSlug ?? "feat-implement-skill",
     requestedAction: overrides.requestedAction ?? "feature_execution",
-    status: "completed",
-    summary: "Skill completed.",
+    status: overrides.status ?? "completed",
+    summary: overrides.summary ?? "Skill completed.",
     nextAction: "Continue scheduler flow.",
     producedArtifacts: overrides.producedArtifacts ?? [],
     traceability: {

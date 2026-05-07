@@ -47,6 +47,7 @@ import {
   skillOutputToSpecStatePatch,
   writeFileSpecState,
 } from "./spec-protocol.ts";
+import { createReviewItem, listReviewCenterItems, type ReviewTrigger } from "./review-center.ts";
 
 export const EXECUTION_ADAPTER_QUEUE = "specdrive:execution-adapter";
 export const BULLMQ_EXECUTION_ADAPTER_QUEUE = "specdrive-execution-adapter";
@@ -528,6 +529,15 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
       params: [result.status, new Date().toISOString(), result.summary, JSON.stringify(finalMetadata), payload.executionId],
     },
   ]);
+  ensureExecutionReviewItem(dbPath, {
+    projectId: loaded.projectId ?? payload.projectId,
+    featureId: loaded.featureId ?? featureId,
+    executionId: payload.executionId,
+    status: result.status,
+    summary: result.summary,
+    metadata: finalMetadata,
+    now: new Date(),
+  });
   updateFeatureSpecFileState({
     workspaceRoot: loaded.workspaceRoot,
     featureId: loaded.featureId ?? featureId,
@@ -540,6 +550,69 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     skillOutput: result.adapterResult?.result.skillOutput,
   });
   return { executionId: payload.executionId, status: result.status };
+}
+
+function ensureExecutionReviewItem(
+  dbPath: string,
+  input: {
+    projectId?: string;
+    featureId?: string;
+    executionId: string;
+    status: RunnerQueueStatus;
+    summary: string;
+    metadata?: Record<string, unknown>;
+    now?: Date;
+  },
+): void {
+  if (input.status !== "review_needed") return;
+  const existing = listReviewCenterItems(dbPath).find((item) =>
+    item.runId === input.executionId &&
+    item.status !== "approved" &&
+    item.status !== "closed"
+  );
+  createReviewItem(dbPath, {
+    id: existing?.id ?? `execution-review-${input.executionId}`,
+    projectId: input.projectId,
+    featureId: input.featureId,
+    runId: input.executionId,
+    message: input.summary,
+    reviewNeededReason: executionReviewNeededReason(input.summary, input.metadata),
+    triggerReasons: executionReviewTriggers(input.summary, input.metadata),
+    recommendedActions: ["approve_continue", "request_changes", "reject"],
+    body: {
+      runContract: input.metadata?.executionInvocation,
+      riskExplanation: input.summary,
+      testResults: {
+        contractValidation: input.metadata?.contractValidation,
+        producedArtifacts: input.metadata?.producedArtifacts,
+      },
+    },
+    evidenceRefs: Array.isArray(input.metadata?.rawLogRefs) ? input.metadata.rawLogRefs.map(String) : [],
+    now: input.now,
+  });
+}
+
+function executionReviewNeededReason(
+  summary: string,
+  metadata?: Record<string, unknown>,
+): "approval_needed" | "clarification_needed" | "risk_review_needed" {
+  const text = `${summary}\n${JSON.stringify(metadata ?? {})}`.toLowerCase();
+  if (/\b(clarif|ambigu|question|unknown|unclear)\b/.test(text)) return "clarification_needed";
+  if (/\b(approve|approval|authorize|permission|commit|pull request|\bpr\b|agents\.md)\b/.test(text)) return "approval_needed";
+  return "risk_review_needed";
+}
+
+function executionReviewTriggers(summary: string, metadata?: Record<string, unknown>): ReviewTrigger[] {
+  const text = `${summary}\n${JSON.stringify(metadata ?? {})}`.toLowerCase();
+  if (/\b(approve|approval|authorize|permission|commit|pull request|\bpr\b|agents\.md)\b/.test(text)) {
+    return ["permission_escalation"];
+  }
+  if (/\b(clarif|ambigu|question|unknown|unclear)\b/.test(text)) {
+    return ["high_impact_ambiguity"];
+  }
+  if (text.includes("constitution")) return ["constitution_change"];
+  if (text.includes("architecture")) return ["architecture_change"];
+  return ["failed_tests_continue"];
 }
 
 export async function runCodexAppServerRunJob(
@@ -617,6 +690,17 @@ export async function runCodexAppServerRunJob(
     executionInvocation: loaded.executionInvocation,
   });
   if (!safety.allowed) {
+    const safetyMetadata = {
+      scheduler: "bullmq",
+      jobType: "rpc.run",
+      provider: "codex-rpc",
+      executionPreference,
+      workspaceRoot: loaded.workspaceRoot,
+      safety,
+      skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+      skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+      executionInvocation: loaded.executionInvocation,
+    };
     runSqlite(dbPath, [
       {
         sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
@@ -632,19 +716,19 @@ export async function runCodexAppServerRunJob(
           "review_needed",
           now.toISOString(),
           safety.summary,
-          JSON.stringify({
-            scheduler: "bullmq",
-            jobType: "rpc.run",
-            provider: "codex-rpc",
-            executionPreference,
-            workspaceRoot: loaded.workspaceRoot,
-            safety,
-            skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
-            skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
-          }),
+          JSON.stringify(safetyMetadata),
         ],
       },
     ]);
+    ensureExecutionReviewItem(dbPath, {
+      projectId: loaded.projectId ?? payload.projectId,
+      featureId: loaded.featureId ?? featureId,
+      executionId: payload.executionId,
+      status: "review_needed",
+      summary: safety.summary,
+      metadata: safetyMetadata,
+      now,
+    });
     return { executionId: payload.executionId, status: "review_needed" };
   }
   const heartbeat = recordRunnerHeartbeat({
@@ -792,12 +876,45 @@ export async function runCodexAppServerRunJob(
       message: adapterResult.result.skillOutput?.summary ?? adapterResult.rawLog.stderr,
     }),
   });
-    const finalStatus = appServerResultStatus(adapterResult);
+  const finalStatus = appServerResultStatus(adapterResult);
   const finalSummary = finalStatus === "approval_needed"
     ? "Codex RPC is waiting for approval; autonomous execution is paused for this Feature."
     : finalStatus === "failed" && adapterResult.result.contractValidation && !adapterResult.result.contractValidation.valid
     ? `Skill output contract validation failed: ${adapterResult.result.contractValidation.reasons.join("; ")}`
     : adapterResult.result.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Codex RPC ${finalStatus}.`);
+  const finalMetadata = {
+    scheduler: "bullmq",
+    jobType: "rpc.run",
+    executionPreference,
+    workspaceRoot: loaded.workspaceRoot,
+    skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+    skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+    executionInvocation: loaded.executionInvocation,
+    skillOutputContract: adapterResult.result.skillOutput,
+    producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
+    rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
+    threadId: adapterResult.session.sessionId,
+    turnId: eventTurnId(adapterResult.rawLog.events),
+    transport: adapterConfig?.transport,
+    model: policy.model,
+    cwd: loaded.workspaceRoot,
+    outputSchema: policy.outputSchema,
+    contractValidation: adapterResult.result.contractValidation,
+    approvalState: approvalStateFromEvents(adapterResult.rawLog.events),
+    eventRefs: adapterResult.rawLog.events.map((event, index) => ({
+      index,
+      type: optionalString(event.type),
+      threadId: optionalString(event.threadId) ?? optionalString(event.thread_id),
+      turnId: optionalString(event.turnId) ?? optionalString(event.turn_id),
+    })),
+    adapterConfig: {
+      id: adapterConfig?.id,
+      displayName: adapterConfig?.displayName,
+      executable: adapterConfig?.executable,
+      args: adapterConfig?.args,
+      endpoint: adapterConfig?.endpoint,
+    },
+  };
   runSqlite(dbPath, [
     {
       sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -805,43 +922,19 @@ export async function runCodexAppServerRunJob(
         finalStatus,
         new Date().toISOString(),
         finalSummary,
-        JSON.stringify({
-          scheduler: "bullmq",
-          jobType: "rpc.run",
-          executionPreference,
-          workspaceRoot: loaded.workspaceRoot,
-          skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
-          skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
-          executionInvocation: loaded.executionInvocation,
-          skillOutputContract: adapterResult.result.skillOutput,
-          producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
-          rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
-          threadId: adapterResult.session.sessionId,
-          turnId: eventTurnId(adapterResult.rawLog.events),
-          transport: adapterConfig?.transport,
-          model: policy.model,
-          cwd: loaded.workspaceRoot,
-          outputSchema: policy.outputSchema,
-          contractValidation: adapterResult.result.contractValidation,
-          approvalState: approvalStateFromEvents(adapterResult.rawLog.events),
-          eventRefs: adapterResult.rawLog.events.map((event, index) => ({
-            index,
-            type: optionalString(event.type),
-            threadId: optionalString(event.threadId) ?? optionalString(event.thread_id),
-            turnId: optionalString(event.turnId) ?? optionalString(event.turn_id),
-          })),
-          adapterConfig: {
-            id: adapterConfig?.id,
-            displayName: adapterConfig?.displayName,
-            executable: adapterConfig?.executable,
-            args: adapterConfig?.args,
-            endpoint: adapterConfig?.endpoint,
-          },
-        }),
+        JSON.stringify(finalMetadata),
         payload.executionId,
       ],
     },
   ]);
+  ensureExecutionReviewItem(dbPath, {
+    projectId: loaded.projectId ?? payload.projectId,
+    featureId: loaded.featureId ?? featureId,
+    executionId: payload.executionId,
+    status: finalStatus,
+    summary: finalSummary,
+    metadata: finalMetadata,
+  });
   updateFeatureSpecFileState({
     workspaceRoot: loaded.workspaceRoot,
     featureId: loaded.featureId ?? featureId,
@@ -923,6 +1016,17 @@ export async function runGeminiAcpRunJob(
     executionInvocation: loaded.executionInvocation,
   });
   if (!safety.allowed) {
+    const safetyMetadata = {
+      scheduler: "bullmq",
+      jobType: "rpc.run",
+      provider: "gemini-acp",
+      executionPreference,
+      workspaceRoot: loaded.workspaceRoot,
+      safety,
+      skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+      skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+      executionInvocation: loaded.executionInvocation,
+    };
     runSqlite(dbPath, [
       {
         sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
@@ -938,10 +1042,19 @@ export async function runGeminiAcpRunJob(
           "review_needed",
           now.toISOString(),
           safety.summary,
-          JSON.stringify({ scheduler: "bullmq", jobType: "rpc.run", provider: "gemini-acp", executionPreference, workspaceRoot: loaded.workspaceRoot, safety, skillSlug: loaded.executionInvocation.skillInstruction.skillSlug, skillPhase: loaded.executionInvocation.skillInstruction.requestedAction }),
+          JSON.stringify(safetyMetadata),
         ],
       },
     ]);
+    ensureExecutionReviewItem(dbPath, {
+      projectId: loaded.projectId ?? payload.projectId,
+      featureId: loaded.featureId ?? featureId,
+      executionId: payload.executionId,
+      status: "review_needed",
+      summary: safety.summary,
+      metadata: safetyMetadata,
+      now,
+    });
     return { executionId: payload.executionId, status: "review_needed" };
   }
 
@@ -1087,6 +1200,31 @@ export async function runGeminiAcpRunJob(
     : finalStatus === "failed" && adapterResult.result.contractValidation && !adapterResult.result.contractValidation.valid
     ? `Skill output contract validation failed: ${adapterResult.result.contractValidation.reasons.join("; ")}`
     : adapterResult.result.skillOutput?.summary ?? (adapterResult.rawLog.stderr || `Gemini ACP ${finalStatus}.`);
+  const finalMetadata = {
+    scheduler: "bullmq",
+    jobType: "rpc.run",
+    provider: "gemini-acp",
+    executionPreference,
+    workspaceRoot: loaded.workspaceRoot,
+    skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
+    skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
+    executionInvocation: loaded.executionInvocation,
+    skillOutputContract: adapterResult.result.skillOutput,
+    producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
+    rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
+    sessionId: adapterResult.session.sessionId,
+    transport: adapterConfig?.transport,
+    model: policy.model,
+    cwd: loaded.workspaceRoot,
+    outputSchema: policy.outputSchema,
+    contractValidation: adapterResult.result.contractValidation,
+    approvalState: approvalStateFromEvents(adapterResult.rawLog.events),
+    eventRefs: adapterResult.rawLog.events.map((event, index) => ({
+      index,
+      type: optionalString(event.type),
+    })),
+    adapterConfig: adapterMetadata(adapterConfig),
+  };
   runSqlite(dbPath, [
     {
       sql: "UPDATE execution_records SET status = ?, completed_at = ?, summary = ?, metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -1094,35 +1232,19 @@ export async function runGeminiAcpRunJob(
         finalStatus,
         new Date().toISOString(),
         finalSummary,
-        JSON.stringify({
-          scheduler: "bullmq",
-          jobType: "rpc.run",
-          provider: "gemini-acp",
-          executionPreference,
-          workspaceRoot: loaded.workspaceRoot,
-          skillSlug: loaded.executionInvocation.skillInstruction.skillSlug,
-          skillPhase: loaded.executionInvocation.skillInstruction.requestedAction,
-          executionInvocation: loaded.executionInvocation,
-          skillOutputContract: adapterResult.result.skillOutput,
-          producedArtifacts: adapterResult.result.skillOutput?.producedArtifacts ?? [],
-          rawLogRefs: adapterResult.executionAdapterResult?.rawLogRefs ?? [],
-          sessionId: adapterResult.session.sessionId,
-          transport: adapterConfig?.transport,
-          model: policy.model,
-          cwd: loaded.workspaceRoot,
-          outputSchema: policy.outputSchema,
-          contractValidation: adapterResult.result.contractValidation,
-          approvalState: approvalStateFromEvents(adapterResult.rawLog.events),
-          eventRefs: adapterResult.rawLog.events.map((event, index) => ({
-            index,
-            type: optionalString(event.type),
-          })),
-          adapterConfig: adapterMetadata(adapterConfig),
-        }),
+        JSON.stringify(finalMetadata),
         payload.executionId,
       ],
     },
   ]);
+  ensureExecutionReviewItem(dbPath, {
+    projectId: loaded.projectId ?? payload.projectId,
+    featureId: loaded.featureId ?? featureId,
+    executionId: payload.executionId,
+    status: finalStatus,
+    summary: finalSummary,
+    metadata: finalMetadata,
+  });
   updateFeatureSpecFileState({
     workspaceRoot: loaded.workspaceRoot,
     featureId: loaded.featureId ?? featureId,

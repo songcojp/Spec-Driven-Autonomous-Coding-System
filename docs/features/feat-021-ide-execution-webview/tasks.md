@@ -111,10 +111,10 @@ Feature ID: FEAT-021
 描述: Execution Workbench 队列分类 panel 支持折叠/展开；分类移除 `ready`，并按 `running`、`queued`、`approval_needed`、`blocked`、`failed`、`paused`、`cancelled`、`skipped`、`completed` 固定排序；`running` 和 `queued` 默认展开，其它分类默认折叠。
 验证: `node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 源码边界；`git diff --check` 验证文档和代码格式。
 
-### T-021-22 Feature blocked / review Pass
+### T-021-22 Feature blocked / review 临时 Pass 命令
 状态: done
-描述: Feature Spec Webview 在 blocked / block 或 need review / review_needed Feature 上显示 `Pass` 按钮；点击后通过 `mark_feature_complete` 受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 同步为 `completed`。
-验证: `node --test tests/specdrive-ide.test.ts` 覆盖 blocked 与 review-needed 状态的完成投影；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 按钮显示和受控命令边界。
+描述: 保留 `mark_feature_complete` 受控命令作为 blocked / block 或 need review / review_needed Feature 的临时状态重置能力；命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 同步为 `completed`。该命令不作为 Feature Spec Webview 的默认按钮展示。
+验证: `node --test tests/specdrive-ide.test.ts` 覆盖 blocked 与 review-needed 状态的完成投影；`node --test tests/specdrive-ide-webview-boundary.test.ts` 覆盖 Webview 不展示 Pass 默认入口。
 
 ### T-021-23 Feature Ready 状态入口
 状态: done
@@ -150,3 +150,8 @@ Feature ID: FEAT-021
 状态: done
 描述: Feature Spec Webview 顶部操作栏靠右显示当前项目成本总计；总计按当前项目执行历史累计 `token_consumption_records.cost_usd`，不改变选中 Feature 详情中“最新执行成本”的投影语义。
 验证: `node --test tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖项目累计成本 ViewModel 和 toolbar 靠右渲染边界。
+
+### T-021-30 Feature Review 审批入口
+状态: done
+描述: Feature Spec Webview 在 need review / review_needed Feature 上显示 `Review` 入口，使用当前 Feature 对应的 ReviewItem 执行 `approve_review` 受控命令；执行返回的 review_needed 结果必须创建 ReviewItem，保证 Webview 和 Product Console 使用同一审批事实源。`Pass` 按钮从默认 Webview 隐藏，仅保留为临时重置命令。
+验证: `node --test tests/scheduler.test.ts tests/specdrive-ide.test.ts tests/specdrive-ide-webview-boundary.test.ts` 覆盖 review_needed 执行创建 ReviewItem、IDE ViewModel 投影 ReviewItem、Webview 使用 approve_review 且不展示 Pass。

@@ -594,8 +594,6 @@ function projectAgentGuidelinesTemplate(): string {
     "- Spec evolution changes existing requirement IDs or Feature Specs when repository reality, user decisions, tests, or review findings require it.",
     "- Planning reads the active Feature Spec and produces or validates technical context, research decisions, architecture plan, data model, contracts, quickstart checks, task slicing, and consistency checks.",
     "- Implementation starts only from a bounded Feature Spec/task scope with known requirements, design constraints, allowed files, and verification commands.",
-    "- Verification records the smallest meaningful targeted checks first, then broader checks when the Feature Spec or blast radius requires them.",
-    "- Delivery summaries should cite affected requirement IDs, Feature Specs, changed files, verification evidence, and known follow-ups.",
     "",
     "## Skill Workflow",
     "",
@@ -614,14 +612,6 @@ function projectAgentGuidelinesTemplate(): string {
     "- When repository facts conflict with specs, use the spec workflow to update the specs instead of silently coding around the conflict.",
     "- If intent, acceptance criteria, or file scope is unclear, ask for clarification before risky changes.",
     "- Preserve existing language, structure, numbering, and terminology in localized docs unless a language or tone change is requested.",
-    "",
-    "## Delivery Evidence",
-    "",
-    "- Report commands run, failures, skipped checks, and residual risks.",
-    "- For code changes, include targeted verification evidence tied to the active Feature Spec.",
-    "- For docs-only changes, run at least a diff whitespace check and inspect affected links or referenced paths.",
-    "- Do not commit unless the user asks for a commit or delivery action.",
-    "",
     "Use this file as the target project's SpecDrive operating contract. The SpecDrive control-plane repository may have different AGENTS.md instructions because it is the system implementation, not a managed product workspace.",
     "",
   ].join("\n");
@@ -1322,7 +1312,8 @@ export function createDefaultProjectConstitution(input: Pick<ProjectInput, "name
       "Preserve unrelated user changes.",
     ],
     approvalRules: [
-      "Require review for high-risk, security, permission, architecture, or constitution changes.",
+      "Require review for high-risk, security, permission, protected-boundary, or constitution changes.",
+      "Require review for architecture-governance changes that alter approved specs or system boundaries; implementing architecture already approved by the active Feature Spec does not by itself require extra approval.",
     ],
     defaultConstraints: [
       `Default branch: ${defaultBranch}`,

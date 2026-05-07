@@ -339,12 +339,12 @@ test("VSCode Feature Spec Webview switches between list and dependency graph vie
   assert.match(extensionSource, /isClarificationNeededFeature\(feature\)/);
   assert.match(extensionSource, /commandButton\("Clarify", "openWorkbenchForm"/);
   assert.match(extensionSource, /isReviewNeededFeature\(feature\)/);
-  assert.match(extensionSource, /function isPassableFeature\(feature: SpecDriveIdeFeatureNode\): boolean/);
-  assert.match(extensionSource, /return isReviewNeededFeature\(feature\) \|\| isBlockedFeature\(feature\)/);
+  assert.match(extensionSource, /reviewFeatureButton\("Review", feature, "Feature Detail"\)/);
+  assert.match(extensionSource, /action: "approve_review"/);
+  assert.match(extensionSource, /entityType: "review_item"/);
   assert.doesNotMatch(extensionSource, /selected && isClarificationNeededFeature\(selected\)/);
   assert.doesNotMatch(extensionSource, /selected && isPassableFeature\(selected\)/);
-  assert.match(extensionSource, /approveFeatureReviewButton\("Pass", feature, projectId, "Feature Detail"\)/);
-  assert.match(extensionSource, /action: "mark_feature_complete"/);
+  assert.doesNotMatch(extensionSource, /approveFeatureReviewButton\("Pass"/);
   assert.match(extensionSource, /isReadyMarkableFeature\(feature\)/);
   assert.match(extensionSource, /markFeatureReadyButton\("Ready", feature, projectId, "Feature Detail"\)/);
   assert.match(extensionSource, /action: "mark_feature_ready"/);

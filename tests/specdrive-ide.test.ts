@@ -1335,6 +1335,35 @@ test("SpecDrive IDE pass review command marks review-needed Feature completed", 
   assert.equal(rows.job[0].status, "completed");
 });
 
+test("SpecDrive IDE projects pending Feature review item for Webview approval", () => {
+  const workspaceRoot = makeWorkspace();
+  const dbPath = makeDbPath();
+  initializeSchema(dbPath);
+  seedProject(dbPath, workspaceRoot);
+  runSqlite(dbPath, [
+    {
+      sql: `INSERT INTO features (id, project_id, title, status, priority, folder, primary_requirements_json)
+        VALUES ('FEAT-016', 'project-ide', 'SpecDrive IDE Foundation', 'review_needed', 10, 'feat-016-specdrive-ide-foundation', '["REQ-074"]')`,
+    },
+    {
+      sql: `INSERT INTO review_items (
+          id, project_id, feature_id, status, severity, review_needed_reason,
+          trigger_reasons_json, recommended_actions_json, reference_refs_json, body, created_at, updated_at
+        ) VALUES (
+          'REV-FEAT-016', 'project-ide', 'FEAT-016', 'review_needed', 'medium', 'approval_needed',
+          '["permission_escalation"]', '["approve_continue","request_changes","reject"]', '[]',
+          '{"message":"Review FEAT-016 before continuing."}', '2026-05-02T12:00:00.000Z', '2026-05-02T12:00:00.000Z'
+        )`,
+    },
+  ]);
+
+  const view = buildSpecDriveIdeView(dbPath, { workspaceRoot });
+  const feature = view.features.find((entry) => entry.id === "FEAT-016");
+
+  assert.equal(feature?.latestReviewItemId, "REV-FEAT-016");
+  assert.equal(feature?.latestReviewStatus, "review_needed");
+});
+
 test("SpecDrive IDE pass command marks blocked Feature and latest execution completed", () => {
   const workspaceRoot = makeWorkspace();
   const dbPath = makeDbPath();

@@ -457,7 +457,7 @@ Collaborates With:
 
 Responsibilities:
 
-- 接收因权限、安全、预算、高风险、diff 过大、forbidden files、多次失败、需求歧义、权限提升、constitution 或架构变更触发的 Review Needed。
+- 接收因权限、安全、预算、高风险、diff 过大、forbidden files、多次失败、需求歧义、权限提升、AGENTS.md / 项目宪章人工授权规则、Project Memory / 项目健康检查冲突、constitution 或架构变更触发的 Review Needed。
 - 展示任务目标、关联 Spec、Run Contract、diff、测试结果、风险说明、执行结果 和推荐动作。
 - 处理批准继续、拒绝、要求修改、回滚、拆分任务、更新 Spec 和标记完成。
 
@@ -513,7 +513,7 @@ Responsibilities:
 - 提供独立 System Settings Webview，展示并管理 CLI Adapter 与 RPC Adapter active/draft/preset、校验结果、dry-run/probe 和 JSON 配置。
 - 提供项目级执行偏好设置，保存默认 run mode (`cli` / `rpc`) 与对应 Execution Adapter provider；Execution Workbench 在新建 Job 前可提交 Job 级执行偏好覆盖项目默认。
 - 提供 Feature Spec Webview 的 New Feature 受控输入、Feature index 与 Feature 文件夹同步刷新、Feature 详情 `tasks.md` 解析和任务状态展示。
-- Feature Spec Webview 对 blocked / block 或 need review / review_needed Feature 提供 `Pass` 受控动作，由 Control Plane 同步 Feature `spec-state.json`、Execution Record 和 Scheduler Job 完成状态；Webview 不直接写运行事实源。
+- Feature Spec Webview 对 need review / review_needed Feature 提供与 Product Console 一致的 ReviewItem 审批入口，审批通过后由 Review Center 恢复继续执行；`Pass` 仅作为隐藏的临时状态重置命令保留，由 Control Plane 同步 Feature `spec-state.json`、Execution Record 和 Scheduler Job 完成状态；Webview 不直接写运行事实源。
 - 在 Spec 文档中提供 Hover、CodeLens、Comments 和 Diagnostics，支持行级/段落级澄清、需求新增、需求变更、EARS 生成、设计更新和 Feature 拆分意图。
 - 将所有有副作用的 IDE action 转换为 Control Plane command API 请求，接收 `IdeCommandReceiptV1` 并刷新 UI。
 - 展示 app-server 事件流、diff 摘要、raw logs、approval pending 和 `SkillOutputContractV1` 校验结果。
@@ -750,7 +750,7 @@ Security posture:
 - 危险任务禁止自动执行。
 - `.env`、密钥、支付、认证配置、权限策略、迁移脚本和 forbidden files 受 Safety Gate 保护。
 - Subagent 只能访问 Agent Run Contract 声明的上下文和文件范围。
-- 任意权限提升、架构变更、constitution 变更或高影响歧义必须进入 Review Needed。
+- 任意权限提升、架构变更、constitution 变更、AGENTS.md / 项目宪章要求人工授权的操作、Project Memory / 项目健康检查与持久状态或 Git 事实产生高风险冲突，或高影响歧义必须进入 Review Needed。
 
 Privacy and sensitive data:
 

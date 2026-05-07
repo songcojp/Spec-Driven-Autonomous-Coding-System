@@ -47,6 +47,8 @@ export type SpecDriveIdeFeatureNode = {
   documents: SpecDriveIdeDocument[];
   latestExecutionId?: string;
   latestExecutionStatus?: string;
+  latestReviewItemId?: string;
+  latestReviewStatus?: string;
   tokenConsumption?: SpecDriveIdeTokenConsumption;
   indexStatus: "indexed" | "missing_from_index" | "missing_folder";
   tasks: SpecDriveIdeTaskProjection[];
@@ -1345,6 +1347,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
     .filter((entry) => statSync(join(featureRoot, entry)).isDirectory())
     .sort());
   const latestExecutions = readLatestExecutionsByFeature(dbPath, projectId);
+  const latestReviews = readLatestReviewsByFeature(dbPath, projectId);
   const indexedEntries = Array.from(indexById.values());
 
   return indexedEntries
@@ -1354,6 +1357,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
       const state = readJson(join(featureRoot, folder, "spec-state.json"));
       const queueEntry = queueById.get(featureId);
       const latestExecution = latestExecutions.get(featureId);
+      const latestReview = latestReviews.get(featureId);
       const indexed = indexById.has(featureId);
       const folderExists = folders.has(folder);
       const baseBlockedReasons = stringArray(state.blockedReasons);
@@ -1398,6 +1402,8 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         nextAction: optionalString(state.nextAction),
         latestExecutionId,
         latestExecutionStatus,
+        latestReviewItemId: latestReview?.id,
+        latestReviewStatus: latestReview?.status,
         tokenConsumption,
         indexStatus: indexed ? folderExists ? "indexed" : "missing_folder" : "missing_from_index",
         tasks: taskProjection.tasks,
@@ -1405,6 +1411,30 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         documents,
       };
     });
+}
+
+function readLatestReviewsByFeature(dbPath: string, projectId?: string): Map<string, { id: string; status: string }> {
+  const projectFilter = projectId ? "AND (project_id = ? OR feature_id IN (SELECT id FROM features WHERE project_id = ?))" : "";
+  const params = projectId ? [projectId, projectId] : [];
+  const rows = runSqlite(dbPath, [], [
+    {
+      name: "reviews",
+      sql: `SELECT id, feature_id, status, created_at
+        FROM review_items
+        WHERE feature_id IS NOT NULL
+          AND status IN ('review_needed', 'changes_requested', 'rejected')
+          ${projectFilter}
+        ORDER BY created_at DESC, rowid DESC`,
+      params,
+    },
+  ]).queries.reviews;
+  const byFeature = new Map<string, { id: string; status: string }>();
+  for (const row of rows) {
+    const featureId = optionalString(row.feature_id);
+    if (!featureId || byFeature.has(featureId)) continue;
+    byFeature.set(featureId, { id: String(row.id), status: String(row.status) });
+  }
+  return byFeature;
 }
 
 function isCompletedFeatureStatus(status: string): boolean {

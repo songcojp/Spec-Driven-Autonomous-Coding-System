@@ -142,7 +142,7 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, current: boolean): 
 }
 
 function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: string): string {
-  const actions = `${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isReadyMarkableFeature(feature) ? markFeatureReadyButton("Ready", feature, projectId, "Feature Detail") : ""}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}${isPassableFeature(feature) ? approveFeatureReviewButton("Pass", feature, projectId, "Feature Detail") : ""}`;
+  const actions = `${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isReadyMarkableFeature(feature) ? markFeatureReadyButton("Ready", feature, projectId, "Feature Detail") : ""}${isReviewNeededFeature(feature) ? reviewFeatureButton("Review", feature, "Feature Detail") : ""}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}`;
   return `<div class="panel-title selected-title"><div><h2>${escapeHtml(feature.id)}</h2><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></div><div class="title-actions">${actions}</div></div>
     <h3>${escapeHtml(feature.title)}</h3>
     <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
@@ -171,15 +171,16 @@ function scheduleFeatureButton(label: string, feature: SpecDriveIdeFeatureNode, 
   });
 }
 
-function approveFeatureReviewButton(label: string, feature: SpecDriveIdeFeatureNode, projectId: string | undefined, source: string): string {
+function reviewFeatureButton(label: string, feature: SpecDriveIdeFeatureNode, source: string): string {
+  if (!feature.latestReviewItemId) {
+    return disabledButtonHtml(label, "No Review Center item has been recorded for this Feature.", "check");
+  }
   return commandButton(label, "controlled", {
-    action: "mark_feature_complete",
-    entityType: "feature",
-    entityId: feature.id,
-    projectId,
-    featureId: feature.id,
-    reason: `Pass ${feature.id} blocked or review state from ${source}.`,
-  });
+    action: "approve_review",
+    entityType: "review_item",
+    entityId: feature.latestReviewItemId,
+    reason: `Approve ${feature.id} review from ${source}.`,
+  }, { icon: "check" });
 }
 
 function markFeatureReadyButton(label: string, feature: SpecDriveIdeFeatureNode, projectId: string | undefined, source: string): string {
@@ -331,10 +332,6 @@ function isReadyMarkableFeature(feature: SpecDriveIdeFeatureNode): boolean {
 function isReviewNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
   const status = normalizedFeatureStatus(feature);
   return status === "need review" || status === "review needed" || status === "review";
-}
-
-function isPassableFeature(feature: SpecDriveIdeFeatureNode): boolean {
-  return isReviewNeededFeature(feature) || isBlockedFeature(feature);
 }
 
 export function isClarificationNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {

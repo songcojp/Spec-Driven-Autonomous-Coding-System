@@ -47,6 +47,7 @@ Feature 名称: IDE Workbench Webviews
 - CHG-051（2026-05-07）：用户要求 VSCode Feature Spec Webview 自动刷新默认开启；打开 Feature Spec Webview 后必须立即显示开启状态并启动 extension host 自动刷新定时器。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-052（2026-05-07）：用户要求 Spec Workspace 的 UI Spec Concept Images 每行最多显示 8 张图片，超过 8 张自动换行。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 - CHG-053（2026-05-07）：用户要求 VSCode Feature Spec Webview 顶部操作栏靠右显示当前项目成本总计；总计必须按当前项目的执行历史累计 `token_consumption_records.cost_usd`，不得改变单个 Feature 详情“最新一次执行费用”的语义。影响 REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
+- CHG-054（2026-05-07）：用户澄清 `Pass` 只用于临时重置状态；VSCode Feature Spec Webview 在 `need review` / `review_needed` 状态必须提供与 Product Console 一致的 ReviewItem 审批入口，审批通过后恢复继续执行；默认 Webview 不再显示 `Pass` 按钮。影响 REQ-046、REQ-047、REQ-084 和 FEAT-021，作为完成 Feature 的 follow-up 修订。
 
 ## UI 概念图
 
@@ -74,8 +75,9 @@ Feature 名称: IDE Workbench Webviews
 - [x] 因需求新增流程未经过 Feature 拆分而导致 `docs/features/README.md` 未更新时，Feature Spec Webview 不显示该目录为 Feature 列表项，也不显示独立 `Feature Index Sync` 信息区块；应由需求新增 Skill 或后续规格同步补齐 Feature index。
 - [x] 需求新增 Skill 创建或更新 Feature Spec 时必须同步 `docs/features/README.md`，写入 Feature ID、Feature、Folder、Status、Primary Requirements、Suggested Milestone 和 Dependencies。
 - [x] 点击 Feature 后，详情面板必须解析该 Feature 的 `tasks.md`，展示任务 ID、任务标题、状态、描述和验证命令；Markdown 缺失或格式无法解析时展示 blocked reason。
-- [x] 状态为 `need review` / `review_needed` 的 Feature Spec 必须在 Feature Spec Webview 工具栏和详情面板提供 Review 入口；点击后弹出澄清输入框，提交内容以 `clarification` 意图进入 Spec change request，并由 Control Plane 排入 `ambiguity-clarification-skill` 技能调用任务，不由前端硬编码需求变更或新增路由。
-- [x] 状态为 `blocked` / `block` 或 `need review` / `review_needed` 的 Feature Spec 必须在工具栏和详情面板提供 `Pass` 入口；点击后通过 Control Plane 受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 标记为 `completed`，并清空 blocked reasons。
+- [x] 状态为 `need review` / `review_needed` 的 Feature Spec 必须在 Feature Spec Webview 工具栏和详情面板提供 ReviewItem 审批入口；点击后通过 Control Plane 执行与 Product Console 一致的 `approve_review` 命令，审批通过后恢复继续执行。
+- [x] 状态为 `need review` / `review_needed` 的 Feature Spec 仍可通过 Clarify 入口提交澄清内容；澄清提交以 `clarification` 意图进入 Spec change request，并由 Control Plane 排入 `ambiguity-clarification-skill` 技能调用任务，不由前端硬编码需求变更或新增路由。
+- [x] `Pass` 只作为临时状态重置命令保留，不作为 Feature Spec Webview 的默认入口展示；后端 `mark_feature_complete` 仍可通过受控命令将 Feature 状态、`spec-state.json.executionStatus`、当前或最近 `feature_execution` Execution Record 和对应 Scheduler Job 标记为 `completed`，并清空 blocked reasons。
 - [x] Feature Spec 详情面板不得展示 Evidence 区域或 Evidence 验收项；详情只展示 artifacts、tasks、blockers、traceability、最新运行 token/cost 和可执行动作。Artifacts 必须合并原 acceptance 状态，每行展示文件名、状态和 Open 按钮。
 - [x] Feature Spec Webview 必须按分类 panel 展示 Feature：依次为 `Blocked`、`In-Process`、`Todo`、`Ready`、`Done`；每组可点击折叠/展开并显示展开/折叠状态图标，Done 默认折叠，其它默认展开；panel 中 Feature list 必须自适应换行，不依赖 panel 内垂直滚动条或水平滚动条展示卡片。
 - [x] Feature Spec Webview 顶部第一个控件必须是单个视图切换按钮；Feature List 视图下按钮文字显示 `Dependency Graph`，点击后切换到 Dependency Graph 视图并将按钮文字改为 `Feature List`；`Dependency Graph` 视图以树状层级展示 Feature 之间的依赖关系，标出缺失依赖，树节点支持折叠和展开，并默认展开到二级节点。
