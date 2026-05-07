@@ -142,7 +142,7 @@ function renderFeatureCard(feature: SpecDriveIdeFeatureNode, current: boolean): 
 }
 
 function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: string): string {
-  const actions = `${scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail")}${isReadyMarkableFeature(feature) ? markFeatureReadyButton("Ready", feature, projectId, "Feature Detail") : ""}${isReviewNeededFeature(feature) ? reviewFeatureButton("Review", feature, "Feature Detail") : ""}${isClarificationNeededFeature(feature) ? commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id }) : ""}`;
+  const actions = featureDetailActions(feature, projectId);
   return `<div class="panel-title selected-title"><div><h2>${escapeHtml(feature.id)}</h2><span class="${statusClass(feature.status)}">${escapeHtml(feature.status)}</span></div><div class="title-actions">${actions}</div></div>
     <h3>${escapeHtml(feature.title)}</h3>
     <div class="row"><span>Priority</span><strong>${escapeHtml(feature.priority ?? "-")}</strong></div>
@@ -158,6 +158,40 @@ function renderFeatureDetail(feature: SpecDriveIdeFeatureNode, projectId?: strin
     ${feature.blockedReasons.length === 0 ? emptyState("No blockers.") : feature.blockedReasons.map((reason) => `<div class="issue bad">${escapeHtml(reason)}</div>`).join("")}
     <h3>Traceability</h3>
     <div class="row"><span>Dependencies</span><strong>${escapeHtml(feature.dependencies.join(", ") || "-")}</strong></div>`;
+}
+
+function featureDetailActions(feature: SpecDriveIdeFeatureNode, projectId?: string): string {
+  if (isDoneFeature(feature)) return "";
+  const reviewReason = feature.latestReviewNeededReason;
+  if (isApprovalPendingFeature(feature) && reviewReason !== "approval_needed") {
+    return disabledButtonHtml("Approval", "Resolve the pending approval request in Execution Workbench.", "check");
+  }
+  if (reviewReason === "approval_needed") {
+    return reviewFeatureButton("Approve", feature, "Feature Detail");
+  }
+  if (isActiveExecutionFeature(feature)) {
+    return "";
+  }
+  if (isReadyFeature(feature)) {
+    return scheduleFeatureButton("Schedule", feature, projectId, "Feature Detail");
+  }
+
+  if (isReviewNeededFeature(feature)) {
+    if (reviewReason === "clarification_needed") return clarifyFeatureButton(feature);
+    if (reviewReason === "risk_review_needed") return reviewFeatureButton("Review", feature, "Feature Detail");
+    return disabledButtonHtml("Review", "Review reason is missing; refresh the Feature or open Execution Workbench.", "check");
+  }
+  if (isBlockedFeature(feature)) {
+    const reviewAction = reviewReason === "risk_review_needed" || reviewReason === "approval_needed"
+      ? reviewFeatureButton(reviewReason === "approval_needed" ? "Approve" : "Review", feature, "Feature Detail")
+      : "";
+    return `${reviewAction}${clarifyFeatureButton(feature)}${markFeatureReadyButton("Ready", feature, projectId, "Feature Detail")}`;
+  }
+  return "";
+}
+
+function clarifyFeatureButton(feature: SpecDriveIdeFeatureNode): string {
+  return commandButton("Clarify", "openWorkbenchForm", { formMode: "clarify", featureId: feature.id });
 }
 
 function scheduleFeatureButton(label: string, feature: SpecDriveIdeFeatureNode, projectId: string | undefined, source: string): string {
@@ -325,21 +359,39 @@ function isDoneFeature(feature: SpecDriveIdeFeatureNode): boolean {
   return status === "done" || status === "delivered" || status === "completed";
 }
 
-function isReadyMarkableFeature(feature: SpecDriveIdeFeatureNode): boolean {
-  return !isReadyFeature(feature) && !isDoneFeature(feature);
+function isActiveExecutionFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  const status = normalizedRawFeatureStatus(feature);
+  const executionStatus = normalizedExecutionStatus(feature);
+  return ["queued", "running"].includes(status) || ["queued", "running"].includes(executionStatus);
+}
+
+function isApprovalPendingFeature(feature: SpecDriveIdeFeatureNode): boolean {
+  return normalizedRawFeatureStatus(feature) === "approval needed" || normalizedExecutionStatus(feature) === "approval needed";
 }
 
 function isReviewNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
-  const status = normalizedFeatureStatus(feature);
+  const status = normalizedRawFeatureStatus(feature);
   return status === "need review" || status === "review needed" || status === "review";
 }
 
 export function isClarificationNeededFeature(feature: SpecDriveIdeFeatureNode): boolean {
-  return isReviewNeededFeature(feature) || isBlockedFeature(feature);
+  return feature.latestReviewNeededReason === "clarification_needed" || isBlockedFeature(feature);
 }
 
 function normalizedFeatureStatus(feature: SpecDriveIdeFeatureNode): string {
-  return (feature.blockedReasons.length > 0 ? "blocked" : feature.status).toLowerCase().replaceAll("_", " ").replaceAll("-", " ");
+  return normalizeStatusText(feature.blockedReasons.length > 0 ? "blocked" : feature.status);
+}
+
+function normalizedRawFeatureStatus(feature: SpecDriveIdeFeatureNode): string {
+  return normalizeStatusText(feature.status);
+}
+
+function normalizedExecutionStatus(feature: SpecDriveIdeFeatureNode): string {
+  return normalizeStatusText(feature.latestExecutionStatus ?? "");
+}
+
+function normalizeStatusText(status: string): string {
+  return status.toLowerCase().replaceAll("_", " ").replaceAll("-", " ");
 }
 
 export function preferredFeatureReviewSource(feature: SpecDriveIdeFeatureNode): string {

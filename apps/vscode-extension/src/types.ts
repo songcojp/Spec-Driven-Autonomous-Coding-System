@@ -19,6 +19,7 @@ export type SpecDriveIdeFeatureNode = {
   latestExecutionStatus?: string;
   latestReviewItemId?: string;
   latestReviewStatus?: string;
+  latestReviewNeededReason?: "approval_needed" | "clarification_needed" | "risk_review_needed";
   tokenConsumption?: SpecDriveIdeTokenConsumption;
   indexStatus?: "indexed" | "missing_from_index" | "missing_folder";
   tasks?: SpecDriveIdeTaskProjection[];

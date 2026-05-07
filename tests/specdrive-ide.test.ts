@@ -1362,6 +1362,7 @@ test("SpecDrive IDE projects pending Feature review item for Webview approval", 
 
   assert.equal(feature?.latestReviewItemId, "REV-FEAT-016");
   assert.equal(feature?.latestReviewStatus, "review_needed");
+  assert.equal(feature?.latestReviewNeededReason, "approval_needed");
 });
 
 test("SpecDrive IDE pass command marks blocked Feature and latest execution completed", () => {

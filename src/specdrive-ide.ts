@@ -1404,6 +1404,7 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
         latestExecutionStatus,
         latestReviewItemId: latestReview?.id,
         latestReviewStatus: latestReview?.status,
+        latestReviewNeededReason: latestReview?.reviewNeededReason,
         tokenConsumption,
         indexStatus: indexed ? folderExists ? "indexed" : "missing_folder" : "missing_from_index",
         tasks: taskProjection.tasks,
@@ -1413,13 +1414,13 @@ function buildFeatureNodes(dbPath: string, workspaceRoot: string, projectId?: st
     });
 }
 
-function readLatestReviewsByFeature(dbPath: string, projectId?: string): Map<string, { id: string; status: string }> {
+function readLatestReviewsByFeature(dbPath: string, projectId?: string): Map<string, { id: string; status: string; reviewNeededReason?: "approval_needed" | "clarification_needed" | "risk_review_needed" }> {
   const projectFilter = projectId ? "AND (project_id = ? OR feature_id IN (SELECT id FROM features WHERE project_id = ?))" : "";
   const params = projectId ? [projectId, projectId] : [];
   const rows = runSqlite(dbPath, [], [
     {
       name: "reviews",
-      sql: `SELECT id, feature_id, status, created_at
+      sql: `SELECT id, feature_id, status, review_needed_reason, created_at
         FROM review_items
         WHERE feature_id IS NOT NULL
           AND status IN ('review_needed', 'changes_requested', 'rejected')
@@ -1428,13 +1429,21 @@ function readLatestReviewsByFeature(dbPath: string, projectId?: string): Map<str
       params,
     },
   ]).queries.reviews;
-  const byFeature = new Map<string, { id: string; status: string }>();
+  const byFeature = new Map<string, { id: string; status: string; reviewNeededReason?: "approval_needed" | "clarification_needed" | "risk_review_needed" }>();
   for (const row of rows) {
     const featureId = optionalString(row.feature_id);
     if (!featureId || byFeature.has(featureId)) continue;
-    byFeature.set(featureId, { id: String(row.id), status: String(row.status) });
+    byFeature.set(featureId, {
+      id: String(row.id),
+      status: String(row.status),
+      reviewNeededReason: normalizeReviewNeededReason(row.review_needed_reason),
+    });
   }
   return byFeature;
+}
+
+function normalizeReviewNeededReason(value: unknown): "approval_needed" | "clarification_needed" | "risk_review_needed" | undefined {
+  return value === "approval_needed" || value === "clarification_needed" || value === "risk_review_needed" ? value : undefined;
 }
 
 function isCompletedFeatureStatus(status: string): boolean {
