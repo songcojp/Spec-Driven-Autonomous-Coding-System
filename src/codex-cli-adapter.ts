@@ -1,7 +1,15 @@
 import type { CliAdapterConfig, RunnerReasoningEffort } from "./cli-adapter.ts";
+import type { ExecutionAdapterInvocationV1 } from "./execution-adapter-contracts.ts";
 
 const CODEX_DEFAULT_MODEL = "gpt-5.5";
 const CODEX_DEFAULT_REASONING_EFFORT: RunnerReasoningEffort = "medium";
+const CODEX_CLI_IMAGE_ARTIFACT_RULES = [
+  "- Expected image artifacts must be real raster image files generated through the Codex CLI-specific image generation feature. In Codex CLI, explicitly invoke the built-in $imagegen skill when generating these PNGs.",
+  "- Do not satisfy expected image artifacts with SVG, HTML/CSS, Mermaid, ASCII wireframes, base64 text, or Markdown descriptions.",
+  "- The policy text/reasoning model may draft the image prompt, but it is not the image generator. Built-in Codex CLI image generation uses gpt-image-2; do not claim that the active text model produced a PNG unless $imagegen created the file.",
+  "- Do not assume Gemini CLI, generic CLI adapters, or other non-Codex providers can generate images through $imagegen.",
+  "- If this Codex CLI runtime does not expose $imagegen, return status blocked with nextAction explaining that Codex CLI image generation is required for the listed image artifacts.",
+];
 
 export const CODEX_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
   id: "codex-cli",
@@ -80,3 +88,17 @@ export const CODEX_CLI_ADAPTER_CONFIG: CliAdapterConfig = {
 };
 
 export const DEFAULT_CLI_ADAPTER_CONFIG = CODEX_CLI_ADAPTER_CONFIG;
+
+export function applyCodexCliAdapterPromptRules(
+  prompt: string,
+  invocation?: ExecutionAdapterInvocationV1,
+): string {
+  const hasImageArtifact = invocation?.skillInstruction.expectedArtifacts.some((artifact) => artifact.kind === "image") ?? false;
+  if (!hasImageArtifact) return prompt;
+  return [
+    prompt,
+    "",
+    "Codex CLI image artifact rules:",
+    ...CODEX_CLI_IMAGE_ARTIFACT_RULES,
+  ].join("\n");
+}

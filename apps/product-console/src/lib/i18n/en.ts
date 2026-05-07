@@ -341,7 +341,7 @@ export const en = {
   uiSpecConceptAlt: "Spec Workspace UI concept image showing the PRD flow",
   uiSpecConceptDescription: "The action generates page UI specs and major-page concept images from the PRD, requirements, and HLD.",
   uiSpecDocumentOutput: "Page inventory, components, interactions, view models, responsive behavior, and accessibility specs.",
-  uiSpecConceptOutput: "SVG concept images for major pages to use as the visual baseline for implementation.",
+  uiSpecConceptOutput: "PNG concept images for major pages to use as the visual baseline for implementation.",
   splitFeatureSpecs: "Split Feature Spec",
   startAutoRun: "Start Auto Run",
   scheduleRun: "Schedule Run",

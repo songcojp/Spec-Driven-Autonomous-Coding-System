@@ -19,6 +19,7 @@ function readSourceTree(dir: string): string {
 const extensionSource = readSourceTree("apps/vscode-extension/src");
 const webviewSource = readSourceTree("apps/vscode-extension/src/webviews");
 const executionWebviewSource = readFileSync("apps/vscode-extension/src/webviews/execution.ts", "utf8");
+const specWorkspaceWebviewSource = readFileSync("apps/vscode-extension/src/webviews/spec-workspace.ts", "utf8");
 const executionQueueGroupsBlock = webviewSource.match(/const EXECUTION_QUEUE_GROUPS[\s\S]*?\];/)?.[0] ?? "";
 const productConsoleSource = readFileSync("src/product-console.ts", "utf8");
 const vscodeRestartBackendScript = readFileSync("scripts/vscode-restart-backend.sh", "utf8");
@@ -99,7 +100,7 @@ test("VSCode Execution Workbench requires selected queue tasks for stateful acti
   assert.match(extensionSource, /renderExecutionWorkbenchWebview\(view, detail, selectedQueueKey, autoRefreshEnabled\)/);
   assert.match(extensionSource, /automation\?: SpecDriveIdeAutomationState/);
   assert.match(extensionSource, /autoRunButton\(view\)/);
-  assert.match(extensionSource, /let autoRefreshEnabled = false/);
+  assert.match(extensionSource, /let autoRefreshEnabled = true/);
   assert.match(extensionSource, /WEBVIEW_AUTO_REFRESH_INTERVAL_MS = 60_000/);
   assert.match(extensionSource, /setInterval\(\(\) => \{/);
   assert.match(extensionSource, /\}, WEBVIEW_AUTO_REFRESH_INTERVAL_MS\)/);
@@ -385,6 +386,10 @@ test("VSCode Feature Spec Webview schedules selected Features with adapter prefe
 
 test("VSCode Spec Workspace keeps global skill input at top and document actions inside lifecycle", () => {
   assert.match(extensionSource, /renderSpecWorkspaceWebview/);
+  assert.match(extensionSource, /renderSpecWorkspaceWebview\(view, uiConceptImages, autoRefreshEnabled, panel\.webview\.cspSource\)/);
+  assert.match(extensionSource, /panel\.onDidDispose\(stopAutoRefresh\)/);
+  assert.match(specWorkspaceWebviewSource, /autoRefreshSwitch\(autoRefreshEnabled\)/);
+  assert.match(specWorkspaceWebviewSource, /autoRefreshEnabled = false/);
   assert.match(extensionSource, /commandButton\("Spec Change", "openWorkbenchForm", \{ formMode: "specChange", intent: "requirement_change_or_intake" \}\)/);
   assert.match(extensionSource, /commandButton\("Clarification", "openWorkbenchForm", \{ formMode: "specClarification", intent: "clarification" \}\)/);
   assert.doesNotMatch(extensionSource, /commandButton\("Diagnostics & Blockers", "showDiagnostics", \{\}\)/);

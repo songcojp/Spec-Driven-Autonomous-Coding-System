@@ -2008,7 +2008,7 @@ function buildPrdWorkflow(input: {
           { label: "Feature", value: input.selectedFeatureId ?? "Not selected" },
           { label: "Status", value: input.selectedFeatureStatus ?? "unknown" },
           { label: "Command", value: "schedule_run" },
-          { label: "UI outputs", value: "docs/ui/ui-spec.md + docs/ui/concepts/*.svg" },
+          { label: "UI outputs", value: "docs/ui/ui-spec.md + docs/ui/concepts/*.png" },
         ],
         stages: planningActionStages,
       },
@@ -4300,7 +4300,7 @@ function expectedArtifactsForSpecAction(
   if (action === "generate_ui_spec") {
     return [
       ...(featureId ? [`docs/features/${featureId}/ui-spec.md`] : ["docs/ui/ui-spec.md"]),
-      "docs/ui/concepts/<page-id>.svg",
+      "docs/ui/concepts/<page-id>.png",
     ];
   }
   return featureId ? [`docs/features/${featureId}/tasks.md`] : ["docs/features/README.md"];

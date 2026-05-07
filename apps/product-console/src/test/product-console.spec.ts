@@ -284,7 +284,7 @@ test("renders the Spec workspace workbench and submits controlled spec commands"
   await expect(page.getByRole("button", { name: "生成 UI Spec" })).toBeVisible();
   await page.getByRole("button", { name: "生成 UI Spec" }).click();
   await expect(page.getByLabel("Notifications (F8)").getByText("generate_ui_spec recorded")).toBeVisible();
-  await expect(page.getByText("docs/ui/concepts/*.svg", { exact: true })).toBeVisible();
+  await expect(page.getByText("docs/ui/concepts/*.png", { exact: true })).toBeVisible();
   await expect(page.getByText("Feature Spec", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Feature Spec List" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Feature Spec List" }).getByText("共 3 项")).toBeVisible();

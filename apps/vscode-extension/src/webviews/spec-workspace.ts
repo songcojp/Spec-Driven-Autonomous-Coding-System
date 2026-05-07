@@ -1,5 +1,6 @@
 import type { SpecDriveIdeDiagnostic, SpecDriveIdeDocument, SpecDriveIdeView, UiConceptImage } from "../types";
 import {
+  autoRefreshSwitch,
   buttonIcon,
   commandButton,
   documentList,
@@ -15,6 +16,7 @@ import {
 export function renderSpecWorkspaceWebview(
   view: SpecDriveIdeView | undefined,
   uiConceptImages: UiConceptImage[] = [],
+  autoRefreshEnabled = false,
   cspSource?: string,
 ): string {
   const nonce = webviewNonce();
@@ -26,6 +28,7 @@ export function renderSpecWorkspaceWebview(
       ${commandButton("Spec Change", "openWorkbenchForm", { formMode: "specChange", intent: "requirement_change_or_intake" })}
       ${commandButton("Clarification", "openWorkbenchForm", { formMode: "specClarification", intent: "clarification" })}
       ${commandButton("Refresh", "refresh", {})}
+      ${autoRefreshSwitch(autoRefreshEnabled)}
       <span id="workbench-status" class="status-text" role="status" aria-live="polite"></span>
     </section>
     ${renderWorkbenchInputForm()}

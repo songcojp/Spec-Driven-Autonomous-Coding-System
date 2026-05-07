@@ -2192,7 +2192,7 @@ test("generate UI Spec dispatches the UI spec skill from project-level Spec Work
   assert.deepEqual(payload.context.imagePaths ?? [], []);
   assert.equal(payload.context.sourcePaths.includes("docs/requirements.md"), true);
   assert.equal(payload.context.expectedArtifacts.includes("docs/ui/ui-spec.md"), true);
-  assert.equal(payload.context.expectedArtifacts.includes("docs/ui/concepts/<page-id>.svg"), true);
+  assert.equal(payload.context.expectedArtifacts.includes("docs/ui/concepts/<page-id>.png"), true);
   assert.equal(JSON.parse(String(result.queries.executions[0].context_json)).featureId, undefined);
   assert.equal(JSON.parse(String(result.queries.executions[0].metadata_json)).skillSlug, "ui-spec-skill");
 });

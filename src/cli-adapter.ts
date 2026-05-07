@@ -43,7 +43,11 @@ import {
   validateCostRates,
   type TokenCostRate,
 } from "./adapter-pricing.ts";
-import { DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
+import {
+  applyCodexCliAdapterPromptRules,
+  CODEX_CLI_ADAPTER_CONFIG,
+  DEFAULT_CLI_ADAPTER_CONFIG,
+} from "./codex-cli-adapter.ts";
 import { GEMINI_CLI_ADAPTER_CONFIG, geminiApprovalMode } from "./gemini-cli-adapter.ts";
 
 export { CODEX_CLI_ADAPTER_CONFIG, DEFAULT_CLI_ADAPTER_CONFIG } from "./codex-cli-adapter.ts";
@@ -927,19 +931,22 @@ export function buildExecutionInvocationPrompt(invocation: ExecutionAdapterInvoc
 export async function runCliAdapter(input: CliAdapterInput): Promise<CliAdapterResult> {
   const now = input.now ?? new Date();
   const adapterConfig = input.adapterConfig ?? DEFAULT_CLI_ADAPTER_CONFIG;
+  const prompt = adapterConfig.id === CODEX_CLI_ADAPTER_CONFIG.id
+    ? applyCodexCliAdapterPromptRules(input.prompt, input.executionInvocation)
+    : input.prompt;
   const shouldCleanupOutputSchema = !input.outputSchemaPath;
   const outputSchema = outputSchemaForExecutionInvocation(input.policy.outputSchema, input.executionInvocation);
   const outputSchemaPath = input.outputSchemaPath ?? writeOutputSchema(input.policy, outputSchema);
   const rendered = renderCliAdapterCommand({
     config: adapterConfig,
     policy: input.policy,
-    prompt: input.prompt,
+    prompt,
     outputSchemaPath,
     imagePaths: input.imagePaths,
   });
   const logFiles = writeCliInputLog({
     policy: input.policy,
-    prompt: input.prompt,
+    prompt,
     taskId: input.taskId,
     featureId: input.featureId,
     command: rendered.command,

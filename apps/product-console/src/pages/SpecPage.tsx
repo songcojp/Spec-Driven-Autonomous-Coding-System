@@ -600,7 +600,7 @@ function SpecPrdWorkflowPanel({
                     <div className="mt-1 text-muted">{text.uiSpecDocumentOutput}</div>
                   </div>
                   <div className="rounded-md border border-line bg-slate-50 px-3 py-2 text-[12px] text-ink">
-                    <div className="font-semibold">docs/ui/concepts/*.svg</div>
+                    <div className="font-semibold">docs/ui/concepts/*.png</div>
                     <div className="mt-1 text-muted">{text.uiSpecConceptOutput}</div>
                   </div>
                 </div>

@@ -1049,7 +1049,7 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
     retainContextWhenHidden: true,
   });
   let selectedQueueKey: string | undefined;
-  let autoRefreshEnabled = false;
+  let autoRefreshEnabled = true;
   let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
   let rendering = false;
   const render = async (): Promise<void> => {
@@ -1096,6 +1096,7 @@ async function openExecutionWorkbench(provider: SpecExplorerProvider): Promise<v
     }
     await handleWorkbenchMessage(message, provider, render);
   });
+  startAutoRefresh();
   await render();
 }
 
@@ -1109,20 +1110,48 @@ async function openSpecWorkspace(provider: SpecExplorerProvider): Promise<void> 
     retainContextWhenHidden: true,
     localResourceRoots,
   });
+  let autoRefreshEnabled = true;
+  let autoRefreshTimer: ReturnType<typeof setInterval> | undefined;
+  let rendering = false;
   const render = async (): Promise<void> => {
-    await provider.refresh();
-    const view = provider.currentView();
-    const uiConceptImages = await collectUiConceptImages(panel.webview, view, uiConceptWorkspaceRoot(view, workspaceRoot));
-    panel.webview.html = renderSpecWorkspaceWebview(view, uiConceptImages, panel.webview.cspSource);
+    if (rendering) return;
+    rendering = true;
+    try {
+      await provider.refresh();
+      const view = provider.currentView();
+      const uiConceptImages = await collectUiConceptImages(panel.webview, view, uiConceptWorkspaceRoot(view, workspaceRoot));
+      panel.webview.html = renderSpecWorkspaceWebview(view, uiConceptImages, autoRefreshEnabled, panel.webview.cspSource);
+    } finally {
+      rendering = false;
+    }
   };
+  const stopAutoRefresh = (): void => {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = undefined;
+  };
+  const startAutoRefresh = (): void => {
+    stopAutoRefresh();
+    autoRefreshTimer = setInterval(() => {
+      void render();
+    }, WEBVIEW_AUTO_REFRESH_INTERVAL_MS);
+  };
+  panel.onDidDispose(stopAutoRefresh);
   panel.webview.onDidReceiveMessage(async (message: unknown) => {
     if (isWorkbenchMessage(message) && message.command === "specWorkspaceRequest" && typeof message.content === "string") {
       await submitSpecWorkspaceRequest(message.content, message.intent, provider);
       await render();
       return;
     }
+    if (isWorkbenchMessage(message) && message.command === "toggleAutoRefresh") {
+      autoRefreshEnabled = !autoRefreshEnabled;
+      if (autoRefreshEnabled) startAutoRefresh();
+      else stopAutoRefresh();
+      await render();
+      return;
+    }
     await handleWorkbenchMessage(message, provider, render);
   });
+  startAutoRefresh();
   await render();
 }
 

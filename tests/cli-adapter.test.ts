@@ -696,6 +696,26 @@ test("task-slicing prompt requires the full SkillOutputContract result", () => {
   assert.match(prompt, /Each producedArtifacts item must include path, kind, status, checksum, and summary/);
 });
 
+test("generic skill invocation prompt does not include Codex CLI image generation rules", () => {
+  const prompt = buildExecutionInvocationPrompt(
+    executionInvocation({
+      operation: "generate_ui_spec",
+      skillSlug: "ui-spec-skill",
+      requestedAction: "generate_ui_spec",
+      sourcePaths: ["docs/zh-CN/PRD.md", "docs/zh-CN/requirements.md", "docs/zh-CN/hld.md"],
+      expectedArtifacts: [
+        { path: "docs/ui/ui-spec.md", kind: "markdown", required: true },
+        { path: "docs/ui/concepts/<page-id>.png", kind: "image", required: true },
+      ],
+    }),
+    "Context",
+  );
+
+  assert.doesNotMatch(prompt, /\$imagegen/);
+  assert.doesNotMatch(prompt, /Codex CLI-specific image generation feature/);
+  assert.doesNotMatch(prompt, /gpt-image-2/);
+});
+
 test("task-slicing runs receive a strict specialized result output schema", async () => {
   const policy = resolveRunnerPolicy({
     runId: "RUN-TASK-SCHEMA",
@@ -731,6 +751,65 @@ test("task-slicing runs receive a strict specialized result output schema", asyn
   assert.equal(result.additionalProperties, false);
   assert.deepEqual(result.required, ["features", "queuePlan", "dependencyGraph", "userStoryMapping", "verificationPlan", "openQuestions"]);
   assertStrictSchemaObjects(schema);
+});
+
+test("Codex CLI adapter augments image artifact prompts with imagegen rules", async () => {
+  const workspaceRoot = makeWorkspacePath();
+  const policy = resolveRunnerPolicy({
+    runId: "RUN-CODEX-IMAGE",
+    risk: "low",
+    workspaceRoot,
+    now: stableDate,
+  });
+  const invocation = executionInvocation({
+    executionId: "RUN-CODEX-IMAGE",
+    workspaceRoot,
+    operation: "generate_ui_spec",
+    skillSlug: "ui-spec-skill",
+    requestedAction: "generate_ui_spec",
+    sourcePaths: ["docs/zh-CN/PRD.md", "docs/zh-CN/requirements.md", "docs/zh-CN/hld.md"],
+    expectedArtifacts: [
+      { path: "docs/ui/ui-spec.md", kind: "markdown", required: true },
+      { path: "docs/ui/concepts/<page-id>.png", kind: "image", required: true },
+    ],
+  });
+
+  const result = await runCliAdapter({
+    policy,
+    prompt: buildExecutionInvocationPrompt(invocation, "Context"),
+    outputSchemaPath: "/tmp/runner-output.schema.json",
+    executionInvocation: invocation,
+    now: stableDate,
+    runner: (command, args, cwd) => {
+      assert.equal(command, "codex");
+      assert.equal(cwd, workspaceRoot);
+      const promptArg = args.at(-1) ?? "";
+      assert.match(promptArg, /Codex CLI image artifact rules/);
+      assert.match(promptArg, /explicitly invoke the built-in \$imagegen skill/);
+      assert.match(promptArg, /Built-in Codex CLI image generation uses gpt-image-2/);
+      return {
+        status: 0,
+        stdout: [
+          JSON.stringify({ type: "session.created", session_id: "SESSION-IMAGE" }),
+          skillOutputEvent({
+            executionId: "RUN-CODEX-IMAGE",
+            skillSlug: "ui-spec-skill",
+            requestedAction: "generate_ui_spec",
+            summary: "UI Spec image prompt rules applied.",
+            producedArtifacts: [
+              { path: "docs/ui/ui-spec.md", kind: "markdown", status: "created" },
+              { path: "docs/ui/concepts/spec-workspace.png", kind: "image", status: "created" },
+            ],
+          }),
+        ].join("\n"),
+        stderr: "",
+      };
+    },
+  });
+
+  const inputLog = JSON.parse(readFileSync(result.rawLog.files?.input ?? "", "utf8"));
+  assert.match(inputLog.prompt, /Codex CLI image artifact rules/);
+  assert.match(inputLog.prompt, /Do not assume Gemini CLI, generic CLI adapters, or other non-Codex providers/);
 });
 
 test("clarification skill prompt treats operator input as an answer to apply", () => {
