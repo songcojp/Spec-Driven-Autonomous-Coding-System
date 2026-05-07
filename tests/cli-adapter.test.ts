@@ -22,6 +22,7 @@ import {
   redactLog,
   renderCliAdapterCommand,
   resolveRunnerPolicy,
+  runCommand,
   runCliAdapter,
   runDueRecoveryDispatches,
   validateCliAdapterConfig,
@@ -1124,6 +1125,31 @@ test("Codex CLI adapter closes child stdin for non-interactive runner commands",
 
   assert.equal(result.session.exitCode, 0);
   assert.equal(result.rawLog.events[0].stdinClosed, true);
+});
+
+test("CLI command timeout resets after stdout or stderr activity", { timeout: 5000 }, async () => {
+  const workspace = mkdtempSync(join(tmpdir(), "specdrive-active-timeout-"));
+  const scriptPath = join(workspace, "active-runner.mjs");
+  writeFileSync(
+    scriptPath,
+    [
+      "let count = 0;",
+      "const timer = setInterval(() => {",
+      "  count += 1;",
+      "  console.log(`tick-${count}`);",
+      "  if (count === 4) {",
+      "    clearInterval(timer);",
+      "    setTimeout(() => process.exit(0), 80);",
+      "  }",
+      "}, 100);",
+    ].join("\n"),
+  );
+
+  const result = await runCommand(process.execPath, [scriptPath], workspace, 10, 250);
+
+  assert.equal(result.status, 0);
+  assert.equal(result.error, undefined);
+  assert.match(result.stdout, /tick-4/);
 });
 
 test("Codex CLI adapter removes generated output schema files after execution", async () => {

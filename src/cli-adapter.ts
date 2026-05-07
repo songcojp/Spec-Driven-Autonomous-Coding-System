@@ -2434,20 +2434,31 @@ export function runCommand(
     const heartbeat = onHeartbeat
       ? setInterval(onHeartbeat, Math.max(10, heartbeatIntervalSeconds) * 1000)
       : undefined;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      setTimeout(() => {
-        if (!child.killed) child.kill("SIGKILL");
-      }, 2000).unref();
-    }, commandTimeoutMs);
+    let timeout: NodeJS.Timeout | undefined;
+    const refreshActivityTimeout = () => {
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          if (!child.killed) child.kill("SIGKILL");
+        }, 2000).unref();
+      }, commandTimeoutMs);
+    };
+    refreshActivityTimeout();
 
     child.stdin?.end();
-    child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout.push(chunk);
+      refreshActivityTimeout();
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr.push(chunk);
+      refreshActivityTimeout();
+    });
     child.on("error", (error) => {
       if (heartbeat) clearInterval(heartbeat);
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       resolve({
         status: null,
         stdout: Buffer.concat(stdout).toString("utf8"),
@@ -2457,12 +2468,12 @@ export function runCommand(
     });
     child.on("close", (code) => {
       if (heartbeat) clearInterval(heartbeat);
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
       resolve({
         status: code,
         stdout: Buffer.concat(stdout).toString("utf8"),
         stderr: Buffer.concat(stderr).toString("utf8"),
-        error: timedOut ? new Error(`Codex command timed out after ${commandTimeoutMs}ms`) : undefined,
+        error: timedOut ? new Error(`Codex command timed out after ${commandTimeoutMs}ms of output inactivity`) : undefined,
       });
     });
   });
