@@ -31,6 +31,31 @@ Required wrapper fields:
 
 Choose tests that prove behavior obligations, not just command success. For P0/P1 stories, verify user journey, runtime behavior, state/data persistence or revisit expectations, and negative paths when they are part of the requirement. Record commands, evidence, gaps, and recovery recommendations as `UsabilityEvidence` or `ProtocolGap`.
 
+## UI / App Feature Verification
+
+For any Feature whose `spec-state.json` has a non-null `uiDesignRef`, apply the following rules before writing or running tests:
+
+**Pre-flight checks:**
+
+1. Read `spec-state.json` for the Feature. If `uiDesignRef.designStatus` is `ready-for-design` or `stitchScreenIds` is empty, do not run UI acceptance tests yet. Return `blocked` with reason `ui_design_not_ready` and route to `stitch-design-coverage` to generate Stitch screens first.
+2. Read the `TM-###` rows referenced in `uiDesignRef.tmRefs` from `docs/agentic-spec/ui/coverage/acceptance-automation.md`. Use the oracle, locator, precondition, and expected result fields from those rows as the authoritative test specification.
+
+**Three-part verification requirement:**
+
+Every UI/App Feature test must satisfy all three conditions to count as verified:
+
+1. **Browser-visible action** — the test must perform a real observable user interaction (click, input, submit, navigate, drag/drop) through the browser or IDE Webview; read-only page snapshots, `page.title()`, or `page.url()` assertions alone do not satisfy this condition.
+2. **State change assertion** — the test must assert that a UI or system state visibly changed as a result of the action (element appears/disappears, status label changes, progress indicator resolves, data record mutates, command result appears); `page.textContent()` of a pre-existing string alone does not satisfy this condition.
+3. **Persistence or revisit assertion** — the test must assert that the expected state survives a page reload, navigation away and back, session restore, or project switch where the requirement says it should; or the test must explicitly document why persistence is not required for this operation.
+
+**Assertion quality rules:**
+
+- Use stable locators (role, label, aria, data-testid) over positional or class selectors.
+- Do not use a `TM-###` row as verified unless the test can fail for the right reason (negative oracle check).
+- For async operations, include an explicit wait condition and a failure timeout assertion.
+- For destructive actions, include confirmation dialog handling and rollback or undo assertion where applicable.
+- Record shallow assertions (`text-only`, `url-only`, `fixture-only`) as `test_semantics_gap` in `UsabilityEvidence` and do not count them as evidence for UI Feature completion.
+
 ## References
 
 - Read `references/specdrive-output.md` when invoked by an adapter that requires structured execution output.

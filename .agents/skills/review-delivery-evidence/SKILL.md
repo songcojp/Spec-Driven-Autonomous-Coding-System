@@ -51,6 +51,16 @@ When reviewing Spec Artifact Granularity for UI work:
 - Require the review output to name the missing UI workflow IDs or surfaces, the exact missing matrix columns, the impacted REQ/FEAT IDs when known, and the minimum refinement needed before HLD/UI Spec/Feature Spec can advance.
 - Accept read-only UI only when the PRD, requirements, HLD, or UI Spec explicitly marks the surface or field as read-only and still defines the user-visible disabled/permission state and evidence path.
 
+When reviewing UI Coverage Contract and design fidelity for UI/App Features:
+
+- Read `spec-state.json` for the Feature. If `uiDesignRef` is null and the Feature type is UI/App/IDE-Webview, fail with `review_needed` and `coverage_contract_gap`.
+- Check `uiDesignRef.dhiRefs` against `docs/agentic-spec/ui/coverage/design-consumption.md`: every referenced `DHI-###` row must exist and have a status of `designed` or `wysiwyg-complete`. Rows still at `ready-for-design` → fail with `evidence_gap` and name the missing design target.
+- Check `uiDesignRef.tmRefs` against `docs/agentic-spec/ui/coverage/acceptance-automation.md`: every referenced `TM-###` row must have a concrete assertion oracle (non-empty `Assertion Oracle` and `Locator/Selector` columns). Rows with empty oracle fields → fail with `test_semantics_gap`.
+- Check `uiDesignRef.stitchScreenIds`: if the array is empty and `designStatus` is not `ready-for-design`, fail with `evidence_gap` and reason `stitch_screens_not_generated`. Route to `stitch-design-coverage`.
+- Check `docs/agentic-spec/ui/coverage/traceability-ledger.md` for the Feature's workflow chain. If the chain status is not `wysiwyg-complete` or `verified`, record it as `partial` rather than failing, and name the chain IDs needing advancement.
+- Do not accept `designed` or `wysiwyg-complete` claims based only on text descriptions, screenshots of concept images, or static HTML prototypes. A Stitch screen ID in `stitchScreenIds` is the minimum design artifact for UI coverage.
+- Record all UI coverage findings under `result.protocolGaps[]` with `type` set to `coverage_contract_gap`, `evidence_gap`, or `test_semantics_gap` as applicable.
+
 ## References
 
 - Read `references/specdrive-output.md` when invoked by an adapter that requires structured execution output.

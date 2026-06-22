@@ -104,6 +104,24 @@ Required when this Feature creates, changes, or verifies UI behavior. Use `N/A -
 | UI Surface / Workflow | UI Spec Reference | Feature Requirement | Required Interaction Evidence |
 |---|---|---|---|
 | <surface/workflow id> | docs/agentic-spec/ui/ui-spec.md#<anchor> | FEAT-<NNN>-REQ-001 | <browser action, state change, reload/revisit, negative path> |
+
+## UI Coverage Contract
+
+Required for UI / App / IDE-Webview Features. Use `N/A - non-UI Feature` with a brief explanation for non-UI Features.
+
+| Field | Value |
+|---|---|
+| Coverage Path | `docs/agentic-spec/ui/coverage/` |
+| DHI References | DHI-<###>, DHI-<###> (from `coverage/design-consumption.md`) |
+| TM References | TM-<###>, TM-<###> (from `coverage/acceptance-automation.md`) |
+| Design Status | `ready-for-design` \| `designed` \| `wysiwyg-complete` \| `blocked` |
+| Stitch Screen IDs | (filled by `stitch-design-coverage` after Stitch generation) |
+
+Rules:
+
+- Feature cannot be marked `ready` unless at least one `DHI-###` and one `TM-###` reference exist.
+- `Design Status` must reach `designed` before feature execution begins.
+- `Stitch Screen IDs` are filled by `stitch-design-coverage` and must be present before `verify-behavior` runs for this Feature.
 ```
 
 ## design.md
@@ -219,6 +237,9 @@ Acceptance:
 - [ ] Failure or edge path has a requirement row, design path, task block, and evidence plan.
 - [ ] Every `TASK-*` has Requirements, Spec Refs, Allowed Paths, Worktree Mode, Verification, and Acceptance fields.
 - [ ] Write-capable tasks use `feature-worktree`, `worker-worktree`, `serial-owner`, or `manual-gated`; read-only tasks use `shared-readonly`.
+- [ ] **UI/App Features only**: UI Coverage Contract section in `requirements.md` lists at least one `DHI-###` and one `TM-###` reference.
+- [ ] **UI/App Features only**: A `TASK-###: Verify UI Deliverability Gate` task block exists and checks `DHI-###` design status and `TM-###` oracle completeness before allowing Feature execution.
+- [ ] **UI/App Features only**: `spec-state.json` includes a non-null `uiDesignRef` object with `coveragePath`, `dhiRefs`, and `tmRefs` populated.
 ```
 
 ## spec-state.json
@@ -232,6 +253,13 @@ Acceptance:
   "blockedReasons": [],
   "nextAction": "Schedule feature execution.",
   "updatedAt": "<ISO-8601>",
+  "uiDesignRef": {
+    "coveragePath": "docs/agentic-spec/ui/coverage",
+    "dhiRefs": ["DHI-<###>"],
+    "tmRefs": ["TM-<###>"],
+    "designStatus": "ready-for-design",
+    "stitchScreenIds": []
+  },
   "history": [
     {
       "at": "<ISO-8601>",
@@ -242,3 +270,9 @@ Acceptance:
   ]
 }
 ```
+
+Rules:
+
+- For non-UI Features, set `"uiDesignRef": null` and add `"uiDesignRefExemption": "<reason>"` at the top level.
+- `designStatus` transitions: `ready-for-design` → `designed` (set by `stitch-design-coverage`) → `wysiwyg-complete` (set after visual verification).
+- `stitchScreenIds` is filled by `stitch-design-coverage` and must be non-empty before `verify-behavior` is allowed to run for UI-type Features.

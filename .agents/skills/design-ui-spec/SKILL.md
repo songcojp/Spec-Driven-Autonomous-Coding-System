@@ -33,6 +33,28 @@ When generating or updating the UI system:
 - If external UI/UX design-intelligence skills are available, they may inform style, palette, typography, accessibility, and stack-specific heuristics. Keep the project PRD/requirements/HLD as the authority; do not let external style recommendations override product workflows, state facts, controlled-command boundaries, or declared UI-surface direction.
 - If required product or architecture facts are missing, return `clarification_needed` or `review_needed` with the exact missing workflow/state/data decisions instead of inventing UI behavior.
 
+## Product Delivery Contract
+
+When this skill produces or updates UI System Design for a product that has at least one user-facing UI surface, it must also ensure a **product delivery contract** exists under `docs/agentic-spec/ui/coverage/` before returning `completed`. This contract is the downstream input for design tools (Stitch MCP) and acceptance automation.
+
+Minimum required contract files:
+
+- `docs/agentic-spec/ui/coverage/README.md` — scope, actors, surfaces, evidence status
+- `docs/agentic-spec/ui/coverage/product-workflows.md` — `F-###` workflow capabilities with actor, precondition, main/alternate/failure flows, terminal results
+- `docs/agentic-spec/ui/coverage/ui-interaction-tree.md` — `SURF/PAGE/REG/CMP/CTRL/STATE/NAV` node tree with requirement IDs and design target references
+- `docs/agentic-spec/ui/coverage/design-consumption.md` — `DHI-###` rows, one per page/critical state/operation result, each containing: target tool (`stitch`), versioned title (`V1 DHI-### <Page Name>`), viewport, layout hierarchy, representative data, interaction states, design-system constraints, and a tool-ready prompt
+- `docs/agentic-spec/ui/coverage/acceptance-automation.md` — `TM-###` rows, one per user operation or state transition, each containing: precondition, user action, expected UI result, expected system result, locator/selector, assertion oracle, and evidence path
+- `docs/agentic-spec/ui/coverage/traceability-ledger.md` — cross-document closure matrix linking `F/PAGE/CTRL/STATE/DHI/TM` codes with downstream readiness status
+
+Rules:
+
+- The contract must use the coding system from `prepare-product-delivery-contract`: `F-###`, `PAGE-###`, `CMP-###`, `CTRL-###`, `STATE-###`, `DHI-###`, `TM-###` etc.
+- Every workflow must have at least one `DHI-###` row (design target) and at least one `TM-###` row (acceptance test row).
+- Workflows that lack `DHI-###` or `TM-###` rows must be marked `blocked` in the traceability ledger with an explicit reason.
+- If the `prepare-product-delivery-contract` skill is available, route this step to that skill. If not, produce equivalent structured documents following the same contract.
+- Non-UI products (CLI-only, backend-only, data-pipeline) may skip coverage contract generation; declare `non-ui: true` in the UI Spec metadata and explain why.
+- If a coverage contract already exists, refresh only the sections affected by the current UI Spec update; do not reset or overwrite unrelated coverage rows.
+
 When generating optional concept images:
 
 - Do not generate concept images when high-fidelity static HTML is the requested/default prototype output and no concrete image artifact is expected.
@@ -58,6 +80,8 @@ When generating high-fidelity static HTML:
 
 - Read `references/specdrive-output.md` when invoked by an adapter that requires structured execution output.
 - Read `references/quality-loop.md` when this skill creates or updates Spec documents that must pass a review and repair loop before downstream use.
+- Read `/home/john/Projects/skills/skills/prepare-product-delivery-contract/SKILL.md` when generating the product delivery contract coverage package, to follow its coding system, document architecture, and completeness gate.
+- Read `/home/john/Projects/skills/skills/stitch-design-coverage/SKILL.md` when generating or verifying Stitch MCP design screens from `DHI-###` rows in the coverage package.
 
 ## Boundaries
 
