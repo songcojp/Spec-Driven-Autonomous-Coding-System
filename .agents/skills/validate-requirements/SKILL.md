@@ -48,6 +48,7 @@ When validating user stories:
 
 ## References
 
+- Read `references/harness-contract.md` to understand the Observe-Plan-Act loop, Harness types, Sensor priority, HITL gates, and execution trace schema that govern all SpecDrive skills.
 - Read `references/specdrive-output.md` when invoked by an adapter that requires structured execution output.
 - Read `references/quality-loop.md` when this skill creates or updates Spec documents that must pass a review and repair loop before downstream use.
 
