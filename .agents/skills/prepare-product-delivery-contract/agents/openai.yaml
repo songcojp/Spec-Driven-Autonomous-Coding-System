@@ -1,0 +1,15 @@
+interface:
+  display_name: "Prepare Product Delivery Contract"
+  short_description: "Prepare design and test consumption maps"
+  default_prompt: "Use $prepare-product-delivery-contract to create product workflows, a UI interaction tree, a Stitch/Figma-ready design consumption package, an acceptance automation contract, and a traceability ledger."
+  tags:
+    - product-delivery-contract
+    - workflow-contract
+    - ui-interaction-tree
+    - design-consumption
+    - figma
+    - stitch
+    - acceptance-automation
+    - traceability
+    - test-automation
+    - qa
