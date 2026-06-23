@@ -21,7 +21,16 @@ export type ProtocolGapCategory =
   | "test_semantics_gap"
   | "runtime_gap"
   | "review_gap"
-  | "ship_gap";
+  | "ship_gap"
+  /** DHI-### or TM-### references are missing from Feature spec-state.json */
+  | "coverage_contract_gap"
+  /** UH-### user scenario has not been defined for a UI/App Feature */
+  | "user_understanding_gap"
+  /** deliveryHarnessRef.harnessStatus is not "ready" before Feature execution */
+  | "harness_gap"
+  /** deliveryHarnessRef.stitchScreenIds is empty; design not yet WYSIWYG-verified */
+  | "design_gap";
+
 
 export type DecisionLogType =
   | "auto_decided"

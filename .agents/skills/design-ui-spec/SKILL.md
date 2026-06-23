@@ -55,6 +55,28 @@ Rules:
 - Non-UI products (CLI-only, backend-only, data-pipeline) may skip coverage contract generation; declare `non-ui: true` in the UI Spec metadata and explain why.
 - If a coverage contract already exists, refresh only the sections affected by the current UI Spec update; do not reset or overwrite unrelated coverage rows.
 
+### Delivery Harness State Transition
+
+After producing or refreshing the Product Delivery Contract, you **must** update the Feature's `spec-state.json` to record the Delivery Harness reference. Set `harnessStatus` to `"pending"` if `stitchScreenIds` are not yet available, or to `"gap"` if the contract has identified but unresolved `coverage_contract_gap` entries:
+
+```json
+"deliveryHarnessRef": {
+  "path": "docs/agentic-spec/ui/coverage/delivery-harness.md",
+  "workflowRefs": ["F-001", "F-002"],
+  "dhiRefs": ["DHI-001", "DHI-002"],
+  "tmRefs": ["TM-001", "TM-002"],
+  "stitchScreenIds": [],
+  "harnessStatus": "pending"
+}
+```
+
+- `harnessStatus: "ready"` may only be written by `stitch-design-coverage` after Stitch MCP successfully generates all `stitchScreenIds` listed in the DHI rows.
+- `harnessStatus: "blocked"` is written by `stitch-design-coverage` when Stitch MCP is unavailable or DHI rows are missing required fields.
+- `harnessStatus: "gap"` is written here when `DHI-###` or `TM-###` rows exist but have unresolved `blocked` status in the traceability ledger.
+- This skill must also produce or update `docs/agentic-spec/ui/coverage/agent-user-harness.md` to map `UH-###` user scenarios to `DHI-###` pages (create a stub if not yet produced by `generate-user-stories`).
+
+
+
 When generating optional concept images:
 
 - Do not generate concept images when high-fidelity static HTML is the requested/default prototype output and no concrete image artifact is expected.

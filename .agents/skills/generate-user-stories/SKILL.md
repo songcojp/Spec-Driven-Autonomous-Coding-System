@@ -31,7 +31,40 @@ Required wrapper fields:
 
 Generate stable, detailed user stories and derived atomic requirements. Preserve source traceability, surface ambiguity, and keep Feature Spec splitting out of this skill.
 
+### User Understanding Prerequisites (Agent User Harness)
+
+Before generating or updating `US-*` stories for any `IDE-Webview` or `App` Feature, you **must** first produce or validate a **User Understanding Matrix** (`UH-###` entries) for that Feature. This matrix is the Harness prerequisite that prevents implementation from starting without user scenario clarity.
+
+For each priority story's primary actor, extract and document:
+
+| Field | Requirement |
+|---|---|
+| `id` | Stable `UH-###` identifier (e.g., `UH-001`) |
+| `actor` | Concrete role (e.g., "Developer with active SpecDrive project", not "user") |
+| `jobToBeDone` | The primary workflow goal in one sentence |
+| `trigger` | The event or context that starts the interaction |
+| `successSignal` | Observable, testable outcome that confirms the goal was met |
+| `failureTolerance` | What partial failure the actor can accept and still consider the interaction useful |
+| `keyDecisionPoint` | The point where the actor judges the system's response as adequate or not |
+
+**Required outputs:**
+
+1. Write `UH-###` entries to `docs/agentic-spec/ui/coverage/agent-user-harness.md` (create the file and directory if missing).
+2. Update the Feature's `spec-state.json` to set:
+   ```json
+   "userHarnessRef": {
+     "path": "docs/agentic-spec/ui/coverage/agent-user-harness.md",
+     "scenarioRefs": ["UH-001", "UH-002"]
+   }
+   ```
+3. Each Must-scope `US-*` story must reference at least one `UH-###` entry via a `userScenarioRefs` field.
+
+**Exemption:** Library, Foundation, Service, and Other Feature types do not require UH-### entries. If `featureType` is not set in spec-state.json for a UI-touching Feature, classify it conservatively as `IDE-Webview` until explicitly changed.
+
+**Blocking rule:** If the PRD or source artifacts do not contain enough information to populate `successSignal` and `failureTolerance` for any Must story, set the skill output status to `blocked` with reason `"user_understanding_gap"` rather than inventing values.
+
 When generating or updating requirements:
+
 
 - Treat `docs/agentic-spec/requirements/user-stories-standard.md` as the generic user story content-generation contract unless the invocation supplies another project-approved standard path.
 - Apply Pattern-First quality rules from `docs/agentic-spec/zh-CN/skill-refact.md`: mature system skills are reference patterns only, not runtime dependencies. Convert low-risk ambiguity into explicit default assumptions, write medium-risk ambiguity as Open Questions with safe defaults, and write high-risk ambiguity as Blocking Open Questions that prevent downstream validation or decomposition.

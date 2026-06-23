@@ -7,6 +7,7 @@ import type {
   SkillOutputContract,
 } from "./cli-adapter.ts";
 import { assessProductUsabilityGate, type ProductUsabilityGateInput } from "./product-usability.ts";
+import type { FileSpecState } from "./spec-protocol.ts";
 
 export type RuntimeEvidence = {
   appLaunch?: {
@@ -40,6 +41,8 @@ export function validateFeatureCompletion(input: {
   changedFiles?: string[];
   expectedArtifacts?: SkillArtifactContract[];
   appRuntimePolicy?: AppRuntimePolicy;
+  /** Optional: loaded spec-state.json for the Feature being evaluated */
+  specState?: FileSpecState;
 }): FeatureCompletionGateResult {
   const output = input.skillOutput;
   const invocation = input.invocation;
@@ -89,6 +92,12 @@ export function validateFeatureCompletion(input: {
     triggers.push(productUsability.reason ?? "product_usability_gap");
     triggers.push(...productUsability.triggers);
     details.push(`Product Usability Gate failed: ${productUsability.details.join("; ")}.`);
+  }
+
+  const uiHarness = assessUiDeliverabilityHarnessGate(invocation, output, input.specState);
+  if (!uiHarness.passed) {
+    triggers.push(uiHarness.reason ?? "harness_gap");
+    details.push(`UI Deliverability Harness Gate failed: ${uiHarness.details.join("; ")}.`);
   }
 
   if (details.length === 0) {
@@ -290,6 +299,63 @@ export function isFeatureExecutionInvocation(invocation: ExecutionAdapterInvocat
     || invocation.skillInstruction.requestedAction === "feature_execution"
     || output.requestedAction === "feature_execution"
     || output.skillName === "implement-feature";
+}
+
+/**
+ * Gate 6: UI Deliverability Harness Gate
+ *
+ * For IDE-Webview and App features, enforces that the Product Delivery Harness
+ * is fully populated before a Feature may be marked `completed`:
+ *   - userHarnessRef with at least one UH-### scenario
+ *   - deliveryHarnessRef.harnessStatus === "ready"
+ *   - deliveryHarnessRef.dhiRefs non-empty (WYSIWYG design targets)
+ *   - deliveryHarnessRef.tmRefs non-empty (acceptance oracles)
+ *   - deliveryHarnessRef.stitchScreenIds non-empty (Stitch WYSIWYG screens)
+ *
+ * Non-UI features (Library, Foundation, Service, Other) or features without
+ * a featureType pass automatically.
+ */
+export function assessUiDeliverabilityHarnessGate(
+  invocation: ExecutionAdapterInvocationV1 | undefined,
+  output: SkillOutputContract | undefined,
+  specState?: FileSpecState,
+): { passed: boolean; reason?: string; details: string[] } {
+  if (!invocation || !output || output.status !== "completed" || !isFeatureExecutionInvocation(invocation, output)) {
+    return { passed: true, details: [] };
+  }
+  // Non-UI Features have an automatic exemption
+  if (!isUiAppFeature(specState)) {
+    return { passed: true, details: ["Non-UI/App feature: harness gate skipped."] };
+  }
+
+  const details: string[] = [];
+  const harness = specState?.deliveryHarnessRef;
+
+  if (!specState?.userHarnessRef?.scenarioRefs?.length) {
+    details.push("userHarnessRef.scenarioRefs must reference at least one UH-### user scenario (user_understanding_gap).");
+  }
+  if (!harness || harness.harnessStatus !== "ready") {
+    details.push(`deliveryHarnessRef.harnessStatus must be "ready"; current: "${harness?.harnessStatus ?? "missing"}" (harness_gap). Run stitch-design-coverage to advance status.`);
+  }
+  if (!harness?.dhiRefs?.length) {
+    details.push("deliveryHarnessRef.dhiRefs must reference at least one DHI-### design target (coverage_contract_gap).");
+  }
+  if (!harness?.tmRefs?.length) {
+    details.push("deliveryHarnessRef.tmRefs must reference at least one TM-### acceptance oracle (coverage_contract_gap).");
+  }
+  if (!harness?.stitchScreenIds?.length) {
+    details.push("deliveryHarnessRef.stitchScreenIds must not be empty; run stitch-design-coverage first (design_gap).");
+  }
+
+  if (details.length > 0) {
+    return { passed: false, reason: "harness_gap", details };
+  }
+  return { passed: true, details: ["UI Deliverability Harness Gate passed."] };
+}
+
+/** Returns true when the Feature's featureType requires the UI Deliverability Harness Gate. */
+function isUiAppFeature(specState?: FileSpecState): specState is FileSpecState & { featureType: "IDE-Webview" | "App" } {
+  return specState?.featureType === "IDE-Webview" || specState?.featureType === "App";
 }
 
 export function isAppTouchingFile(file: string, extraPatterns: string[] = []): boolean {

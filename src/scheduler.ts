@@ -527,6 +527,51 @@ export async function runCliRunJob(dbPath: string, payload: CliRunJobPayload, ru
     });
     return { executionId: payload.executionId, status: "blocked" };
   }
+
+  // UI Deliverability Harness Gate — pre-dispatch check.
+  // For IDE-Webview and App features, block scheduling if deliveryHarnessRef.harnessStatus is not "ready".
+  // Other operations (non-feature_execution) or non-UI features are not affected.
+  if (
+    loaded.featureId
+    && (payload.operation === "feature_execution" || payload.context?.skillPhase === "feature_execution")
+  ) {
+    const specStateForHarness = readFileSpecState(loaded.workspaceRoot, loaded.featureId);
+    const ft = specStateForHarness?.featureType;
+    if ((ft === "IDE-Webview" || ft === "App") && specStateForHarness?.deliveryHarnessRef?.harnessStatus !== "ready") {
+      const harnessReason = `UI/App Feature ${loaded.featureId} cannot be scheduled: deliveryHarnessRef.harnessStatus="${
+        specStateForHarness?.deliveryHarnessRef?.harnessStatus ?? "missing"
+      }". Run stitch-design-coverage to advance harnessStatus to "ready" before retrying.`;
+      runSqlite(dbPath, [
+        {
+          sql: `INSERT INTO execution_records (id, scheduler_job_id, executor_type, operation, project_id, context_json, status, completed_at, summary, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, summary = excluded.summary, metadata_json = excluded.metadata_json, updated_at = CURRENT_TIMESTAMP`,
+          params: [
+            payload.executionId,
+            optionalString((payload as unknown as Record<string, unknown>).schedulerJobId) ?? null,
+            "cli",
+            payload.operation,
+            loaded.projectId ?? payload.projectId ?? null,
+            JSON.stringify(executionRecordContext({ context, executionPreference, skillName, skillPhase })),
+            "blocked",
+            new Date().toISOString(),
+            harnessReason,
+            JSON.stringify({ scheduler: "bullmq", jobType: "cli.run", executionPreference, skillName, skillPhase, blockedReason: harnessReason, harnessGate: true }),
+          ],
+        },
+      ]);
+      recordAuditEvent(dbPath, {
+        entityType: "feature",
+        entityId: loaded.featureId,
+        eventType: "cli_run_blocked",
+        source: "harness_gate",
+        reason: harnessReason,
+        payload: { harnessStatus: specStateForHarness?.deliveryHarnessRef?.harnessStatus ?? "missing", featureType: ft },
+      });
+      return { executionId: payload.executionId, status: "blocked" };
+    }
+  }
+
   const now = new Date();
   const policy = resolveRunnerPolicy({
     runId: payload.executionId,

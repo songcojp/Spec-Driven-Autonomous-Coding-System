@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessRuntimeEvidenceGate, isAppTouchingFile, validateFeatureCompletion } from "../src/quality-gates.ts";
+import { assessRuntimeEvidenceGate, assessUiDeliverabilityHarnessGate, isAppTouchingFile, validateFeatureCompletion } from "../src/quality-gates.ts";
 import type { ExecutionAdapterInvocationV1 } from "../src/execution-adapter-contracts.ts";
 import type { SkillOutputContract } from "../src/cli-adapter.ts";
+import type { FileSpecState } from "../src/spec-protocol.ts";
 
 test("runtime evidence gate requires app proof for UI file changes", () => {
   const result = assessRuntimeEvidenceGate({
@@ -172,6 +173,87 @@ test("app touching file detection supports built-in and configured patterns", ()
   assert.equal(isAppTouchingFile("packages/app-shell/src/runtime.ts", ["packages/app-shell/**"]), true);
 });
 
+// ─── UI Deliverability Harness Gate tests ───────────────────────────────────
+
+test("harness gate: UI Feature missing userHarnessRef fails with user_understanding_gap detail", () => {
+  const result = assessUiDeliverabilityHarnessGate(
+    invocation(),
+    output(),
+    specState({ featureType: "IDE-Webview", userHarnessRef: undefined, deliveryHarnessRef: fullDeliveryHarnessRef() }),
+  );
+
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, "harness_gap");
+  assert.equal(result.details.some((d) => d.includes("user_understanding_gap")), true);
+});
+
+test("harness gate: UI Feature missing deliveryHarnessRef fails with harness_gap detail", () => {
+  const result = assessUiDeliverabilityHarnessGate(
+    invocation(),
+    output(),
+    specState({ featureType: "App", userHarnessRef: { path: "coverage/agent-user-harness.md", scenarioRefs: ["UH-001"] }, deliveryHarnessRef: undefined }),
+  );
+
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, "harness_gap");
+  assert.equal(result.details.some((d) => d.includes("harness_gap")), true);
+});
+
+test("harness gate: UI Feature with harnessStatus=pending fails", () => {
+  const result = assessUiDeliverabilityHarnessGate(
+    invocation(),
+    output(),
+    specState({
+      featureType: "IDE-Webview",
+      userHarnessRef: { path: "coverage/agent-user-harness.md", scenarioRefs: ["UH-001"] },
+      deliveryHarnessRef: { ...fullDeliveryHarnessRef(), harnessStatus: "pending" },
+    }),
+  );
+
+  assert.equal(result.passed, false);
+  assert.equal(result.details.some((d) => d.includes("\"pending\"") || d.includes("pending")), true);
+});
+
+test("harness gate: non-UI Feature (Library) passes without harness fields", () => {
+  const result = assessUiDeliverabilityHarnessGate(
+    invocation(),
+    output(),
+    specState({ featureType: "Library", userHarnessRef: undefined, deliveryHarnessRef: undefined }),
+  );
+
+  assert.equal(result.passed, true);
+  assert.equal(result.details.some((d) => d.includes("harness gate skipped")), true);
+});
+
+test("harness gate: UI Feature with complete harness fields passes", () => {
+  const result = assessUiDeliverabilityHarnessGate(
+    invocation(),
+    output(),
+    specState({
+      featureType: "IDE-Webview",
+      userHarnessRef: { path: "coverage/agent-user-harness.md", scenarioRefs: ["UH-001"] },
+      deliveryHarnessRef: fullDeliveryHarnessRef(),
+    }),
+  );
+
+  assert.equal(result.passed, true);
+  assert.equal(result.details.some((d) => d.includes("passed")), true);
+});
+
+test("validateFeatureCompletion: IDE-Webview Feature with missing harness becomes review_needed", () => {
+  const result = validateFeatureCompletion({
+    invocation: invocation(),
+    skillOutput: output(),
+    changedFiles: ["apps/vscode-extension/src/webviews/feature.ts"],
+    specState: specState({ featureType: "IDE-Webview", userHarnessRef: undefined, deliveryHarnessRef: undefined }),
+  });
+
+  assert.equal(result.status, "review_needed");
+  assert.equal(result.triggers.includes("harness_gap"), true);
+  assert.equal(result.details.some((d) => d.includes("UI Deliverability Harness Gate failed")), true);
+});
+
+
 function invocation(): ExecutionAdapterInvocationV1 {
   return {
     contractVersion: "execution-adapter/v1",
@@ -192,6 +274,7 @@ function invocation(): ExecutionAdapterInvocationV1 {
     },
   };
 }
+
 
 function output(overrides: Record<string, unknown> = {}): SkillOutputContract {
   return {
@@ -254,5 +337,29 @@ function gitDelivery(overrides: Record<string, unknown> = {}): Record<string, un
     localBranchCleanup: "completed",
     worktreeCleanup: "cleaned",
     ...overrides,
+  };
+}
+
+function specState(overrides: Partial<FileSpecState> = {}): FileSpecState {
+  return {
+    schemaVersion: 1,
+    featureId: "FEAT-QUALITY",
+    status: "completed",
+    updatedAt: new Date().toISOString(),
+    blockedReasons: [],
+    dependencies: [],
+    history: [],
+    ...overrides,
+  };
+}
+
+function fullDeliveryHarnessRef() {
+  return {
+    path: "docs/agentic-spec/ui/coverage/delivery-harness.md",
+    workflowRefs: ["F-001"],
+    dhiRefs: ["DHI-001"],
+    tmRefs: ["TM-001"],
+    stitchScreenIds: ["screen_abc123"],
+    harnessStatus: "ready" as const,
   };
 }
