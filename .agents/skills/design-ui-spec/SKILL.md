@@ -103,8 +103,8 @@ When generating high-fidelity static HTML:
 - Read `references/harness-contract.md` to understand the Observe-Plan-Act loop, Harness types, Sensor priority, HITL gates, and execution trace schema that govern all SpecDrive skills.
 - Read `references/specdrive-output.md` when invoked by an adapter that requires structured execution output.
 - Read `references/quality-loop.md` when this skill creates or updates Spec documents that must pass a review and repair loop before downstream use.
-- Read `/home/john/Projects/skills/skills/prepare-product-delivery-contract/SKILL.md` when generating the product delivery contract coverage package, to follow its coding system, document architecture, and completeness gate.
-- Read `/home/john/Projects/skills/skills/stitch-design-coverage/SKILL.md` when generating or verifying Stitch MCP design screens from `DHI-###` rows in the coverage package.
+- Read `.agents/skills/prepare-product-delivery-contract/SKILL.md` when generating the product delivery contract coverage package, to follow its coding system, document architecture, and completeness gate.
+- Read `.agents/skills/stitch-design-coverage/SKILL.md` when generating or verifying Stitch MCP design screens from `DHI-###` rows in the coverage package.
 
 ## Boundaries
 
