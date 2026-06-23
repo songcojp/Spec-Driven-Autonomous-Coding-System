@@ -6,16 +6,17 @@ This contract supports WYSIWYG input preparation for design and automated accept
 
 ## 1. Document Directory Structure Template
 
-The coverage model must be split into the following directory structure:
+The coverage model must be split into the following directory structure under the target project's `docs/` directory:
 
 ```text
-coverage/
-├── README.md              # Central Index, Actors & Boundary Definition
-├── product-workflows.md   # Product Workflow Contract (F-###)
-├── ui-interaction-tree.md # UI/Interaction Tree (SURF/PAGE/REG/CMP/CTRL/STATE/NAV)
-├── design-consumption.md  # Design Consumption Targets (DHI-###) for Stitch/Figma/product-design skills
-├── acceptance-automation.md # Acceptance Automation Contract (OP/VIS/TM-###)
-└── traceability-ledger.md # Cross-document closure, readiness, and gap ledger
+docs/
+└── coverage/
+    ├── README.md                # Central Index, Actors & Boundary Definition
+    ├── product-workflows.md     # Product Workflow Contract (F-###)
+    ├── ui-interaction-tree.md   # UI/Interaction Tree (SURF/PAGE/REG/CMP/CTRL/STATE/NAV)
+    ├── design-consumption.md    # Design Consumption Targets (DHI-###) for Stitch/Figma/product-design skills
+    ├── acceptance-automation.md # Acceptance Automation Contract (OP/VIS/TM-###)
+    └── traceability-ledger.md   # Cross-document closure, readiness, and gap ledger
 ```
 
 ## 2. Product Workflow Template
@@ -124,7 +125,7 @@ Include these state classes when applicable:
 
 ## 6. Design Consumption Template
 
-Create this table in `coverage/design-consumption.md`. It is the bridge from coverage mapping into Stitch/Figma/product-design execution.
+Create this table in `docs/coverage/design-consumption.md`. It is the bridge from coverage mapping into Stitch/Figma/product-design execution.
 
 | Field | Required question |
 | --- | --- |
@@ -177,7 +178,7 @@ For Stitch targets, make `Versioned Title` compatible with `<version> <DHI-ID> <
 
 ## 8. Traceability Ledger Template
 
-Create this table in `coverage/traceability-ledger.md`. It is the consumer-readiness gate across product, design, implementation, and QA.
+Create this table in `docs/coverage/traceability-ledger.md`. It is the consumer-readiness gate across product, design, implementation, and QA.
 
 | Field | Required question |
 | --- | --- |

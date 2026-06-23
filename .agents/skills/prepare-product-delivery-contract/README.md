@@ -62,7 +62,7 @@ Product workflows → UI interaction tree → Design consumption → Acceptance 
 
 All artifacts are linked by stable codes. Every workflow traces to UI nodes or an explicit non-UI interface. Every user-visible UI node traces to an existing design source or explicit `DHI-###` design-consumption target. Every actionable UI node traces to one or more acceptance rows. Every acceptance row has a verifiable assertion.
 
-To prevent a single file from becoming too large and unmanageable, these artifacts must always be split into multiple documents within a `coverage/` directory (containing `README.md`, `product-workflows.md`, `ui-interaction-tree.md`, `design-consumption.md`, `acceptance-automation.md`, and `traceability-ledger.md`).
+To prevent a single file from becoming too large and unmanageable, these artifacts must always be split into multiple documents within the target project's `docs/coverage/` directory (containing `README.md`, `product-workflows.md`, `ui-interaction-tree.md`, `design-consumption.md`, `acceptance-automation.md`, and `traceability-ledger.md`).
 
 ## References
 

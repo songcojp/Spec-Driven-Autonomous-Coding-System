@@ -29,16 +29,16 @@ If source evidence is weak, produce a short workflow and screen inventory first.
 
 ## Output Model
 
-Always create the consumer-oriented package below.
+Always create the consumer-oriented package below under the target project's `docs/coverage/` directory. Do not create the package at the repository root or in an ad hoc working directory unless the user explicitly requests a different documented path.
 
 | File | Consumer | Must answer |
 | --- | --- | --- |
-| `coverage/README.md` | Everyone | What scope, actors, surfaces, versions, evidence, and downstream status does this package cover? |
-| `coverage/product-workflows.md` | Product, design, QA | What can the product do, for whom, from which trigger/precondition to which terminal result? |
-| `coverage/ui-interaction-tree.md` | Design, implementation, QA | Which surfaces, pages, regions, components, controls, states, navigation paths, and interactions expose each workflow? |
-| `coverage/design-consumption.md` | Stitch, Figma, product-design skills | What exact screens, states, components, prompts, viewports, assets, data examples, and design-system constraints should design tools consume? |
-| `coverage/acceptance-automation.md` | QA automation, implementation | Which operations, fixtures, locators, assertions, visual baselines, accessibility checks, and evidence prove acceptance? |
-| `coverage/traceability-ledger.md` | Reviewers and release owners | Are all workflow, UI, design, and test IDs linked without gaps or drift? |
+| `docs/coverage/README.md` | Everyone | What scope, actors, surfaces, versions, evidence, and downstream status does this package cover? |
+| `docs/coverage/product-workflows.md` | Product, design, QA | What can the product do, for whom, from which trigger/precondition to which terminal result? |
+| `docs/coverage/ui-interaction-tree.md` | Design, implementation, QA | Which surfaces, pages, regions, components, controls, states, navigation paths, and interactions expose each workflow? |
+| `docs/coverage/design-consumption.md` | Stitch, Figma, product-design skills | What exact screens, states, components, prompts, viewports, assets, data examples, and design-system constraints should design tools consume? |
+| `docs/coverage/acceptance-automation.md` | QA automation, implementation | Which operations, fixtures, locators, assertions, visual baselines, accessibility checks, and evidence prove acceptance? |
+| `docs/coverage/traceability-ledger.md` | Reviewers and release owners | Are all workflow, UI, design, and test IDs linked without gaps or drift? |
 
 Do not treat these as independent documents. Every workflow should trace to UI nodes or an explicit non-UI interface. Every user-visible UI node should trace to a design-consumption row or existing design source. Every actionable UI node should trace to one or more acceptance rows. Every acceptance row should have an automation-ready oracle. The traceability ledger should expose any missing link as a gap.
 
@@ -52,18 +52,18 @@ Do not use this skill to generate, draw, or update Figma/Stitch screens directly
 
 ## Document Architecture and Splitting Strategy
 
-To prevent a single document from becoming too large and unmanageable, the coverage model must always be split into multiple documents within a `coverage/` directory:
+To prevent a single document from becoming too large and unmanageable, the coverage model must always be split into multiple documents within the target project's `docs/coverage/` directory:
 
 ### 1. Standard Document Structure
 
-Create a `coverage/` directory containing the following files:
+Create a `docs/coverage/` directory containing the following files:
 
-- `coverage/README.md`: Central Index, boundary definition, actor/role list, and product scope.
-- `coverage/product-workflows.md`: Product workflow contract containing capabilities (`F-###`), actors, preconditions, main/alternate/failure flows, and terminal results.
-- `coverage/ui-interaction-tree.md`: Complete UI and interaction tree containing `SURF`, `PAGE`, `REG`, `CMP`, `CTRL`, `STATE`, and `NAV` definitions.
-- `coverage/design-consumption.md`: Design-tool consumption package containing design targets (`DHI-###`), screen/state inventory, tool-ready prompts, viewports, design-system constraints, assets, and acceptance hooks for Stitch/Figma/product-design skills.
-- `coverage/acceptance-automation.md`: Acceptance automation contract containing operations (`OP-###`), visual delivery requirements (`VIS-###`), test rows (`TM-###`), locators, fixtures, assertions, and evidence.
-- `coverage/traceability-ledger.md`: Cross-document closure matrix showing links, gaps, ownership, and downstream status.
+- `docs/coverage/README.md`: Central Index, boundary definition, actor/role list, and product scope.
+- `docs/coverage/product-workflows.md`: Product workflow contract containing capabilities (`F-###`), actors, preconditions, main/alternate/failure flows, and terminal results.
+- `docs/coverage/ui-interaction-tree.md`: Complete UI and interaction tree containing `SURF`, `PAGE`, `REG`, `CMP`, `CTRL`, `STATE`, and `NAV` definitions.
+- `docs/coverage/design-consumption.md`: Design-tool consumption package containing design targets (`DHI-###`), screen/state inventory, tool-ready prompts, viewports, design-system constraints, assets, and acceptance hooks for Stitch/Figma/product-design skills.
+- `docs/coverage/acceptance-automation.md`: Acceptance automation contract containing operations (`OP-###`), visual delivery requirements (`VIS-###`), test rows (`TM-###`), locators, fixtures, assertions, and evidence.
+- `docs/coverage/traceability-ledger.md`: Cross-document closure matrix showing links, gaps, ownership, and downstream status.
 
 ### 2. Traceability Across Split Files
 
@@ -143,7 +143,7 @@ Each `DHI-###` row must include:
    - out-of-scope workflows
    - external systems and data ownership
 2. Initialize Document Structure:
-   - Initialize the file structure under a `coverage/` directory according to the **Document Architecture and Splitting Strategy**.
+   - Initialize the file structure under the target project's `docs/coverage/` directory according to the **Document Architecture and Splitting Strategy**.
 3. Inventory source evidence without assuming a fixed project layout:
    - product requirements, design notes, tickets, diagrams, screenshots, prototypes
    - existing Figma frames, Stitch screens, component variants, design tokens, exported images, and design-node IDs
