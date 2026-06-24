@@ -11,27 +11,6 @@ COMMAND="${1:-start}"
 
 cd "${ROOT_DIR}"
 
-use_project_node() {
-  local required_version
-  required_version="$(tr -d '[:space:]' < .nvmrc 2>/dev/null || printf '24')"
-
-  if command -v nvm >/dev/null 2>&1; then
-    if ! nvm use --silent; then
-      echo "Node.js ${required_version} from .nvmrc is not installed or could not be activated." >&2
-      echo "Run 'nvm install ${required_version}' from the repo root, then retry." >&2
-      exit 1
-    fi
-  elif [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
-    # shellcheck source=/dev/null
-    . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
-    if ! nvm use --silent; then
-      echo "Node.js ${required_version} from .nvmrc is not installed or could not be activated." >&2
-      echo "Run 'nvm install ${required_version}' from the repo root, then retry." >&2
-      exit 1
-    fi
-  fi
-}
-
 kill_port_process() {
   local port=$1
   local pids
@@ -67,12 +46,9 @@ start_services() {
   check_port_conflict "$BACKEND_PORT"
   check_port_conflict "$FRONTEND_PORT"
 
-  use_project_node
-
   node_major="$(node -p "Number(process.versions.node.split('.')[0])")"
   if [ "${node_major}" -lt 24 ]; then
     echo "Node.js >=24 is required. Current version: $(node -v)" >&2
-    echo "Run 'nvm use' from the repo root, then retry." >&2
     exit 1
   fi
 

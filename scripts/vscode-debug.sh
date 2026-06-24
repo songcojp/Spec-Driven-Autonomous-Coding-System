@@ -11,27 +11,9 @@ EXTENSIONS_DIR="${AUTOBUILD_VSCODE_EXTENSIONS_DIR:-${ROOT_DIR}/.autobuild/vscode
 
 cd "${ROOT_DIR}"
 
-use_project_node() {
-  local required_version
-  required_version="$(tr -d '[:space:]' < .nvmrc 2>/dev/null || printf '24')"
-
-  if [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
-    # shellcheck source=/dev/null
-    . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
-    if ! nvm use --silent; then
-      echo "Node.js ${required_version} from .nvmrc is not installed or could not be activated." >&2
-      echo "Run 'nvm install ${required_version}' from the repo root, then retry IDE debug." >&2
-      exit 1
-    fi
-  fi
-}
-
-use_project_node
-
 node_major="$(node -p "Number(process.versions.node.split('.')[0])")"
 if [ "${node_major}" -lt 24 ]; then
   echo "Node.js >=24 is required. Current version: $(node -v)" >&2
-  echo "Run 'nvm install 24 && nvm use' from the repo root, then retry IDE debug." >&2
   exit 1
 fi
 

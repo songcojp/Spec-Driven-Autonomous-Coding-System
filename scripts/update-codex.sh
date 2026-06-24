@@ -2,25 +2,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-NVM_SH="${NVM_DIR}/nvm.sh"
 CODEX_PACKAGE="${CODEX_PACKAGE:-@openai/codex}"
 CODEX_VERSION="${1:-${CODEX_VERSION:-latest}}"
 
-if [ ! -s "${NVM_SH}" ]; then
-  echo "nvm is required but was not found at ${NVM_SH}" >&2
-  exit 1
-fi
-
-# shellcheck source=/dev/null
-. "${NVM_SH}"
-
 cd "${ROOT_DIR}"
 
-if [ -f ".nvmrc" ]; then
-  nvm use --silent
-else
-  nvm use --silent 24
+# Check node version
+node_major="$(node -p "Number(process.versions.node.split('.')[0])")"
+if [ "${node_major}" -lt 24 ]; then
+  echo "Node.js >=24 is required. Current version: $(node -v)" >&2
+  exit 1
 fi
 
 echo "Using node: $(command -v node) ($(node -v))"
